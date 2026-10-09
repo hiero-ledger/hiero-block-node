@@ -107,6 +107,18 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     private final CountDownLatch sessionReadyLatch;
     /** A flag indicating if the session should be interrupted */
     private final AtomicBoolean interruptedStream = new AtomicBoolean(false);
+
+    /**
+     * Whether this session's work loop should stop. Checks both the explicit
+     * {@link #interruptedStream} flag set by {@link #close(SubscribeStreamResponse.Code)} and the running
+     * thread's real interrupt status, so a future force-cancellation of this session's thread (e.g. via
+     * {@code Future.cancel(true)}) is honored even if nothing ever calls {@code close()} directly. Only
+     * meaningful when called from this session's own worker thread (i.e. from within {@link #call()} or
+     * anything it calls) — {@code close()} itself can run on a different thread and must not use this.
+     */
+    private boolean isClosed() {
+        return interruptedStream.get() || Thread.currentThread().isInterrupted();
+    }
     /** The latest block number seen in the live stream */
     private final AtomicLong latestLiveStreamBlock;
     /** The next block number to send to the client */
@@ -211,7 +223,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                     sessionReadyLatch.countDown();
                     // Send blocks forever if requested, otherwise send until we reach the requested end block
                     // or the stream is interrupted.
-                    while (!(interruptedStream.get() || allRequestedBlocksSent())) {
+                    while (!(isClosed() || allRequestedBlocksSent())) {
                         if (nextBlockToSend.get() < UNKNOWN_BLOCK_NUMBER) {
                             // This should never happen, if it does, this means that we have failed to set
                             // a value for the next block to send, this is most likely a failure in handling.
@@ -271,9 +283,13 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
      * <br>
      * NOTE: This method is to be called only once, immediately after
      * determining that the request is for live blocks only!
+     * <p>
+     * Stops as soon as the session is closed (e.g. the client disconnected while no live
+     * block had yet reached the head of the queue), otherwise this would park the session's
+     * thread forever waiting for a live block that may never arrive, leaking the session.
      */
     private void resolveLiveNextBlockToSend() {
-        while (nextBlockToSend.get() == UNKNOWN_BLOCK_NUMBER) {
+        while (!isClosed() && nextBlockToSend.get() == UNKNOWN_BLOCK_NUMBER) {
             final BlockItems head = liveBlockQueue.peek();
             if (head != null) {
                 if (!head.isStartOfNewBlock()) {
@@ -496,7 +512,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
      *     4. The next block to send is not available from the live stream.
      */
     private boolean isHistoryPermitted() {
-        return !(interruptedStream.get() || hasRunPastLatestLive() || allRequestedBlocksSent() || nextBatchIsLive());
+        return !(isClosed() || hasRunPastLatestLive() || allRequestedBlocksSent() || nextBatchIsLive());
     }
 
     /**
@@ -558,7 +574,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         // then we'll also break out of the loop and return to the caller.
         // Stop if the session was closed (e.g. a send failed), as every further
         // send to a failed stream blocks for the full flow control timeout.
-        while (!interruptedStream.get() && !liveBlockQueue.isEmpty()) {
+        while (!isClosed() && !liveBlockQueue.isEmpty()) {
             // Peek at the block item from the queue and _possibly_ process it
             BlockItems blockItems = liveBlockQueue.peek();
             // Live _might_ be ahead or behind the next expected block (particularly if
@@ -721,43 +737,49 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
      */
     synchronized void close(final SubscribeStreamResponse.Code endStreamResponseCode) {
         LOGGER.log(Level.TRACE, "Closing BlockStreamSubscriberSession for client {0}", sessionContext.clientId);
-        // Might get here before the session is ready, so check the countdown latch
-        if (sessionReadyLatch.getCount() > 0) {
-            sessionReadyLatch.countDown();
-            LOGGER.log(Level.DEBUG, "Session ready latch was not counted down on close, releasing now");
-        }
-        // unregister us from the block messaging system, if we are not registered then this is noop
-        blockNodeContext.blockMessaging().unregisterBlockItemHandler(liveBlockHandler);
-        // send an end stream response, if we have a code to set and are not interrupted.
-        if (!interruptedStream.get() && endStreamResponseCode != null) {
+        try {
+            // Might get here before the session is ready, so check the countdown latch
+            if (sessionReadyLatch.getCount() > 0) {
+                sessionReadyLatch.countDown();
+                LOGGER.log(Level.DEBUG, "Session ready latch was not counted down on close, releasing now");
+            }
+            // unregister us from the block messaging system, if we are not registered then this is noop
+            blockNodeContext.blockMessaging().unregisterBlockItemHandler(liveBlockHandler);
+            // send an end stream response, if we have a code to set and are not interrupted.
+            if (!interruptedStream.get() && endStreamResponseCode != null) {
+                try {
+                    // attempt to send the end stream response
+                    final Builder response =
+                            SubscribeStreamResponseUnparsed.newBuilder().status(endStreamResponseCode);
+                    responsePipeline.onNext(response.build());
+                } catch (final UncheckedIOException e) {
+                    // Unfortunately this is the "standard" way to end a stream, so log
+                    // at debug rather than emitting noise in the logs.
+                    // Also, this confuses everyone, they all see this debug log and
+                    // assume the node crashed, so we must not print a stack trace.
+                    final String messageFormat = "Client connection is already closed %d: %s";
+                    final String message = messageFormat.formatted(sessionContext.clientId, e.getMessage());
+                    LOGGER.log(Level.DEBUG, message, e);
+                } catch (final RuntimeException e) {
+                    // If the response cannot be sent, log and suppress this exception.
+                    final String message = "Suppressed client error when sending end stream response for client %d%n%s";
+                    LOGGER.log(Level.DEBUG, message.formatted(sessionContext.clientId, e.getMessage()), e);
+                }
+            }
             try {
-                // attempt to send the end stream response
-                final Builder response =
-                        SubscribeStreamResponseUnparsed.newBuilder().status(endStreamResponseCode);
-                responsePipeline.onNext(response.build());
-            } catch (final UncheckedIOException e) {
-                // Unfortunately this is the "standard" way to end a stream, so log
-                // at debug rather than emitting noise in the logs.
-                // Also, this confuses everyone, they all see this debug log and
-                // assume the node crashed, so we must not print a stack trace.
-                final String messageFormat = "Client connection is already closed %d: %s";
-                final String message = messageFormat.formatted(sessionContext.clientId, e.getMessage());
-                LOGGER.log(Level.DEBUG, message, e);
+                responsePipeline.onComplete();
             } catch (final RuntimeException e) {
-                // If the response cannot be sent, log and suppress this exception.
-                final String message = "Suppressed client error when sending end stream response for client %d%n%s";
+                // If the pipeline cannot be completed, log and suppress this exception.
+                final String message = "Suppressed client error when \"completing\" stream for client %d%n%s";
                 LOGGER.log(Level.DEBUG, message.formatted(sessionContext.clientId, e.getMessage()), e);
             }
+        } finally {
+            // Break out of the loop that sends blocks to the client, so the thread completes.
+            // In a finally block so this always runs, even if something above throws
+            // unexpectedly: callers that wait on this flag (e.g. resolveLiveNextBlockToSend())
+            // must never be left stuck because close() failed partway through.
+            interruptedStream.set(true);
         }
-        try {
-            responsePipeline.onComplete();
-        } catch (final RuntimeException e) {
-            // If the pipeline cannot be completed, log and suppress this exception.
-            final String message = "Suppressed client error when \"completing\" stream for client %d%n%s";
-            LOGGER.log(Level.DEBUG, message.formatted(sessionContext.clientId, e.getMessage()), e);
-        }
-        // Break out of the loop that sends blocks to the client, so the thread completes.
-        interruptedStream.set(true);
     }
 
     private void sendOneFullBlock(final BlockUnparsed nextBlock, final int blockByteSize) throws ParseException {
@@ -825,7 +847,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             sendOneBlockItemSet(allItems.subList(startIndex, currentIndex), isLastChunk);
 
             // If session was closed during send, stop
-            if (interruptedStream.get()) {
+            if (isClosed()) {
                 return;
             }
         }
