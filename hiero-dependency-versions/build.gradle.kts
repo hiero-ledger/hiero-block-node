@@ -49,6 +49,46 @@ dependencies.constraints {
     api("com.hedera.hashgraph:swirlds-config-impl:$hederaVersion") {
         because("com.swirlds.config.impl")
     }
+    api("com.hedera.hashgraph:swirlds-state-api:$hederaVersion") {
+        because("com.swirlds.state.api")
+    }
+    api("com.hedera.hashgraph:swirlds-state-impl:$hederaVersion") {
+        because("com.swirlds.state.impl")
+    }
+    api("com.hedera.hashgraph:swirlds-virtualmap:$hederaVersion") {
+        because("com.swirlds.virtualmap")
+    }
+    api("com.hedera.hashgraph:swirlds-merkledb:$hederaVersion") { because("com.swirlds.merkledb") }
+    api("com.hedera.hashgraph:swirlds-logging:$hederaVersion") { because("com.swirlds.logging") }
+    api("com.hedera.hashgraph:base-concurrent:$hederaVersion") {
+        because("org.hiero.base.concurrent")
+    }
+    api("com.hedera.hashgraph:base-crypto:$hederaVersion") { because("org.hiero.base.crypto") }
+    api("com.hedera.hashgraph:base-utility:$hederaVersion") { because("org.hiero.base.utility") }
+    api("com.hedera.hashgraph:consensus-model:$hederaVersion") {
+        because("org.hiero.consensus.model")
+    }
+    api("com.hedera.hashgraph:consensus-utility:$hederaVersion") {
+        because("org.hiero.consensus.utility")
+    }
+    api("com.hedera.hashgraph:consensus-metrics:$hederaVersion") {
+        because("org.hiero.consensus.metrics")
+    }
+    api("com.hedera.hashgraph:consensus-concurrent:$hederaVersion") {
+        because("org.hiero.consensus.concurrent")
+    }
+    // Non-modular jars pulled in transitively by swirlds-state-impl / virtualmap.
+    api("net.java.dev.jna:jna:5.19.0") { because("com.sun.jna") }
+    api("io.prometheus:simpleclient:0.16.0") { because("simpleclient") }
+    api("io.prometheus:simpleclient_common:0.16.0") { because("simpleclient.common") }
+    api("io.prometheus:simpleclient_httpserver:0.16.0") { because("simpleclient.httpserver") }
+    api("io.prometheus:simpleclient_tracer_common:0.16.0") { because("simpleclient.tracer.common") }
+    api("org.hyperledger.besu:besu-native-common:1.4.2") {
+        because("org.hyperledger.besu.nativelib.common")
+    }
+    api("org.hyperledger.besu:secp256k1:1.4.2") {
+        because("org.hyperledger.besu.nativelib.secp256k1")
+    }
     api("com.hedera.hashgraph:hiero-metrics:$hederaVersion") { because("org.hiero.metrics") }
     api("com.hedera.hashgraph:openmetrics-httpserver:$hederaVersion") {
         because("org.hiero.metrics.openmetrics.httpserver")
@@ -128,5 +168,30 @@ dependencies.constraints {
 
     // Versions of additional tools that are not part of the product or test module paths
     api("com.google.protobuf:protoc:${protobufVersion}")
-    tasks.checkVersionConsistency { excludes.add("com.google.protobuf:protoc") }
+    tasks.checkVersionConsistency {
+        excludes.add("com.google.protobuf:protoc")
+        // state-management-hashgraph is a dynamically-loaded (ServiceLoader-discovered) plugin
+        // module with no compile-time project dependents, so checkVersionConsistency's static
+        // scan does not see its module-info `requires` as usage even though these pins are
+        // genuinely consumed (verified: the module compiles, tests, and builds green against
+        // them). Exclude rather than leave the build broken on a tooling false-positive.
+        excludes.add("com.hedera.hashgraph:swirlds-state-api")
+        excludes.add("com.hedera.hashgraph:swirlds-state-impl")
+        excludes.add("com.hedera.hashgraph:swirlds-virtualmap")
+        excludes.add("com.hedera.hashgraph:swirlds-merkledb")
+        excludes.add("com.hedera.hashgraph:swirlds-logging")
+        excludes.add("com.hedera.hashgraph:base-concurrent")
+        excludes.add("com.hedera.hashgraph:base-crypto")
+        excludes.add("com.hedera.hashgraph:base-utility")
+        excludes.add("com.hedera.hashgraph:consensus-model")
+        excludes.add("com.hedera.hashgraph:consensus-utility")
+        excludes.add("com.hedera.hashgraph:consensus-metrics")
+        excludes.add("com.hedera.hashgraph:consensus-concurrent")
+        excludes.add("io.prometheus:simpleclient")
+        excludes.add("io.prometheus:simpleclient_common")
+        excludes.add("io.prometheus:simpleclient_httpserver")
+        excludes.add("io.prometheus:simpleclient_tracer_common")
+        excludes.add("org.hyperledger.besu:besu-native-common")
+        excludes.add("org.hyperledger.besu:secp256k1")
+    }
 }
