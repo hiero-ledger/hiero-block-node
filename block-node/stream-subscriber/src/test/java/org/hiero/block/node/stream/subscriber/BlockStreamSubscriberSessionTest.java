@@ -1513,6 +1513,38 @@ class BlockStreamSubscriberSessionTest {
                 assertThatNoException().isThrownBy(() -> sessionFuture.get(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
             }
         }
+
+        /**
+         * This test verifies that a live-stream session stops waiting for the first live block
+         * when its thread is interrupted directly, even though nothing ever calls close(). This
+         * covers a future force-cancellation mechanism (e.g. a watchdog calling
+         * {@code Future.cancel(true)} on a stuck session) that stops a session without going
+         * through the normal close() path.
+         */
+        @Test
+        @DisplayName("should stop waiting for the first live block on a raw thread interrupt, without close()")
+        void testResolveLiveNextBlockStopsOnRawInterrupt() throws Exception {
+            final SubscribeStreamRequest liveRequest = SubscribeStreamRequest.newBuilder()
+                    .startBlockNumber(-1L)
+                    .endBlockNumber(-1L)
+                    .build();
+            final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
+                    SessionContext.create(clientId, liveRequest, blockNodeContext),
+                    responsePipeline,
+                    blockNodeContext,
+                    sessionReadyLatch);
+
+            final Thread sessionThread = new Thread(session::call, "test-session-thread");
+            sessionThread.start();
+            assertThat(sessionReadyLatch.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                    .isTrue();
+            // No live block is ever sent and close() is never called - only a raw interrupt, as a
+            // future force-cancellation mechanism would do.
+            sessionThread.interrupt();
+            sessionThread.join(TimeUnit.SECONDS.toMillis(WAIT_TIMEOUT_SECONDS));
+
+            assertThat(sessionThread.isAlive()).isFalse();
+        }
     }
 
     /**
