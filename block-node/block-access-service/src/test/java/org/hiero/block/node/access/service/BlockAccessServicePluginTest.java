@@ -3,13 +3,23 @@ package org.hiero.block.node.access.service;
 
 import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.grpc.GrpcException;
+import com.hedera.pbj.runtime.grpc.GrpcStatus;
+import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.Flow;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import org.hiero.block.api.BlockRequest;
@@ -23,6 +33,7 @@ import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.hiero.block.node.spi.throttle.BlockReadBulkhead;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -185,6 +196,62 @@ public class BlockAccessServicePluginTest
         assertEquals(
                 info.blockNumber(),
                 response.block().items().getFirst().blockHeader().number());
+    }
+
+    @Test
+    @DisplayName("getBlock is rejected with RESOURCE_EXHAUSTED once the shared block-read bulkhead is exhausted")
+    void getBlockRejectedWhenBulkheadExhausted() {
+        final BlockReadBulkhead bulkhead = webserviceBuilder.blockReadBulkhead();
+        for (int i = 0; i < bulkhead.totalPermits(); i++) {
+            assertTrue(bulkhead.tryAcquire(), "expected to drain every bulkhead permit");
+        }
+        try {
+            final List<Throwable> errors = new ArrayList<>();
+            final Pipeline<Bytes> replies = new Pipeline<>() {
+                @Override
+                public void onSubscribe(final Flow.Subscription subscription) {}
+
+                @Override
+                public void onNext(final Bytes item) {}
+
+                @Override
+                public void onError(final Throwable throwable) {
+                    errors.add(throwable);
+                }
+
+                @Override
+                public void onComplete() {}
+            };
+            final Pipeline<? super Bytes> inbound = serviceInterface.open(method, requestOptions(), replies);
+            final Bytes requestBytes = BlockRequest.PROTOBUF.toBytes(
+                    BlockRequest.newBuilder().blockNumber(1L).build());
+            // Pipelines.unary() both forwards the exception to replies.onError(...) and rethrows it
+            // to the onNext() caller (the real webserver dispatch layer handles that rethrow; here
+            // we just need to not let it fail the test, since onError() already recorded it below).
+            assertThrows(GrpcException.class, () -> inbound.onNext(requestBytes));
+
+            assertEquals(1, errors.size());
+            assertInstanceOf(GrpcException.class, errors.getFirst());
+            assertEquals(GrpcStatus.RESOURCE_EXHAUSTED, ((GrpcException) errors.getFirst()).status());
+        } finally {
+            for (int i = 0; i < bulkhead.totalPermits(); i++) {
+                bulkhead.release();
+            }
+        }
+    }
+
+    private static ServiceInterface.RequestOptions requestOptions() {
+        return new ServiceInterface.RequestOptions() {
+            @Override
+            public Optional<String> authority() {
+                return Optional.empty();
+            }
+
+            @Override
+            public String contentType() {
+                return ServiceInterface.RequestOptions.APPLICATION_GRPC_PROTO;
+            }
+        };
     }
 
     private void sendBlocks(int numberOfBlocks) {

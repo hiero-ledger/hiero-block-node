@@ -221,6 +221,12 @@ class HealthConnectionCloseTest
         }
 
         @Override
+        public org.hiero.block.node.spi.throttle.BlockReadBulkhead blockReadBulkhead() {
+            // the health plugin never reads block storage
+            throw new UnsupportedOperationException("blockReadBulkhead() is not used by the health plugin");
+        }
+
+        @Override
         public WebServerResult registerHttpNewServer(
                 final TreeMap<Integer, ServiceWithPath[]> services, final CommonSocketValues commonSocketValues) {
             for (final ServiceWithPath[] serviceGroup : services.values()) {

@@ -16,6 +16,7 @@ public class BlockAccessConfigExtension implements ConfigurationExtension {
     @NonNull
     @Override
     public Set<Class<? extends Record>> getConfigDataTypes() {
-        return Set.of(BlockAccessConfig.class);
+        return Set.of(
+                BlockAccessConfig.class, GetBlockLiveThrottleConfig.class, GetBlockHistoricalThrottleConfig.class);
     }
 }
