@@ -8,6 +8,7 @@ import static java.lang.System.Logger.Level.WARNING;
 import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.hiero.block.api.PublishStreamResponse.EndOfStream.Code.TIMEOUT;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
+import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_ACTIVE_HANDLERS;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_CLOSED_COMPLETE;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_BATCHES_MESSAGED;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ITEMS_MESSAGED;
@@ -17,15 +18,18 @@ import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_LATEST_BLOCK_NUMBER_ACKNOWLEDGED;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_LOWEST_BLOCK_NUMBER_INBOUND;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_OPEN_CONNECTIONS;
+import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_PASSIVE_HANDLERS;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_STALL_TIMEOUTS_SENT;
 
 import com.hedera.pbj.runtime.grpc.Pipeline;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -144,6 +148,22 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private final ConcurrentSkipListMap<Long, Long> activeResendBlocks;
     /// Flow state per handler ID; created in addHandler, removed in removeHandler.
     private final ConcurrentSkipListMap<Long, HandlerFlowState> handlerFlowState;
+    /// Mode (ACTIVE / PASSIVE) per handler ID, updated by the handler via
+    /// [#notifyHandlerModeChange(long, boolean)]. Used to maintain the
+    /// `publisher_active_handlers` and `publisher_passive_handlers` gauges.
+    private final ConcurrentSkipListMap<Long, Boolean> handlerPassiveMode;
+    /// The highest block number reported by a passive handler via
+    /// [#recordPassiveHandlerAck(long, long)]. Fed into stall tracking so
+    /// that progress reported by a passive handler is visible to the manager.
+    private final ConcurrentSkipListMap<Long, Long> passiveHandlerLastBlock;
+    /// Bounded LRU cache of recently acknowledged block root hashes, keyed by block
+    /// number. The size cap comes from [PublisherConfig#ackCacheSize()]. Access is
+    /// synchronized on the map itself because LinkedHashMap's access-order iteration
+    /// requires exclusive access.
+    private final LinkedHashMap<Long, Bytes> ackedBlockRootHashes;
+    /// Cache cap for [#ackedBlockRootHashes]; captured at construction time so the
+    /// hot path does not read config on every write.
+    private final int ackCacheSize;
     /// Maps block number to the ID of the handler that currently holds ACCEPT for that block.
     /// An entry is added when a handler wins ACCEPT via registerQueueForBlock().
     /// An entry is removed when endOfBlock() is called for that block, when blockIsEnding()
@@ -184,6 +204,15 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         activeResendBlocks = new ConcurrentSkipListMap<>();
         activeStreamHandlerByBlock = new ConcurrentSkipListMap<>();
         handlerFlowState = new ConcurrentSkipListMap<>();
+        handlerPassiveMode = new ConcurrentSkipListMap<>();
+        passiveHandlerLastBlock = new ConcurrentSkipListMap<>();
+        ackCacheSize = publisherConfig.ackCacheSize();
+        ackedBlockRootHashes = new LinkedHashMap<>(Math.max(16, ackCacheSize), 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(final Map.Entry<Long, Bytes> eldest) {
+                return size() > ackCacheSize;
+            }
+        };
         initializeBlockNumbers(storedBlocks);
         scheduleFlowControlRefresh();
         resetIsActive.compareAndSet(true, false);
@@ -216,12 +245,25 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         cancelExistingFuture();
         handlers.put(handlerId, newHandler);
         handlerFlowState.put(handlerId, new HandlerFlowState());
+        handlerPassiveMode.put(handlerId, Boolean.FALSE);
         // Now we can safely update the metrics and send the notification
         // for the new publisher.
         metrics.currentPublisherCount().set(handlers.size());
+        metrics.activeHandlerCount().set(countHandlersByMode(false));
+        metrics.passiveHandlerCount().set(countHandlersByMode(true));
         sendPublisherStatusUpdate(UpdateType.PUBLISHER_CONNECTED, handlers);
         LOGGER.log(DEBUG, "Added new handler {0}", handlerId);
         return newHandler;
+    }
+
+    private long countHandlersByMode(final boolean passive) {
+        long count = 0L;
+        for (final Boolean mode : handlerPassiveMode.values()) {
+            if (mode != null && mode.booleanValue() == passive) {
+                count++;
+            }
+        }
+        return count;
     }
 
     /// Method to wait for a boolean value to be false.
@@ -242,6 +284,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     public void removeHandler(final long handlerId) {
         final PublisherHandler handlerRemoved = handlers.remove(handlerId);
         handlerFlowState.remove(handlerId);
+        handlerPassiveMode.remove(handlerId);
+        passiveHandlerLastBlock.remove(handlerId);
         // If there are no more active publishers, schedule the
         // unavailability timeout task.
         if (handlerRemoved != null && handlers.isEmpty()) {
@@ -249,8 +293,62 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         }
         // Update metrics and publish the status update
         metrics.currentPublisherCount().set(handlers.size());
+        metrics.activeHandlerCount().set(countHandlersByMode(false));
+        metrics.passiveHandlerCount().set(countHandlersByMode(true));
         sendPublisherStatusUpdate(UpdateType.PUBLISHER_DISCONNECTED, handlers);
         LOGGER.log(DEBUG, "Removed handler {0}", handlerId);
+    }
+
+    @Override
+    public void notifyHandlerModeChange(final long handlerId, final boolean passive) {
+        final Boolean previous = handlerPassiveMode.put(handlerId, passive);
+        if (!passive) {
+            // Clear any passive-progress record when a handler returns to active mode
+            passiveHandlerLastBlock.remove(handlerId);
+        }
+        if (previous != null && previous.booleanValue() == passive) {
+            return; // no transition, nothing to update
+        }
+        metrics.activeHandlerCount().set(countHandlersByMode(false));
+        metrics.passiveHandlerCount().set(countHandlersByMode(true));
+    }
+
+    @Override
+    public void recordPassiveHandlerAck(final long handlerId, final long blockNumber) {
+        if (blockNumber > UNKNOWN_BLOCK_NUMBER) {
+            passiveHandlerLastBlock.merge(handlerId, blockNumber, Math::max);
+        }
+    }
+
+    @Override
+    public Bytes getCachedBlockRootHash(final long blockNumber) {
+        if (ackCacheSize <= 0) {
+            return Bytes.EMPTY;
+        }
+        synchronized (ackedBlockRootHashes) {
+            final Bytes cached = ackedBlockRootHashes.get(blockNumber);
+            return cached != null ? cached : Bytes.EMPTY;
+        }
+    }
+
+    @Override
+    public long getLatestAckedBlockNumber() {
+        return lastPersistedBlockNumber.get();
+    }
+
+    /// Insert a verified block root hash into the bounded LRU cache. Called from
+    /// [#handleVerification(VerificationNotification)] on successful verifications.
+    ///
+    /// @param blockNumber the block the hash is for
+    /// @param rootHash the verified root hash; silently ignored when null, empty,
+    ///     or when the cache is disabled
+    private void cacheBlockRootHash(final long blockNumber, final Bytes rootHash) {
+        if (ackCacheSize <= 0 || rootHash == null || rootHash.length() == 0) {
+            return;
+        }
+        synchronized (ackedBlockRootHashes) {
+            ackedBlockRootHashes.put(blockNumber, rootHash);
+        }
     }
 
     @Override
@@ -436,12 +534,14 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     @Override
     public void handleVerification(@NonNull final VerificationNotification notification) {
         final long blockNumber = notification.blockNumber();
-        // Critical note: Only handle _failed_ verifications.
-        // If we ever handle successful verifications, we must add conditions
-        // to handle if the block is the first block received after a
-        // restart.
-        final boolean shouldHandle = !notification.success()
-                && notification.source() == BlockSource.PUBLISHER
+        if (notification.success()) {
+            // Record the verified root hash best-effort so that subsequent
+            // BlockAcknowledgement responses can populate `block_root_hash`.
+            cacheBlockRootHash(blockNumber, notification.blockHash());
+            return;
+        }
+        // Only _failed_ verifications beyond this point.
+        final boolean shouldHandle = notification.source() == BlockSource.PUBLISHER
                 && blockNumber > lastPersistedBlockNumber.get()
                 && blockNumber < nextUnstreamedBlockNumber.get();
         if (shouldHandle) {
@@ -1432,7 +1532,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             LongCounter.Measurement blocksClosedComplete,
             LongCounter.Measurement stallTimeoutsSent,
             LongCounter.Measurement flowControlAggregatePauses,
-            LongCounter.Measurement flowControlPenaltiesApplied) {
+            LongCounter.Measurement flowControlPenaltiesApplied,
+            LongGauge.Measurement activeHandlerCount,
+            LongGauge.Measurement passiveHandlerCount) {
         /// todo(1420) add documentation
         static MetricsHolder createMetrics(@NonNull final MetricRegistry metricRegistry) {
             final LongCounter.Measurement blockItemsMessaged = metricRegistry
@@ -1477,6 +1579,14 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                     .register(LongGauge.builder(METRIC_PUBLISHER_LATEST_BLOCK_NUMBER_ACKNOWLEDGED)
                             .setDescription("Latest block number acknowledged"))
                     .getOrCreateNotLabeled();
+            final LongGauge.Measurement activeHandlerCount = metricRegistry
+                    .register(LongGauge.builder(METRIC_PUBLISHER_ACTIVE_HANDLERS)
+                            .setDescription("Connected publishers currently in active mode"))
+                    .getOrCreateNotLabeled();
+            final LongGauge.Measurement passiveHandlerCount = metricRegistry
+                    .register(LongGauge.builder(METRIC_PUBLISHER_PASSIVE_HANDLERS)
+                            .setDescription("Connected publishers currently in passive mode"))
+                    .getOrCreateNotLabeled();
             return new MetricsHolder(
                     blockItemsMessaged,
                     blockBatchesMessaged,
@@ -1487,7 +1597,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                     blocksClosedComplete,
                     stallTimeoutsSent,
                     flowControlAggregatePauses,
-                    flowControlPenaltiesApplied);
+                    flowControlPenaltiesApplied,
+                    activeHandlerCount,
+                    passiveHandlerCount);
         }
     }
 

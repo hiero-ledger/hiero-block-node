@@ -3789,6 +3789,129 @@ class LiveStreamPublisherManagerTest {
         }
     }
 
+    /// Tests for the AcknowledgeOnly / passive-handler bookkeeping on the
+    /// [LiveStreamPublisherManager] itself: ack-cache LRU, mode-aware
+    /// `publisher_active_handlers` / `publisher_passive_handlers` gauges, and
+    /// the SPI methods the [PublisherHandler] uses to interact with them.
+    @Nested
+    @DisplayName("AcknowledgeOnly Bookkeeping Tests")
+    class AcknowledgeOnlyBookkeepingTests {
+        private LiveStreamPublisherManager toTest;
+        private MetricsHolder managerMetrics;
+
+        @BeforeEach
+        void setup() {
+            managerMetrics = generateManagerMetrics();
+            toTest = new LiveStreamPublisherManager(generateContext(), managerMetrics, List.of());
+        }
+
+        @Test
+        @DisplayName("getCachedBlockRootHash returns Bytes.EMPTY when nothing is cached")
+        void getCachedReturnsEmptyWhenMissing() {
+            assertThat(toTest.getCachedBlockRootHash(1L)).isEqualTo(Bytes.EMPTY);
+        }
+
+        @Test
+        @DisplayName("handleVerification(success) caches the verified root hash")
+        void handleVerificationSuccessCachesHash() {
+            final Bytes hash = Bytes.wrap(new byte[] {9, 8, 7});
+            toTest.handleVerification(new VerificationNotification(
+                    true, null, 10L, hash, new BlockUnparsed(List.of()), BlockSource.PUBLISHER));
+
+            assertThat(toTest.getCachedBlockRootHash(10L)).isEqualTo(hash);
+        }
+
+        @Test
+        @DisplayName("notifyHandlerModeChange updates the active and passive gauges")
+        void modeChangeUpdatesGauges() {
+            toTest.addHandler(new TestResponsePipeline<>(), generateHandlerMetrics(), null);
+            final long active0 = managerMetrics.activeHandlerCount().get();
+            assertThat(active0).isEqualTo(1L);
+            assertThat(managerMetrics.passiveHandlerCount().get()).isZero();
+
+            toTest.notifyHandlerModeChange(0L, true);
+            assertThat(managerMetrics.activeHandlerCount().get()).isZero();
+            assertThat(managerMetrics.passiveHandlerCount().get()).isEqualTo(1L);
+
+            toTest.notifyHandlerModeChange(0L, false);
+            assertThat(managerMetrics.activeHandlerCount().get()).isEqualTo(1L);
+            assertThat(managerMetrics.passiveHandlerCount().get()).isZero();
+        }
+
+        @Test
+        @DisplayName("removeHandler decrements the mode-aware gauges")
+        void removeHandlerDecrementsGauges() {
+            final long handlerId = toTest.addHandler(new TestResponsePipeline<>(), generateHandlerMetrics(), null)
+                    .getId();
+            toTest.notifyHandlerModeChange(handlerId, true);
+            assertThat(managerMetrics.passiveHandlerCount().get()).isEqualTo(1L);
+
+            toTest.removeHandler(handlerId);
+            assertThat(managerMetrics.activeHandlerCount().get()).isZero();
+            assertThat(managerMetrics.passiveHandlerCount().get()).isZero();
+        }
+
+        @Test
+        @DisplayName("recordPassiveHandlerAck ignores UNKNOWN_BLOCK_NUMBER")
+        void recordPassiveHandlerAckIgnoresUnknown() {
+            // No throw, no state change - purely a smoke test
+            assertThatNoException().isThrownBy(() -> toTest.recordPassiveHandlerAck(0L, -1L));
+        }
+
+        @Test
+        @DisplayName("Ack cache evicts oldest entry once ackCacheSize is exceeded")
+        void ackCacheEvictsOldestEntry() {
+            final int cap = 3;
+            final BlockNodeContext boundedContext = generateContext(
+                    new SimpleInMemoryHistoricalBlockFacility(),
+                    new TestThreadPoolManager<>(
+                            new BlockingExecutor(new LinkedBlockingQueue<>()),
+                            new ScheduledBlockingExecutor(new LinkedBlockingQueue<>())),
+                    new TestBlockMessagingFacility(),
+                    TestStreamPublisherManager.createTestConfiguration(
+                            Map.of("producer.ackCacheSize", String.valueOf(cap))));
+            final LiveStreamPublisherManager boundedManager =
+                    new LiveStreamPublisherManager(boundedContext, generateManagerMetrics(), List.of());
+
+            for (long i = 1; i <= cap + 1; i++) {
+                boundedManager.handleVerification(new VerificationNotification(
+                        true,
+                        null,
+                        i,
+                        Bytes.wrap(new byte[] {(byte) i}),
+                        new BlockUnparsed(List.of()),
+                        BlockSource.PUBLISHER));
+            }
+
+            // The oldest (block 1) must have been evicted
+            assertThat(boundedManager.getCachedBlockRootHash(1L)).isEqualTo(Bytes.EMPTY);
+            for (long i = 2; i <= cap + 1; i++) {
+                assertThat(boundedManager.getCachedBlockRootHash(i))
+                        .as("block %d should still be cached", i)
+                        .isEqualTo(Bytes.wrap(new byte[] {(byte) i}));
+            }
+        }
+
+        @Test
+        @DisplayName("Ack cache disabled when ackCacheSize is zero")
+        void ackCacheDisabledWhenSizeZero() {
+            final BlockNodeContext disabledContext = generateContext(
+                    new SimpleInMemoryHistoricalBlockFacility(),
+                    new TestThreadPoolManager<>(
+                            new BlockingExecutor(new LinkedBlockingQueue<>()),
+                            new ScheduledBlockingExecutor(new LinkedBlockingQueue<>())),
+                    new TestBlockMessagingFacility(),
+                    TestStreamPublisherManager.createTestConfiguration(Map.of("producer.ackCacheSize", "0")));
+            final LiveStreamPublisherManager disabledManager =
+                    new LiveStreamPublisherManager(disabledContext, generateManagerMetrics(), List.of());
+
+            disabledManager.handleVerification(new VerificationNotification(
+                    true, null, 42L, Bytes.wrap(new byte[] {7}), new BlockUnparsed(List.of()), BlockSource.PUBLISHER));
+
+            assertThat(disabledManager.getCachedBlockRootHash(42L)).isEqualTo(Bytes.EMPTY);
+        }
+    }
+
     /// This method generates a [BlockNodeContext] instance with default
     /// facilities that can be used in tests.
     private BlockNodeContext generateContext() {

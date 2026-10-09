@@ -2,6 +2,7 @@
 package org.hiero.block.node.stream.publisher;
 
 import com.hedera.pbj.runtime.grpc.Pipeline;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import java.util.Deque;
@@ -100,6 +101,47 @@ public interface StreamPublisherManager extends BlockNotificationHandler {
     /// Get the current configuration of the server.
     /// @return The server configuration data.
     ServerConfig serverConfiguration();
+
+    /// Return the block root hash recorded for a previously acknowledged block, or
+    /// [Bytes#EMPTY] when no hash is available (either not acknowledged yet, or
+    /// evicted from the bounded cache). Populated best-effort by the manager when
+    /// it receives a successful verification notification.
+    ///
+    /// @param blockNumber the block number to look up
+    /// @return the recorded root hash, or [Bytes#EMPTY] when unknown
+    default Bytes getCachedBlockRootHash(final long blockNumber) {
+        return Bytes.EMPTY;
+    }
+
+    /// Return the latest block number that has been acknowledged (i.e. verified and
+    /// persisted) by this Block-Node. Used by the publisher handler to decide whether
+    /// to immediately acknowledge an [org.hiero.block.api.PublishStreamRequest.AcknowledgeOnly]
+    /// request.
+    ///
+    /// @return the latest acknowledged block number, or a value less than zero when
+    ///     nothing has been acknowledged yet
+    default long getLatestAckedBlockNumber() {
+        return getLatestBlockNumber();
+    }
+
+    /// Record that a passive handler reported progress at the given block number via
+    /// [org.hiero.block.api.PublishStreamRequest.AcknowledgeOnly]. Used by the manager
+    /// to feed stall detection and connected-publisher progress tracking.
+    ///
+    /// @param handlerId the id of the handler that sent the AcknowledgeOnly request
+    /// @param blockNumber the block number the handler claims to be at or past
+    default void recordPassiveHandlerAck(final long handlerId, final long blockNumber) {
+        // default: no-op
+    }
+
+    /// Notify the manager that a handler has transitioned between active and passive mode.
+    /// Used to maintain per-mode gauges and other mode-aware bookkeeping.
+    ///
+    /// @param handlerId the id of the handler
+    /// @param passive `true` if the handler is now passive, `false` if active
+    default void notifyHandlerModeChange(final long handlerId, final boolean passive) {
+        // default: no-op
+    }
 
     /// The action to take within the PublisherHandler for a block.
     enum BlockAction {

@@ -43,6 +43,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 import org.hiero.block.api.BlockEnd;
+import org.hiero.block.api.PublishStreamRequest.AcknowledgeOnly;
 import org.hiero.block.api.PublishStreamRequest.EndStream;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.PublishStreamResponse.BehindPublisher;
@@ -139,6 +140,24 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     /// block.
     private final AtomicReference<BlockAction> blockAction;
 
+    /// Tracks whether this handler is currently in `ACTIVE` or `PASSIVE` mode.
+    /// A handler starts out `ACTIVE`; receiving an
+    /// [org.hiero.block.api.PublishStreamRequest.AcknowledgeOnly] flips it to
+    /// `PASSIVE`, and receiving any other request flips it back to `ACTIVE`.
+    ///
+    /// A `PASSIVE` handler suppresses `SKIP` / `SKIP_AND_ACK` / `END_DUPLICATE`
+    /// responses the manager returns for stale block numbers, because a passive
+    /// handler is only reporting a high-watermark and does not want to be told to
+    /// skip or to reconnect for a block it is not actually streaming.
+    private final AtomicReference<HandlerMode> handlerMode;
+
+    /// Handler-level mode: active = actively streaming block items, passive = only
+    /// reporting progress via AcknowledgeOnly.
+    public enum HandlerMode {
+        ACTIVE,
+        PASSIVE
+    }
+
     /// Initialize a new publisher handler.
     ///
     /// @param nextId the next handler ID to use
@@ -166,6 +185,12 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         configuration = publisherManager.configuration();
         maxTotalBlockBytes = publisherManager.serverConfiguration().maxMessageSizeBytes();
         messageBudget = new AtomicLong(configuration.perHandlerMessageBudget());
+        handlerMode = new AtomicReference<>(HandlerMode.ACTIVE);
+    }
+
+    /// Returns the current handler mode, for testing and metric observation.
+    HandlerMode getMode() {
+        return handlerMode.get();
     }
 
     // A package-private method for accessing correlation ID for tracing support.
@@ -290,8 +315,10 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     }
 
     private boolean baseSendBlockAcknowledgement(final long blockToAcknowledge) {
+        final Bytes rootHash = publisherManager.getCachedBlockRootHash(blockToAcknowledge);
         final BlockAcknowledgement ack = BlockAcknowledgement.newBuilder()
                 .blockNumber(blockToAcknowledge)
+                .blockRootHash(rootHash != null ? rootHash : Bytes.EMPTY)
                 .build();
         final PublishStreamResponse response =
                 PublishStreamResponse.newBuilder().acknowledgement(ack).build();
@@ -395,6 +422,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     private PublisherRequestResult processNextRequestUnparsed(final PublishStreamRequestUnparsed request) {
         final PublisherRequestResult result;
         if (request.hasBlockItems()) {
+            transitionMode(HandlerMode.ACTIVE);
             final BlockItemSetUnparsed itemSetUnparsed = request.blockItems();
             final List<BlockItemUnparsed> blockItems = itemSetUnparsed.blockItems();
             if (blockItems.isEmpty()) {
@@ -403,14 +431,69 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 result = handleBlockItemsRequest(itemSetUnparsed, blockItems);
             }
         } else if (request.hasEndStream()) {
+            transitionMode(HandlerMode.ACTIVE);
             result = handleEndStreamRequest(request.endStream());
         } else if (request.hasEndOfBlock()) {
+            transitionMode(HandlerMode.ACTIVE);
             result = handleEndOfBlock(request.endOfBlock());
+        } else if (request.hasAcknowledgeOnly()) {
+            transitionMode(HandlerMode.PASSIVE);
+            result = handleAcknowledgeOnly(request.acknowledgeOnly());
         } else {
             // this should never happen
             result = new SendEndAndShutdownResult(this, Code.ERROR, currentStreamingBlockNumber.get());
         }
         return result;
+    }
+
+    /// Transition this handler to the given mode and notify the manager if the mode
+    /// actually changed. Called at the entry of every inbound request dispatch so the
+    /// manager's active/passive bookkeeping tracks the most recent request kind.
+    ///
+    /// @param newMode the mode to transition to
+    private void transitionMode(final HandlerMode newMode) {
+        final HandlerMode previous = handlerMode.getAndSet(newMode);
+        if (previous != newMode) {
+            publisherManager.notifyHandlerModeChange(handlerId, newMode == HandlerMode.PASSIVE);
+        }
+    }
+
+    /// Handle an inbound [AcknowledgeOnly] request. The request is a high-watermark
+    /// signal from a publisher that is operating as a passive node: it is informing
+    /// the Block-Node that it believes `blockNumber` is the latest block to have
+    /// been acknowledged on the network. If the Block-Node has already acknowledged
+    /// a block at or past that number, respond with the latest acknowledgement
+    /// immediately so the publisher can confirm it is in sync; otherwise take no
+    /// action beyond recording the progress for stall tracking (the publisher will
+    /// receive the next regular acknowledgement when it is produced).
+    ///
+    /// @param request the parsed AcknowledgeOnly request
+    /// @return a `ContinueResult` to leave the stream open
+    private PublisherRequestResult handleAcknowledgeOnly(final AcknowledgeOnly request) {
+        final long requestedBlockNumber = request == null ? UNKNOWN_BLOCK_NUMBER : request.blockNumber();
+        publisherManager.recordPassiveHandlerAck(handlerId, requestedBlockNumber);
+        final long latestAcked = publisherManager.getLatestAckedBlockNumber();
+        if (requestedBlockNumber > UNKNOWN_BLOCK_NUMBER
+                && latestAcked > UNKNOWN_BLOCK_NUMBER
+                && requestedBlockNumber <= latestAcked) {
+            LOGGER.log(
+                    DEBUG,
+                    "[{0}] Handler {1} received AcknowledgeOnly({2}); immediate ack at latest {3}",
+                    correlationIdPrefix,
+                    handlerId,
+                    requestedBlockNumber,
+                    latestAcked);
+            baseSendBlockAcknowledgement(latestAcked);
+        } else {
+            LOGGER.log(
+                    DEBUG,
+                    "[{0}] Handler {1} received AcknowledgeOnly({2}); no immediate ack (latest {3})",
+                    correlationIdPrefix,
+                    handlerId,
+                    requestedBlockNumber,
+                    latestAcked);
+        }
+        return new ContinueResult(this);
     }
 
     /// This method handles a request for a block of items and returns a
@@ -725,6 +808,15 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
 
     /// Handle the SKIP action for a block.
     private PublisherRequestResult handleSkip(final long blockNumber) {
+        if (handlerMode.get() == HandlerMode.PASSIVE) {
+            LOGGER.log(
+                    DEBUG,
+                    "[{0}] Handler {1} suppressing SKIP for block {2} (passive mode)",
+                    correlationIdPrefix,
+                    handlerId,
+                    blockNumber);
+            return new ContinueResult(this);
+        }
         LOGGER.log(
                 DEBUG, "[{0}] Handler {1} is sending SKIP for block {2}", correlationIdPrefix, handlerId, blockNumber);
         // If the action is SKIP, we need to send a skip response
@@ -734,6 +826,15 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
 
     /// Handle the SKIP_AND_ACK action for a block.
     private PublisherRequestResult handleSkipAndAck(final long blockNumber) {
+        if (handlerMode.get() == HandlerMode.PASSIVE) {
+            LOGGER.log(
+                    DEBUG,
+                    "[{0}] Handler {1} suppressing SKIP_AND_ACK for block {2} (passive mode)",
+                    correlationIdPrefix,
+                    handlerId,
+                    blockNumber);
+            return new ContinueResult(this);
+        }
         LOGGER.log(
                 DEBUG, "[{0}] Handler {1} is sending SKIP for block {2}", correlationIdPrefix, handlerId, blockNumber);
         // If the action is SKIP, we need to send a skip response
@@ -777,6 +878,15 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
 
     /// Handle the END_DUPLICATE action for a block.
     private PublisherRequestResult handleEndDuplicate() {
+        if (handlerMode.get() == HandlerMode.PASSIVE) {
+            LOGGER.log(
+                    DEBUG,
+                    "[{0}] Handler {1} suppressing DUPLICATE_BLOCK ({2}) (passive mode)",
+                    correlationIdPrefix,
+                    handlerId,
+                    publisherManager.getLatestBlockNumber());
+            return new ContinueResult(this);
+        }
         LOGGER.log(
                 DEBUG,
                 "[{0}] Handler {1} is sending DUPLICATE_BLOCK({2}).",

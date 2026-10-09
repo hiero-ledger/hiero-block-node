@@ -103,6 +103,10 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
             .addCategory(METRICS_CATEGORY);
     public static final MetricKey<LongCounter> METRIC_PUBLISHER_DISCONNECTED_OVERSIZE =
             MetricKey.of("publisher_disconnected_oversize", LongCounter.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongGauge> METRIC_PUBLISHER_ACTIVE_HANDLERS =
+            MetricKey.of("publisher_active_handlers", LongGauge.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongGauge> METRIC_PUBLISHER_PASSIVE_HANDLERS =
+            MetricKey.of("publisher_passive_handlers", LongGauge.class).addCategory(METRICS_CATEGORY);
 
     /// The logger for this class.
     private static final System.Logger LOGGER = System.getLogger(StreamPublisherPlugin.class.getName());
