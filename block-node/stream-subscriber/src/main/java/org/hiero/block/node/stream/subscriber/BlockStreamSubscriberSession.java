@@ -725,43 +725,49 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
      */
     synchronized void close(final SubscribeStreamResponse.Code endStreamResponseCode) {
         LOGGER.log(Level.TRACE, "Closing BlockStreamSubscriberSession for client {0}", sessionContext.clientId);
-        // Might get here before the session is ready, so check the countdown latch
-        if (sessionReadyLatch.getCount() > 0) {
-            sessionReadyLatch.countDown();
-            LOGGER.log(Level.DEBUG, "Session ready latch was not counted down on close, releasing now");
-        }
-        // unregister us from the block messaging system, if we are not registered then this is noop
-        blockNodeContext.blockMessaging().unregisterBlockItemHandler(liveBlockHandler);
-        // send an end stream response, if we have a code to set and are not interrupted.
-        if (!interruptedStream.get() && endStreamResponseCode != null) {
+        try {
+            // Might get here before the session is ready, so check the countdown latch
+            if (sessionReadyLatch.getCount() > 0) {
+                sessionReadyLatch.countDown();
+                LOGGER.log(Level.DEBUG, "Session ready latch was not counted down on close, releasing now");
+            }
+            // unregister us from the block messaging system, if we are not registered then this is noop
+            blockNodeContext.blockMessaging().unregisterBlockItemHandler(liveBlockHandler);
+            // send an end stream response, if we have a code to set and are not interrupted.
+            if (!interruptedStream.get() && endStreamResponseCode != null) {
+                try {
+                    // attempt to send the end stream response
+                    final Builder response =
+                            SubscribeStreamResponseUnparsed.newBuilder().status(endStreamResponseCode);
+                    responsePipeline.onNext(response.build());
+                } catch (final UncheckedIOException e) {
+                    // Unfortunately this is the "standard" way to end a stream, so log
+                    // at debug rather than emitting noise in the logs.
+                    // Also, this confuses everyone, they all see this debug log and
+                    // assume the node crashed, so we must not print a stack trace.
+                    final String messageFormat = "Client connection is already closed %d: %s";
+                    final String message = messageFormat.formatted(sessionContext.clientId, e.getMessage());
+                    LOGGER.log(Level.DEBUG, message, e);
+                } catch (final RuntimeException e) {
+                    // If the response cannot be sent, log and suppress this exception.
+                    final String message = "Suppressed client error when sending end stream response for client %d%n%s";
+                    LOGGER.log(Level.DEBUG, message.formatted(sessionContext.clientId, e.getMessage()), e);
+                }
+            }
             try {
-                // attempt to send the end stream response
-                final Builder response =
-                        SubscribeStreamResponseUnparsed.newBuilder().status(endStreamResponseCode);
-                responsePipeline.onNext(response.build());
-            } catch (final UncheckedIOException e) {
-                // Unfortunately this is the "standard" way to end a stream, so log
-                // at debug rather than emitting noise in the logs.
-                // Also, this confuses everyone, they all see this debug log and
-                // assume the node crashed, so we must not print a stack trace.
-                final String messageFormat = "Client connection is already closed %d: %s";
-                final String message = messageFormat.formatted(sessionContext.clientId, e.getMessage());
-                LOGGER.log(Level.DEBUG, message, e);
+                responsePipeline.onComplete();
             } catch (final RuntimeException e) {
-                // If the response cannot be sent, log and suppress this exception.
-                final String message = "Suppressed client error when sending end stream response for client %d%n%s";
+                // If the pipeline cannot be completed, log and suppress this exception.
+                final String message = "Suppressed client error when \"completing\" stream for client %d%n%s";
                 LOGGER.log(Level.DEBUG, message.formatted(sessionContext.clientId, e.getMessage()), e);
             }
+        } finally {
+            // Break out of the loop that sends blocks to the client, so the thread completes.
+            // In a finally block so this always runs, even if something above throws
+            // unexpectedly: callers that wait on this flag (e.g. resolveLiveNextBlockToSend())
+            // must never be left stuck because close() failed partway through.
+            interruptedStream.set(true);
         }
-        try {
-            responsePipeline.onComplete();
-        } catch (final RuntimeException e) {
-            // If the pipeline cannot be completed, log and suppress this exception.
-            final String message = "Suppressed client error when \"completing\" stream for client %d%n%s";
-            LOGGER.log(Level.DEBUG, message.formatted(sessionContext.clientId, e.getMessage()), e);
-        }
-        // Break out of the loop that sends blocks to the client, so the thread completes.
-        interruptedStream.set(true);
     }
 
     private void sendOneFullBlock(final BlockUnparsed nextBlock, final int blockByteSize) throws ParseException {
