@@ -65,6 +65,9 @@ server/src/test/resources/test_output/
 protobuf-sources/block-node-protobuf/
 protobuf-sources/hiero-consensus-node/
 
+# bn-endpoint-checker.sh --save-block output
+tools-and-tests/scripts/node-operations/downloaded-block/
+
 node_modules/
 k6-proto/
 k6-out/
