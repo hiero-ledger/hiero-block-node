@@ -76,6 +76,9 @@ jobs:
           java-version: "25.0.2"
           java-distribution: "temurin"
 
+      - name: Grafana dashboards in sync
+        run: node tools-and-tests/dashboards/render.js --check
+
       - name: Expand Shallow Clone for Spotless
         run: |
           if [ -f .git/shallow ]; then
