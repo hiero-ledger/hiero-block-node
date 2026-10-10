@@ -1,0 +1,5 @@
+.venv/
+proto-py/
+__pycache__/
+*.pyc
+*.csv
