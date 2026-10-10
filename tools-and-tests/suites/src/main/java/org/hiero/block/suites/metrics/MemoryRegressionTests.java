@@ -21,7 +21,7 @@ import org.testcontainers.containers.GenericContainer;
 /// deployed with the nano profile (`charts/block-node-server/values-overrides/nano.yaml`).
 ///
 /// The nano profile targets memory-constrained environments (minikube, laptops). Its key overrides:
-/// - `SERVER_SOCKET_RECEIVE_BUFFER_SIZE_BYTES=131072` (128 KB, vs the 8 MB production default)
+/// - `SERVER_SOCKET_RECEIVE_BUFFER_SIZE_BYTES=131072` (128 KB, vs kernel autotune in the production default)
 /// - `JAVA_OPTS` with `-Xmx24m -XX:MaxDirectMemorySize=8m -XX:MaxMetaspaceSize=32m`
 /// - Reduced messaging queue sizes
 ///

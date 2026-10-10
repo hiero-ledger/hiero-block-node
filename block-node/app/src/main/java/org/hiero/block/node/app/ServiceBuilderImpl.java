@@ -254,12 +254,17 @@ public class ServiceBuilderImpl implements ServiceBuilder {
         if (grpc != null) builder.addRouting(grpc);
     }
 
-    /// Sets `SO_RCVBUF` on the listening socket so accepted connections inherit it at the TCP handshake.
+    /// Sets `SO_RCVBUF` on the listening socket so accepted connections inherit it at the TCP handshake. When no
+    /// receive size is configured, nothing is set and the kernel autotunes the buffer.
     ///
     /// Helidon applies `connectionOptions` after `accept()`. Linux fixes the receive-window clamp at the handshake
-    /// from the listener's buffer, and a later `SO_RCVBUF` also turns off receive-buffer autotuning, so without
-    /// this every connection's window stays at about 32 KB (half the 64 KB kernel default). That caps a publisher
-    /// stream at 32 KB per round trip, about 51 Mbit/s at a 5 ms RTT, which is all that 10k TPS leaves room for.
+    /// from the listener's buffer, and a later `SO_RCVBUF` also turns off receive-buffer autotuning, so with a
+    /// configured size but without this every connection's window stays at about 32 KB (half the 64 KB kernel
+    /// default). That caps a publisher stream at 32 KB per round trip, about 51 Mbit/s at a 5 ms RTT, which is all
+    /// that 10k TPS leaves room for.
+    ///
+    /// `SO_SNDBUF` is not set here: `ServerSocketChannel` rejects it (`UnsupportedOperationException`), and the
+    /// send buffer has no handshake-time effect, so applying it after `accept()` via `connectionOptions` suffices.
     ///
     /// @param builder the listener (or default web server listener) being configured
     /// @param socketOptions the connection socket options holding the configured receive buffer size

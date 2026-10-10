@@ -26,19 +26,26 @@ the design.
 
 ### Server Configuration
 
-| ENV Variable                            | Description                                                                                                            | Default     |
-|:----------------------------------------|:-----------------------------------------------------------------------------------------------------------------------|:------------|
-| SERVER_MAX_MESSAGE_SIZE_BYTES           | Max message size (bytes) for HTTP/2. Also the cumulative byte ceiling for a single block on the publish stream.        | 131,072,000 |
-| SERVER_SOCKET_SEND_BUFFER_SIZE_BYTES    | Send buffer size (bytes).                                                                                              | 131,072     |
-| SERVER_SOCKET_RECEIVE_BUFFER_SIZE_BYTES | Receive buffer size (bytes). Override to 131072 for memory-constrained deployments (see `values-overrides/nano.yaml`). | 8,388,608   |
-| SERVER_PORT                             | Default port for all services. Individual plugins may bind to a different port via their own config.                   | 40840       |
-| SERVER_SHUTDOWN_DELAY_MILLIS            | Delay before shutdown (ms).                                                                                            | 500         |
-| SERVER_MAX_TCP_CONNECTIONS              | Max TCP connections allowed.                                                                                           | 1000        |
-| SERVER_IDLE_CONNECTION_PERIOD_MINUTES   | Period for idle connections check (minutes).                                                                           | 5           |
-| SERVER_IDLE_CONNECTION_TIMEOUT_MINUTES  | Timeout for idle connections (minutes).                                                                                | 30          |
-| SERVER_TCP_NO_DELAY                     | Disable Nagle's algorithm (TCP_NODELAY). Reduces latency for small, frequent writes.                                   | true        |
-| SERVER_BACKLOG_SIZE                     | Maximum length of the queue of incoming connections on the server socket.                                              | 8,192       |
-| SERVER_WRITE_QUEUE_LENGTH               | Number of write buffers queued for write operations.                                                                   | 8,192       |
+| ENV Variable                            | Description                                                                                                                  | Default     |
+|:----------------------------------------|:-----------------------------------------------------------------------------------------------------------------------------|:------------|
+| SERVER_MAX_MESSAGE_SIZE_BYTES           | Max message size (bytes) for HTTP/2. Also the cumulative byte ceiling for a single block on the publish stream.              | 131,072,000 |
+| SERVER_SOCKET_SEND_BUFFER_SIZE_BYTES    | Send buffer size (bytes). `0` lets the kernel autotune it (recommended). Nano sets 131072 (`values-overrides/nano.yaml`).    | 0           |
+| SERVER_SOCKET_RECEIVE_BUFFER_SIZE_BYTES | Receive buffer size (bytes). `0` lets the kernel autotune it (recommended). Nano sets 131072 (`values-overrides/nano.yaml`). | 0           |
+| SERVER_PORT                             | Default port for all services. Individual plugins may bind to a different port via their own config.                         | 40840       |
+| SERVER_SHUTDOWN_DELAY_MILLIS            | Delay before shutdown (ms).                                                                                                  | 500         |
+| SERVER_MAX_TCP_CONNECTIONS              | Max TCP connections allowed.                                                                                                 | 1000        |
+| SERVER_IDLE_CONNECTION_PERIOD_MINUTES   | Period for idle connections check (minutes).                                                                                 | 5           |
+| SERVER_IDLE_CONNECTION_TIMEOUT_MINUTES  | Timeout for idle connections (minutes).                                                                                      | 30          |
+| SERVER_TCP_NO_DELAY                     | Disable Nagle's algorithm (TCP_NODELAY). Reduces latency for small, frequent writes.                                         | true        |
+| SERVER_BACKLOG_SIZE                     | Maximum length of the queue of incoming connections on the server socket.                                                    | 8,192       |
+| SERVER_WRITE_QUEUE_LENGTH               | Number of write buffers queued for write operations. HTTP/1.1 only; HTTP/2 (gRPC) frames bypass this queue.                  | 8,192       |
+
+With the default `0`, the Block Node does not set the socket buffers, and the kernel autotunes each connection's
+buffers up to the maximum in `net.ipv4.tcp_rmem` / `net.ipv4.tcp_wmem` (typically 6 MB / 4 MB on Linux). A positive size
+turns off autotuning for that buffer, and the kernel silently caps it at `net.core.rmem_max` / `net.core.wmem_max`
+(Linux default 212,992 bytes), which limits every stream to about that much data per round trip. If you set explicit
+sizes, raise both sysctls on the host to at least those sizes. The Block Node logs a WARNING at startup when the kernel
+grants less than configured.
 
 ### WebServerHttp2 Configuration
 
