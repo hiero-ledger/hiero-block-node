@@ -108,6 +108,8 @@ class StreamPublisherPluginRegressionTest
 
         // Publisher 2 connects and sends block 5 — expects SKIP.
         final TestPipeline publisher2 = createNewPipeline();
+        // Drop the acknowledgement of the latest persisted block sent on connect
+        publisher2.fromPluginBytes().clear();
         final TestBlock fullBlock5 = TestBlockBuilder.generateBlockWithNumber(stalledBlock);
         sendBlock(publisher2.toPluginPipe(), fullBlock5);
         endThisBlock(publisher2.toPluginPipe(), stalledBlock);

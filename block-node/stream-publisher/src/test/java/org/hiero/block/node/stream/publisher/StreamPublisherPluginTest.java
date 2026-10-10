@@ -294,6 +294,8 @@ class StreamPublisherPluginTest {
             // Open a fresh stream to simulate a new publisher connection carrying on with
             // block 1.
             setupNewPipelines();
+            // Drop the acknowledgement of the latest persisted block sent on connect
+            fromPluginBytes.clear();
             // Resend block 1 in the usual three batches (header, round, proof). With the bug
             // fixed the plugin should now accept the resend and acknowledge block 1.
             final PublishStreamRequestUnparsed retryHeaderRequest = PublishStreamRequestUnparsed.newBuilder()
@@ -487,6 +489,8 @@ class StreamPublisherPluginTest {
             final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                     .blockItems(block.asItemSetUnparsed())
                     .build();
+            // Drop the acknowledgement of the latest persisted block sent on connect
+            fromPluginBytes.clear();
             // Send the request to the pipeline
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
             // Await to ensure async execution and assert response
@@ -535,6 +539,8 @@ class StreamPublisherPluginTest {
             final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                     .blockItems(block.asItemSetUnparsed())
                     .build();
+            // Drop the acknowledgement of the latest persisted block sent on connect
+            fromPluginBytes.clear();
             // Send the request to the pipeline
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
             // Await to ensure async execution and assert response
@@ -579,6 +585,8 @@ class StreamPublisherPluginTest {
             final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                     .blockItems(block.asItemSetUnparsed())
                     .build();
+            // Drop the acknowledgement of the latest persisted block sent on connect
+            fromPluginBytes.clear();
             // Send the request to the pipeline
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
             // Await to ensure async execution and assert response
@@ -1168,6 +1176,8 @@ class StreamPublisherPluginTest {
             final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                     .blockItems(block.asItemSetUnparsed())
                     .build();
+            // Drop the acknowledgement of the latest persisted block sent on connect
+            fromPluginBytes.clear();
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
             awaitPluginResponses(1);
             assertThat(fromPluginBytes)
