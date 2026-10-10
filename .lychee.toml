@@ -21,6 +21,7 @@ exclude_path = [
   ".gradle",         # Gradle cache
   "protobuf-sources", # Git submodule — README links are relative to the source repo, not this one
   ".github",         # PR/issue templates contain placeholder links
+  "tools-and-tests/tools/bin", # Local Gradle application distribution — generated, not committed
 ]
 
 # HTTP status codes accepted as valid (handles rate-limiting gracefully)

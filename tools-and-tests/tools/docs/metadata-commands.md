@@ -182,4 +182,4 @@ Metadata files are used by other commands in the tools:
 - [`blocks wrap`](blocks-commands.md#the-wrap-subcommand) - Uses block_times.bin and day_blocks.json for conversion
 - [`days download-*`](days-commands.md) - Uses listingsByDay for downloading record files
 - [`mirror extractBlockTimes`](mirror-node-commands.md#extractblocktimes) - Creates block_times.bin
-- [`mirror extractDayBlock`](mirror-node-commands.md#extractdayblock) - Creates day_blocks.json
+- [`mirror extractDayBlock`](mirror-node-commands.md#extractdayblocks) - Creates day_blocks.json
