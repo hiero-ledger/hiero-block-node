@@ -18,42 +18,35 @@ import java.util.List;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 
-/// Walks the items of a verified block once, applying every `state_changes`
-/// mutation to a `BinaryState` owned by the state-management plugin and
-/// returning the per-block metadata (`blockNumber`, `roundNumber`,
-/// applied-change count) on the way out.
+/// Walks a verified block once, applying every `state_changes` mutation to a `BinaryState`
+/// and returning the per-block metadata (`blockNumber`, `roundNumber`, applied-change count).
 ///
 /// ## Storage encoding
-/// Each variant of `StateChange` is translated to its corresponding
-/// `BinaryState` write call. The bytes handed off are the PBJ-encoded
-/// carrier message (`MapChangeKey`, `MapChangeValue`,
-/// `SingletonUpdateChange`, `QueuePushChange`) so the wire form is
-/// consistent on read-back through the `getBinary*` RPCs.
+/// Each `StateChange` variant is translated to its `BinaryState` write call using the
+/// PBJ-encoded carrier bytes (`MapChangeKey`, `MapChangeValue`, `SingletonUpdateChange`,
+/// `QueuePushChange`), so reads through the `getBinary*` RPCs get back the same wire form.
 ///
 /// ## Why no separate `inspectBlock`
-/// The plugin needs `BlockFooter.startOfBlockStateRootHash` BEFORE applying so
-/// it can validate the incoming block lines up with our live state. We don't
-/// re-walk the whole block for that — instead `extractStartOfBlockStateRootHash`
-/// scans the items list from the end (the footer is always the second-to-last
-/// item in the stream, so this is O(1) in practice) and pulls the hash without
-/// touching state.
+/// The plugin needs `BlockFooter.startOfBlockStateRootHash` before applying, to validate the
+/// incoming block against our live state. `extractStartOfBlockStateRootHash` gets it without
+/// a full walk by scanning from the end until it finds the footer — no index assumed, so
+/// errata/amendment items after the footer don't break it.
 final class StateChangeApplier {
 
     private static final System.Logger LOGGER = System.getLogger(StateChangeApplier.class.getName());
 
     /// Outcome of a single block apply.
     ///
-    /// @param blockNumber the block number parsed from the block header, or `-1` if unparseable
-    /// @param roundNumber the round number parsed from the round header, or `-1` if absent
+    /// @param blockNumber the block number, or `-1` if unparseable
+    /// @param roundNumber the round number, or `-1` if absent
     /// @param appliedChanges the number of `state_changes` mutations applied
     record ApplyResult(long blockNumber, long roundNumber, int appliedChanges) {}
 
-    /// Apply every `state_changes` item in `block` to `binaryState` and return
-    /// the metadata extracted along the way.
+    /// Apply every `state_changes` item in `block` to `binaryState`.
     ///
     /// @param binaryState the state to mutate
     /// @param block the verified block whose items are walked once
-    /// @return the per-block metadata (`blockNumber`, `roundNumber`, applied-change count)
+    /// @return the per-block metadata
     /// @throws IllegalStateException if a `state_changes` item is malformed.
     @NonNull
     ApplyResult applyBlock(@NonNull final BinaryState binaryState, @NonNull final BlockUnparsed block) {
@@ -92,10 +85,9 @@ final class StateChangeApplier {
         return new ApplyResult(blockNumber, roundNumber, applied);
     }
 
-    /// Pull the `BlockFooter.startOfBlockStateRootHash` from a block without
-    /// walking the whole item list. The footer is always near the end of the
-    /// stream (BlockProof is last, BlockFooter is immediately before it), so a
-    /// reverse scan is O(1) in practice.
+    /// Pull the `BlockFooter.startOfBlockStateRootHash` from a block without walking the
+    /// whole item list: scans backward from the end until it finds the footer, with no
+    /// position assumed.
     ///
     /// @param block the block to scan
     /// @return the hash, or `null` if the block has no parseable footer.
@@ -118,33 +110,16 @@ final class StateChangeApplier {
         return null;
     }
 
-    /// Pull the block number from a block's `BlockHeader` without applying it.
-    /// Used for diagnostic logging (e.g. naming the offending block on a hash
-    /// mismatch) before the block is walked by `applyBlock`.
-    ///
-    /// @param block the block to scan
-    /// @return the block number, or `-1` if no header is present or it is unparseable
-    static long extractBlockNumber(@NonNull final BlockUnparsed block) {
-        for (final BlockItemUnparsed item : block.blockItems()) {
-            if (item.hasBlockHeader()) {
-                try {
-                    return BlockHeader.PROTOBUF.parse(item.blockHeaderOrThrow()).number();
-                } catch (final Exception ignored) {
-                    return -1L;
-                }
-            }
-        }
-        return -1L;
-    }
-
-    /// Translate each `StateChange` in `changes` into the matching `BinaryState`
-    /// write call (singleton update, KV update/delete, queue push/pop). Schema-level
-    /// events (`STATE_ADD`, `STATE_REMOVE`, `UNSET`) are out of scope for live-state v1
-    /// and are skipped with a DEBUG log.
+    /// Translate each `StateChange` into the matching `BinaryState` write call. Schema-level
+    /// events (`STATE_ADD`, `STATE_REMOVE`, `UNSET`) are out of scope for live-state v1 and
+    /// are skipped with a DEBUG log.
     ///
     /// @param binaryState the state to mutate
     /// @param changes the list of changes to apply
     /// @return the number of changes actually applied (skipped schema events excluded)
+    // TODO: support partial diffs (PBJ diff changes, hashgraph/pbj#960) once the CN partial-
+    // update format is confirmed — read the current value, apply the partial payload +
+    // clearedFields via PBJ, write the full value back (see StateChangesValidator upstream).
     private static int applyChanges(@NonNull final BinaryState binaryState, @NonNull final List<StateChange> changes) {
         int count = 0;
         for (final StateChange change : changes) {

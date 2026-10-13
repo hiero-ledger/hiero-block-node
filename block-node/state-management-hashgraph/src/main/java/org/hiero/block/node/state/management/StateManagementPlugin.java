@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.state.management;
 
+import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.base.time.Time;
 import com.swirlds.state.merkle.VirtualMapState;
@@ -10,6 +12,7 @@ import edu.umd.cs.findbugs.annotations.Nullable;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -19,6 +22,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 import org.hiero.base.file.FileSystemManager;
 import org.hiero.block.api.StateMetadata;
+import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -34,7 +38,7 @@ import org.hiero.metrics.ObservableGauge;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
 
-/// Beta plugin that maintains a live, queryable copy of Hashgraph network state inside
+/// State plugin that maintains a live, queryable copy of Hashgraph network state inside
 /// the Block Node by replaying verified block-stream state changes onto a
 /// `VirtualMapStateLifecycleManager`-managed state.
 ///
@@ -84,7 +88,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
 
     /// Latest applied state metadata. Volatile because reads happen on query threads.
     ///
-    /// Concurrency note (accepted for beta): `metadata` and `attestedImmutable` are updated as
+    /// Concurrency note: `metadata` and `attestedImmutable` are updated as
     /// two separate volatile writes in the lag-1 commit (see `applyBlockStateChanges`), not one
     /// atomic swap. Both are only ever written from the single apply thread, so the window is
     /// tiny; worst case is a stale-but-attested read, never a crash.
@@ -121,7 +125,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
 
     /// Block number of the most recent block whose state_changes have been applied to the
     /// mutable state. Distinct from `metadata.blockNumber` because of the lag-1 commit:
-    /// `metadata.blockNumber` is the most recently *committed* (visible to readers) block;
+    /// `metadata.blockNumber` is the most recently *attested* (visible to readers) block;
     /// `lastAppliedBlock` is the staging block whose changes live in the mutable copy and will
     /// be committed when the next block's footer confirms them. `-1` until the first apply.
     private volatile long lastAppliedBlock = -1L;
@@ -163,15 +167,13 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             this.lifecycleManager = new VirtualMapStateLifecycleManager(
                     new NoOpMetrics(), Time.getCurrent(), context.configuration(), new FileSystemManager(fsmRoot));
         } catch (final RuntimeException e) {
-            // Fatal misconfiguration — log and request a graceful node shutdown via the health
-            // facility rather than throw out of init() (which would abort BlockNodeApp
-            // construction with no plugin isolation).
+            // Non-fatal: this plugin stays inert (lifecycleManager == null, start() no-ops) but
+            // the rest of the Block Node — block streaming included — is unaffected.
             LOGGER.log(
                     System.Logger.Level.WARNING,
-                    "Could not prepare state directory {0}; requesting Block Node shutdown.",
+                    "Failed to prepare state directory {0}.",
                     config.snapshotRecentPath(),
                     e);
-            context.serverHealth().shutdown(name(), "Could not prepare state directory");
         }
         registerMetrics(context.metricRegistry());
     }
@@ -207,8 +209,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     @Override
     public void start() {
         if (lifecycleManager == null) {
-            // init() could not prepare the state directory and requested a node shutdown;
-            // there is nothing to start.
+            // init() could not prepare the state directory; there is nothing to start.
             return;
         }
         loadPersistedState();
@@ -239,10 +240,8 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// {@inheritDoc}
     @Override
     public void handleVerification(@NonNull final VerificationNotification notification) {
-        // Once apply is halted, applyPending() never drains pendingBlocks again until a restart
-        // — staging more blocks in the meantime would only grow memory without bound, since
-        // nothing durable is lost: catchUpFromHistoricalBlocks() re-derives pendingBlocks from
-        // historical storage on the next start.
+        // Halted apply means pendingBlocks is frozen — restart re-derives it from historical
+        // storage, so there is nothing to lose by not staging more here.
         if (!notification.success() || notification.block() == null || applyHalted.get()) {
             return;
         }
@@ -516,7 +515,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         final long applyStartMs = System.currentTimeMillis();
         // Block number is pulled up-front purely for diagnostics — the apply path below
         // re-parses it from the header as the authoritative value.
-        final long incomingBlock = StateChangeApplier.extractBlockNumber(block);
+        final long incomingBlock = incomingBlockNumberOf(block);
         final Bytes startHash = StateChangeApplier.extractStartOfBlockStateRootHash(block);
         if (startHash == null) {
             LOGGER.log(
@@ -609,6 +608,24 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         attestedImmutable = newAttested;
         if (previous != null && previous != newAttested) {
             previous.getRoot().release();
+        }
+    }
+
+    /// The block number from `block`'s `BlockHeader`, for diagnostics only. A verified block
+    /// always starts with a `BlockHeader` (see `VerificationServicePlugin.validateStartOfBlock`).
+    ///
+    /// @param block the block to read
+    /// @return the block number, or `-1` if the first item isn't a parseable `BlockHeader`
+    private static long incomingBlockNumberOf(@NonNull final BlockUnparsed block) {
+        final List<BlockItemUnparsed> items = block.blockItems();
+        final BlockItemUnparsed first = items.isEmpty() ? null : items.getFirst();
+        if (first == null || !first.hasBlockHeader()) {
+            return -1L;
+        }
+        try {
+            return BlockHeader.PROTOBUF.parse(first.blockHeaderOrThrow()).number();
+        } catch (final ParseException e) {
+            return -1L;
         }
     }
 
