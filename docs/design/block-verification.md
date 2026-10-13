@@ -38,7 +38,7 @@ contiguous, in order stream of verified blocks they can process safely.
 > **Companion document.** The hashing stage of verification, including how block
 > items are placed into subtree categories and how the design stays forward
 > compatible with future item types, is described in
-> [Block Stream Forward Compatibility](./block-stream-forward-compatibility.md).
+> [Block Stream Forward Compatibility](block-stream-forward-compatibility.md).
 
 ## Goals
 
@@ -196,7 +196,7 @@ stage skips the remaining work and goes straight to result handling.
    absent, so Merkle proof paths are stable across presence patterns. How
    items map to subtrees, and how this stage remains forward compatible with
    future item types, is described in
-   [Block Stream Forward Compatibility](./block-stream-forward-compatibility.md).
+   [Block Stream Forward Compatibility](block-stream-forward-compatibility.md).
 2. **Proof verification.** The `BlockVerifier` checks every proof present in the
    block against the computed root hash. Each recognized proof type (TSS, RSA
    record file, state proof) has its own verifier. *All* proofs present must
