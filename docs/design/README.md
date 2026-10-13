@@ -24,6 +24,51 @@
 | [Change CLI Wrap Algorithm](change-cli-wrap-algorithm.md)                   | CLI wrap algorithm change proposal                             |
 | [Communication Protocol](communication-protocol/README.md)                  | Block Node communication protocol                              |
 
+### APIs
+
+|                            Document                            |                  Topic                   |
+|----------------------------------------------------------------|------------------------------------------|
+| [API Throttling and Admission Control](apis/api-throttling.md) | Request throttling and admission control |
+| [ServerStatus API](apis/server-status-api.md)                  | Server status API design                 |
+
+### Architecture
+
+|                                  Document                                  |                        Topic                         |
+|----------------------------------------------------------------------------|------------------------------------------------------|
+| [Logging Architecture](architecture/Logging-Architecture.md)               | Logging framework, level policy, and coding patterns |
+| [Nano-Service Approach](architecture/Nano-Service-Approach.md)             | Nano-service architectural pattern                   |
+| [Current Plugin Architecture](architecture/current-plugin-architecture.md) | Current plugin system design                         |
+| [New Plugin Architecture](architecture/new-plugin-architecture.md)         | Proposed plugin architecture improvements            |
+
+### Persistence
+
+|                                Document                                |                Topic                 |
+|------------------------------------------------------------------------|--------------------------------------|
+| [Retention Policy](persistence/block-node-retention-policy.md)         | Block retention and eviction policy  |
+| [Block Persistence](persistence/block-persistence.md)                  | Block storage and retrieval design   |
+| [Cloud Storage Expanded Plugin](persistence/cloud-storage-expanded.md) | Expanded cloud storage plugin design |
+
+### Proofs
+
+|                       Document                        |           Topic            |
+|-------------------------------------------------------|----------------------------|
+| [Block Contents Proof](proofs/block-content-proof.md) | Block content proof design |
+
+### Streaming
+
+|                                    Document                                     |                  Topic                  |
+|---------------------------------------------------------------------------------|-----------------------------------------|
+| [Bi-directional Streaming](streaming/bidi-producer-consumers-streaming.md)      | Producer/consumer gRPC streaming design |
+| [Closed-Range Historic Streaming](streaming/closed-range-historic-streaming.md) | Closed-range historic block streaming   |
+| [Open-Range Historic Streaming](streaming/open-range-historic-streaming.md)     | Open-range historic block streaming     |
+
+### WRB Streaming
+
+|                                Document                                 |                 Topic                 |
+|-------------------------------------------------------------------------|---------------------------------------|
+| [Bootstrap RSA Roster Plugin](wrb-streaming/bootstrap-roster-plugin.md) | RSA roster bootstrap plugin design    |
+| [Special-Purpose WRB Block Node](wrb-streaming/sp-wrb-bn-design.md)     | Special-purpose WRB Block Node design |
+
 ### Archived
 
 |                     Document                      |              Topic              |
