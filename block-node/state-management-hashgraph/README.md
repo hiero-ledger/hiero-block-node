@@ -65,13 +65,8 @@ All values written to `BinaryState` are PBJ-encoded carriers from
 
 ## Configuration
 
-Bound under `@ConfigData("state.management")` in `StateManagementConfig`:
-
-|          Property          |                        Default                        |                       Notes                       |
-|----------------------------|-------------------------------------------------------|---------------------------------------------------|
-| `stateMetadataPath`        | `/opt/hiero/block-node/data/state/stateMetadata.json` | JSON file with the latest metadata                |
-| `stateSnapshotRecentPath`  | `/opt/hiero/block-node/data/state/snapshot/recent`    | Snapshot directories, read on restore             |
-| `historicCatchUpBatchSize` | `64`                                                  | Blocks fetched per batch during start-up catch-up |
+Bound under `@ConfigData("state.management")` in `StateManagementConfig` — see
+`docs/design/state/live-state.md` §4 for the full property table.
 
 There is no `enabled` flag. Block-Node plugins are active whenever their
 jar is on the classpath; opt-in lives in the deployment manifest.

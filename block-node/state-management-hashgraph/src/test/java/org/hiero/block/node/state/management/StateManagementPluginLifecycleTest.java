@@ -261,12 +261,13 @@ class StateManagementPluginLifecycleTest {
     }
 
     @Test
-    void unwritableStateDirRequestsShutdownWithoutThrowing(@TempDir final Path tmp) throws Exception {
+    void unwritableStateDirStaysInertWithoutThrowing(@TempDir final Path tmp) throws Exception {
         // Make the configured recent-snapshot path impossible to create: its parent is a
         // regular file, so directory creation fails (mirrors a non-writable /opt/hiero in a
-        // real deployment). init() must log and request a graceful node shutdown via the health
-        // facility rather than throw — an unchecked exception out of init() would abort
-        // BlockNodeApp construction and take down every other plugin.
+        // real deployment). init() must log and leave the plugin inert rather than throw or
+        // shut down the Block Node — a storage failure in this one plugin shouldn't stop
+        // block streaming, and an unchecked exception out of init() would abort BlockNodeApp
+        // construction and take down every other plugin.
         final Path blocker = tmp.resolve("blocker");
         Files.writeString(blocker, "not a directory");
         final Path badRecent = blocker.resolve("state/recent");
@@ -298,8 +299,8 @@ class StateManagementPluginLifecycleTest {
         plugin.start();
 
         assertThat(health.shutdownRequested)
-                .as("init() requests a graceful node shutdown on an unusable state dir")
-                .isTrue();
+                .as("a storage failure in this plugin must not shut down the whole Block Node")
+                .isFalse();
         assertThat(plugin.isReady()).isFalse();
         plugin.stop();
     }
