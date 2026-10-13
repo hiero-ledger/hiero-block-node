@@ -203,10 +203,9 @@ class StateManagementPluginLifecycleTest {
                 .withConfigDataType(VirtualMapConfig.class)
                 .withConfigDataType(PathsConfig.class)
                 .withValue(
-                        "state.management.stateMetadataPath",
-                        tmp.resolve("md.json").toString())
+                        "state.management.metadataPath", tmp.resolve("md.json").toString())
                 .withValue(
-                        "state.management.stateSnapshotRecentPath",
+                        "state.management.snapshotRecentPath",
                         tmp.resolve("recent").toString())
                 .build();
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
@@ -278,9 +277,8 @@ class StateManagementPluginLifecycleTest {
                 .withConfigDataType(VirtualMapConfig.class)
                 .withConfigDataType(PathsConfig.class)
                 .withValue(
-                        "state.management.stateMetadataPath",
-                        tmp.resolve("md.json").toString())
-                .withValue("state.management.stateSnapshotRecentPath", badRecent.toString())
+                        "state.management.metadataPath", tmp.resolve("md.json").toString())
+                .withValue("state.management.snapshotRecentPath", badRecent.toString())
                 .build();
         final RecordingHealthFacility health = new RecordingHealthFacility();
         final BlockNodeContext context = new BlockNodeContext(
@@ -330,8 +328,8 @@ class StateManagementPluginLifecycleTest {
                 .withConfigDataType(MerkleDbConfig.class)
                 .withConfigDataType(VirtualMapConfig.class)
                 .withConfigDataType(PathsConfig.class)
-                .withValue("state.management.stateMetadataPath", metadataPath.toString())
-                .withValue("state.management.stateSnapshotRecentPath", recentRoot.toString())
+                .withValue("state.management.metadataPath", metadataPath.toString())
+                .withValue("state.management.snapshotRecentPath", recentRoot.toString())
                 .build();
         final BlockNodeContext context = new BlockNodeContext(
                 configuration, MetricRegistry.builder().build(), null, facility, null, null, null, null, null);

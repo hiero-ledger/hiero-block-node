@@ -9,9 +9,9 @@ import com.swirlds.config.api.ConfigProperty;
 @ConfigData("state.management")
 public record StateManagementConfig(
         @ConfigProperty(defaultValue = "/opt/hiero/block-node/data/state/stateMetadata.json")
-        String stateMetadataPath,
+        String metadataPath,
 
         @ConfigProperty(defaultValue = "/opt/hiero/block-node/data/state/snapshot/recent")
-        String stateSnapshotRecentPath,
+        String snapshotRecentPath,
 
         @ConfigProperty(defaultValue = "64") int historicCatchUpBatchSize) {}
