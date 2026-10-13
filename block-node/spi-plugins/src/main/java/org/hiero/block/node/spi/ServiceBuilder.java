@@ -45,7 +45,10 @@ public interface ServiceBuilder {
     ///     connections on listener sockets
     /// @param idleConnectionTimeoutMinutes the maximum time to allow a
     ///     connection on a listener socket to remain idle before it is closed.
-    ///     Only applies to HTTP/1 connections.
+    ///     Applies to both HTTP/1 and HTTP/2 connections at the listener-socket
+    ///     level, but only closes the underlying TCP connection; it does not
+    ///     proactively notify an in-flight HTTP/2 stream handler, which only
+    ///     learns of the closure reactively, on its next write attempt.
     public static record CommonSocketValues(
             int backlogSize,
             int writeQueueLength,
