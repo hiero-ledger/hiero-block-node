@@ -153,13 +153,13 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
         this.context = context;
         this.config = context.configuration().getConfigData(StateManagementConfig.class);
-        this.metadataStore = new StateMetadataStore(Path.of(config.stateMetadataPath()));
+        this.metadataStore = new StateMetadataStore(Path.of(config.metadataPath()));
         this.applier = new StateChangeApplier();
         try {
             // Anchor FileSystemManager at the configured recent-snapshot path so the lifecycle
             // manager's scratchpad lives next to the snapshots. First filesystem touch — fails
             // here if the configured state directory is not writable.
-            final Path fsmRoot = Path.of(config.stateSnapshotRecentPath());
+            final Path fsmRoot = Path.of(config.snapshotRecentPath());
             this.lifecycleManager = new VirtualMapStateLifecycleManager(
                     new NoOpMetrics(), Time.getCurrent(), context.configuration(), new FileSystemManager(fsmRoot));
         } catch (final RuntimeException e) {
@@ -169,7 +169,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             LOGGER.log(
                     System.Logger.Level.WARNING,
                     "Could not prepare state directory {0}; requesting Block Node shutdown.",
-                    config.stateSnapshotRecentPath(),
+                    config.snapshotRecentPath(),
                     e);
             context.serverHealth().shutdown(name(), "Could not prepare state directory");
         }
@@ -630,10 +630,10 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// The recent-snapshot directory path for a given block number.
     ///
     /// @param blockNumber the block number
-    /// @return the directory path under `stateSnapshotRecentPath` for that block
+    /// @return the directory path under `snapshotRecentPath` for that block
     @NonNull
     private Path recentSnapshotDirectoryFor(final long blockNumber) {
-        return Path.of(config.stateSnapshotRecentPath(), Long.toString(blockNumber));
+        return Path.of(config.snapshotRecentPath(), Long.toString(blockNumber));
     }
 
     /// The root hash of a sealed state, or empty if the state/root is absent or not yet hashed.

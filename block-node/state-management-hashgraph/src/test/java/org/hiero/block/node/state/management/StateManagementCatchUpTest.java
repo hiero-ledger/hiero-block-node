@@ -213,10 +213,9 @@ class StateManagementCatchUpTest {
                 .withConfigDataType(VirtualMapConfig.class)
                 .withConfigDataType(PathsConfig.class)
                 .withValue(
-                        "state.management.stateMetadataPath",
-                        tmp.resolve("md.json").toString())
+                        "state.management.metadataPath", tmp.resolve("md.json").toString())
                 .withValue(
-                        "state.management.stateSnapshotRecentPath",
+                        "state.management.snapshotRecentPath",
                         tmp.resolve("recent").toString())
                 .withValue("state.management.historicCatchUpBatchSize", "2")
                 .build();
