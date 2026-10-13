@@ -50,26 +50,26 @@ message BinaryStateQuery {
          * instead of using `block_number` when the intent is "whatever
          * state the Block-Node has caught up to".
          */
-        bool retrieve_latest = 5;
+        bool retrieve_latest = 2;
     }
 
     /**
      * The integer state identifier as defined in `virtual_map_state.proto`.
      */
-    uint64 state_id = 2;
+    uint64 state_id = 3;
 
     /**
      * Domain-encoded key bytes for `getBinaryKV`. MUST be empty for
      * singleton and queue requests.
      */
-    bytes key_bytes = 3;
+    bytes key_bytes = 4;
 
     /**
      * 1-indexed queue index for `getBinaryQueue`. Set to a value of `1` or greater to retrieve
      * a single queue element (`1` is the first element); omit (or set to `0`) to request the
      * full queue.
      */
-    uint64 queue_index = 4;
+    uint64 queue_index = 5;
 }
 
 /**

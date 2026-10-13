@@ -1,8 +1,6 @@
 # Live Hashgraph State — Design Doc
 
-> Status: **Beta / experimental** — not yet listed in chart deployments. Plugins
-> outside the chart manifest are considered beta. See
-> `docs/block-node/architecture/architecture-overview.md`.
+> Status: **Beta / experimental** — not yet listed in chart deployments.
 
 ## 1. Purpose & Goals
 
@@ -11,12 +9,12 @@ Node so that other plugins and external clients can answer state queries
 (`getBinaryKV`, `getBinarySingleton`, `getBinaryQueue`) without depending on a
 Consensus Node.
 
-Initial scope (this epic):
+Initial scope (#196):
 
 1. A single new plugin, `state-management-hashgraph`, owning state load, apply,
    snapshot, and binary state query.
 2. Persistence of state-on-disk snapshots under
-   `${stateSnapshotRecentPath}/<blockNumber>` matching the consensus-node
+   `${snapshotRecentPath}/<blockNumber>` matching the consensus-node
    `data/state/` spec (see
    `hiero-consensus-node/platform-sdk/swirlds-state-api/docs/state-snapshot-spec.md`).
 3. New protobuf surface: `StateMetadata`, `BinaryStateQuery`,
@@ -28,7 +26,7 @@ Explicitly out of scope:
 
 - Historical state queries (only the current immutable snapshot is queryable).
 - Remote archival / S3 of snapshots.
-- Block stream **filtering** — separate epic, tracked independently.
+- Hiero entity get APIs e.g. getStateById.
 
 ## 2. Architectural overview
 
@@ -106,14 +104,14 @@ used for `swirlds-config-*`.
 
 ## 4. Configuration (`@ConfigData("state.management")`)
 
-|              Property               |                        Default                        |                                         Notes                                          |
-|-------------------------------------|-------------------------------------------------------|----------------------------------------------------------------------------------------|
-| `stateMetadataPath`                 | `/opt/hiero/block-node/data/state/stateMetadata.json` | Path to the metadata file.                                                             |
-| `stateSnapshotRecentPath`           | `/opt/hiero/block-node/data/state/snapshot/recent`    | Directory for live snapshot dirs (`<blockNumber>/`).                                   |
-| `snapshotIntervalMillis`            | `900000` (15m)                                        | Periodic snapshot cadence.                                                             |
-| `historicCatchUpBatchSize`          | `64`                                                  | Blocks pulled per catch-up loop iteration.                                             |
-| `stateSnapshotRecentRetentionCount` | `3`                                                   | Recent snapshot dirs kept on disk (oldest pruned).                                     |
-| `port`                              | `null` (share `server.port`)                          | Dedicated port for the `StateService` gRPC API; `null` shares the default server port. |
+|            Property            |                        Default                        |                                         Notes                                          |
+|--------------------------------|-------------------------------------------------------|----------------------------------------------------------------------------------------|
+| `metadataPath`                 | `/opt/hiero/block-node/data/state/stateMetadata.json` | Path to the metadata file.                                                             |
+| `snapshotRecentPath`           | `/opt/hiero/block-node/data/state/snapshot/recent`    | Directory for live snapshot dirs (`<blockNumber>/`).                                   |
+| `snapshotIntervalMillis`       | `900000` (15m)                                        | Periodic snapshot cadence.                                                             |
+| `historicCatchUpBatchSize`     | `64`                                                  | Blocks pulled per catch-up loop iteration.                                             |
+| `snapshotRecentRetentionCount` | `3`                                                   | Recent snapshot dirs kept on disk (oldest pruned).                                     |
+| `port`                         | `null` (share `server.port`)                          | Dedicated port for the `StateService` gRPC API; `null` shares the default server port. |
 
 There is no apply-interval setting: state changes are applied the moment a verified block
 arrives (see §6.5), not on a timer.
@@ -131,7 +129,7 @@ message StateMetadata {
 }
 ```
 
-Persisted on disk as JSON at `stateMetadataPath` (lightweight, human-readable —
+Persisted on disk as JSON at `metadataPath` (lightweight, human-readable —
 the snapshot dir itself carries the binary state). Serialised form is
 PBJ-driven so the wire format on the new `BinaryStateQuery` flow is the same as
 what is held in memory.
@@ -144,11 +142,11 @@ message BinaryStateQuery {
   // Exactly one of these MUST be set. Block 0 (genesis) is a valid block_number.
   oneof block_specifier {
     uint64 block_number    = 1;
-    bool   retrieve_latest = 5;
+    bool   retrieve_latest = 2;
   }
-  uint64 state_id    = 2;
-  bytes  key_bytes   = 3;        // KV key (mutually exclusive with queue_index)
-  uint64 queue_index = 4;        // Queue index (0-based, optional)
+  uint64 state_id    = 3;
+  bytes  key_bytes   = 4;        // KV key (mutually exclusive with queue_index)
+  uint64 queue_index = 5;        // Queue index (0-based, optional)
 }
 
 message BinaryStateQueryResponse {
@@ -167,6 +165,12 @@ message BinaryStateQueryResponse {
 }
 ```
 
+`kv_bytes`/`singleton_bytes`/`queue_bytes` are mutually exclusive (exactly one populated per
+RPC method) and were considered for a `oneof`, but `queue_bytes` is `repeated` and protobuf
+does not allow `repeated` fields inside a `oneof` — it would need a wrapper message
+(`QueueValues { repeated bytes values = 1; }`). That wrapping cost more devex than the
+`oneof` saved, so left as plain fields; revisit if this becomes a pain point in practice.
+
 RPC service updates on `state_service.proto`:
 
 ```proto
@@ -174,16 +178,8 @@ service StateService {
   rpc getBinaryKV(BinaryStateQuery)        returns (BinaryStateQueryResponse);
   rpc getBinarySingleton(BinaryStateQuery) returns (BinaryStateQueryResponse);
   rpc getBinaryQueue(BinaryStateQuery)     returns (BinaryStateQueryResponse);
-  // stateSnapshot RPC removed (was a placeholder, marked TEMPORARY in proto)
 }
 ```
-
-### 5.3 No state-update notification
-
-The plugin does not push notifications, and `ServerStatusDetailResponse` carries
-no state field (field 5 reserved). Consumers read the latest `StateMetadata`
-directly off the `BinaryStateQueryResponse`. A discoverable in-process read API
-for other plugins is a separate follow-up, not a push notification.
 
 ## 6. Plugin lifecycle
 
@@ -191,10 +187,7 @@ for other plugins is a separate follow-up, not a push notification.
 
 - Capture context.
 - Construct `VirtualMapStateLifecycleManager(metrics, time, configuration, fileSystemManager)`.
-  - `metrics` is a `NoOpMetrics` from `org.hiero.consensus.metrics.noop` (the
-    plugin's own metrics live in `hiero-metrics`; the swirlds bookkeeping is
-    not surfaced).
-  - `fileSystemManager` is `new FileSystemManager(Path.of(stateSnapshotRecentPath))`.
+  - `fileSystemManager` is `new FileSystemManager(Path.of(snapshotRecentPath))`.
     Anchoring the swirlds temp scratchpad next to the snapshots keeps disk
     layout predictable.
   - The constructor eagerly creates a genesis state which is replaced later
@@ -219,9 +212,6 @@ for other plugins is a separate follow-up, not a push notification.
    one-shot historical catch-up (§6.4), then blocks on a `BlockingQueue` and drains
    `pendingBlocks` the instant a verified block arrives (§6.5). Catch-up and live apply
    share the one worker thread, so `applyPending()` is only ever driven from one place.
-5. **`ready` is NOT yet set.** The catch-up task flips it to `true` when the
-   plugin is caught up to the latest historical block; query traffic returns
-   `NOT_READY` until then.
 
 ### 6.3 `handleVerification(VerificationNotification)`
 
@@ -231,7 +221,10 @@ for other plugins is a separate follow-up, not a push notification.
 - `offer` the block number to the apply worker's `BlockingQueue` to wake it immediately.
   The actual state mutation runs on the apply worker, not on the messaging thread, to keep
   the messaging dispatcher unblocked; `applyPending()` is guarded by a `ReentrantLock` so
-  the worker and direct (test) calls never mutate state concurrently.
+  the worker and direct (test) calls never mutate state concurrently. In production the
+  worker thread is the only caller (catch-up and live apply are sequential on it, never
+  concurrent), so the lock adds no production safety; it exists so tests can call
+  `applyPending()` directly without racing a running worker.
 
 ### 6.4 `catchUpFromHistoricalBlocks()` (one-shot on `start()`)
 
@@ -298,6 +291,11 @@ mutable, but only exposed once the *next* block's footer attests its root hash.
    - otherwise: must equal `hash(post-(N-1))`.
    - On mismatch: increment `hashMismatchTotal`, set `applyHalted=true`, log at ERROR, return
      without exposing anything. Further applies short-circuit on `applyHalted`.
+     `hashMismatchTotal` is a counter rather than a boolean because it's cumulative over the
+     node's lifetime: the hash-mismatch recovery protocol's bounded local retry can increment
+     it more than once per incident before `applyHalted` is finally set, and a restarted node
+     can hit an independent, later mismatch — `applyHalted` alone can't distinguish "never
+     happened" from "happened repeatedly".
 3. A match means N's footer attests post-(N-1). **Promote** state 2 → state 1
    (`attestedImmutable`) unless it is already exposed (e.g. just after a snapshot reload),
    reserving its reference, and record its `StateMetadata` with the just-computed hash.
@@ -314,11 +312,15 @@ reports NOT_READY. Snapshots capture `attestedImmutable`.
 
 ### 6.6 `saveSnapshot()` (scheduled, runs every `snapshotIntervalMillis`)
 
-1. If `metadata.blockNumber == lastSnapshottedBlock` → nothing new, skip.
+The schedule is the trigger — the executor invokes `saveSnapshot()` on a fixed delay
+regardless of whether anything changed. Step 1 below is a skip check, not the trigger: it
+decides whether that scheduled invocation has anything new to write.
+
+1. If `metadata.blockNumber <= lastSnapshottedBlock` → nothing new, skip.
 2. `lifecycleManager.createSnapshot(latestImmutable, recentPath/<blockNumber>)`
    writes the canonical consensus-node `data/state/` layout into the directory.
 3. `pruneOldRecentSnapshots(blockNumber)`: delete recent snapshot dirs beyond
-   `stateSnapshotRecentRetentionCount`, oldest first; the just-written
+   `snapshotRecentRetentionCount`, oldest first; the just-written
    `<blockNumber>` dir is always kept. Snapshots live only under `recentPath`
    (each dir hard-links into the live MerkleDb, so they are cheap). Long-term
    archival is out of scope for this plugin — a future archiving plugin owns
