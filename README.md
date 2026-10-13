@@ -28,16 +28,16 @@ Full documentation is organized at **[docs.hiero.org/block-node-home](https://do
 
 |                                     I am...                                      |                                                 Read first                                                 |                                              Then...                                               |
 |----------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------|
-| **New to Block Nodes** - want to understand what they are                        | [Block Node Introduction](docs/block-node/block-node-introduction.md)                                      | [Block Node Overview](docs/block-node/block-node-overview.md)                                      |
-| **A Tier 1 operator** - Council/trusted, connecting directly to a Consensus Node | [Block Node Overview](docs/block-node/block-node-overview.md)                                              | [Production Deployment Guide](docs/block-node/operations/production-guide/overview.md)             |
-| **A Tier 2 operator** - permissionless, connecting to an existing Block Node     | [Block Node Overview](docs/block-node/block-node-overview.md)                                              | [Single-Node K8s Deployment](docs/block-node/operations/single-node-k8s-deployment.md)             |
-| **A developer or integrator** - want to build on Block Node APIs                 | [Block Node Introduction](docs/block-node/block-node-introduction.md)                                      | [gRPC API Quickstart](docs/block-node/api-quickstart.md)                                           |
-| **A Mirror Node operator** - migrating from record files                         | [Record Stream to Block Stream Migration](docs/block-node/record-stream-to-block-stream-migration.md)      | [Connecting a Mirror Node](docs/block-node/operations/connecting-a-mirror-node-to-a-block-node.md) |
-| **A Consensus Node operator** - pairing my CN with a Block Node                  | [CN to Block Node Configuration](docs/block-node/operations/consensus-node-to-block-node-configuration.md) | [On-Chain Registration](docs/block-node/block-node-on-chain-registration.md)                       |
-| **Evaluating locally** - want a Block Node running in minutes                    | [Docker Compose Quickstart](docs/block-node/docker-compose-quickstart.md)                                  | [gRPC API Quickstart](docs/block-node/api-quickstart.md)                                           |
-| **A contributor** - want to fix bugs or add features                             | [Contributing Guide](docs/contributing)                                                                    | [Architecture Overview](docs/block-node/architecture/architecture-overview.md)                     |
+| **New to Block Nodes** - want to understand what they are                        | [Block Node Introduction](docs/block-node/overview/block-node-introduction.md)                                      | [Block Node Overview](docs/block-node/overview/block-node-overview.md)                                      |
+| **A Tier 1 operator** - Council/trusted, connecting directly to a Consensus Node | [Block Node Overview](docs/block-node/overview/block-node-overview.md)                                              | [Production Deployment Guide](docs/block-node/deploy/production-guide/overview.md)             |
+| **A Tier 2 operator** - permissionless, connecting to an existing Block Node     | [Block Node Overview](docs/block-node/overview/block-node-overview.md)                                              | [Single-Node K8s Deployment](docs/block-node/deploy/single-node-k8s-deployment.md)             |
+| **A developer or integrator** - want to build on Block Node APIs                 | [Block Node Introduction](docs/block-node/overview/block-node-introduction.md)                                      | [gRPC API Quickstart](docs/block-node/connect/api-quickstart.md)                                           |
+| **A Mirror Node operator** - migrating from record files                         | [Record Stream to Block Stream Migration](docs/block-node/cutover/record-stream-to-block-stream-migration.md)      | [Connecting a Mirror Node](docs/block-node/connect/connecting-a-mirror-node-to-a-block-node.md) |
+| **A Consensus Node operator** - pairing my CN with a Block Node                  | [CN to Block Node Configuration](docs/block-node/connect/consensus-node-to-block-node-configuration.md) | [On-Chain Registration](docs/block-node/configure/block-node-on-chain-registration.md)                       |
+| **Evaluating locally** - want a Block Node running in minutes                    | [Docker Compose Quickstart](docs/block-node/overview/docker-compose-quickstart.md)                                  | [gRPC API Quickstart](docs/block-node/connect/api-quickstart.md)                                           |
+| **A contributor** - want to fix bugs or add features                             | [Contributing Guide](docs/contributing)                                                                    | [Architecture Overview](docs/block-node/development/architecture/architecture-overview.md)                     |
 
-> **Not sure if you are Tier 1 or Tier 2?** Tier 1 nodes connect directly to Consensus Nodes and require Hiero Governing Council membership or authorization as a trusted network partner. Tier 2 nodes are permissionless - anyone can run one by connecting to an existing Block Node upstream. See [Block Node Overview](docs/block-node/block-node-overview.md) for the full breakdown.
+> **Not sure if you are Tier 1 or Tier 2?** Tier 1 nodes connect directly to Consensus Nodes and require Hiero Governing Council membership or authorization as a trusted network partner. Tier 2 nodes are permissionless - anyone can run one by connecting to an existing Block Node upstream. See [Block Node Overview](docs/block-node/overview/block-node-overview.md) for the full breakdown.
 
 ---
 
@@ -91,13 +91,13 @@ A successful response looks like this (block numbers will differ):
 |------------|--------------------------------------------------------------|-------------|
 | Previewnet | `lfh01.previewnet.blocknode.hashgraph-devops.com`            | 40982       |
 | Testnet    | `s01.test.blk.sgp.lat.ope.eng.hashgraph.io`                  | 40982       |
-| Mainnet    | see [gRPC API Quickstart](docs/block-node/api-quickstart.md) | 40982       |
+| Mainnet    | see [gRPC API Quickstart](docs/block-node/connect/api-quickstart.md) | 40982       |
 
 Each network has multiple endpoints. Public Block Node services each run on their own port: subscribe on `40980`, block access on `40981`, status on `40982`, health (HTTP) on `40983`.
 
 Block Node APIs are gRPC-based and work with any gRPC-compatible language - Java, Go, Python, Node.js, Rust, and more. The proto files in the bundle above are all you need to generate a client in your language of choice.
 
-See the [gRPC API Quickstart](docs/block-node/api-quickstart.md) for the full endpoint list and complete API call examples including `getBlock`, `subscribeBlockStream`, and block proofs.
+See the [gRPC API Quickstart](docs/block-node/connect/api-quickstart.md) for the full endpoint list and complete API call examples including `getBlock`, `subscribeBlockStream`, and block proofs.
 
 ---
 
@@ -129,7 +129,7 @@ grpcurl -plaintext -emit-defaults \
   org.hiero.block.api.BlockNodeService/serverStatus
 ```
 
-See the [Docker Compose Quickstart](docs/block-node/docker-compose-quickstart.md) for the full stack details, ports, Grafana dashboards, and how to simulate an incoming block stream.
+See the [Docker Compose Quickstart](docs/block-node/overview/docker-compose-quickstart.md) for the full stack details, ports, Grafana dashboards, and how to simulate an incoming block stream.
 
 ---
 
@@ -139,12 +139,12 @@ For production and staging environments, the Block Node is deployed on Kubernete
 
 |                                               Guide                                               |                                     Use case                                     |
 |---------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------|
-| [Production Deployment Guide](docs/block-node/operations/production-guide/overview.md)            | Full Tier 1 production checklist - prerequisites, install, go-live, steady-state |
-| [Solo Provisioner (GCP VM)](docs/block-node/operations/solo-weaver-single-node-k8s-deployment.md) | Provisions a GCP VM, installs Kubernetes, and deploys the Helm chart in one flow |
-| [Bare Metal / Cloud VM](docs/block-node/operations/single-node-k8s-deployment.md)                 | Bring-your-own Kubernetes cluster - Tier 1 or Tier 2                             |
-| [Network Ports and Protocols](docs/block-node/operations/network-ports-and-protocols.md)          | Firewall and security group rules required before any deployment                 |
-| [Hardware Specifications](docs/block-node/operations/block-node-hardware-specifications.md)       | CPU, RAM, NVMe, and network requirements by deployment profile                   |
-| [On-Chain Registration (HIP-1137)](docs/block-node/block-node-on-chain-registration.md)           | Required step for Tier 1 operators after deployment                              |
+| [Production Deployment Guide](docs/block-node/deploy/production-guide/overview.md)            | Full Tier 1 production checklist - prerequisites, install, go-live, steady-state |
+| [Solo Provisioner (GCP VM)](docs/block-node/deploy/solo-weaver-single-node-k8s-deployment.md) | Provisions a GCP VM, installs Kubernetes, and deploys the Helm chart in one flow |
+| [Bare Metal / Cloud VM](docs/block-node/deploy/single-node-k8s-deployment.md)                 | Bring-your-own Kubernetes cluster - Tier 1 or Tier 2                             |
+| [Network Ports and Protocols](docs/block-node/configure/network-ports-and-protocols.md)          | Firewall and security group rules required before any deployment                 |
+| [Hardware Specifications](docs/block-node/deploy/block-node-hardware-specifications.md)       | CPU, RAM, NVMe, and network requirements by deployment profile                   |
+| [On-Chain Registration (HIP-1137)](docs/block-node/configure/block-node-on-chain-registration.md)           | Required step for Tier 1 operators after deployment                              |
 
 The Helm chart source is in [`charts/block-node-server/`](charts/block-node-server/).
 
@@ -183,33 +183,33 @@ The Gradle wrapper is included - no separate Gradle installation required.
 
 ### Concepts and reference
 
-|           Topic            |                                                                                                Link                                                                                                |
-|----------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| What is a Block Node?      | [Introduction](docs/block-node/block-node-introduction.md) - [Overview](docs/block-node/block-node-overview.md)                                                                                    |
-| Architecture and internals | [Architecture Overview](docs/block-node/architecture/architecture-overview.md) - [Data Flow](docs/block-node/architecture/data-flow.md) - [Plugin System](docs/block-node/architecture/plugins.md) |
-| Configuration reference    | [Configuration](docs/block-node/configuration.md)                                                                                                                                                  |
-| Metrics and monitoring     | [Metrics](docs/block-node/metrics.md)                                                                                                                                                              |
-| Logging reference          | [Logging](docs/block-node/logging.md)                                                                                                                                                              |
-| Mirror Node integration    | [Mirror Node Integration](docs/block-node/mirror-node-integration.md) - [Record Stream Migration](docs/block-node/record-stream-to-block-stream-migration.md)                                      |
-| Glossary                   | [Glossary](docs/block-node/glossary.md)                                                                                                                                                            |
+|           Topic            |                                                                                                                        Link                                                                                                                        |
+|----------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| What is a Block Node?      | [Introduction](docs/block-node/overview/block-node-introduction.md) - [Overview](docs/block-node/overview/block-node-overview.md)                                                                                                                  |
+| Architecture and internals | [Architecture Overview](docs/block-node/development/architecture/architecture-overview.md) - [Data Flow](docs/block-node/development/architecture/data-flow.md) - [Plugin System](docs/block-node/development/architecture/plugins.md)              |
+| Configuration reference    | [Configuration](docs/block-node/configure/configuration.md)                                                                                                                                                                                        |
+| Metrics and monitoring     | [Metrics](docs/block-node/operate/metrics.md)                                                                                                                                                                                                      |
+| Logging reference          | [Logging](docs/block-node/operate/logging.md)                                                                                                                                                                                                      |
+| Mirror Node integration    | [Mirror Node Integration](docs/block-node/connect/mirror-node-integration.md) - [Record Stream Migration](docs/block-node/cutover/record-stream-to-block-stream-migration.md)                                                                       |
+| Glossary                   | [Glossary](docs/block-node/reference/glossary.md)                                                                                                                                                                                                  |
 
 ### Operations
 
-|                     Topic                      |                                                     Link                                                      |
-|------------------------------------------------|---------------------------------------------------------------------------------------------------------------|
-| Upgrading and resetting                        | [Resetting and Upgrading](docs/block-node/operations/resetting-and-upgrading-the-block-node.md)               |
-| Disaster recovery                              | [Disaster Recovery](docs/block-node/operations/production-guide/disaster-recovery.md)                         |
-| Wrapped Record Block (WRB) cutover preparation | [Preparing for WRB Cutover](docs/block-node/operations/preparing-your-block-node-for-wrb-cutover.md)          |
-| Testing a deployed node                        | [Testing with the Simulator](docs/block-node/operations/testing-a-deployed-block-node-using-the-simulator.md) |
-| Troubleshooting                                | [Troubleshooting Guide](docs/block-node/troubleshooting.md)                                                   |
-| Getting help                                   | [Getting Help](docs/block-node/operations/production-guide/getting-help.md)                                   |
+|                     Topic                      |                                                        Link                                                        |
+|------------------------------------------------|--------------------------------------------------------------------------------------------------------------------|
+| Upgrading and resetting                        | [Resetting and Upgrading](docs/block-node/operate/resetting-and-upgrading-the-block-node.md)                       |
+| Disaster recovery                              | [Disaster Recovery](docs/block-node/deploy/production-guide/disaster-recovery.md)                                  |
+| Wrapped Record Block (WRB) cutover preparation | [Preparing for WRB Cutover](docs/block-node/cutover/preparing-your-block-node-for-wrb-cutover.md)                  |
+| Testing a deployed node                        | [Testing with the Simulator](docs/block-node/operate/testing-a-deployed-block-node-using-the-simulator.md)         |
+| Troubleshooting                                | [Troubleshooting Guide](docs/block-node/operate/troubleshooting.md)                                                |
+| Getting help                                   | [Getting Help](docs/block-node/deploy/production-guide/getting-help.md)                                            |
 
 ### FAQs
 
-|      Topic      |                           Link                            |
-|-----------------|-----------------------------------------------------------|
-| Operator FAQ    | [Operator FAQ](docs/block-node/faq/operator-faq.md)       |
-| Integration FAQ | [Integration FAQ](docs/block-node/faq/integration-faq.md) |
+|      Topic      |                                  Link                                   |
+|-----------------|-------------------------------------------------------------------------|
+| Operator FAQ    | [Operator FAQ](docs/block-node/reference/faq/operator-faq.md)           |
+| Integration FAQ | [Integration FAQ](docs/block-node/reference/faq/integration-faq.md)     |
 
 ---
 
@@ -230,7 +230,7 @@ Releases follow semantic versioning. Each release is published to:
 | [GitHub Discussions](https://github.com/hiero-ledger/hiero-block-node/discussions) | Design questions, proposals, longer-form Q&A |
 | [GitHub Issues](https://github.com/hiero-ledger/hiero-block-node/issues)           | Bug reports, documentation improvements      |
 
-For production incident escalation, see the [Getting Help](docs/block-node/operations/production-guide/getting-help.md) guide.
+For production incident escalation, see the [Getting Help](docs/block-node/deploy/production-guide/getting-help.md) guide.
 
 ---
 

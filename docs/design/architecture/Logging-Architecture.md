@@ -10,8 +10,8 @@ as an onboarding reference for engineers and agents new to the project.
 Companion documents:
 
 - [`docs/logging-guidelines.md`](../../logging-guidelines.md) — the per-level definitions engineers apply when writing a log line.
-- [`docs/block-node/logging.md`](../../block-node/logging.md) — operator reference: how to change levels and read logs.
-- [`docs/block-node/troubleshooting.md`](../../block-node/troubleshooting.md) — the operator playbook.
+- [`docs/block-node/logging.md`](../../block-node/operate/logging.md) — operator reference: how to change levels and read logs.
+- [`docs/block-node/troubleshooting.md`](../../block-node/operate/troubleshooting.md) — the operator playbook.
 
 ## Goals / Non-goals
 
@@ -88,7 +88,7 @@ Levels use `System.Logger.Level`, mapped to JUL as: `TRACE→FINEST`, `DEBUG→F
      a per-block log, so it does not violate the rule above.
   2. **Per-package DEBUG on demand** — an operator can raise one package/class to `FINE`
      temporarily to get full per-block detail during an incident, then revert (see
-     [`docs/block-node/logging.md`](../../block-node/logging.md)).
+     [`docs/block-node/logging.md`](../../block-node/operate/logging.md)).
 
 ## Open discrepancy: recoverable failures sit between INFO and WARNING
 
