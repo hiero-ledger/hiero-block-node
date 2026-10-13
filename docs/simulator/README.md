@@ -20,7 +20,7 @@ live Consensus Node. Use it to:
 ## Quickstart
 
 The simulator connects to a running Block Node. If you don't have one yet, start one locally with
-the [Docker Compose Quickstart](../block-node/docker-compose-quickstart.md) before proceeding.
+the [Docker Compose Quickstart](../block-node/overview/docker-compose-quickstart.md) before proceeding.
 
 Refer to the [Quickstart](quickstart.md) to run the simulator locally in minutes.
 

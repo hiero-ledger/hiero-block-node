@@ -8,7 +8,7 @@ Node container alongside the Consensus Node, but **two manual configuration step
 before the CN actually streams blocks to the Block Node**.
 
 > **Deprecation notice:** Hiero Local Node was deprecated in September 2026.
-> For local testing without Kubernetes, use the [Docker Compose Quickstart](../docker-compose-quickstart.md).
+> For local testing without Kubernetes, use the [Docker Compose Quickstart](../overview/docker-compose-quickstart.md).
 > [Solo](https://solo.hiero.org) is the supported replacement for Kubernetes-based development environments.
 
 By default, the CN's `application.properties` ships with:

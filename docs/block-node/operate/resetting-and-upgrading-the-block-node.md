@@ -58,7 +58,7 @@ Reset the Block Node only when there is a concrete reason to discard local data.
 
 If a secondary Block Node is available and the CN's `block-nodes.json` lists it as a lower-priority
 fallback, the CN fails over to it automatically during the pod restart - no blocks are lost and no
-manual re-pointing is needed. See [Zero-Downtime Block Node Upgrade](./zero-downtime-upgrade.md)
+manual re-pointing is needed. See [Zero-Downtime Block Node Upgrade](../deploy/zero-downtime-upgrade.md)
 for the full procedure.
 
 Without a secondary, the standard upgrade below causes a brief ingestion gap (typically 1-2 minutes).
