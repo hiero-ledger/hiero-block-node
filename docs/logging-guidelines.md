@@ -143,7 +143,7 @@ production.
 * Operators who need continuous block-progression visibility from `INFO` alone use the periodic
   status **heartbeat** (a single low-frequency aggregate line emitted from the server-status
   layer), not per-block logs. For block-by-block detail, `DEBUG` is enabled on demand for the
-  relevant package. See the [Logging Reference](block-node/logging.md).
+  relevant package. See the [Logging Reference](block-node/operate/logging.md).
 
 ## Block Node examples
 

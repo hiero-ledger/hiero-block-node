@@ -1,42 +1,49 @@
-# Server
+# Hiero Block Node
 
-The Block Node Server Application is designed to handle the block streams output of a Hiero Consensus Node, parsing and
-storing the blocks and network state information. It may also, optionally, provide many value adding APIs to allow
-downstream applications to access block and state information.
+The Block Node receives block streams from Consensus Nodes, stores blocks and network state, and serves block data to downstream subscribers such as Mirror Nodes.
 
-![block-node-network-architecture](./../assets/block-node-network-architecture.svg)
+![block-node-network-architecture](../assets/block-node-network-architecture.svg)
 
-## Key Technologies
+## Documentation
 
-- **Java**: Primary programming languages.
-- **gRPC**: For streaming and communication.
-- **Protobuf**: For specification, serialization and deserialization of block data.
-- **Helidon**: Web server framework.
-- **PBJ** and **PBJ-Helidon**: protocol buffer compiler and Helidon server extension.
-- **Gradle**: Build and dependency management.
-- **LMAX Disruptor**: For high performance inter-thread messaging.
-- **System.Logger**: For logging (JUL backend). See the [Logging Reference](./logging.md), [Logging Architecture](../design/architecture/Logging-Architecture.md), and [Logging Guidelines](../logging-guidelines.md).
-- **Zstd**, **Zip** and **tar**: For file compression at rest and archival.
-
-## Quickstart
-
-Refer to the [Quickstart](docker-compose-quickstart.md) for a quick guide on how to get started with the application.
-
-To test a running Block Node without a live Consensus Node, use the
-[Block Stream Simulator](../simulator/README.md).
-
-## High-Level Architecture
-
-BlockNode is a modular, event-driven network-server built on the [Helidon](https://helidon.io/) framework.
-The system is highly extensible, allowing developers to add and remove functionality via plugins.
-
-Additional details are captured in [Architecture Overview](architecture/architecture-overview.md).
-
-## Configuration
-
-Refer to the [Configuration](configuration.md) for configuration options.
-
-## Operator FAQ
-
-For frequently asked questions about deployment, configuration, and operations, see the
-[Operator FAQ](faq/operator-faq.md).
+- **Overview**
+  - [Block Node overview](overview/block-node-overview.md)
+  - [Block Node introduction](overview/block-node-introduction.md)
+  - [Docker Compose quickstart](overview/docker-compose-quickstart.md)
+- **Deploy**
+  - [Hardware specifications](deploy/block-node-hardware-specifications.md)
+  - [Production deployment guide](deploy/production-guide/README.md)
+  - [Solo Provisioner single-node Kubernetes](deploy/solo-weaver-single-node-k8s-deployment.md)
+  - [Manual single-node Kubernetes](deploy/single-node-k8s-deployment.md)
+  - [Version compatibility](deploy/version-compatibility.md)
+  - [Zero-downtime upgrade](deploy/zero-downtime-upgrade.md)
+- **Configure**
+  - [Configuration reference](configure/configuration.md)
+  - [On-chain registration](configure/block-node-on-chain-registration.md)
+  - [Network ports and protocols](configure/network-ports-and-protocols.md)
+- **Connect**
+  - [Consensus Node to Block Node](connect/consensus-node-to-block-node-configuration.md)
+  - [Mirror Node to Block Node](connect/connecting-a-mirror-node-to-a-block-node.md)
+  - [Local Node integration](connect/local-node-block-node-integration.md)
+  - [Mirror Node integration guide](connect/mirror-node-integration.md)
+  - [API quickstart](connect/api-quickstart.md)
+- **Operate**
+  - [Metrics](operate/metrics.md)
+  - [Logging](operate/logging.md)
+  - [Troubleshooting](operate/troubleshooting.md)
+  - [Reset and upgrade](operate/resetting-and-upgrading-the-block-node.md)
+  - [Test with simulator](operate/testing-a-deployed-block-node-using-the-simulator.md)
+  - [Load testing](operate/load-testing-a-deployed-block-node-using-solo-and-nlg.md)
+- **Block stream cutover**
+  - [Record stream to block stream migration](cutover/record-stream-to-block-stream-migration.md)
+  - [WRB cutover preparation](cutover/preparing-your-block-node-for-wrb-cutover.md)
+  - [Solo Provisioner WRB runbook](cutover/sp-wrb-bn-operator-runbook.md)
+  - [WRB CLI runbook](cutover/wrb-cli-runbook.md)
+  - [Cutover process and timeline](cutover/Cutover-Process.md)
+- **Reference**
+  - [Glossary](reference/glossary.md)
+  - [FAQs](reference/faq/README.md)
+- **Development**
+  - [Architecture overview](development/architecture/architecture-overview.md)
+  - [Design docs](../design/README.md)
+  - [Simulator](../simulator/README.md)
