@@ -9,7 +9,7 @@
 
 > **Note:** This is a design document. Some implementation details may differ from the current
 > release. For the current plugin list and Helm configuration, see the
-> [Configuration Reference](../block-node/configuration.md).
+> [Configuration Reference](../block-node/configure/configuration.md).
 
 ## Purpose
 

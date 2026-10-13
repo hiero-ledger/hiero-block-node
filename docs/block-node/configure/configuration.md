@@ -46,7 +46,7 @@ turns off autotuning for that buffer, and the kernel silently caps it at `net.co
 (Linux default 212,992 bytes), which limits every stream to about that much data per round trip. If you set explicit
 sizes, raise both sysctls on the host to at least those sizes. The Block Node logs a WARNING at startup when the kernel
 grants less than configured. On high-latency links, raise the `tcp_rmem` / `tcp_wmem` maxima too, see
-[Host kernel network settings](operations/block-node-hardware-specifications.md#host-kernel-network-settings).
+[Host kernel network settings](../deploy/block-node-hardware-specifications.md#host-kernel-network-settings).
 
 ### WebServerHttp2 Configuration
 
@@ -65,7 +65,7 @@ grants less than configured. On high-latency links, raise the `tcp_rmem` / `tcp_
 
 | ENV Variable                                 | Description                                                                                                                                                                                                                                                                                                                                       |                                Default                                |
 |:---------------------------------------------|:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------|
-| APP_STATE_TSS_BOOTSTRAP_FILE_PATH            | Path where [TSS](../reference/glossary.md#tss-hints) data (ledger ID, current roster, [WRAPS](../reference/glossary.md#wraps) VK) is persisted across restarts.                                                                                                                                                                                 | /opt/hiero/block-node/application-state/tss-bootstrap-roster.json     |
+| APP_STATE_TSS_BOOTSTRAP_FILE_PATH            | Path where [TSS](../reference/glossary.md#tss-hints) data (ledger ID, current roster, [WRAPS](../reference/glossary.md#wraps) VK) is persisted across restarts.                                                                                                                                                                                   | /opt/hiero/block-node/application-state/tss-bootstrap-roster.json     |
 | APP_STATE_RSA_BOOTSTRAP_FILE_PATH            | Path where the single current RSA node address book is persisted across restarts. Used by single-book deployments that have not yet migrated to the address book history file.                                                                                                                                                                    | /opt/hiero/block-node/application-state/rsa-bootstrap-roster.json     |
 | APP_STATE_RSA_ADDRESS_BOOK_HISTORY_FILE_PATH | Path to the block-number-keyed RSA address book history file (JSON-encoded `RangedAddressBookHistory`). When present, this file takes precedence over `APP_STATE_RSA_BOOTSTRAP_FILE_PATH` and enables verification of historical [WRBs](../reference/glossary.md#wrb-wrapped-record-block) against the address book that was in effect per block. | /opt/hiero/block-node/application-state/rsa-address-book-history.json |
 | APP_STATE_BLOCK_RANGES_FILE_PATH             | Path where the set of available and stored block ranges is persisted. Written every 1,000 blocks received.                                                                                                                                                                                                                                        | /opt/hiero/block-node/application-state/block-ranges.json             |
@@ -226,7 +226,7 @@ interrupted group. Bucket lifecycle rules over the prefix must not delete object
 - Per-node gRPC timeout overrides: `grpc_connect_timeout`, `grpc_read_timeout`, `grpc_poll_wait_time`
 - Advanced HTTP/2 tuning: `grpc_webclient_tuning`
 
-See [Backfill Plugin Design](../../design/backfill-plugin.md#blocknode-sources-configuration-file-structure)
+See [Backfill Plugin Design](../../design/backfill-plugin.md#peer-nodes-configuration-json)
 for the JSON schema.
 
 ### Block Access Plugin Configuration

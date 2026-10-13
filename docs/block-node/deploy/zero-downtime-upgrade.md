@@ -187,7 +187,7 @@ re-establish their subscribe streams.
 Without a secondary, there is no failover path. Blocks produced by the network while the primary
 pod is restarting are not captured, leaving a gap in the primary's block range. Schedule the
 upgrade during a low-traffic period and use the standard upgrade procedure in
-[Resetting and Upgrading the Block Node](./resetting-and-upgrading-the-block-node.md#upgrading-the-block-node).
+[Resetting and Upgrading the Block Node](../operate/resetting-and-upgrading-the-block-node.md#upgrading-the-block-node).
 
 ## Related
 
