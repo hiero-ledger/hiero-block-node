@@ -27,11 +27,14 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
+import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.bulkhead.BlockReadBulkhead;
+import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -207,6 +210,9 @@ class HealthConnectionCloseTest
         private final Map<String, HttpService> registeredServices = new HashMap<>();
 
         private WebServer webServer;
+        /// Lazily created; the health plugin never reads from block storage, so no test here
+        /// exercises this beyond satisfying the interface.
+        private BlockReadBulkhead blockReadBulkhead;
 
         @Override
         public void registerHttpService(final String path, @Nullable final Integer port, final HttpService... service) {
@@ -218,6 +224,17 @@ class HealthConnectionCloseTest
         @Override
         public void registerGrpcService(@Nullable final Integer port, final ServiceInterface service) {
             // the health plugin registers no gRPC services
+        }
+
+        @Override
+        public BlockReadBulkhead blockReadBulkhead() {
+            if (blockReadBulkhead == null) {
+                final MetricRegistry metricRegistry = MetricRegistry.builder()
+                        .setMetricsExporter(new TestMetricsExporter())
+                        .build();
+                blockReadBulkhead = new BlockReadBulkhead(1_000, metricRegistry);
+            }
+            return blockReadBulkhead;
         }
 
         @Override
