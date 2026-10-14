@@ -225,9 +225,8 @@ public class BlockAccessServicePluginTest
             final Pipeline<? super Bytes> inbound = serviceInterface.open(method, requestOptions(), replies);
             final Bytes requestBytes = BlockRequest.PROTOBUF.toBytes(
                     BlockRequest.newBuilder().blockNumber(1L).build());
-            // Pipelines.unary() both forwards the exception to replies.onError(...) and rethrows it
-            // to the onNext() caller (the real webserver dispatch layer handles that rethrow; here
-            // we just need to not let it fail the test, since onError() already recorded it below).
+            // Pipelines.unary() both forwards the exception to onError() and rethrows it to the
+            // onNext() caller, so we assert the rethrow and still check onError() below.
             assertThrows(GrpcException.class, () -> inbound.onNext(requestBytes));
 
             assertEquals(1, errors.size());

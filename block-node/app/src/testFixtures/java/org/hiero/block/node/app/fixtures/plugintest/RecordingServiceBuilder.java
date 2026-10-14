@@ -90,11 +90,10 @@ public final class RecordingServiceBuilder implements ServiceBuilder {
     /** The port a {@code null} port resolves to, and the general server's base port. */
     private final int defaultPort;
 
-    /// A generous default so a plugin test using this fixture isn't inadvertently throttled by the
-    /// bulkhead unless it explicitly drains permits to test that behavior.
+    /// A generous default so fixture-based tests aren't throttled unless they explicitly drain permits.
     private static final int DEFAULT_BLOCK_READ_BULKHEAD_PERMITS = 1_000;
-    /// Lazily created on first use; this fixture never opens a socket, so a self-contained,
-    /// no-op-exported [MetricRegistry] is enough — there is no shared "real" registry to reuse.
+    /// Lazily created on first use; a self-contained, no-op-exported [MetricRegistry] is enough since
+    /// this fixture never opens a socket and has no shared "real" registry to reuse.
     private BlockReadBulkhead blockReadBulkhead;
 
     /** Every {@link #registerHttpService} invocation, in call order. */
@@ -152,9 +151,8 @@ public final class RecordingServiceBuilder implements ServiceBuilder {
     }
 
     /// {@inheritDoc}
-    /// Lazily creates a single shared [BlockReadBulkhead]. A test that wants to exercise bulkhead
-    /// denial can call this accessor directly and drain permits with
-    /// {@link BlockReadBulkhead#tryAcquire()} before invoking the plugin under test.
+    /// Lazily creates a single shared [BlockReadBulkhead]. Tests exercising bulkhead denial can
+    /// call this accessor directly and drain permits with {@link BlockReadBulkhead#tryAcquire()}.
     @NonNull
     @Override
     public BlockReadBulkhead blockReadBulkhead() {

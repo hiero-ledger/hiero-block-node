@@ -1616,10 +1616,9 @@ class BlockStreamSubscriberSessionTest {
         private static final long WAIT_TIMEOUT_SECONDS = 10L;
 
         /**
-         * Confirms the bulkhead permit acquired for a historical block's storage read is
-         * released before the block is sent to the client, not held through the send — a
-         * slow/backpressured send must not tie up a shared, node-wide-capped resource on
-         * network time instead of storage-read time.
+         * Confirms the storage-read permit is released before the block is sent, not held
+         * through the send, since a slow send must not tie up this shared, node-wide-capped
+         * resource on network time.
          */
         @Test
         @DisplayName("Historical catch-up releases the bulkhead permit before sending, not after")
@@ -1652,8 +1651,8 @@ class BlockStreamSubscriberSessionTest {
                     assertThat(stallingPipeline.firstSendStarted.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
                             .isTrue();
 
-                    // The send is now blocked mid-flight. If the storage-read permit were still
-                    // held through it, this single-permit bulkhead would have nothing left to give.
+                    // If the storage-read permit were still held through the now-blocked send, this
+                    // single-permit bulkhead would have nothing left to give.
                     final boolean acquiredWhileSendStalled = singlePermitBulkhead.tryAcquire();
                     if (acquiredWhileSendStalled) {
                         singlePermitBulkhead.release();
@@ -1672,8 +1671,8 @@ class BlockStreamSubscriberSessionTest {
     }
 
     /**
-     * Response pipeline that blocks on its first send until released, without failing it —
-     * simulates a slow/backpressured client mid-send.
+     * Response pipeline that blocks on its first send until released, simulating a
+     * slow, backpressured client mid-send without failing it.
      */
     private static final class StallingResponsePipeline extends TestResponsePipeline<SubscribeStreamResponseUnparsed> {
         private final CountDownLatch firstSendStarted = new CountDownLatch(1);

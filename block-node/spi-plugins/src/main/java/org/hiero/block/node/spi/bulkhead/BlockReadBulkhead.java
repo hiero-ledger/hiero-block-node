@@ -10,16 +10,13 @@ import org.hiero.metrics.ObservableGauge;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
 
-/// A single, shared, bounded, non-client-keyed pool of permits protecting every read against block
-/// storage, regardless of which API or client triggered it. Unlike a per-client admission check,
-/// this does not know or care about client identity — it protects the resource itself against
-/// combined load from every call path that reads from it.
+/// A single, shared, bounded pool of permits protecting every read against block storage,
+/// regardless of client or API, rather than a per-client admission check.
 ///
-/// Two call paths are expected to share one instance: a single request/response exchange that
-/// either gets a permit now or is rejected immediately ([#tryAcquire()]), and a standing session
-/// that should retry rather than be disconnected over one momentary saturation instant
-/// ([#tryAcquire(Duration)], a brief bounded wait). Callers must call [#release()] exactly once for
-/// every successful acquire, typically in a `finally` block.
+/// Two call paths share one instance: a request/response exchange that gets a permit now or is
+/// rejected ([#tryAcquire()]), and a standing session that retries instead of disconnecting over
+/// one momentary saturation instant ([#tryAcquire(Duration)]). Callers must call [#release()]
+/// exactly once per successful acquire, typically in a `finally` block.
 public final class BlockReadBulkhead {
     private final Semaphore permits;
     private final int totalPermits;
@@ -54,7 +51,7 @@ public final class BlockReadBulkhead {
     }
 
     /// Attempts to acquire a permit, waiting up to {@code maxWait} if none is immediately
-    /// available. This wait is purely internal scheduling for already-admitted work — it never
+    /// available. This wait is purely internal scheduling for already-admitted work; it never
     /// affects any admission decision.
     ///
     /// @param maxWait the maximum time to wait for a permit to become available
