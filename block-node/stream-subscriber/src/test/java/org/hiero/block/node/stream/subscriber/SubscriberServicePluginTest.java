@@ -92,9 +92,8 @@ class SubscriberServicePluginTest {
         }
 
         /**
-         * This test aims to assert that a subscriber session catching up on historical blocks
-         * retries on the next poll rather than disconnecting when the shared block-read bulkhead
-         * has no permit available, and that it proceeds normally once one frees up.
+         * Historical catch-up retries rather than disconnects when the bulkhead is exhausted,
+         * then proceeds once a permit frees up.
          */
         @Test
         @DisplayName(
@@ -114,8 +113,8 @@ class SubscriberServicePluginTest {
                         .build();
                 toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
 
-                // A few retry cycles' worth of waiting: no response at all yet proves the session is
-                // polling for a permit, not disconnecting (which would produce an error/status response).
+                // No response yet proves the session is polling for a permit rather than
+                // disconnecting, which would produce an error/status response.
                 parkNanos(TimeUnit.MILLISECONDS.toNanos(350));
                 assertThat(fromPluginBytes).isEmpty();
             } finally {

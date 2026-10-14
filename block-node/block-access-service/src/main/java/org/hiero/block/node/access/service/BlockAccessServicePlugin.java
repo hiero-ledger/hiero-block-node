@@ -146,8 +146,8 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
                 blockReadBulkhead.release();
             }
         } catch (final GrpcException e) {
-            // Not an internal failure — propagate so the caller sees RESOURCE_EXHAUSTED, rather
-            // than being folded into the generic RuntimeException handling below.
+            // Not an internal failure; propagate so the caller sees RESOURCE_EXHAUSTED instead of
+            // the generic RuntimeException handling below.
             throw e;
         } catch (final RuntimeException e) {
             final String message = "Failed to retrieve block number %d.".formatted(request.blockNumber());
