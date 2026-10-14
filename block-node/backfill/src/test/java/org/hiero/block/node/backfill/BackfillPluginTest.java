@@ -181,7 +181,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 .build();
 
         // start the plugin with no history or gaps
-        start(new BackfillPlugin(), new SimpleInMemoryHistoricalBlockFacility(), configOverride);
+        final BackfillPlugin plugin = new BackfillPlugin();
+        start(plugin, new SimpleInMemoryHistoricalBlockFacility(), configOverride);
 
         // allow some time for the backfill process to run
         parkNanos(5_000_000_000L);
@@ -200,7 +201,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 "Should have sent 0 verification notifications");
 
         // backfill status should be idle
-        assertEquals(0L, getMetricValue(BackfillPlugin.METRIC_BACKFILL_STATUS), "backfill status should be idle");
+        assertEquals(0L, plugin.determineStatus(), "backfill status should be idle");
     }
 
     @Test
@@ -230,7 +231,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 .build();
 
         // start the plugin with no history or gaps
-        start(new BackfillPlugin(), historicalBlockFacilityForServer, configOverride);
+        BackfillPlugin plugin = new BackfillPlugin();
+        start(plugin, historicalBlockFacilityForServer, configOverride);
 
         // allow some time for the backfill process to run
         parkNanos(5_000_000_000L);
@@ -249,7 +251,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 "Should have sent 0 verification notifications");
 
         // backfill status should be idle
-        assertEquals(0L, getMetricValue(BackfillPlugin.METRIC_BACKFILL_STATUS), "backfill status should be idle");
+        assertEquals(0L, plugin.determineStatus(), "backfill status should be idle");
     }
 
     @Test
@@ -491,7 +493,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 .build();
 
         // start the plugin
-        start(new BackfillPlugin(), historicalBlockFacility, configOverride);
+        BackfillPlugin plugin = new BackfillPlugin();
+        start(plugin, historicalBlockFacility, configOverride);
 
         // allow some time for the backfill process to run
         parkNanos(5_000_000_000L);
@@ -505,7 +508,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 "Should have sent 0 verification notifications");
 
         // backfill status should be idle
-        assertEquals(0L, getMetricValue(BackfillPlugin.METRIC_BACKFILL_STATUS), "backfill status should be idle");
+        assertEquals(0L, plugin.determineStatus(), "backfill status should be idle");
     }
 
     @Test
@@ -687,7 +690,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         final HistoricalBlockFacility historicalBlockFacility = getHistoricalBlockFacility(0, 30);
 
         // start block-node with blocks from 0 to 30; on-demand backfill will cover 31 to 50
-        start(new BackfillPlugin(), historicalBlockFacility, configOverride);
+        BackfillPlugin plugin = new BackfillPlugin();
+        start(plugin, historicalBlockFacility, configOverride);
 
         // The last block of the gap, and of its chunk: a failed block now also stops its chunk, so
         // failing an earlier one would strand the rest of the gap until the next autonomous scan.
@@ -736,7 +740,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 "The retried block should eventually be persisted successfully");
         assertEquals(
                 1L,
-                getMetricValue(BackfillPlugin.METRIC_BACKFILL_PERSISTENCE_FAILURES),
+                plugin.metricsHolder().backfillPersistenceFailures().get(),
                 "single backfill persistence failure was captured");
     }
 
@@ -761,13 +765,14 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // init() only: the live-tail scheduler isn't created until start(), so a failed persistence
         // notification arriving in this window can't be requeued on-demand and must fall back to the
         // periodic autonomous scan instead.
-        doInit(new BackfillPlugin(), historicalBlockFacility, null, configOverride, Map.of());
+        BackfillPlugin plugin = new BackfillPlugin();
+        doInit(plugin, historicalBlockFacility, null, configOverride, Map.of());
 
         blockMessaging.sendBlockPersisted(new PersistedNotification(42L, false, 10, BlockSource.BACKFILL));
 
         assertEquals(
                 1L,
-                getMetricValue(BackfillPlugin.METRIC_BACKFILL_PERSISTENCE_FAILURES),
+                plugin.metricsHolder().backfillPersistenceFailures().get(),
                 "Should record the persistence failure even when the live-tail scheduler isn't available yet");
         assertEquals(
                 1,
@@ -901,7 +906,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 .build();
 
         // start block-node with blocks from 0 to 30
-        start(new BackfillPlugin(), blockNodeServerBlockFacility, configOverride);
+        BackfillPlugin plugin = new BackfillPlugin();
+        start(plugin, blockNodeServerBlockFacility, configOverride);
 
         // Trigger the backfill on-demand by sending a NewestBlockKnownToNetworkNotification
         // to the block messaging system
@@ -921,7 +927,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 "Should have sent 0 verification notifications");
 
         // backfill status should be idle
-        assertEquals(0L, getMetricValue(BackfillPlugin.METRIC_BACKFILL_STATUS), "backfill status should be idle");
+        assertEquals(0L, plugin.determineStatus(), "backfill status should be idle");
     }
 
     @Test
@@ -1619,7 +1625,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // and the default handlers do not add backfilled blocks back to the available set, so the gap
         // reappears every scan — exactly the retention-eviction scenario. Backoff must throttle the retries.
         final HistoricalBlockFacility pluginStore = getHistoricalBlockFacility(5, 100);
-        start(new BackfillPlugin(), pluginStore, config);
+        BackfillPlugin plugin = new BackfillPlugin();
+        start(plugin, pluginStore, config);
 
         registerDefaultTestBackfillHandler();
         registerDefaultTestVerificationHandler(new CountDownLatch(1));
@@ -1629,7 +1636,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // non-throttled implementation would submit it on every one of the ~12 scans.
         parkNanos(2_500_000_000L);
 
-        long submissions = getMetricValue(BackfillPlugin.METRIC_BACKFILL_GAPS_SUBMITTED);
+        long submissions = plugin.metricsHolder().backfillGapsSubmitted().get();
         assertTrue(submissions >= 2, "Gap should still be retried (backoff must not hard-stop): " + submissions);
         assertTrue(
                 submissions <= 6,
@@ -1670,7 +1677,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
 
         // Local store holds 31..40, so gap 0..30 triggers backfill against the gappy peer.
         final HistoricalBlockFacility pluginStore = getHistoricalBlockFacility(31, 40);
-        start(new BackfillPlugin(), pluginStore, config);
+        BackfillPlugin plugin = new BackfillPlugin();
+        start(plugin, pluginStore, config);
 
         int expectedBlocks = 22; // {0..10} + {20..30}
         CountDownLatch latch = new CountDownLatch(expectedBlocks);
@@ -1692,7 +1700,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 "Should never request the peer's internal gap 11..19");
         assertEquals(
                 0,
-                getMetricValue(BackfillPlugin.METRIC_BACKFILL_FETCH_ERRORS),
+                plugin.metricsHolder().backfillFetchErrors().get(),
                 "Should not record fetch errors when skipping the peer's known gap");
     }
 
@@ -1752,7 +1760,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 "test-mass-failure-fetch-handler");
 
         // Empty store: the whole peer range is classified LIVE_TAIL.
-        start(new BackfillPlugin(), new SimpleInMemoryHistoricalBlockFacility(), configOverride);
+        BackfillPlugin plugin = new BackfillPlugin();
+        start(plugin, new SimpleInMemoryHistoricalBlockFacility(), configOverride);
 
         // Wait for the first autonomous scan to detect, submit, and start fetching the initial gap.
         assertTrue(firstFetchLatch.await(10, TimeUnit.SECONDS), "First scan should submit the initial live-tail gap");
@@ -1765,7 +1774,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         }
         assertEquals(
                 blockCount,
-                getMetricValue(BackfillPlugin.METRIC_BACKFILL_PERSISTENCE_FAILURES),
+                plugin.metricsHolder().backfillPersistenceFailures().get(),
                 "All injected failures should be recorded");
 
         // The range is still genuinely missing from the store, so a later scan must re-detect and

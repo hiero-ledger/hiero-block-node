@@ -21,7 +21,6 @@ import java.util.Arrays;
 import java.util.TreeMap;
 import org.hiero.block.api.NetworkData;
 import org.hiero.block.node.app.config.WebServerHttp2Config;
-import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.plugintest.TestApplicationStateFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestServerRequest;
 import org.hiero.block.node.app.fixtures.plugintest.TestServerResponse;
@@ -50,9 +49,6 @@ class HealthServiceTest {
     @Mock
     ServiceBuilder serviceBuilder;
 
-    /** Captures metric values so tests can assert the request counter (one per test instance). */
-    private final TestMetricsExporter metricsExporter = new TestMetricsExporter();
-
     /**
      * Stub the context configuration so {@code init} can read {@link HealthConfig} (a dedicated health
      * port), and wire a real {@link MetricRegistry} so {@code init} can register the request counter.
@@ -66,9 +62,7 @@ class HealthServiceTest {
                 .thenReturn(new WebServerHttp2Config(500, 8_388_608, 8L, 10, 8_388_608, 8192L, 50, 10000));
         Mockito.when(context.configuration()).thenReturn(configuration);
         Mockito.when(context.metricRegistry())
-                .thenReturn(MetricRegistry.builder()
-                        .setMetricsExporter(metricsExporter)
-                        .build());
+                .thenReturn(MetricRegistry.builder().build());
     }
 
     /** Stubs {@code request.prologue()} to report HTTP/1.1, matching a real Kubernetes probe. */
@@ -340,7 +334,7 @@ class HealthServiceTest {
         healthServicePlugin.handleLivez(serverRequest, serverResponse);
 
         // then
-        assertEquals(1, metricsExporter.getMetricValue(METRIC_HEALTH_REQUESTS.name()));
+        assertEquals(1, healthServicePlugin.getHealthRequestsCount(RESULT_SUCCESS));
     }
 
     @Test
@@ -363,7 +357,7 @@ class HealthServiceTest {
         healthServicePlugin.handleReadyz(serverRequest, serverResponse);
 
         // then
-        assertEquals(1, metricsExporter.getMetricValue(METRIC_HEALTH_REQUESTS.name()));
+        assertEquals(1, healthServicePlugin.getHealthRequestsCount(RESULT_FAILED));
     }
 
     @Test
@@ -388,6 +382,6 @@ class HealthServiceTest {
         healthServicePlugin.handleStatusz(new TestServerRequest("/bogus"), new TestServerResponse());
 
         // then: statusz serves statistics, not health checks, so it leaves the counter unchanged
-        assertEquals(1, metricsExporter.getMetricValue(METRIC_HEALTH_REQUESTS.name()));
+        assertEquals(1, healthServicePlugin.getHealthRequestsCount(RESULT_SUCCESS));
     }
 }

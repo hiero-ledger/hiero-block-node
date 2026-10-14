@@ -341,6 +341,11 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
         }
     }
 
+    /// @return the metrics holder, may be `null` if the plugin was not initialized or the configuration was invalid.
+    MetricsHolder metricsHolder() {
+        return metricsHolder;
+    }
+
     // ---- Private helpers ----------------------------------------------------
 
     /// Polls the {@link CompletionService} for all currently-completed upload tasks,

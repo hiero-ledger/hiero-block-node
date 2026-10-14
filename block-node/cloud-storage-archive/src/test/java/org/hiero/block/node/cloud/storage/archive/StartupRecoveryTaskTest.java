@@ -22,7 +22,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
-import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.TestApplicationStateFacility;
@@ -990,9 +989,8 @@ class StartupRecoveryTaskTest {
         final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
         final TestApplicationStateFacility asf = new TestApplicationStateFacility();
         final CloudStorageArchivePlugin.MetricsHolder metricsHolder =
-                CloudStorageArchivePlugin.MetricsHolder.createMetrics(MetricRegistry.builder()
-                        .setMetricsExporter(new TestMetricsExporter())
-                        .build());
+                CloudStorageArchivePlugin.MetricsHolder.createMetrics(
+                        MetricRegistry.builder().build());
         final TempArchiveUploadTask task =
                 new TempArchiveUploadTask(config, messaging, asf, metricsHolder, s3Key, 0, queue);
 

@@ -148,8 +148,8 @@ class RsaRosterBootstrapPluginTest
             updateAddressBook(book);
             doStart();
 
-            assertEquals(4, getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_ENTRIES_LOADED));
-            assertTrue(getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_LOAD_DURATION_MS) >= 0);
+            assertEquals(4, plugin.rosterEntriesLoaded());
+            assertTrue(plugin.rosterLoadDurationMs() >= 0);
         }
     }
 
@@ -179,9 +179,9 @@ class RsaRosterBootstrapPluginTest
             updateAddressBookHistory(history);
             doStart();
 
-            assertEquals(2L, getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_ERAS_LOADED));
-            assertEquals(5L, getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_ENTRIES_LOADED));
-            assertTrue(getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_LOAD_DURATION_MS) >= 0);
+            assertEquals(2L, plugin.rosterErasLoaded());
+            assertEquals(5L, plugin.rosterEntriesLoaded());
+            assertTrue(plugin.rosterLoadDurationMs() >= 0);
         }
 
         @Test
@@ -193,8 +193,8 @@ class RsaRosterBootstrapPluginTest
             updateAddressBookHistory(history);
             doStart();
 
-            assertEquals(1L, getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_ERAS_LOADED));
-            assertEquals(4L, getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_ENTRIES_LOADED));
+            assertEquals(1L, plugin.rosterErasLoaded());
+            assertEquals(4L, plugin.rosterEntriesLoaded());
         }
 
         @Test
@@ -229,11 +229,8 @@ class RsaRosterBootstrapPluginTest
             updateAddressBook(book);
             doStart();
 
-            assertEquals(
-                    1L,
-                    getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_ERAS_LOADED),
-                    "Era gauge must be 0 in single-book mode");
-            assertEquals(3L, getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_ENTRIES_LOADED));
+            assertEquals(1L, plugin.rosterErasLoaded(), "Era gauge must be 0 in single-book mode");
+            assertEquals(3L, plugin.rosterEntriesLoaded());
             assertNotNull(getAddressBookForBlock(0));
             assertNotNull(currentAddressBookHistory);
         }

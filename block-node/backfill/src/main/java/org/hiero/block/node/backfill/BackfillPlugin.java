@@ -257,6 +257,22 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 backfillConfiguration.liveTailQueueCapacity());
     }
 
+    /// @return the metrics holder, may be `null` if the plugin was not initialized or the configuration was invalid.
+    MetricsHolder metricsHolder() {
+        return metricsHolder;
+    }
+
+    /// @return the current backfill status as an integer for metrics reporting
+    int determineStatus() {
+        return determineStatus(pendingBackfillBlocks);
+    }
+
+    static int determineStatus(AtomicLong pendingBackfillBlocks) {
+        long pending = Math.max(pendingBackfillBlocks.get(), 0);
+        final BackfillStatus status = pending > 0 ? BackfillStatus.RUNNING : BackfillStatus.IDLE;
+        return status.ordinal();
+    }
+
     private BackfillTaskScheduler createScheduler(ExecutorService executor, int queueCapacity, String schedulerName) {
         try {
 
@@ -714,12 +730,6 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                             .register(LongCounter.builder(METRIC_BACKFILL_PERSISTENCE_FAILURES)
                                     .setDescription("Number of backfill persistence failures"))
                             .getOrCreateNotLabeled());
-        }
-
-        private static int determineStatus(AtomicLong pendingBackfillBlocks) {
-            long pending = Math.max(pendingBackfillBlocks.get(), 0);
-            final BackfillStatus status = pending > 0 ? BackfillStatus.RUNNING : BackfillStatus.IDLE;
-            return status.ordinal();
         }
     }
 }
