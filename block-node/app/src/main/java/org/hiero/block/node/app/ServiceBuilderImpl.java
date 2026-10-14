@@ -70,9 +70,9 @@ public class ServiceBuilderImpl implements ServiceBuilder {
     private final List<StaleClientSweepable> throttledServices = new ArrayList<>();
     /** Lazily created on the first throttled registration; runs the stale-client-state sweep. */
     private ScheduledExecutorService clientStateSweepExecutor;
-    /** The throttle mechanism's shared, once-registered metrics — see {@link ThrottleMetrics}. */
+    /** The throttle mechanism's shared, once-registered metrics; see {@link ThrottleMetrics}. */
     private final ThrottleMetrics throttleMetrics;
-    /** Shared across every throttled registration — see its own constructor for why. */
+    /** Shared across every throttled registration; see its own constructor for why. */
     private final RemoteAddressKeyExtractor keyExtractor;
 
     public ServiceBuilderImpl(
@@ -101,13 +101,11 @@ public class ServiceBuilderImpl implements ServiceBuilder {
 
     /// {@inheritDoc}
     ///
-    /// Every registration is logged once, at startup, as one of throttled ([ThrottleSpec]), exempt
-    /// ([ThrottleExempt]), or neither — the last case logs a warning, since an admission-control
-    /// gap is far more likely to be an oversight than a deliberate choice, and nothing else here
-    /// would otherwise make that omission visible.
+    /// Every registration is logged once, at startup, as throttled ([ThrottleSpec]), exempt
+    /// ([ThrottleExempt]), or neither; the last case logs a warning since an admission-control gap
+    /// is more likely an oversight than a deliberate choice.
     ///
-    /// If `service` also implements [ThrottleSpec], merges its per-client settings with its own
-    /// reported [ThrottleSpec#globalConcurrencyCeiling], and registers the resulting
+    /// If `service` also implements [ThrottleSpec], registers the resulting
     /// [ThrottledServiceInterface] in place of the raw service.
     @Override
     public void registerGrpcService(@Nullable Integer port, @NonNull ServiceInterface service) {
@@ -148,9 +146,8 @@ public class ServiceBuilderImpl implements ServiceBuilder {
         grpcBuilders.computeIfAbsent(resolve(port), k -> PbjRouting.builder()).service(throttled);
     }
 
-    /// Starts the periodic stale-client-state sweep the first time it's needed (i.e. the first
-    /// throttled service registration), rather than unconditionally in the constructor — a node
-    /// with no throttled services registers nothing and spawns no sweep thread.
+    /// Starts the periodic stale-client-state sweep on first throttled registration, not
+    /// unconditionally in the constructor, so a node with no throttled services spawns no sweep thread.
     private void ensureClientStateSweepStarted() {
         if (clientStateSweepExecutor != null) {
             return;

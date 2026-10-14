@@ -6,12 +6,10 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 
 /// Derives the key used to group a caller's requests for per-client rate/concurrency limiting.
 ///
-/// The default implementation ([RemoteAddressKeyExtractor]) keys by network address. This
-/// interface exists specifically so that an authenticated-identity-based implementation (an mTLS
-/// client certificate, or an API key) can replace it later without any change to
-/// [ThrottledServiceInterface], [ClientThrottle], or any plugin configuration.
-/// [RequestOptions#remoteCertificateChain()] already exists today, unused, as exactly what a
-/// future certificate-based extractor would read.
+/// The default [RemoteAddressKeyExtractor] keys by network address. This interface lets an
+/// identity-based implementation (mTLS client cert, API key) replace it later with no change to
+/// [ThrottledServiceInterface] or [ClientThrottle]; [RequestOptions#remoteCertificateChain()]
+/// already exists, unused, for exactly that future extractor.
 public interface ClientKeyExtractor {
     /// Derives a stable key identifying the caller of this request.
     ///

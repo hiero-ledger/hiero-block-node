@@ -44,10 +44,9 @@ import org.hiero.metrics.core.MetricRegistry;
 /// that messaging sends one notification and, if needed, all handlers can send
 /// appropriate responses to their publishers.
 ///
-/// Deliberately implements [ThrottleExempt], not [org.hiero.block.node.spi.throttle.ThrottleSpec]:
-/// the ingest path has its own size/compatibility validation rather than the per-client
-/// rate/concurrency admission model that interface implements — this marker exists so
-/// registration logs that omission as an intentional choice rather than a silent gap.
+/// Implements [ThrottleExempt], not [org.hiero.block.node.spi.throttle.ThrottleSpec], since the
+/// ingest path has its own size/compatibility validation instead of per-client rate/concurrency
+/// admission; this marker logs that as intentional rather than a silent gap.
 public final class StreamPublisherPlugin
         implements BlockNodePlugin, BlockStreamPublishServiceInterface, ThrottleExempt {
 

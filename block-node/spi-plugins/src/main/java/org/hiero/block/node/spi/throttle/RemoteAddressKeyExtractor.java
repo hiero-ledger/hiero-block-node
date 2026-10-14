@@ -19,7 +19,7 @@ import org.hiero.metrics.core.MetricRegistry;
 public final class RemoteAddressKeyExtractor implements ClientKeyExtractor {
     private static final String UNKNOWN_KEY = "unknown";
 
-    /// Metric key for [#UNKNOWN_KEY] fallbacks — public so tests can read the registered value
+    /// Metric key for [#UNKNOWN_KEY] fallbacks, public so tests can read the registered value
     /// back by name.
     public static final MetricKey<LongCounter> METRIC_UNKNOWN_REMOTE_ADDRESS = MetricKey.of(
                     "throttle_unknown_remote_address_total", LongCounter.class)
@@ -27,13 +27,13 @@ public final class RemoteAddressKeyExtractor implements ClientKeyExtractor {
 
     private final LongCounter.Measurement unknownAddressCounter;
 
-    /// @param metricRegistry the registry to register this instance's metric with — construct
+    /// @param metricRegistry the registry to register this instance's metric with; construct
     ///     exactly once and share it, since registering the same metric name twice throws
     public RemoteAddressKeyExtractor(@NonNull final MetricRegistry metricRegistry) {
         unknownAddressCounter = metricRegistry
                 .register(LongCounter.builder(METRIC_UNKNOWN_REMOTE_ADDRESS)
                         .setDescription("Calls with no resolvable remote address, keyed into the shared "
-                                + UNKNOWN_KEY + " bucket instead of their own — a sustained non-zero rate usually"
+                                + UNKNOWN_KEY + " bucket instead of their own; a sustained non-zero rate usually"
                                 + " means a proxy/load balancer isn't forwarding the original client address"))
                 .getOrCreateNotLabeled();
     }
@@ -42,9 +42,7 @@ public final class RemoteAddressKeyExtractor implements ClientKeyExtractor {
     @Override
     public String extractKey(@NonNull final RequestOptions options) {
         final SocketAddress address = options.remoteAddress();
-        // The interface's default remoteAddress() can return null (e.g. an unusual transport or
-        // test harness that does not override it); fall back to a shared bucket rather than
-        // producing a null client key.
+        // remoteAddress() can return null (unusual transport, test harness); fall back to a shared bucket.
         if (address == null) {
             unknownAddressCounter.increment();
             return UNKNOWN_KEY;

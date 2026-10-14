@@ -10,13 +10,12 @@ import java.util.concurrent.atomic.AtomicLong;
 /// next request would be allowed if traffic were perfectly evenly spaced. A request is admitted
 /// if it does not arrive more than `burstTolerance` pacing intervals ahead of that schedule.
 ///
-/// This class holds state for exactly one client's rate limit on exactly one method — it is not
-/// shared across clients. [ThrottledServiceInterface] holds one instance per (client key, method).
+/// Holds state for exactly one client on exactly one method; [ThrottledServiceInterface] holds one
+/// instance per (client key, method).
 ///
-/// The clock is deliberately a caller-supplied monotonic nanosecond value (e.g.
-/// [System#nanoTime()]), not wall-clock time: wall-clock time can jump backwards or forwards on
-/// an NTP adjustment, which would corrupt the TAT comparison and cause false bursts or false
-/// rejections.
+/// The clock is a caller-supplied monotonic nanosecond value (e.g. [System#nanoTime()]), not
+/// wall-clock time, since an NTP adjustment could jump wall-clock time and corrupt the TAT
+/// comparison.
 public final class GcraLimiter {
     /// Spacing interval between admitted requests, in nanoseconds. Zero only if the configured
     /// rate is non-positive, which should be prevented by config validation.
@@ -27,8 +26,8 @@ public final class GcraLimiter {
     private final long toleranceNanos;
 
     /// The theoretical arrival time, in the same units as the caller's monotonic clock. Starts at
-    /// zero; the first call on a fresh limiter is always admitted regardless of the clock's actual
-    /// origin, since only differences between calls within this limiter's lifetime are compared.
+    /// zero; the first call on a fresh limiter is always admitted since only differences between
+    /// calls are compared, not the clock's absolute origin.
     private final AtomicLong theoreticalArrivalTimeNanos = new AtomicLong(0L);
 
     /// Creates a new limiter for one client's rate on one method.

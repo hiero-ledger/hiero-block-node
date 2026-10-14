@@ -7,17 +7,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/// The per-client admission decision and bookkeeping for exactly one `(service, method)`
-/// combination: one GCRA-rate-limited, concurrency-capped, TTL-evicted pool of client state.
-/// Shared by [ThrottledServiceInterface].
+/// Per-client admission decision and state for one `(service, method)` combination: a
+/// GCRA-rate-limited, concurrency-capped, TTL-evicted pool of client state, shared by
+/// [ThrottledServiceInterface]. The node-wide ceiling lives separately in [GlobalConcurrencyGate].
 ///
-/// The node-wide concurrency ceiling is deliberately **not** owned here — see [GlobalConcurrencyGate]
-/// for why it's a separate, shared gate instead.
-///
-/// On every [#tryAdmit] call, in order — the first check that rejects wins, and no later check
-/// runs: (1) the shared global concurrency ceiling, (2) the per-client concurrency ceiling, (3)
-/// the GCRA rate check, which is the only state-mutating check and therefore runs last (see
-/// `docs/design/apis/api-throttling.md` for why).
+/// [#tryAdmit] checks in order, first rejection wins: global concurrency, per-client concurrency,
+/// then the GCRA rate check last since it's the only state-mutating check.
 final class ClientThrottle implements StaleClientSweepable {
     private final PerClientThrottleSettings settings;
     private final GlobalConcurrencyGate globalGate;
@@ -28,10 +23,10 @@ final class ClientThrottle implements StaleClientSweepable {
     private final ConcurrentHashMap<String, ClientState> clientStates = new ConcurrentHashMap<>();
 
     /// @param settings this instance's per-client rate/concurrency settings
-    /// @param globalGate the shared node-wide concurrency gate for this service — may be shared
+    /// @param globalGate the shared node-wide concurrency gate for this service, possibly shared
     ///     with sibling methods on the same service; see [GlobalConcurrencyGate]
     /// @param throttleMetrics the shared, once-registered metrics this instance's calls report
-    ///     into — see [ThrottleMetrics]
+    ///     into, see [ThrottleMetrics]
     /// @param service the throttled service's name, used to label this instance's metrics and
     ///     rejection reasons
     /// @param method the one method this instance enforces a policy for
@@ -59,15 +54,11 @@ final class ClientThrottle implements StaleClientSweepable {
     ///
     /// @param clientKey the caller's key, from a [ClientKeyExtractor]
     /// @param nowNanos the current time from a monotonic clock (e.g. [System#nanoTime()])
-    /// @return the admission result — see [AdmissionResult]
+    /// @return the admission result, see [AdmissionResult]
     @NonNull
     AdmissionResult tryAdmit(@NonNull final String clientKey, final long nowNanos) {
-        // Atomic per-key compute: either reuse a live/still-fresh entry, or replace a stale,
-        // currently-unused one with a fresh limiter. A client that hasn't been seen in a while
-        // deserves a clean rate-limit history, not one artificially constrained by ancient calls.
-        // lastSeenNanos is stamped inside this same compute() callback, not after it returns, so a
-        // concurrent sweepStaleClients() can never observe a freshly-created entry before it's
-        // stamped and mistake it for one that's been idle since the epoch.
+        // Reuse a live entry or replace a stale, unused one with a fresh limiter. Stamp lastSeenNanos
+        // inside this callback so a concurrent sweep can't see an unstamped fresh entry.
         final ClientState state = clientStates.compute(clientKey, (ignoredKey, existing) -> {
             final ClientState current =
                     (existing != null && !(isStale(existing, nowNanos) && existing.inFlight.get() == 0))
@@ -78,9 +69,7 @@ final class ClientThrottle implements StaleClientSweepable {
         });
 
         final String description = service + "." + method;
-        // Each check below reserves atomically (not check-then-increment) so concurrent callers
-        // can never collectively overshoot a ceiling; a check that rejects rolls back whatever
-        // this call already reserved, since it runs after the checks it could invalidate.
+        // Each check reserves atomically; a later rejection rolls back what this call already reserved.
         if (!globalGate.tryReserve()) {
             throttleMetrics.recordCall(service, method, ThrottleMetrics.Outcome.REJECTED_GLOBAL_CONCURRENCY);
             return AdmissionResult.rejected("node-wide concurrency limit reached for " + description);
@@ -108,8 +97,8 @@ final class ClientThrottle implements StaleClientSweepable {
         return AdmissionResult.admitted(releasePermit);
     }
 
-    /// Atomically reserves a slot on `counter` if it is below `max` — the per-client-counter
-    /// equivalent of [GlobalConcurrencyGate#tryReserve], which has no gate class of its own.
+    /// Atomically reserves a slot on `counter` if below `max`, the per-client equivalent of
+    /// [GlobalConcurrencyGate#tryReserve].
     private static boolean tryReserve(@NonNull final AtomicInteger counter, final int max) {
         while (true) {
             final int current = counter.get();

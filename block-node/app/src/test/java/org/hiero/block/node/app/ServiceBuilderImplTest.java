@@ -67,8 +67,7 @@ class ServiceBuilderImplTest {
                 .setMetricsExporter(new TestMetricsExporter())
                 .build();
         final ThreadPoolManager threadPoolManager = mock(ThreadPoolManager.class);
-        // Only exercised by throttled-registration tests, which trigger the lazily-started
-        // stale-client sweep; a mock executor is enough since these tests don't assert on sweeps.
+        // Mock executor; only throttled-registration tests trigger the lazy sweep start, and none assert on it.
         when(threadPoolManager.createVirtualThreadScheduledExecutor(
                         org.mockito.ArgumentMatchers.anyInt(),
                         org.mockito.ArgumentMatchers.any(),
@@ -104,11 +103,10 @@ class ServiceBuilderImplTest {
         verify(spyBuilder).service(eq(testService));
     }
 
-    /// A minimal, hand-written [ServiceInterface] + [ThrottleSpec] test double. Deliberately not a
-    /// Mockito mock with `extraInterfaces`: the generated mock class would live in
-    /// `ServiceInterface`'s own module (`com.hedera.pbj.runtime`), which does not read
-    /// `org.hiero.block.node.spi` — so Mockito cannot make it implement `ThrottleSpec` across that
-    /// module boundary. A real class compiled into this module has no such restriction.
+    /// A hand-written [ServiceInterface] + [ThrottleSpec] test double, not a Mockito
+    /// `extraInterfaces` mock, since the generated mock would live in `ServiceInterface`'s own
+    /// module (`com.hedera.pbj.runtime`), which doesn't read `org.hiero.block.node.spi` and so can't
+    /// implement `ThrottleSpec` across that module boundary.
     private static final class TestThrottledService implements ServiceInterface, ThrottleSpec {
         private final String serviceName;
         private final Map<String, PerClientThrottleSettings> perClientSettings;
@@ -157,7 +155,7 @@ class ServiceBuilderImplTest {
         }
     }
 
-    /// A minimal, hand-written [ServiceInterface] + [ThrottleExempt] test double; see
+    /// A hand-written [ServiceInterface] + [ThrottleExempt] test double; see
     /// [TestThrottledService] for why this isn't a Mockito `extraInterfaces` mock.
     private static final class TestExemptService implements ServiceInterface, ThrottleExempt {
         private final String serviceName;
