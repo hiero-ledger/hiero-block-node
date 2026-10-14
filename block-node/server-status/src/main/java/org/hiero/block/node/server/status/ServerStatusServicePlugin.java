@@ -59,8 +59,7 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
     private ScheduledExecutorService heartbeatExecutor;
     /**
      * This service's per-client throttle settings, computed once in {@link #init}; see {@link ThrottleSpec}.
-     * {@code serverStatus} and {@code serverStatusDetail} get independent rate/concurrency tables from the
-     * same configured numbers, so traffic on one does not consume the other's budget.
+     * {@code serverStatus} and {@code serverStatusDetail} get independent tables from the same settings.
      */
     private volatile Map<String, PerClientThrottleSettings> throttleSettings;
     /** This service's node-wide concurrency ceiling, computed once in {@link #init}; see {@link ThrottleSpec}. */

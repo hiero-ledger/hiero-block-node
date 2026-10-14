@@ -7,9 +7,8 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.concurrent.Flow;
 
 /// Wraps the outgoing `responses` pipeline so a call's concurrency permit is released exactly
-/// once, whichever of [#onComplete] or [#onError] fires first — both are reliable, single-fire
-/// completion signals for every RPC shape, unlike the pipeline `open()` returns (see
-/// [ThrottledServiceInterface] for the full reasoning).
+/// once, whichever of [#onComplete] or [#onError] fires first, since these are the only
+/// completion signals reliable for every RPC shape (see [ThrottledServiceInterface]).
 final class ReleasingPipeline implements Pipeline<Bytes> {
     private final Pipeline<? super Bytes> delegate;
     private final Runnable releasePermit;

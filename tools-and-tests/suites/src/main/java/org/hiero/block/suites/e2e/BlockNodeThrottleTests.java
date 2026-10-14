@@ -39,14 +39,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
-/**
- * E2E tests validating the admission-control / throttling mechanism (see
- * {@code docs/design/apis/api-throttling.md}) actually rejects and admits calls against a real,
- * fully-wired {@link BlockNodeApp} — not mocks. Each test overrides the relevant throttle
- * configuration to small, easy-to-exceed values via system properties (the same override mechanism
- * every plugin's config already supports) before starting the app, so tests can be short and
- * deterministic instead of racing real-world rate limits.
- */
+/// E2E tests validating the admission-control / throttling mechanism (see
+/// `docs/design/apis/api-throttling.md`) against a real, fully-wired [BlockNodeApp], not mocks.
+/// Each test overrides throttle config to small, easy-to-exceed values via system properties
+/// before starting the app, so tests stay fast and deterministic instead of racing real rate
+/// limits.
 @Tag("api")
 public class BlockNodeThrottleTests {
     private static final String BLOCKS_DATA_DIR_PATH = "build/tmp/data";
@@ -60,7 +57,7 @@ public class BlockNodeThrottleTests {
     private record Options(Optional<String> authority, String contentType) implements ServiceInterface.RequestOptions {}
 
     private BlockNodeApp app;
-    /** Every system property key this test set, so {@link #afterEach()} can clear exactly those. */
+    /// Every system property key this test set, so [#afterEach()] can clear exactly those.
     private final Set<String> overriddenPropertyKeys = new HashSet<>();
 
     @BeforeEach
@@ -84,7 +81,7 @@ public class BlockNodeThrottleTests {
         overriddenPropertyKeys.clear();
     }
 
-    /** Sets the given config overrides as system properties, then constructs and starts the app. */
+    /// Sets the given config overrides as system properties, then constructs and starts the app.
     private void startApp(final Map<String, String> throttleOverrides) throws InterruptedException, IOException {
         throttleOverrides.forEach((key, value) -> {
             System.setProperty(key, value);
@@ -114,15 +111,9 @@ public class BlockNodeThrottleTests {
         return new PbjGrpcClient(webClient, grpcConfig);
     }
 
-    /**
-     * Repeats {@code call} until it throws a {@code RESOURCE_EXHAUSTED} rejection, or fails after
-     * {@code attempts} tries. A GCRA rate limit configured at its tightest possible setting
-     * (1/second, no burst) still only guarantees rejection of a call arriving within the same
-     * ~1-second window as the previous one — a single pair of back-to-back calls can, on a loaded
-     * test machine, legitimately land more than a second apart. Repeating the attempt makes the
-     * assertion robust to that scheduling jitter without weakening what it actually proves: the
-     * throttle does reject calls, it isn't just always admitting everything.
-     */
+    /// Repeats `call` until it throws a `RESOURCE_EXHAUSTED` rejection, or fails after `attempts`
+    /// tries. Retries since a loaded test machine can legitimately space back-to-back calls more
+    /// than the ~1-second GCRA window apart, even at the tightest rate setting.
     private static void assertEventuallyRejectedByThrottle(final int attempts, final ThrowingRunnable call) {
         for (int attempt = 0; attempt < attempts; attempt++) {
             try {
@@ -175,13 +166,11 @@ public class BlockNodeThrottleTests {
         final BlockNodeServiceInterface.BlockNodeServiceClient client =
                 new BlockNodeServiceInterface.BlockNodeServiceClient(createGrpcClient(), OPTIONS);
         try {
-            // burstTolerance pacing intervals of slack means burstTolerance + 1 rapid calls must
-            // all be admitted before the throttle catches up.
+            // burstTolerance + 1 rapid calls must all be admitted before the throttle catches up.
             for (int i = 0; i < burstTolerance + 1; i++) {
                 assertNotNull(client.serverStatus(SIMPLE_SERVER_STATUS_REQUEST));
             }
 
-            // The burst allowance is now exhausted; further rapid calls must eventually be rejected.
             assertEventuallyRejectedByThrottle(10, () -> client.serverStatus(SIMPLE_SERVER_STATUS_REQUEST));
         } finally {
             client.close();

@@ -15,13 +15,11 @@ import org.hiero.metrics.core.MetricRegistry;
 /// shared by every [ClientThrottle] and [GlobalConcurrencyGate] instance the node creates. See
 /// `docs/design/apis/api-throttling.md`'s Metrics section.
 ///
-/// Every call outcome (admitted, or rejected by one of the three checks) is recorded against one
-/// counter, `throttle_calls_total`, labeled by `service`, `method`, and `outcome` — not four
-/// separately-named counters, one per outcome.
+/// Every call outcome is recorded against one counter, `throttle_calls_total`, labeled by
+/// `service`, `method`, and `outcome`, rather than a separate counter per outcome.
 ///
-/// One instance of this class is shared across every throttled service registration — it must be
-/// constructed exactly once per [MetricRegistry], since registering the same metric name twice
-/// throws.
+/// Must be constructed exactly once per [MetricRegistry], shared across every throttled service
+/// registration, since registering the same metric name twice throws.
 public final class ThrottleMetrics {
     static final String LABEL_SERVICE = "service";
     static final String LABEL_METHOD = "method";

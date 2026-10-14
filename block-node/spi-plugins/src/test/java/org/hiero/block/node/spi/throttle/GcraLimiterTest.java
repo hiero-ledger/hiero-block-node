@@ -20,7 +20,6 @@ class GcraLimiterTest {
     @Test
     @DisplayName("Calls faster than the configured rate, beyond burst tolerance, are rejected")
     void tooFastRejected() {
-        // 1 request/second, no burst tolerance: the second call 1ms later must be rejected.
         final GcraLimiter limiter = new GcraLimiter(1, 0);
         final long now = System.nanoTime();
         assertTrue(limiter.tryAcquire(now));

@@ -31,13 +31,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/// Verifies the admission decision order and, most importantly, that the concurrency permit is
-/// released via the *outgoing* `responses` pipeline passed into [ServiceInterface#open] rather
-/// than the pipeline `open()` returns — the correctness detail called out in
-/// `docs/design/apis/api-throttling.md`. A fake delegate returns a pipeline whose completion is
-/// deliberately never wired to anything, exactly mimicking how a real server-streaming call's
-/// returned pipeline behaves in production; the tests below prove the decorator does not depend
-/// on it.
+/// Verifies the admission decision order and that the concurrency permit is released via the
+/// *outgoing* `responses` pipeline passed into [ServiceInterface#open], not the pipeline `open()`
+/// returns. The fake delegate's returned pipeline is never wired to anything, mimicking a real
+/// server-streaming call, to prove the decorator doesn't depend on it.
 class ThrottledServiceInterfaceTest {
 
     private static final ServiceInterface.Method ONLY_METHOD = () -> "onlyMethod";
@@ -110,17 +107,15 @@ class ThrottledServiceInterfaceTest {
         final Pipeline<? super Bytes> returnedFromOpen =
                 throttled.open(ONLY_METHOD, optionsFor("10.0.0.1"), firstCallReplies);
 
-        // Simulate a server-streaming call: the delegate's returned pipeline completes (as if the
-        // client had merely half-closed its request side) while the real call is still in flight.
-        // This must NOT release the permit.
+        // Simulates a server-streaming call where the returned pipeline completes while the call is
+        // still in flight (e.g. the client half-closing). Must NOT release the permit.
         returnedFromOpen.onComplete();
         final CapturingPipeline stillBlockedReplies = new CapturingPipeline();
         throttled.open(ONLY_METHOD, optionsFor("10.0.0.1"), stillBlockedReplies);
         assertEquals(
                 1, stillBlockedReplies.errors.size(), "the returned pipeline completing must not release the permit");
 
-        // Now complete the actual outgoing responses pipeline the decorator wrapped — this is the
-        // correct, reliable completion signal, and must release the permit.
+        // The outgoing responses pipeline is the correct completion signal and must release the permit.
         recordingService.capturedReplies.onComplete();
         final CapturingPipeline nowAdmittedReplies = new CapturingPipeline();
         throttled.open(ONLY_METHOD, optionsFor("10.0.0.1"), nowAdmittedReplies);
@@ -135,9 +130,7 @@ class ThrottledServiceInterfaceTest {
         final CapturingPipeline firstCallReplies = new CapturingPipeline();
         throttled.open(ONLY_METHOD, optionsFor("10.0.0.1"), firstCallReplies);
 
-        // Simulate the call failing/being cancelled, then simulate a duplicate completion signal
-        // (e.g. cancel immediately followed by a business-logic error) to prove the release is
-        // idempotent, not just eventually-consistent.
+        // A duplicate completion signal follows to prove the release is idempotent.
         recordingService.capturedReplies.onError(new RuntimeException("simulated cancellation"));
         recordingService.capturedReplies.onComplete(); // must be a no-op the second time
 
@@ -163,26 +156,17 @@ class ThrottledServiceInterfaceTest {
     @Test
     @DisplayName("Concurrent admissions never collectively overshoot the global concurrency ceiling")
     void concurrentAdmissionsNeverExceedGlobalCeiling() throws InterruptedException, BrokenBarrierException {
-        // A regression test for a non-atomic check-then-increment race: concurrent callers could
-        // previously all observe capacity available before any of them committed, overshooting
-        // the ceiling. Rate and per-client limits are set far above callerCount so only the global
-        // ceiling can reject here, and every caller is a distinct client so the per-client check
-        // never fires either — each caller calls exactly once, so GCRA's initial state admits it
-        // regardless of the configured rate.
-        //
-        // Repeated over several rounds, each with its own fresh gate: natural OS thread scheduling
-        // rarely lines up callers within the few-nanosecond check-then-increment window on its
-        // own, so every worker prepares everything it needs and then rendezvouses on a
-        // CyclicBarrier — which releases all parties simultaneously — immediately before the one
-        // racy call, maximizing real contention on the shared counter at the instant it matters.
+        // Regression test for a non-atomic check-then-increment race on the global ceiling. Rate and
+        // per-client limits are set far above callerCount so only the global ceiling can reject, and
+        // every caller is a distinct client making one call, so GCRA never fires either. Repeated
+        // over several rounds, each with its own fresh gate; a CyclicBarrier releases every worker
+        // simultaneously right before its one racy call to maximize real contention.
         final int ceiling = 5;
         final int callerCount = 200;
         final int rounds = 10;
 
         for (int round = 0; round < rounds; round++) {
-            // A fresh MetricRegistry per round: ThrottleMetrics and RemoteAddressKeyExtractor each
-            // register a metric name exactly once, so reusing the shared registry across rounds
-            // would throw on round 2.
+            // Fresh registry per round: reusing one would throw registering the same metric twice.
             final MetricRegistry roundMetricRegistry = MetricRegistry.builder()
                     .setMetricsExporter(new NoOpMetricsExporter())
                     .build();
@@ -226,9 +210,7 @@ class ThrottledServiceInterfaceTest {
                 executor.shutdownNow();
             }
 
-            // Nothing in this round ever releases a permit, so every admitted call permanently
-            // holds its slot: exactly `ceiling` of the `callerCount` concurrent attempts must
-            // succeed.
+            // No permit is ever released, so exactly `ceiling` of `callerCount` attempts must succeed.
             assertEquals(
                     ceiling,
                     admittedCount.get(),
@@ -256,8 +238,7 @@ class ThrottledServiceInterfaceTest {
     @Test
     @DisplayName("A client idle longer than the TTL gets a fresh rate-limit history on its next call")
     void lazyEvictionReplacesStaleClientState() throws InterruptedException {
-        // Rate of 1/s with no burst tolerance: an immediate second call from the same client would
-        // normally be rejected by the rate limiter, unless its state was reset by TTL-based eviction.
+        // 1/s with no burst tolerance: without TTL eviction resetting state, the second call would reject.
         final ThrottledServiceInterface throttled = throttledWith(1, 0, 100, 100, Duration.ofMillis(20));
         throttled.open(ONLY_METHOD, optionsFor("10.0.0.1"), new CapturingPipeline());
         recordingService.capturedReplies.onComplete(); // free the concurrency slot
@@ -293,8 +274,7 @@ class ThrottledServiceInterfaceTest {
     @Test
     @DisplayName("A method with no configured settings falls back to the shared global ceiling only")
     void unconfiguredMethodFallsBackToGlobalCeilingOnly() {
-        // ONLY_METHOD has a tight per-client ceiling of 1; OTHER_METHOD has no entry at all, so it
-        // must be ungated at the per-client layer and only subject to the shared global ceiling.
+        // OTHER_METHOD has no entry, so it must be ungated per-client and only subject to the global ceiling.
         final ThrottledServiceInterface throttled = new ThrottledServiceInterface(
                 recordingService,
                 Map.of(ONLY_METHOD.name(), new PerClientThrottleSettings(100, 10, 1)),
@@ -352,9 +332,8 @@ class ThrottledServiceInterfaceTest {
                 throttleMetrics,
                 Duration.ofDays(1));
 
-        // Same client, same maxConcurrentPerClient=1 on each method. If the two methods
-        // incorrectly shared one client-state table, consuming ONLY_METHOD's one per-client
-        // permit would also exhaust OTHER_METHOD's for this same client.
+        // If the two methods incorrectly shared one client-state table, ONLY_METHOD's permit would
+        // also exhaust OTHER_METHOD's for this same client.
         throttled.open(ONLY_METHOD, optionsFor("10.0.0.1"), new CapturingPipeline());
         final CapturingPipeline otherMethodReplies = new CapturingPipeline();
         throttled.open(OTHER_METHOD, optionsFor("10.0.0.1"), otherMethodReplies);
@@ -390,8 +369,7 @@ class ThrottledServiceInterfaceTest {
             final int burstTolerance,
             final int maxConcurrentPerClient,
             final int maxConcurrentGlobal) {
-        // A TTL far longer than any test could run keeps eviction (covered separately below) out of
-        // the way of every test that isn't specifically exercising it.
+        // A TTL far longer than any test run keeps eviction out of the way of tests not exercising it.
         return throttledWith(
                 ratePerSecond, burstTolerance, maxConcurrentPerClient, maxConcurrentGlobal, Duration.ofDays(1));
     }
@@ -442,10 +420,8 @@ class ThrottledServiceInterfaceTest {
         }
     }
 
-    /// A fake delegate service that records every call to `open()` and, on each call, returns a
-    /// fresh pipeline whose completion is never wired to anything else — mirroring how a real
-    /// server-streaming call's returned pipeline behaves in production (see the class-level
-    /// documentation on [ThrottledServiceInterface]).
+    /// A fake delegate that records every `open()` call and returns a fresh pipeline never wired to
+    /// anything else, mirroring a real server-streaming call (see [ThrottledServiceInterface]).
     private static final class RecordingService implements ServiceInterface {
         private int openCalls;
         private Pipeline<? super Bytes> capturedReplies;

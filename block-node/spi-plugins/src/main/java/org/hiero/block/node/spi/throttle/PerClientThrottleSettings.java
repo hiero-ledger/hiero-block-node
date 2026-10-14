@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.spi.throttle;
 
-/// The per-client throttle settings a plugin declares for one gRPC method, in that plugin's own
-/// configuration. Does **not** include the node-wide concurrency ceiling: that is a node-level
-/// capacity-allocation concern, owned separately by [GlobalConcurrencyGate]. See
-/// `docs/design/apis/api-throttling.md` ("Configuration ownership") for the rationale behind this
-/// split.
+/// Per-client throttle settings a plugin declares for one gRPC method. Excludes the node-wide
+/// concurrency ceiling, which is a separate, centrally-owned concern (see
+/// [GlobalConcurrencyGate]).
 ///
 /// @param ratePerSecond sustained requests (or, for streaming APIs, new session opens) per second
 ///     allowed for one client
