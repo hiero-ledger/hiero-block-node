@@ -220,7 +220,15 @@ class StateManagementCatchUpTest {
                 .withValue("state.management.historicCatchUpBatchSize", "2")
                 .build();
         final BlockNodeContext context = new BlockNodeContext(
-                configuration, MetricRegistry.builder().build(), null, facility, historic, null, null, null, null);
+                configuration,
+                MetricRegistry.builder().build(),
+                null,
+                facility,
+                historic,
+                null,
+                null,
+                StateManagementPluginTestSupport.newThreadPoolManager(),
+                null);
         final StateManagementPlugin plugin = new StateManagementPlugin();
         plugin.init(context, NOOP_SERVICE_BUILDER);
         plugin.start();

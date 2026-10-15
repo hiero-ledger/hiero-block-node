@@ -20,6 +20,7 @@ module org.hiero.block.node.state.management {
     requires com.swirlds.virtualmap;
     requires org.hiero.base.crypto;
     requires org.hiero.base.utility;
+    requires org.hiero.block.node.base;
     requires org.hiero.block.protobuf.pbj;
     requires org.hiero.consensus.metrics;
     requires org.hiero.consensus.utility;

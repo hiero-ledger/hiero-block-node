@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.state.management;
 
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
+
 /**
  * Test-only helpers for {@link StateManagementPlugin}. Keeps busy-wait / polling
  * scaffolding out of production code — the plugin exposes only the read-only
@@ -21,5 +26,15 @@ final class StateManagementPluginTestSupport {
             Thread.sleep(10L);
         }
         return plugin.isReady();
+    }
+
+    /**
+     * A {@code ThreadPoolManager} backed by real (daemon) executors, for tests that drive the
+     * plugin through {@code start()}/{@code stop()} and need its apply worker and background
+     * executor to actually run.
+     */
+    static TestThreadPoolManager<ExecutorService, ScheduledExecutorService> newThreadPoolManager() {
+        return new TestThreadPoolManager<>(
+                Executors.newSingleThreadExecutor(), Executors.newSingleThreadScheduledExecutor());
     }
 }
