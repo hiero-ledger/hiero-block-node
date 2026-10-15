@@ -57,12 +57,14 @@ class StateManagementPluginLifecycleTest {
     }
 
     @Test
-    void missingSnapshotForPersistedMetadataFallsBackToGenesis(@TempDir final Path tmp) throws Exception {
+    void missingSnapshotForPersistedMetadataHaltsRatherThanFallingBackToGenesis(@TempDir final Path tmp)
+            throws Exception {
         final Path metadataPath = tmp.resolve("stateMetadata.json");
         final Path recentRoot = tmp.resolve("recent");
         // Persist metadata pointing at block 5 but never create its recent/5 snapshot dir.
-        // On start the plugin cannot load state for block 5, so it must reset to genesis
-        // rather than claim state it does not actually hold.
+        // Persisted metadata is the operator's recorded intent; silently resetting to genesis
+        // would discard it and surface only later as a confusing hash mismatch on some
+        // unrelated block, so the plugin halts instead (inert, but running).
         new StateMetadataStore(metadataPath)
                 .save(StateMetadata.newBuilder()
                         .blockNumber(5L)
@@ -72,10 +74,30 @@ class StateManagementPluginLifecycleTest {
                         .build());
 
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
-        final StateManagementPlugin plugin = startPlugin(metadataPath, recentRoot, facility);
+        final var configuration = ConfigurationBuilder.create()
+                .withConfigDataType(StateManagementConfig.class)
+                .withConfigDataType(MerkleDbConfig.class)
+                .withConfigDataType(VirtualMapConfig.class)
+                .withConfigDataType(PathsConfig.class)
+                .withValue("state.management.metadataPath", metadataPath.toString())
+                .withValue("state.management.snapshotRecentPath", recentRoot.toString())
+                .build();
+        final BlockNodeContext context = new BlockNodeContext(
+                configuration,
+                MetricRegistry.builder().build(),
+                null,
+                facility,
+                null,
+                null,
+                null,
+                StateManagementPluginTestSupport.newThreadPoolManager(),
+                null);
+        final StateManagementPlugin plugin = new StateManagementPlugin();
+        plugin.init(context, NOOP_SERVICE_BUILDER);
+        plugin.start();
 
+        assertThat(plugin.isApplyHalted()).isTrue();
         assertThat(plugin.metadata()).isEqualTo(StateMetadata.DEFAULT);
-        assertThat(plugin.isApplyHalted()).isFalse();
         plugin.stop();
     }
 

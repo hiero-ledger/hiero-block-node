@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentSkipListMap;
@@ -84,6 +85,13 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// `blocknode:state_hash_mismatch_total` — cumulative footer hash mismatches.
     static final MetricKey<LongCounter> METRIC_HASH_MISMATCH_TOTAL =
             MetricKey.of("state_hash_mismatch_total", LongCounter.class).addCategory(METRICS_CATEGORY);
+
+    /// `blocknode:state_block_lag` — blocks between the latest block
+    /// `historicalBlockProvider` has on hand and the currently attested block. `0` once caught
+    /// up; a persistently growing value flags a stall worth alerting on (independent of
+    /// `state_apply_halted`, since a stall can also be a slow/stuck apply path).
+    static final MetricKey<ObservableGauge> METRIC_BLOCK_LAG =
+            MetricKey.of("state_block_lag", ObservableGauge.class).addCategory(METRICS_CATEGORY);
 
     private BlockNodeContext context;
     private StateManagementConfig config;
@@ -221,6 +229,26 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         this.hashMismatchMetric = metrics.register(LongCounter.builder(METRIC_HASH_MISMATCH_TOTAL)
                         .setDescription("Cumulative footer hash mismatches observed"))
                 .getOrCreateNotLabeled();
+        metrics.register(ObservableGauge.builder(METRIC_BLOCK_LAG)
+                .setDescription("Blocks between the latest available block and the currently attested block")
+                .observe(this::currentBlockLag));
+    }
+
+    /// Blocks between the latest block `historicalBlockProvider` has on hand and the currently
+    /// attested block. `0` if there's no historical facility, nothing available, or we're caught
+    /// up; never negative.
+    ///
+    /// @return the current block lag
+    private long currentBlockLag() {
+        final HistoricalBlockFacility historic = context == null ? null : context.historicalBlockProvider();
+        if (historic == null) {
+            return 0L;
+        }
+        final BlockRangeSet available = historic.availableBlocks();
+        if (available == null || available.size() == 0L) {
+            return 0L;
+        }
+        return Math.max(0L, available.max() - attested.metadata().blockNumber());
     }
 
     /// {@inheritDoc}
@@ -332,15 +360,22 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
 
     /// Load persisted metadata and, if present, the matching recent snapshot from disk,
     /// seeding the lag-1 bookkeeping so the loaded (already-attested) state is exposed on boot.
-    /// Falls back to genesis when metadata is missing/unreadable or its snapshot cannot be
-    /// loaded.
+    /// A fresh node (no persisted metadata at all) falls back to genesis. A node whose
+    /// `stateMetadata.json` names a real block but whose snapshot can't be loaded for it
+    /// (missing, unreadable, or hash mismatch) halts instead: persisted metadata is the
+    /// operator's recorded intent, and silently restarting from genesis would discard that
+    /// and surface only later as a confusing hash mismatch on some unrelated block.
     private void loadPersistedState() {
         StateMetadata loadedMetadata;
+        boolean metadataPersisted;
         try {
-            loadedMetadata = metadataStore.load().orElse(StateMetadata.DEFAULT);
+            final Optional<StateMetadata> persisted = metadataStore.load();
+            metadataPersisted = persisted.isPresent();
+            loadedMetadata = persisted.orElse(StateMetadata.DEFAULT);
         } catch (final IOException e) {
             LOGGER.log(System.Logger.Level.WARNING, "Unable to load state metadata; starting from genesis", e);
             loadedMetadata = StateMetadata.DEFAULT;
+            metadataPersisted = false;
         }
         boolean snapshotLoaded = false;
         final Path snapshotDir = recentSnapshotDirectoryFor(loadedMetadata.blockNumber());
@@ -366,15 +401,24 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                 }
             } catch (final IOException e) {
                 LOGGER.log(
-                        System.Logger.Level.WARNING,
-                        "Snapshot at {0} unreadable; continuing with eager genesis state",
+                        System.Logger.Level.ERROR,
+                        "Snapshot at {0} unreadable; halting rather than silently starting from genesis",
                         snapshotDir,
                         e);
+                applyHalted.set(true);
             }
+        } else if (metadataPersisted) {
+            LOGGER.log(
+                    System.Logger.Level.ERROR,
+                    "Persisted metadata names block {0} but its snapshot at {1} is missing; halting",
+                    loadedMetadata.blockNumber(),
+                    snapshotDir);
+            applyHalted.set(true);
         }
         if (!snapshotLoaded) {
-            // Metadata may point at a block we couldn't actually load — treat as genesis so the
-            // lag-1 commit pipeline doesn't claim we already have state we don't.
+            // No operator intent to honor (metadata was never persisted) — genesis is the only
+            // sensible starting point. If metadata *was* persisted, applyHalted is already set
+            // above and this plugin won't apply or serve anything regardless of this value.
             loadedMetadata = StateMetadata.DEFAULT;
         } else {
             // Trust the loaded snapshot represents post-(metadata.blockNumber), an
