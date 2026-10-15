@@ -47,7 +47,7 @@ types the consensus node uses.
    - `lifecycleManager.copyMutableState()` seals post-N; it stays staged
      until block N+1 attests it.
 5. **Restore on start.** If a snapshot directory matching the persisted
-   `stateMetadata.json` exists under `stateSnapshotRecentPath`, the plugin
+   `stateMetadata.json` exists under `snapshotRecentPath`, the plugin
    loads it via `lifecycleManager.loadSnapshot(...)` and seeds the lag-1
    bookkeeping so the restored state is already exposed on boot. Falls
    back to genesis if the metadata is missing or its snapshot can't be
@@ -73,9 +73,14 @@ jar is on the classpath; opt-in lives in the deployment manifest.
 
 ## Failure modes
 
-- **State unreadable at startup.** A corrupt snapshot directory is logged
-  at `WARNING` and the plugin continues with the eagerly-created genesis
-  state; it does not refuse to start.
+- **State unreadable at startup.** A corrupt snapshot directory (I/O
+  failure) is logged at `WARNING` and the plugin continues with the
+  eagerly-created genesis state; it does not refuse to start.
+- **Snapshot hash mismatch at startup.** When a loaded snapshot's root
+  hash doesn't match the persisted metadata's `stateRootHash`, the
+  plugin treats it the same as a block-apply hash mismatch: halts
+  (`applyHalted=true`) rather than silently serving a stale/corrupt
+  snapshot.
 - **Hash mismatch.** When a block's `BlockFooter.startOfBlockStateRootHash`
   doesn't equal the current live root hash, the plugin increments
   `hashMismatchTotal`, sets `applyHalted=true`, logs at `ERROR`, and the
@@ -83,8 +88,10 @@ jar is on the classpath; opt-in lives in the deployment manifest.
 - **Malformed `state_changes` item.** Raises `IllegalStateException` from
   the applier; the plugin logs and does **not** advance metadata.
 - **Concurrent gap.** A block arriving out of order parks in the pending
-  map until its predecessor lands. The apply loop never advances past a
-  gap.
+  map until its predecessor lands. The apply loop retries from
+  `historicalBlockProvider` on a delay until the gap fills; `pendingBlocks`
+  is capped (`pendingBlocksMax`) so a long-lived gap can't grow it
+  unboundedly.
 
 ## Limitations
 
