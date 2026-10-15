@@ -90,7 +90,9 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
 
     /// State (1) and its metadata, published as one unit so a reader can never pair a new state
     /// with stale metadata (or vice versa) — see `publishAttested`. `state` is `null` until the
-    /// first attestation.
+    /// first attestation. Does not yet give readers their own reservation on `state`; no query
+    /// path exists in this PR to need one, but the gRPC query API PR must add one before reading
+    /// `state` from any thread other than the apply worker.
     private record AttestedSnapshot(
             @Nullable VirtualMapState state, @NonNull StateMetadata metadata) {}
 
