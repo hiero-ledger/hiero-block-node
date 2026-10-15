@@ -163,7 +163,15 @@ class StateManagementPluginLifecycleTest {
                 .withValue("state.management.snapshotRecentPath", recentRoot.toString())
                 .build();
         final BlockNodeContext context = new BlockNodeContext(
-                configuration, MetricRegistry.builder().build(), null, facility, null, null, null, null, null);
+                configuration,
+                MetricRegistry.builder().build(),
+                null,
+                facility,
+                null,
+                null,
+                null,
+                StateManagementPluginTestSupport.newThreadPoolManager(),
+                null);
         final StateManagementPlugin plugin = new StateManagementPlugin();
         plugin.init(context, NOOP_SERVICE_BUILDER);
         plugin.start();
@@ -286,7 +294,7 @@ class StateManagementPluginLifecycleTest {
                 null,
                 null,
                 null,
-                null,
+                StateManagementPluginTestSupport.newThreadPoolManager(),
                 null);
         final StateManagementPlugin plugin = new StateManagementPlugin();
         plugin.init(context, NOOP_SERVICE_BUILDER);
@@ -331,6 +339,64 @@ class StateManagementPluginLifecycleTest {
         assertThat(metricsExporter.getMetricValue(StateManagementPlugin.METRIC_PENDING_BLOCKS.name()))
                 .as("pendingBlocks must not grow once apply is halted")
                 .isEqualTo(pendingAtApplyHalted);
+        plugin.stop();
+    }
+
+    @Test
+    void pendingBlocksCapDropsExcessLiveBlocksDuringAGap(@TempDir final Path tmp) throws Exception {
+        final TestMetricsExporter metricsExporter = new TestMetricsExporter();
+        final var configuration = ConfigurationBuilder.create()
+                .withConfigDataType(StateManagementConfig.class)
+                .withConfigDataType(MerkleDbConfig.class)
+                .withConfigDataType(VirtualMapConfig.class)
+                .withConfigDataType(PathsConfig.class)
+                .withValue(
+                        "state.management.metadataPath", tmp.resolve("md.json").toString())
+                .withValue(
+                        "state.management.snapshotRecentPath",
+                        tmp.resolve("recent").toString())
+                .withValue("state.management.pendingBlocksMax", "3")
+                .build();
+        final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
+        final BlockNodeContext context = new BlockNodeContext(
+                configuration,
+                MetricRegistry.builder().setMetricsExporter(metricsExporter).build(),
+                null,
+                facility,
+                null,
+                null,
+                null,
+                StateManagementPluginTestSupport.newThreadPoolManager(),
+                null);
+        final StateManagementPlugin plugin = new StateManagementPlugin();
+        plugin.init(context, NOOP_SERVICE_BUILDER);
+        plugin.start();
+
+        // Apply genesis so `expectedNext` is a fixed block number, then leave block 1 missing —
+        // an unresolved gap — while delivering more live blocks than the cap allows.
+        facility.sendBlockVerification(new VerificationNotification(
+                true,
+                null,
+                0L,
+                Bytes.fromHex("aabb"),
+                buildBlock(0L, 0L, plugin.stagedStateRootHash()),
+                BlockSource.PUBLISHER));
+        plugin.applyPending();
+        assertThat(plugin.isApplyHalted()).isFalse();
+
+        for (long blockNumber = 2L; blockNumber <= 9L; blockNumber++) {
+            facility.sendBlockVerification(new VerificationNotification(
+                    true,
+                    null,
+                    blockNumber,
+                    Bytes.fromHex("aabb"),
+                    buildBlock(blockNumber, blockNumber * 10L),
+                    BlockSource.PUBLISHER));
+        }
+
+        assertThat(metricsExporter.getMetricValue(StateManagementPlugin.METRIC_PENDING_BLOCKS.name()))
+                .as("pendingBlocks must stay at or below the configured cap")
+                .isLessThanOrEqualTo(3L);
         plugin.stop();
     }
 
@@ -407,7 +473,15 @@ class StateManagementPluginLifecycleTest {
                 .withValue("state.management.snapshotRecentPath", recentRoot.toString())
                 .build();
         final BlockNodeContext context = new BlockNodeContext(
-                configuration, MetricRegistry.builder().build(), null, facility, null, null, null, null, null);
+                configuration,
+                MetricRegistry.builder().build(),
+                null,
+                facility,
+                null,
+                null,
+                null,
+                StateManagementPluginTestSupport.newThreadPoolManager(),
+                null);
         final StateManagementPlugin plugin = new StateManagementPlugin();
         plugin.init(context, NOOP_SERVICE_BUILDER);
         plugin.start();

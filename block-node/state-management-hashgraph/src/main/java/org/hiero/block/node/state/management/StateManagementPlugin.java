@@ -15,7 +15,9 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -111,7 +113,16 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
 
     /// Dedicated apply worker. Runs one-shot historical catch-up, then blocks on `arrivals`
     /// waiting for verified blocks and applies them immediately. `null` until `start()`.
-    private Thread applyWorker;
+    private ExecutorService applyWorker;
+
+    /// Background executor for work that must not block the apply worker: gap retries today.
+    /// `null` until `start()`.
+    private ScheduledExecutorService backgroundExecutor;
+
+    /// Guards against piling up duplicate gap-retry tasks while one is already scheduled.
+    private final AtomicBoolean gapRetryScheduled = new AtomicBoolean(false);
+
+    private static final long GAP_RETRY_DELAY_SECONDS = 5L;
 
     /// Wake-up channel for the apply worker. `handleVerification` stages the block in
     /// `pendingBlocks` (the ordered gap buffer `applyPending` drains) and offers the block
@@ -215,11 +226,15 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         loadPersistedState();
         context.blockMessaging().registerBlockNotificationHandler(this, true, name());
 
+        backgroundExecutor = context.threadPoolManager()
+                .createSingleThreadScheduledExecutor(
+                        "StateManagement-background",
+                        (t, e) -> LOGGER.log(System.Logger.Level.WARNING, "Uncaught exception in " + t.getName(), e));
+
         // Single apply worker: runs one-shot historical catch-up, then blocks on `arrivals`
         // and drains `pendingBlocks` the instant a verified block shows up — no polling.
-        applyWorker = new Thread(this::runApplyWorker, "StateManagement-apply");
-        applyWorker.setDaemon(true);
-        applyWorker.start();
+        applyWorker = context.threadPoolManager().createSingleThreadExecutor("StateManagement-apply");
+        applyWorker.submit(this::runApplyWorker);
     }
 
     /// {@inheritDoc}
@@ -235,6 +250,9 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             }
         }
         stopApplyWorker();
+        if (backgroundExecutor != null) {
+            backgroundExecutor.shutdownNow();
+        }
     }
 
     /// {@inheritDoc}
@@ -243,6 +261,18 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         // Halted apply means pendingBlocks is frozen — restart re-derives it from historical
         // storage, so there is nothing to lose by not staging more here.
         if (!notification.success() || notification.block() == null || applyHalted.get()) {
+            return;
+        }
+        if (pendingBlocks.size() >= config.pendingBlocksMax()
+                && !pendingBlocks.containsKey(notification.blockNumber())) {
+            // Over the cap: drop rather than buffer unboundedly. Whatever gap is holding up
+            // apply will eventually be filled by backfill (see scheduleGapRetry), at which
+            // point this block number is re-fetched from historicalBlockProvider anyway.
+            LOGGER.log(
+                    System.Logger.Level.WARNING,
+                    "pendingBlocks at cap ({0}); dropping live block {1}",
+                    config.pendingBlocksMax(),
+                    notification.blockNumber());
             return;
         }
         pendingBlocks.put(notification.blockNumber(), notification.block());
@@ -384,6 +414,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                 // Peek (not remove) so a failure leaves the block for inspection, not retry.
                 final BlockUnparsed block = pendingBlocks.get(expectedNext);
                 if (block == null) {
+                    scheduleGapRetry(expectedNext);
                     return;
                 }
                 final boolean applied;
@@ -431,15 +462,15 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         }
     }
 
-    /// Stop the apply worker: interrupt it and join briefly. Best-effort; no-ops if never
+    /// Stop the apply worker: interrupt it and wait briefly. Best-effort; no-ops if never
     /// started.
     private void stopApplyWorker() {
         if (applyWorker == null) {
             return;
         }
-        applyWorker.interrupt();
+        applyWorker.shutdownNow();
         try {
-            applyWorker.join(TimeUnit.SECONDS.toMillis(2L));
+            applyWorker.awaitTermination(2L, TimeUnit.SECONDS);
         } catch (final InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -492,6 +523,40 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                 stateIsCaughtUp.set(true);
             }
         }
+    }
+
+    /// A gap in `pendingBlocks` is expected, not an error: backfill fills it eventually. Log a
+    /// warning and retry after a delay rather than waiting forever on a live notification that
+    /// may never arrive for this exact block number. Coalesced — only one retry is ever in
+    /// flight.
+    ///
+    /// @param expectedNext the missing block number to retry
+    private void scheduleGapRetry(final long expectedNext) {
+        if (backgroundExecutor == null || stopping.get() || !gapRetryScheduled.compareAndSet(false, true)) {
+            return;
+        }
+        LOGGER.log(
+                System.Logger.Level.WARNING,
+                "Block {0} missing; retrying from historical storage in {1}s",
+                expectedNext,
+                GAP_RETRY_DELAY_SECONDS);
+        backgroundExecutor.schedule(() -> retryGap(expectedNext), GAP_RETRY_DELAY_SECONDS, TimeUnit.SECONDS);
+    }
+
+    /// Re-check a previously missing block: pull it from `historicalBlockProvider` if backfill
+    /// has it by now, then wake the apply worker either way so `applyPending` re-evaluates (and
+    /// reschedules another retry if it is still missing).
+    ///
+    /// @param expectedNext the block number to re-check
+    private void retryGap(final long expectedNext) {
+        gapRetryScheduled.set(false);
+        if (!stopping.get() && !applyHalted.get() && !pendingBlocks.containsKey(expectedNext)) {
+            final HistoricalBlockFacility historic = context == null ? null : context.historicalBlockProvider();
+            if (historic != null) {
+                enqueueHistoricalBlock(historic, expectedNext);
+            }
+        }
+        arrivals.offer(expectedNext);
     }
 
     /// Fetch a single historical block via its `BlockAccessor` and enqueue it in
