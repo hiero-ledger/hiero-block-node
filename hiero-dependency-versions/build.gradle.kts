@@ -174,7 +174,8 @@ dependencies.constraints {
         // module with no compile-time project dependents, so checkVersionConsistency's static
         // scan does not see its module-info `requires` as usage even though these pins are
         // genuinely consumed (verified: the module compiles, tests, and builds green against
-        // them). Exclude rather than leave the build broken on a tooling false-positive.
+        // them). Exclude rather than leave the build broken on a tooling false-positive. #3810
+        // (gRPC query API) will depend on this module and should make these excludes moot.
         excludes.add("com.hedera.hashgraph:swirlds-state-api")
         excludes.add("com.hedera.hashgraph:swirlds-state-impl")
         excludes.add("com.hedera.hashgraph:swirlds-virtualmap")
