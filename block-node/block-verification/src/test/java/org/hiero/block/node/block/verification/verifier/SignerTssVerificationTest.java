@@ -4,10 +4,17 @@ package org.hiero.block.node.block.verification.verifier;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.hedera.hapi.block.stream.output.SingletonUpdateChange;
+import com.hedera.hapi.block.stream.output.StateChange;
+import com.hedera.hapi.block.stream.output.StateChanges;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.TestConfigurationBuilder;
 import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
@@ -121,6 +128,41 @@ class SignerTssVerificationTest {
     }
 
     @Test
+    @DisplayName("verify() accepts a locally signed block carrying state_changes")
+    void verifyAcceptsLocallySignedBlockWithStateChanges() {
+        // Regression coverage for the class of bug found in tools-and-tests/suites'
+        // BlockItemBuilderUtils (PR #2903): its hand-duplicated mirror of this exact
+        // hash-then-sign-then-verify path had three independent bugs (wrong leaf count,
+        // missing TSS bootstrap, a fake non-TSS "signature") that only ever surfaced via a
+        // ~1-2 minute Docker E2E run. This test exercises the same real BlockHasher ->
+        // TssBlockSigner -> TSSVerifier round trip for a state_changes-carrying block, in
+        // milliseconds, as part of this module's normal test task.
+        final StateChange change = StateChange.newBuilder()
+                .stateId(1)
+                .singletonUpdate(SingletonUpdateChange.newBuilder()
+                        .bytesValue(Bytes.fromHex("aabbcc"))
+                        .build())
+                .build();
+        final StateChanges stateChanges =
+                StateChanges.newBuilder().stateChanges(change).build();
+        final TestBlock block = generateBlockWithStateChanges(3L, stateChanges);
+        final Bytes rootHash = runHashing(block).rootHash();
+
+        final TssBlockSigner signer = TssBlockSigner.create();
+        verificationDataProvider.safeUpdateTssData(signer.verificationMaterial().tssData(), false);
+        final Bytes signature = signer.signBlockProof(block.number(), rootHash)
+                .signedBlockProof()
+                .blockSignature();
+
+        final TSSVerifier verifier = new TSSVerifier(
+                metricsHolder.proofVerificationMetrics(), rootHash, signature, verificationDataProvider);
+
+        assertThat(verifier.verify())
+                .withFailMessage("Locally signed state_changes-carrying block should verify successfully")
+                .isNull();
+    }
+
+    @Test
     @DisplayName("verify() rejects a tampered signature")
     void verifyRejectsTamperedSignature() {
         final TestBlock block = TestBlockBuilder.generateBlockWithNumber(3L);
@@ -138,6 +180,23 @@ class SignerTssVerificationTest {
                 metricsHolder.proofVerificationMetrics(), rootHash, Bytes.wrap(signature), verificationDataProvider);
 
         assertThat(verifier.verify()).isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+    }
+
+    /// Builds a test block carrying a {@code state_changes} item, mirroring {@link
+    /// TestBlockBuilder#generateBlockWithSignedTransaction} for a different extra item type
+    /// rather than modifying the shared fixture (every other block shape there needs plain
+    /// header/round-header/footer/proof, not this one).
+    private static TestBlock generateBlockWithStateChanges(final long blockNumber, final StateChanges stateChanges) {
+        final List<BlockItemUnparsed> items = new ArrayList<>();
+        items.add(TestBlockBuilder.sampleHeaderUnparsed(blockNumber));
+        items.add(TestBlockBuilder.sampleRoundHeaderUnparsed(blockNumber * 10L));
+        items.add(BlockItemUnparsed.newBuilder()
+                .stateChanges(StateChanges.PROTOBUF.toBytes(stateChanges))
+                .build());
+        items.add(TestBlockBuilder.sampleFooterUnparsed(blockNumber));
+        items.add(TestBlockBuilder.sampleProofUnparsed(blockNumber));
+        return new TestBlock(
+                blockNumber, BlockUnparsed.newBuilder().blockItems(items).build());
     }
 
     private HashingResult runHashing(final TestBlock block) {
