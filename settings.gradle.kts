@@ -119,9 +119,5 @@ gradle.lifecycle.beforeProject {
                 requiresStatic("com.github.spotbugs.annotations")
             }
         }
-
-        // Use our protobuf-pbj rather than the upstream hapi jar so the package
-        // namespaces don't collide.
-        configurations.all { exclude(group = "com.hedera.hashgraph", module = "hapi") }
     }
 }
