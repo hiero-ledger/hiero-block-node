@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import org.hiero.block.api.SubscribeStreamRequest;
@@ -1191,6 +1192,62 @@ class SubscriberServicePluginTest {
                                             .endBlockNumber(-1)
                                             .build(),
                                     Code.NOT_AVAILABLE));
+                }
+            }
+        }
+
+        /** Tests for the periodic session reaper, independent of new client requests. */
+        @Nested
+        @DisplayName("Session Reaper Tests")
+        class SessionReaperTests {
+            @Test
+            @DisplayName("should reap a completed session without a new client request")
+            void testCompletedSessionIsReapedWithoutNewRequest() {
+                // Invalid start block number: the session is closed almost immediately.
+                final SubscribeStreamRequest invalidRequest = SubscribeStreamRequest.newBuilder()
+                        .startBlockNumber(-2L)
+                        .endBlockNumber(-1L)
+                        .build();
+                toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(invalidRequest));
+                awaitResponse(fromPluginBytes, 1);
+
+                assertThat(plugin.getOpenSessions())
+                        .as("session must still be tracked after closing, otherwise this test proves nothing")
+                        .isNotEmpty();
+                waitOnEmptyOpenSessions();
+
+                assertThat(plugin.getOpenSessions()).isEmpty();
+            }
+
+            @Test
+            @DisplayName("should reap a session that completed successfully without a new client request")
+            void testCompletedValidSessionIsReapedWithoutNewRequest() {
+                // A single, already-available block: the request is fulfilled and closes almost immediately.
+                final TestBlock blockZero = TestBlockBuilder.generateBlockWithNumber(0);
+                blockMessaging.sendBlockItems(blockZero.asBlockItems());
+                final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
+                        .startBlockNumber(0L)
+                        .endBlockNumber(0L)
+                        .build();
+                toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
+                awaitResponse(fromPluginBytes, 3); // items, end of block, success status
+
+                assertThat(plugin.getOpenSessions())
+                        .as("session must still be tracked after completing, otherwise this test proves nothing")
+                        .isNotEmpty();
+                waitOnEmptyOpenSessions();
+
+                assertThat(plugin.getOpenSessions()).isEmpty();
+            }
+
+            /** Pumps the test scheduled executor until the reaper empties {@code openSessions}, bounded so a regression fails fast instead of hanging. */
+            private void waitOnEmptyOpenSessions() {
+                final long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+                while (!plugin.getOpenSessions().isEmpty() && System.nanoTime() < deadlineNanos) {
+                    testThreadPoolManager.scheduledExecutor().executeSerially();
+                    if (!plugin.getOpenSessions().isEmpty()) {
+                        parkNanos(TimeUnit.MILLISECONDS.toNanos(10));
+                    }
                 }
             }
         }

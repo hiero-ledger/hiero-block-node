@@ -1543,7 +1543,8 @@ class BlockStreamSubscriberSessionTest {
                     blockNodeContext,
                     sessionReadyLatch);
 
-            try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+            try {
                 final Future<BlockStreamSubscriberSession> sessionFuture = executor.submit(session);
                 assertThat(sessionReadyLatch.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
                         .isTrue();
@@ -1551,6 +1552,9 @@ class BlockStreamSubscriberSessionTest {
                 session.close(Code.SUCCESS);
 
                 assertThatNoException().isThrownBy(() -> sessionFuture.get(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+            } finally {
+                // shutdownNow(), not close(), so a regression fails fast instead of hanging the build.
+                executor.shutdownNow();
             }
         }
 

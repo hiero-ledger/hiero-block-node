@@ -737,6 +737,8 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
      */
     synchronized void close(final SubscribeStreamResponse.Code endStreamResponseCode) {
         LOGGER.log(Level.TRACE, "Closing BlockStreamSubscriberSession for client {0}", sessionContext.clientId);
+        // Clear a possible stale interrupt flag so it doesn't fail the sends below.
+        Thread.interrupted();
         try {
             // Might get here before the session is ready, so check the countdown latch
             if (sessionReadyLatch.getCount() > 0) {
@@ -747,32 +749,23 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             blockNodeContext.blockMessaging().unregisterBlockItemHandler(liveBlockHandler);
             // send an end stream response, if we have a code to set and are not interrupted.
             if (!interruptedStream.get() && endStreamResponseCode != null) {
-                try {
-                    // attempt to send the end stream response
-                    final Builder response =
-                            SubscribeStreamResponseUnparsed.newBuilder().status(endStreamResponseCode);
-                    responsePipeline.onNext(response.build());
-                } catch (final UncheckedIOException e) {
-                    // Unfortunately this is the "standard" way to end a stream, so log
-                    // at debug rather than emitting noise in the logs.
-                    // Also, this confuses everyone, they all see this debug log and
-                    // assume the node crashed, so we must not print a stack trace.
-                    final String messageFormat = "Client connection is already closed %d: %s";
-                    final String message = messageFormat.formatted(sessionContext.clientId, e.getMessage());
-                    LOGGER.log(Level.DEBUG, message, e);
-                } catch (final RuntimeException e) {
-                    // If the response cannot be sent, log and suppress this exception.
-                    final String message = "Suppressed client error when sending end stream response for client %d%n%s";
-                    LOGGER.log(Level.DEBUG, message.formatted(sessionContext.clientId, e.getMessage()), e);
-                }
+                final Builder response =
+                        SubscribeStreamResponseUnparsed.newBuilder().status(endStreamResponseCode);
+                responsePipeline.onNext(response.build());
             }
-            try {
-                responsePipeline.onComplete();
-            } catch (final RuntimeException e) {
-                // If the pipeline cannot be completed, log and suppress this exception.
-                final String message = "Suppressed client error when \"completing\" stream for client %d%n%s";
-                LOGGER.log(Level.DEBUG, message.formatted(sessionContext.clientId, e.getMessage()), e);
-            }
+            responsePipeline.onComplete();
+        } catch (final UncheckedIOException e) {
+            // Unfortunately this is the "standard" way to end a stream, so log
+            // at debug rather than emitting noise in the logs.
+            // Also, this confuses everyone, they all see this debug log and
+            // assume the node crashed, so we must not print a stack trace.
+            final String messageFormat = "Client connection is already closed %d: %s";
+            final String message = messageFormat.formatted(sessionContext.clientId, e.getMessage());
+            LOGGER.log(Level.DEBUG, message, e);
+        } catch (final RuntimeException e) {
+            // If the response cannot be sent or the pipeline cannot be completed, log and suppress.
+            final String message = "Suppressed client error while closing session for client %d%n%s";
+            LOGGER.log(Level.DEBUG, message.formatted(sessionContext.clientId, e.getMessage()), e);
         } finally {
             // Break out of the loop that sends blocks to the client, so the thread completes.
             // In a finally block so this always runs, even if something above throws
