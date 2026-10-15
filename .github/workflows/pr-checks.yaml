@@ -19,9 +19,7 @@ env:
   GRADLE_EXEC: "ionice -c 2 -n 2 nice -n 19 ./gradlew "
 
 permissions:
-  id-token: write
   contents: read
-  packages: write
 
 jobs:
   package-protobuf-source:

@@ -37,7 +37,6 @@ on:
 
 permissions:
   contents: read
-  actions: write
 
 defaults:
   run:
@@ -48,6 +47,9 @@ jobs:
     timeout-minutes: 10
     name: Generate Release Notes
     runs-on: hl-bn-lin-md
+    permissions:
+      contents: read
+      actions: write
     env:
       # Single source of truth — bump to pick up a new git-cliff release.
       # Verify tarball structure: tar tzf git-cliff-<V>-x86_64-unknown-linux-musl.tar.gz | head
