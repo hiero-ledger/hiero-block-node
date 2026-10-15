@@ -146,7 +146,7 @@ message BinaryStateQuery {
   }
   uint64 state_id    = 3;
   bytes  key_bytes   = 4;        // KV key (mutually exclusive with queue_index)
-  uint64 queue_index = 5;        // Queue index (0-based, optional)
+  uint64 queue_index = 5;        // 1-indexed; 0 or unset = full queue
 }
 
 message BinaryStateQueryResponse {
@@ -154,8 +154,9 @@ message BinaryStateQueryResponse {
     UNKNOWN          = 0;
     SUCCESS          = 1;
     INVALID_REQUEST  = 2;
-    NOT_FOUND        = 3;
+    NOT_FOUND        = 3;       // requested key/singleton/queue index absent from the attested state
     NOT_READY        = 4;       // state still loading / catching up
+    NOT_AVAILABLE    = 5;       // block_number isn't the attested block (no historical retention)
   }
   Code              status          = 1;
   StateMetadata     state_metadata  = 2;
@@ -170,6 +171,15 @@ RPC method) and were considered for a `oneof`, but `queue_bytes` is `repeated` a
 does not allow `repeated` fields inside a `oneof` — it would need a wrapper message
 (`QueueValues { repeated bytes values = 1; }`). That wrapping cost more devex than the
 `oneof` saved, so left as plain fields; revisit if this becomes a pain point in practice.
+
+`NOT_AVAILABLE` mirrors `BlockAccessService.getBlock()`'s `NOT_AVAILABLE` for a block outside
+the range this node currently holds. This plugin has no historical retention (§2/§7): the
+*only* block it ever holds is the currently attested one, so any other requested `block_number`
+is `NOT_AVAILABLE`, never `NOT_FOUND` (`NOT_FOUND` is reserved for "the attested state doesn't
+have this key/singleton/queue index"). Whether apply has halted is an internal detail, not a
+query concern: `retrieve_latest` or a `block_number` matching the attested block still answers
+`SUCCESS` from that (now-frozen) state even while halted, since that state is still valid — only
+requests for a block the node hasn't (or will never) reach are affected.
 
 RPC service updates on `state_service.proto`:
 
@@ -193,16 +203,22 @@ service StateService {
   - The constructor eagerly creates a genesis state which is replaced later
     if a snapshot is loaded.
 - Register self as the `StateServiceInterface` gRPC service via
-  `serviceBuilder.registerGrpcService(this, config.port())` — the plugin **is** the
+  `serviceBuilder.registerGrpcService(config.port(), this)` — the plugin **is** the
   service. A `null` `port` shares the default `server.port`; a configured port opens the
   `StateService` API on its own port.
 
 ### 6.2 `start()`
 
-1. Load `stateMetadata.json` if it exists; otherwise treat as genesis.
-2. If a recent snapshot dir at `${recentPath}/<blockNumber>` exists, call
-   `lifecycleManager.loadSnapshot(...)` to replace the eager genesis state
-   with the on-disk state.
+1. Load `stateMetadata.json`. If it doesn't exist, there's no persisted operator intent to
+   honor — treat as genesis.
+2. If it does exist and names block N: if a recent snapshot dir at `${recentPath}/N` exists and
+   its hash matches the metadata, call `lifecycleManager.loadSnapshot(...)` to replace the eager
+   genesis state with the on-disk state. If the snapshot dir is missing, unreadable, or its hash
+   doesn't match the metadata, **halt** (`applyHalted=true`) rather than silently falling back to
+   genesis — persisted metadata is the operator's recorded intent, and discarding it quietly
+   would only surface later as a confusing hash mismatch on some unrelated block. The plugin
+   still starts successfully (no exception, no shutdown request); it just never becomes `ready`
+   and never applies or serves anything until a fixed snapshot is in place and the node restarts.
 3. Register self as `BlockNotificationHandler` via
    `context.blockMessaging().registerBlockNotificationHandler(this, true, "StateManagementPlugin")`.
    `cpuIntensive=true` because state apply is CPU-bound parsing work.
@@ -245,8 +261,11 @@ Block-Node has on hand without waiting for verification notifications.
 4. After each batch, call `applyPending()` synchronously to drain.
 5. Stop early if the plugin is `applyHalted` (a hash mismatch occurred) or
    `stopping`.
-6. Set `ready=true` in `finally` — even on partial catch-up, queries can
-   start serving against whatever did apply.
+6. In `finally`, set `ready=true` **only if not `applyHalted`** — ready means catch-up finished
+   *without* halting, not merely "catch-up attempt finished." This lets a monitoring consumer
+   tell "healthy and caught up" apart from "caught up once, then halted" from `ready` alone,
+   without also having to check `apply_halted`. A halt leaves the node `NOT_READY` permanently
+   (until a restart) and logs a warning.
 
 ### 6.5 `applyPending()` (event-driven: runs when the apply worker is woken by a new block)
 
@@ -272,8 +291,9 @@ The apply pipeline runs three versions of the state concurrently:
   `state_changes` (library-managed).
 - **(2) HASHING** — `hashingImmutable`: sealed by `copyMutableState()`, awaiting hash +
   attestation by the next block's footer (library-managed, held by the plugin).
-- **(1) ATTESTED** — `attestedImmutable`: the network-confirmed, query-serving copy (a
-  plugin-local cache variable; the only state the query API reads).
+- **(1) ATTESTED** — `attested` (an `AttestedSnapshot(state, metadata)` record behind a single
+  volatile field): the network-confirmed, query-serving copy and its `StateMetadata`, published
+  together — the only state the query API reads (§8).
 
 A state is hashed **exactly once**, never while it is still mutable (3). `VirtualMap.getHash()`
 caches its result, so the total hashing work is the same whether it runs eagerly or lazily —
@@ -297,6 +317,13 @@ mutable, but only exposed once the *next* block's footer attests its root hash.
    differs per network/config, e.g. a seeded genesis bootstrap vs. a truly empty map), and this
    step computes that hash the same way it computes every other block's, rather than assuming
    it's empty or all-zeros.
+   - **Known gap, not yet handled:** a fresh node (no persisted metadata) whose *first* real
+     block is N > 0, not 0 — e.g. a deployment pointed at a mid-chain `historicalBlockProvider`
+     with no snapshot ever supplied — has no real seed state to validate against either; N's
+     footer carries the hash of real pre-N state the node never had, which the empty-state
+     seed can never match. This is a missing-seed-state condition, not a genuine hash mismatch,
+     but is not currently distinguished from one (see §10). Needs a design decision before
+     implementing; out of scope for this slice.
    - On mismatch: increment `hashMismatchTotal`, set `applyHalted=true`, log at ERROR, return
      without exposing anything. Further applies short-circuit on `applyHalted`.
      `hashMismatchTotal` is a counter rather than a boolean because it's cumulative over the
@@ -304,19 +331,27 @@ mutable, but only exposed once the *next* block's footer attests its root hash.
      it more than once per incident before `applyHalted` is finally set, and a restarted node
      can hit an independent, later mismatch — `applyHalted` alone can't distinguish "never
      happened" from "happened repeatedly".
-3. A match means N's footer attests post-(N-1). **Promote** state 2 → state 1
-   (`attestedImmutable`) unless it is already exposed (e.g. just after a snapshot reload),
-   reserving its reference, and record its `StateMetadata` with the just-computed hash.
+3. A match means N's footer attests post-(N-1). **Promote** state 2 → state 1 (`attested`)
+   unless it is already exposed (e.g. just after a snapshot reload): publish the state and its
+   just-built `StateMetadata` together as one `AttestedSnapshot`, in a single volatile write, so
+   a reader can never observe a new state paired with the previous block's metadata or vice
+   versa.
 4. Apply N's `state_changes` via `StateChangeApplier.applyBlock(mutable, block)`.
 5. `lifecycleManager.copyMutableState()` fast-copies/seals post-N as the new state 2
    (`hashingImmutable`); record `lastAppliedBlock=N`, `lastAppliedRound`. Post-N is left
    **un-hashed and un-exposed** until block N+1 attests it.
 
-Reference counting: `attestedImmutable` is held across applies by reserving its root
+Reference counting: `attested.state()` is held across applies by reserving its root
 (`copyMutableState()` releases the lifecycle manager's own reference to the superseded
-version); the previously-held attested state is released when a new one is adopted. Queries
-read `attestedImmutable`; a node that has applied only genesis has nothing attested and
-reports NOT_READY. Snapshots capture `attestedImmutable`.
+version); the previously-held attested state is released when a new one is adopted. A node that
+has applied only genesis has nothing attested (`attested.state() == null`) and reports
+NOT_READY. Snapshots capture `attested.state()`.
+
+This reservation is sufficient for the apply thread's own bookkeeping, but gives a *query*
+reader no safety by itself: nothing today takes a reservation before reading `attested.state()`
+from another thread, so a reader could race the next promotion's release. Not reachable yet —
+no query path exists in this plugin slice — but see §8 for the contract the query-API PR must
+add before reading `attested.state()` from any thread but the apply worker.
 
 ### 6.6 `saveSnapshot()` (scheduled, runs every `snapshotIntervalMillis`)
 
@@ -388,35 +423,50 @@ consumer doesn't reinvent it.
 `StateManagementPlugin` implements `StateServiceInterface` directly and is
 registered as the gRPC service in `init`. Each RPC:
 
-1. Returns `NOT_READY` if catch-up hasn't completed.
+1. Reads `attested` (the `AttestedSnapshot` — state and metadata published together, §6.5).
+   Returns `NOT_READY` if `attested.state() == null` (nothing has been attested yet — true
+   genesis, no block fully confirmed). This is the *only* state this RPC ever reads: never the
+   live mutable or the sealed-but-unattested `hashingImmutable`, which the apply worker is
+   actively writing/sealing concurrently with no synchronization a query thread could safely
+   join.
 2. Returns `INVALID_REQUEST` if:
    - `getBinaryKV` is called without `key_bytes`, or with `queue_index`;
    - `getBinarySingleton` is called with `key_bytes` or `queue_index`;
-   - `getBinaryQueue` is called with `key_bytes`;
-   - `block_number` is non-zero and not equal to the latest applied.
-3. Selects the read state: `getLatestImmutableState()` if present, else
-   `getMutableState()` as a fallback so the first read before any
-   `copyMutableState` returns sensible data.
-4. Delegates to `getKv` / `getSingleton` / `getQueueAsList` / `peekQueue`.
+   - `getBinaryQueue` is called with `key_bytes`.
+3. Returns `NOT_AVAILABLE` if an explicit `block_number` was set and it doesn't match
+   `attested.metadata().blockNumber()`. This holds regardless of `applyHalted`: a halted node's
+   attested block is simply frozen, so requests for that exact block (or `retrieve_latest`)
+   still succeed — only a `block_number` beyond it is affected, and halting makes that
+   permanently true rather than transiently true. Block 0 is a valid, non-special `block_number`.
+4. Delegates to `getKv` / `getSingleton` / `getQueueAsList` / `peekQueue` on `attested.state()`.
 5. `getBinaryQueue` defensively maps any `RuntimeException` from
    `getQueueState`/`getQueueAsList`/`peekQueue` (which NPE on unknown
    state IDs in `VirtualMapStateImpl`) to `NOT_FOUND`.
-6. Wraps the result in `BinaryStateQueryResponse` with the current
-   `StateMetadata` always populated.
+6. Wraps the result in `BinaryStateQueryResponse` with `attested.metadata()` always populated —
+   state and metadata come from the same `AttestedSnapshot` read, so a response can never pair
+   one block's data with another block's metadata.
+
+Reader reservation on `attested.state()`'s `VirtualMap` root is **not yet designed**: today
+nothing reads it except the apply thread itself, so `setAttested`'s reserve/release pair is
+race-free. Once this query path is implemented, a reader must take its own reservation
+(`tryReserve()`, retrying if it loses the race) before use and release it after, or risk reading
+a root the apply thread has since released on the next promotion. Define that contract when
+building this RPC, not retrofit it after.
 
 ## 9. Metrics
 
 Registered with the block node's `MetricRegistry` in `init()`, under the `blocknode:` prefix:
 
-|           Metric            |      Type       |                              Description                              |
-|-----------------------------|-----------------|-----------------------------------------------------------------------|
-| `state_applied_block`       | ObservableGauge | Latest committed (reader-visible) block number applied to live state  |
-| `state_size`                | ObservableGauge | Node count of the latest network-attested state                       |
-| `state_pending_blocks`      | ObservableGauge | Blocks buffered awaiting apply (bounded by `pendingBlocksMax`)        |
-| `state_ready`               | ObservableGauge | `1` once catch-up has completed without halting, else `0`             |
-| `state_apply_halted`        | ObservableGauge | `1` when block apply has halted (e.g. footer hash mismatch), else `0` |
-| `state_apply_latency_ms`    | ObservableGauge | Wall-clock duration of the most recent block apply, in milliseconds   |
-| `state_hash_mismatch_total` | LongCounter     | Cumulative footer hash mismatches observed                            |
+|           Metric            |      Type       |                                                                                         Description                                                                                         |
+|-----------------------------|-----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `state_applied_block`       | ObservableGauge | Latest committed (reader-visible) block number applied to live state                                                                                                                        |
+| `state_size`                | ObservableGauge | Node count of the latest network-attested state                                                                                                                                             |
+| `state_pending_blocks`      | ObservableGauge | Blocks buffered awaiting apply (bounded by `pendingBlocksMax`)                                                                                                                              |
+| `state_ready`               | ObservableGauge | `1` once catch-up has completed without halting, else `0`                                                                                                                                   |
+| `state_apply_halted`        | ObservableGauge | `1` when block apply has halted (e.g. footer hash mismatch), else `0`                                                                                                                       |
+| `state_apply_latency_ms`    | ObservableGauge | Wall-clock duration of the most recent block apply, in milliseconds                                                                                                                         |
+| `state_hash_mismatch_total` | LongCounter     | Cumulative footer hash mismatches observed                                                                                                                                                  |
+| `state_block_lag`           | ObservableGauge | Blocks between the latest available block and the attested block; grows during a stall — alert on it independent of `state_apply_halted`, since a stall can also be a slow/stuck apply path |
 
 `snapshot_latency_ms`/`catch_up_blocks_total`/`query_total{kind=...}` from an earlier draft of
 this table are not implemented — snapshot creation and the query path don't exist yet in this
@@ -424,16 +474,29 @@ plugin (see Roadmap); add them alongside those features.
 
 ## 10. Failure modes
 
-|                 Failure                  |                                                                                                                        Behaviour                                                                                                                         |
-|------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Snapshot dir unreadable at startup (I/O) | Log at WARNING, continue with the eagerly-created genesis state; plugin is not failed.                                                                                                                                                                   |
-| Snapshot root hash mismatch at startup   | On-disk snapshot's hash doesn't match persisted metadata's `stateRootHash` — treated the same as a block-apply hash mismatch below: halt rather than serve a stale/corrupt snapshot.                                                                     |
-| `startOfBlockStateRootHash` mismatch     | Increment `hashMismatchTotal`, set `applyHalted=true`, log at ERROR. Apply loop short-circuits thereafter; further blocks ignored until restart.                                                                                                         |
-| Malformed `state_changes` item           | `IllegalStateException` from the applier; plugin refuses to advance metadata for that block.                                                                                                                                                             |
-| Verification gap                         | Block parks in `pendingBlocks` until the predecessor arrives (via notification or catch-up); apply loop retries from `historicalBlockProvider` on a delay. `pendingBlocks` is capped (`pendingBlocksMax`) so a long-lived gap can't grow it unboundedly. |
-| Historical block missing locally         | Catch-up skips it; the same block can arrive via notification later.                                                                                                                                                                                     |
-| Snapshot write fails (I/O)               | Log at WARNING; recent dir not deleted; next snapshot cycle retries.                                                                                                                                                                                     |
-| Missing-queue query                      | gRPC handler defensively maps NPE from `getQueueState`/`getQueueAsList`/`peekQueue` to `NOT_FOUND`.                                                                                                                                                      |
+|                                          Failure                                           |                                                                                                                        Behaviour                                                                                                                         |
+|--------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| No persisted metadata at startup                                                           | Genesis, cleanly — there's no operator intent to honor, so this is the normal first-boot path, not a failure.                                                                                                                                            |
+| Persisted metadata names a block whose snapshot is missing, unreadable, or hash-mismatched | Halt (`applyHalted=true`), log at ERROR. Starting from genesis instead would silently discard the operator's recorded intent and surface only later as a confusing hash mismatch on an unrelated block. Plugin still starts; never becomes `ready`.      |
+| `startOfBlockStateRootHash` mismatch                                                       | Increment `hashMismatchTotal`, set `applyHalted=true`, log at ERROR. Apply loop short-circuits thereafter; further blocks ignored until restart.                                                                                                         |
+| First block after a fresh (no-metadata) start is N > 0, not 0                              | **Not yet handled** — no real seed state exists to validate N's footer against; currently indistinguishable from a genuine hash mismatch. See §6.5. Needs a design decision.                                                                             |
+| Malformed `state_changes` item                                                             | `IllegalStateException` from the applier; plugin refuses to advance metadata for that block.                                                                                                                                                             |
+| Verification gap                                                                           | Block parks in `pendingBlocks` until the predecessor arrives (via notification or catch-up); apply loop retries from `historicalBlockProvider` on a delay. `pendingBlocks` is capped (`pendingBlocksMax`) so a long-lived gap can't grow it unboundedly. |
+| Historical block missing locally                                                           | Catch-up skips it; the same block can arrive via notification later.                                                                                                                                                                                     |
+| Snapshot write fails (I/O)                                                                 | Log at WARNING; recent dir not deleted; next snapshot cycle retries.                                                                                                                                                                                     |
+| Missing-queue query                                                                        | gRPC handler defensively maps NPE from `getQueueState`/`getQueueAsList`/`peekQueue` to `NOT_FOUND`.                                                                                                                                                      |
+
+**Recovery from a halt** is restart-from-snapshot, but *which* restart recovers depends on the
+cause: a code-apply hash mismatch recovers automatically on restart (the next boot starts clean
+and re-validates from the last good snapshot). A snapshot-hash-mismatch or missing-snapshot halt
+does **not** self-heal on restart — the same bad snapshot directory gets reloaded and halts
+again immediately. For that cause, the operator must remove or replace the snapshot directory
+before restarting. There is no distinct query-time signal for "halted" versus "healthy" today;
+`state_apply_halted` and `state_ready` are the only observable signals (see §9). Internally the
+halted/not-halted distinction doesn't change query behavior at all (§8) — a halted node still
+answers queries for its (frozen) attested block with `SUCCESS`, since that state remains valid;
+only requests for a block beyond it are affected, identically to a node that just hasn't caught
+up yet.
 
 ## 11. Acceptance tests
 
