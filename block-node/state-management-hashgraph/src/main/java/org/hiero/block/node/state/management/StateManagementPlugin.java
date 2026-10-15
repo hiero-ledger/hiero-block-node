@@ -88,13 +88,16 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     private StateMetadataStore metadataStore;
     private StateChangeApplier applier;
 
-    /// Latest applied state metadata. Volatile because reads happen on query threads.
-    ///
-    /// Concurrency note: `metadata` and `attestedImmutable` are updated as
-    /// two separate volatile writes in the lag-1 commit (see `applyBlockStateChanges`), not one
-    /// atomic swap. Both are only ever written from the single apply thread, so the window is
-    /// tiny; worst case is a stale-but-attested read, never a crash.
-    private volatile StateMetadata metadata = StateMetadata.DEFAULT;
+    /// State (1) and its metadata, published as one unit so a reader can never pair a new state
+    /// with stale metadata (or vice versa) — see `publishAttested`. `state` is `null` until the
+    /// first attestation.
+    private record AttestedSnapshot(
+            @Nullable VirtualMapState state, @NonNull StateMetadata metadata) {}
+
+    private static final AttestedSnapshot GENESIS_ATTESTED = new AttestedSnapshot(null, StateMetadata.DEFAULT);
+
+    /// Volatile because reads happen on query threads.
+    private volatile AttestedSnapshot attested = GENESIS_ATTESTED;
 
     private final ConcurrentSkipListMap<Long, BlockUnparsed> pendingBlocks = new ConcurrentSkipListMap<>();
     private final AtomicBoolean stateIsCaughtUp = new AtomicBoolean(false);
@@ -149,7 +152,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     //     state_changes (library-managed, no field here).
     // (2) HASHING — `hashingImmutable`; sealed by copyMutableState, awaiting hash +
     //     attestation by the next block's footer.
-    // (1) ATTESTED — `attestedImmutable`; the network-confirmed, query-serving copy.
+    // (1) ATTESTED — `attested.state()`; the network-confirmed, query-serving copy.
     // A state is hashed exactly once, when promoted from (2) to (1) — never while mutable (3)
     // and never eagerly at seal.
 
@@ -157,11 +160,6 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// hash is computed lazily, only when the next block's footer arrives to attest it. `null`
     /// until the first apply.
     private volatile VirtualMapState hashingImmutable;
-
-    /// **State (1) — query-serving, network-attested.** Lags `lastAppliedBlock` by one block:
-    /// a block is applied into the mutable (3), sealed into (2), and promoted here only once
-    /// the *next* block's footer confirms its root hash. `null` until the first attestation.
-    private volatile VirtualMapState attestedImmutable;
 
     /// {@inheritDoc}
     @Override
@@ -195,10 +193,10 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     private void registerMetrics(@NonNull final MetricRegistry metrics) {
         metrics.register(ObservableGauge.builder(METRIC_APPLIED_BLOCK)
                 .setDescription("Latest committed (reader-visible) block number applied to live state")
-                .observe(() -> metadata.blockNumber()));
+                .observe(() -> attested.metadata().blockNumber()));
         metrics.register(ObservableGauge.builder(METRIC_STATE_SIZE)
                 .setDescription("Node count of the latest network-attested state")
-                .observe(() -> metadata.stateSize()));
+                .observe(() -> attested.metadata().stateSize()));
         metrics.register(ObservableGauge.builder(METRIC_PENDING_BLOCKS)
                 .setDescription("Blocks buffered awaiting apply")
                 .observe(pendingBlocks::size));
@@ -295,7 +293,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// @return the current `StateMetadata`
     @NonNull
     StateMetadata metadata() {
-        return metadata;
+        return attested.metadata();
     }
 
     /// The `startOfBlockStateRootHash` the next block's footer must carry to be accepted — the
@@ -330,19 +328,20 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// Falls back to genesis when metadata is missing/unreadable or its snapshot cannot be
     /// loaded.
     private void loadPersistedState() {
+        StateMetadata loadedMetadata;
         try {
-            metadata = metadataStore.load().orElse(StateMetadata.DEFAULT);
+            loadedMetadata = metadataStore.load().orElse(StateMetadata.DEFAULT);
         } catch (final IOException e) {
             LOGGER.log(System.Logger.Level.WARNING, "Unable to load state metadata; starting from genesis", e);
-            metadata = StateMetadata.DEFAULT;
+            loadedMetadata = StateMetadata.DEFAULT;
         }
         boolean snapshotLoaded = false;
-        final Path snapshotDir = recentSnapshotDirectoryFor(metadata.blockNumber());
+        final Path snapshotDir = recentSnapshotDirectoryFor(loadedMetadata.blockNumber());
         if (Files.isDirectory(snapshotDir)) {
             try {
                 final Bytes onDiskHash =
                         lifecycleManager.loadSnapshot(snapshotDir).getBytes();
-                if (onDiskHash.equals(metadata.stateRootHash())) {
+                if (onDiskHash.equals(loadedMetadata.stateRootHash())) {
                     snapshotLoaded = true;
                     LOGGER.log(System.Logger.Level.INFO, "Loaded state snapshot from {0}", snapshotDir);
                 } else {
@@ -353,7 +352,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                             "Snapshot at {0} has root hash {1}, metadata expects {2}; halting",
                             snapshotDir,
                             onDiskHash.toHex(),
-                            metadata.stateRootHash().toHex());
+                            loadedMetadata.stateRootHash().toHex());
                     hashMismatchTotal.incrementAndGet();
                     hashMismatchMetric.increment();
                     applyHalted.set(true);
@@ -369,13 +368,13 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         if (!snapshotLoaded) {
             // Metadata may point at a block we couldn't actually load — treat as genesis so the
             // lag-1 commit pipeline doesn't claim we already have state we don't.
-            metadata = StateMetadata.DEFAULT;
+            loadedMetadata = StateMetadata.DEFAULT;
         } else {
             // Trust the loaded snapshot represents post-(metadata.blockNumber), an
             // attested/committed block when snapshotted. Seed the lag-1 bookkeeping so it is
             // already the exposed state on boot and the next block validates against it.
-            lastAppliedBlock = metadata.blockNumber();
-            lastAppliedRound = metadata.roundNumber();
+            lastAppliedBlock = loadedMetadata.blockNumber();
+            lastAppliedRound = loadedMetadata.roundNumber();
         }
         // Force the initial copyMutableState so getLatestImmutableState() is non-null from boot
         // onwards (and so the live mutable is a writable copy).
@@ -386,7 +385,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             // root hash is derived on demand from `hashingImmutable` when that next block
             // arrives — no eager hash here.
             final VirtualMapState loaded = lifecycleManager.getLatestImmutableState();
-            setAttested(loaded);
+            publishAttested(loaded, loadedMetadata);
             hashingImmutable = loaded;
         } else if (!applyHalted.get()) {
             // True genesis: seed state 2 with the sealed empty VirtualMap so block 0 validates
@@ -406,6 +405,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         applyLock.lock();
         try {
             while (!pendingBlocks.isEmpty() && !stopping.get() && !applyHalted.get()) {
+                final StateMetadata metadata = attested.metadata();
                 final boolean atGenesis = lastAppliedBlock < 0L
                         && metadata.blockNumber() == 0L
                         && metadata.stateRootHash().length() == 0L;
@@ -493,6 +493,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                 return;
             }
             final long latest = available.max();
+            final StateMetadata metadata = attested.metadata();
             final boolean atGenesis =
                     metadata.blockNumber() == 0L && metadata.stateRootHash().length() == 0L;
             final long start = atGenesis ? available.min() : metadata.blockNumber() + 1L;
@@ -592,7 +593,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// 1. Pull `BlockFooter.startOfBlockStateRootHash` from N.
     /// 2. Hash state 2 (`hashingImmutable`, post-(N-1)) now and validate N's footer against it.
     ///    Mismatch ⇒ halt apply without mutating.
-    /// 3. Promote state 2 → state 1 (`attestedImmutable`) and record its metadata.
+    /// 3. Promote state 2 → state 1 (`attested`), publishing its state and metadata together.
     /// 4. Apply N's `state_changes` to the live mutable, then seal it as the new state 2 —
     ///    left un-hashed and un-exposed until block N+1 attests it.
     ///
@@ -636,14 +637,16 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         // → ATTESTED now — lag-1: readers only ever see attested state. (Skipped at genesis,
         // and when the last applied block is already the exposed one, e.g. after a snapshot
         // reload.)
-        if (lastAppliedBlock >= 0L && (attestedImmutable == null || lastAppliedBlock != metadata.blockNumber())) {
-            setAttested(hashingImmutable);
-            metadata = StateMetadata.newBuilder()
-                    .blockNumber(lastAppliedBlock)
-                    .roundNumber(lastAppliedRound < 0L ? metadata.roundNumber() : lastAppliedRound)
-                    .stateRootHash(attestedHash)
-                    .stateSize(sizeOf(attestedImmutable))
-                    .build();
+        final StateMetadata currentMetadata = attested.metadata();
+        if (lastAppliedBlock >= 0L && (attested.state() == null || lastAppliedBlock != currentMetadata.blockNumber())) {
+            publishAttested(
+                    hashingImmutable,
+                    StateMetadata.newBuilder()
+                            .blockNumber(lastAppliedBlock)
+                            .roundNumber(lastAppliedRound < 0L ? currentMetadata.roundNumber() : lastAppliedRound)
+                            .stateRootHash(attestedHash)
+                            .stateSize(sizeOf(hashingImmutable))
+                            .build());
         }
 
         // Apply this block into the live mutable (state 3) and fast-copy to seal it as the new
@@ -677,19 +680,21 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         return attestedHash.equals(startHash);
     }
 
-    /// Adopt `newAttested` as the state queries read, managing reference counts so it survives
-    /// the next `copyMutableState()` (which releases the lifecycle manager's own reference to
-    /// the superseded version). We `reserve()` the new state's root and `release()` the
-    /// previously-held one — without this the held immutable is destroyed and reads/snapshots
-    /// throw `ReferenceCountException`.
+    /// Publish `newState` and `newMetadata` as one atomic unit — a single volatile write to
+    /// `attested` — so a reader can never pair a new state with stale metadata or vice versa.
+    /// Also manages reference counts so the state survives the next `copyMutableState()` (which
+    /// releases the lifecycle manager's own reference to the superseded version): `reserve()`s
+    /// the new state's root and `release()`s the previously-held one — without this the held
+    /// immutable is destroyed and reads/snapshots throw `ReferenceCountException`.
     ///
-    /// @param newAttested the newly-attested state to publish to readers
-    private void setAttested(@NonNull final VirtualMapState newAttested) {
-        final VirtualMapState previous = attestedImmutable;
-        newAttested.getRoot().reserve();
-        attestedImmutable = newAttested;
-        if (previous != null && previous != newAttested) {
-            previous.getRoot().release();
+    /// @param newState the newly-attested state to publish to readers
+    /// @param newMetadata the metadata describing `newState`
+    private void publishAttested(@NonNull final VirtualMapState newState, @NonNull final StateMetadata newMetadata) {
+        final AttestedSnapshot previous = attested;
+        newState.getRoot().reserve();
+        attested = new AttestedSnapshot(newState, newMetadata);
+        if (previous.state() != null && previous.state() != newState) {
+            previous.state().getRoot().release();
         }
     }
 
