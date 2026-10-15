@@ -8,6 +8,7 @@ import com.hedera.hapi.block.stream.RecordFileSignature;
 import com.hedera.hapi.block.stream.SignedRecordFileProof;
 import com.hedera.hapi.node.base.SemanticVersion;
 import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
 import java.security.Signature;
 import java.security.SignatureException;
@@ -106,8 +107,10 @@ public final class RSAProofVerifier implements ProofVerifier {
     ///      batched `rsa_roster_mismatch_total` increment; step 4 already rejects the
     ///      block on any failed signature from a known node, so reaching this step
     ///      means every verifiable signature passed.
+    ///
+    /// @throws NoSuchAlgorithmException if the Java runtime provides no implementation of SHA-384
     @Override
-    public SessionFailureType verify() {
+    public SessionFailureType verify() throws NoSuchAlgorithmException {
         final SessionFailureType result;
         // Guard: no era in the address book history covers this block number
         if (rsaKeyByNodeId.isEmpty()) {

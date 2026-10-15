@@ -10,6 +10,7 @@ import com.swirlds.config.api.Configuration;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.io.InputStream;
+import java.security.NoSuchAlgorithmException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.ConsoleHandler;
 import java.util.logging.Level;
@@ -90,8 +91,11 @@ public class BlockStreamSimulatorApp {
      * @throws BlockSimulatorParsingException if a block parsing error occurs
      * @throws IOException                    if an I/O error occurs during
      *                                        streaming
+     * @throws NoSuchAlgorithmException       if the Java runtime provides no
+     *                                        implementation of the hash algorithm
      */
-    public void start() throws InterruptedException, BlockSimulatorParsingException, IOException {
+    public void start()
+            throws InterruptedException, BlockSimulatorParsingException, IOException, NoSuchAlgorithmException {
         LOGGER.log(INFO, "Block Stream Simulator started initializing components...");
         configurationLogging.log();
         simulatorModeHandler.init();

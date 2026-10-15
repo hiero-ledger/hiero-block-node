@@ -22,9 +22,11 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
+import org.hiero.block.common.hasher.HashAlgorithm;
 import org.hiero.block.common.hasher.HashingUtilities;
 import org.hiero.block.common.hasher.NaiveStreamingTreeHasher;
 import org.hiero.block.internal.BlockItemUnparsed;
@@ -36,6 +38,11 @@ import org.hiero.block.signing.TssBlockSigner;
  * Inspired by BlockItemBuilderUtils in block-node-app testFixtures.
  */
 public final class BlockItemBuilderUtils {
+    /// The algorithm the blocks built here are hashed with. The common hashing utilities always compute with
+    /// SHA-256, the algorithm of the Block Node; this constant provides the digest size of the zero hashes. The
+    /// headers built here declare the matching `BlockHashAlgorithm.SHA2_256`, the only value the node admits.
+    private static final HashAlgorithm HASH_ALGORITHM = HashAlgorithm.SHA2_256;
+
     private static final Bytes RANDOM_HALF_MB;
 
     static {
@@ -83,7 +90,7 @@ public final class BlockItemBuilderUtils {
                 new SemanticVersion(4, 5, 6, "c", "d"),
                 blockNumber,
                 new Timestamp(123L, 456),
-                BlockHashAlgorithm.SHA2_384);
+                BlockHashAlgorithm.SHA2_256);
     }
 
     public static Bytes createBlockHeaderUnparsed(final long blockNumber) {
@@ -145,7 +152,7 @@ public final class BlockItemBuilderUtils {
                         new SemanticVersion(4, 5, 6, "c", "d"),
                         blockNumber,
                         new Timestamp(consensusTime.getEpochSecond(), consensusTime.getNano()),
-                        BlockHashAlgorithm.SHA2_384)));
+                        BlockHashAlgorithm.SHA2_256)));
     }
 
     /**
@@ -396,7 +403,7 @@ public final class BlockItemBuilderUtils {
      * The proof is a real TSS signature from the shared {@link #blockSigner()}; provision the block
      * node with that signer's roster via {@link #provisionTssBootstrap()}.
      */
-    public static BlockItem[] createSimpleBlockWithNumber(final long blockNumber) {
+    public static BlockItem[] createSimpleBlockWithNumber(final long blockNumber) throws NoSuchAlgorithmException {
         return createSimpleBlockWithNumber(blockNumber, null);
     }
 
@@ -408,7 +415,8 @@ public final class BlockItemBuilderUtils {
      * @param blockNumber the block number
      * @param previousBlockHash the hash of the previous block, or null for genesis (uses zero hash)
      */
-    public static BlockItem[] createSimpleBlockWithNumber(final long blockNumber, final Bytes previousBlockHash) {
+    public static BlockItem[] createSimpleBlockWithNumber(final long blockNumber, final Bytes previousBlockHash)
+            throws NoSuchAlgorithmException {
         final BlockItem[] blockItems = new BlockItem[4];
         blockItems[0] = sampleBlockHeader(blockNumber);
         blockItems[1] = sampleRoundHeader(blockNumber * 10L);
@@ -425,7 +433,8 @@ public final class BlockItemBuilderUtils {
      * @param previousBlockHash the hash of the previous block, or null for genesis
      * @return the computed block root hash
      */
-    public static Bytes computeBlockHash(final long blockNumber, final Bytes previousBlockHash) {
+    public static Bytes computeBlockHash(final long blockNumber, final Bytes previousBlockHash)
+            throws NoSuchAlgorithmException {
         final BlockItemUnparsed blockHeaderUnparsed = sampleBlockHeaderUnparsed(blockNumber);
         final BlockItemUnparsed roundHeaderUnparsed = sampleRoundHeaderUnparsed(blockNumber * 10L);
 
@@ -438,13 +447,13 @@ public final class BlockItemBuilderUtils {
         final NaiveStreamingTreeHasher traceHasher = new NaiveStreamingTreeHasher();
 
         final Bytes prevHashInput =
-                previousBlockHash != null ? previousBlockHash : Bytes.wrap(new byte[HashingUtilities.HASH_SIZE]);
+                previousBlockHash != null ? previousBlockHash : Bytes.wrap(new byte[HASH_ALGORITHM.hashSize()]);
 
         return HashingUtilities.computeFinalBlockHash(
                 new Timestamp(123L, 456),
                 prevHashInput,
-                Bytes.wrap(new byte[HashingUtilities.HASH_SIZE]), // allPrevBlocksRoot = zeros (hasher disabled)
-                Bytes.wrap(new byte[HashingUtilities.HASH_SIZE]), // startOfBlockStateRootHash = zeros (matches footer)
+                Bytes.wrap(new byte[HASH_ALGORITHM.hashSize()]), // allPrevBlocksRoot = zeros (hasher disabled)
+                Bytes.wrap(new byte[HASH_ALGORITHM.hashSize()]), // startOfBlockStateRootHash = zeros (matches footer)
                 inputHasher,
                 outputHasher,
                 consensusHasher,
@@ -462,17 +471,18 @@ public final class BlockItemBuilderUtils {
 
     private static BlockItem sampleBlockFooter(final Bytes previousBlockHash) {
         final Bytes prevHash =
-                previousBlockHash != null ? previousBlockHash : Bytes.wrap(new byte[HashingUtilities.HASH_SIZE]);
+                previousBlockHash != null ? previousBlockHash : Bytes.wrap(new byte[HASH_ALGORITHM.hashSize()]);
         // startOfBlockStateRootHash must be non-empty: the block-verification hasher rejects an empty
-        // value with MISSING_MANDATORY_FIELD. computeBlockHash below uses the same 48 zero bytes.
+        // value with MISSING_MANDATORY_FIELD. computeBlockHash below uses the same zero filled digest.
         final BlockFooter footer = new BlockFooter(
                 prevHash,
-                Bytes.wrap(new byte[HashingUtilities.HASH_SIZE]),
-                Bytes.wrap(new byte[HashingUtilities.HASH_SIZE]));
+                Bytes.wrap(new byte[HASH_ALGORITHM.hashSize()]),
+                Bytes.wrap(new byte[HASH_ALGORITHM.hashSize()]));
         return new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_FOOTER, footer));
     }
 
-    private static BlockItem createVerifiableBlockProof(final long blockNumber, final Bytes previousBlockHash) {
+    private static BlockItem createVerifiableBlockProof(final long blockNumber, final Bytes previousBlockHash)
+            throws NoSuchAlgorithmException {
         final Bytes blockHash = computeBlockHash(blockNumber, previousBlockHash);
         final Bytes blockSignature = blockSigner()
                 .signBlockProof(blockNumber, blockHash)

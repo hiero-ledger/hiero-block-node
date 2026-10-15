@@ -41,7 +41,7 @@ public class BlockHeaderHandler extends AbstractBlockItemHandler {
         return BlockHeader.newBuilder()
                 .setHapiProtoVersion(getSemanticVersion())
                 .setSoftwareVersion(getSemanticVersion())
-                .setHashAlgorithm(BlockHashAlgorithm.SHA2_384)
+                .setHashAlgorithm(BlockHashAlgorithm.SHA2_256)
                 .setBlockTimestamp(getTimestamp())
                 .setNumber(currentBlockNumber)
                 .build();

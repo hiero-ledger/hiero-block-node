@@ -4,6 +4,7 @@ package org.hiero.block.signing;
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.security.NoSuchAlgorithmException;
 
 /// Produces real, verifiable [BlockProof]s for tests, plus the [VerificationMaterial] a matching
 /// verifier must be provisioned with.
@@ -23,8 +24,10 @@ public interface BlockSigner {
     /// @param blockNumber the block number to embed in the proof
     /// @param signedContent the scheme-specific content to sign
     /// @return a [BlockProof] the paired verifier will accept once provisioned with [#verificationMaterial]
+    /// @throws NoSuchAlgorithmException if the Java runtime provides no implementation of an algorithm the
+    ///     scheme needs to compute the signed payload
     @NonNull
-    BlockProof signBlockProof(long blockNumber, @NonNull Bytes signedContent);
+    BlockProof signBlockProof(long blockNumber, @NonNull Bytes signedContent) throws NoSuchAlgorithmException;
 
     /// The material a verifier must hold to accept proofs from this signer.
     @NonNull

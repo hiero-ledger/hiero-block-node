@@ -3,14 +3,20 @@ package org.hiero.block.node.block.verification;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
+import static org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder.consecutiveWRBBlocks;
 
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.SignedRecordFileProof;
 import com.hedera.hapi.block.stream.TssSignedBlockProof;
+import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.hapi.node.base.BlockHashAlgorithm;
 import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -20,44 +26,41 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import org.assertj.core.api.ObjectAssert;
+import org.hiero.block.api.BlockRange;
+import org.hiero.block.common.hasher.HashAlgorithm;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlock;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder;
-import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder.StateProof;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder.WRB;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestWRBBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.block.verification.harness.HarnessChainBuilder;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
+import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureInfo;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
 import org.hiero.block.signing.TssBlockSigner;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /// Plugin-level integration test for [VerificationServicePlugin].
 @DisplayName("VerificationServicePlugin Tests")
 class VerificationServicePluginTest {
-    // consecutiveWRAPSBlocks removed — the last WRAPS-fixture consumers were migrated to
-    // HarnessChainBuilder; only WRAPS.BLOCK_0 remains as canary for BlockHasherTest.
-    private static final WRB[] consecutiveWRBBlocks = new WRB[] {
-        WRB.SOLO_4N_BLOCK_0, WRB.SOLO_4N_BLOCK_1, WRB.SOLO_4N_BLOCK_2, WRB.SOLO_4N_BLOCK_3, WRB.SOLO_4N_BLOCK_4
-    };
-    private static final StateProof[] consecutiveStateProofBlocks = new StateProof[] {
-        StateProof.BLOCK_0, StateProof.BLOCK_1, StateProof.BLOCK_2, StateProof.BLOCK_3, StateProof.BLOCK_4
-    };
-
     /// Tests for WRAPS verification
     @Nested
     @DisplayName("WRAPS Verification Tests")
@@ -75,7 +78,7 @@ class VerificationServicePluginTest {
         /// the block will pass verification successfully. Uses Live RB.
         @Test
         @DisplayName("Successful WRAPS Verification - Live RB")
-        void testSuccessfulWRAPSVerificationLiveRB() {
+        void testSuccessfulWRAPSVerificationLiveRB() throws NoSuchAlgorithmException {
             final org.hiero.block.node.block.verification.harness.HarnessChainBuilder builder = harnessChainBuilder();
             final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed genesis =
                     builder.genesisWithPublication();
@@ -97,7 +100,7 @@ class VerificationServicePluginTest {
         /// the block will pass verification successfully. Uses Backfill.
         @Test
         @DisplayName("Successful WRAPS Verification - Backfill")
-        void testSuccessfulWRAPSVerificationBackfill() {
+        void testSuccessfulWRAPSVerificationBackfill() throws NoSuchAlgorithmException {
             final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed genesis =
                     harnessChainBuilder().genesisWithPublication();
             plugin.handleBackfilled(genesis.block().asBackfilledNotification());
@@ -119,7 +122,7 @@ class VerificationServicePluginTest {
         /// Verifies multiple consecutive blocks.
         @Test
         @DisplayName("Successful consecutive WRAPS Verification - Live RB")
-        void testSuccessfulConsecutiveWRAPSVerificationLiveRB() {
+        void testSuccessfulConsecutiveWRAPSVerificationLiveRB() throws NoSuchAlgorithmException {
             final List<org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed> chain =
                     signedChain(5);
             plugin.handleBlockItemsReceived(chain.getFirst().block().asBlockItems());
@@ -148,7 +151,7 @@ class VerificationServicePluginTest {
         /// Verifies multiple consecutive blocks.
         @Test
         @DisplayName("Successful consecutive WRAPS Verification - Backfill")
-        void testSuccessfulConsecutiveWRAPSVerificationBackfill() {
+        void testSuccessfulConsecutiveWRAPSVerificationBackfill() throws NoSuchAlgorithmException {
             final List<org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed> chain =
                     signedChain(5);
             plugin.handleBackfilled(chain.getFirst().block().asBackfilledNotification());
@@ -177,7 +180,7 @@ class VerificationServicePluginTest {
         /// Verifies multiple consecutive blocks.
         @Test
         @DisplayName("Successful consecutive WRAPS Verification - Multi Source")
-        void testSuccessfulConsecutiveWRAPSVerificationMultiSource() {
+        void testSuccessfulConsecutiveWRAPSVerificationMultiSource() throws NoSuchAlgorithmException {
             final List<org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed> chain =
                     signedChain(5);
             final Map<Long, BlockSource> blockSources = new HashMap<>();
@@ -220,7 +223,7 @@ class VerificationServicePluginTest {
         /// the block will pass verification successfully.
         @Test
         @DisplayName("Successful WRAPS Verification - Multiple Valid Proofs")
-        void testSuccessfulWRAPSVerificationMultipleValidProofs() {
+        void testSuccessfulWRAPSVerificationMultipleValidProofs() throws NoSuchAlgorithmException {
             final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed base =
                     harnessChainBuilder().genesisWithPublication();
             // Append a duplicate of the (real, signed) proof so the block carries two valid proofs.
@@ -244,7 +247,7 @@ class VerificationServicePluginTest {
         /// will fail.
         @Test
         @DisplayName("Failed WRAPS Verification - One Valid and One Invalid proof")
-        void testFailedWRAPSVerificationOneValidAndOneInvalidProof() {
+        void testFailedWRAPSVerificationOneValidAndOneInvalidProof() throws NoSuchAlgorithmException {
             final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed base =
                     harnessChainBuilder().genesisWithPublication();
             final TestBlock oneValidOneBad = base.block().append(badTssSignedProof());
@@ -266,7 +269,7 @@ class VerificationServicePluginTest {
         /// informational if the block was recently verified.
         @Test
         @DisplayName("Failed WRAPS Verification - Informational Failure")
-        void testFailedWRAPSVerificationInformationalFailure() {
+        void testFailedWRAPSVerificationInformationalFailure() throws NoSuchAlgorithmException {
             final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed valid =
                     harnessChainBuilder().genesisWithPublication();
             plugin.handleBlockItemsReceived(valid.block().asBlockItems());
@@ -294,7 +297,7 @@ class VerificationServicePluginTest {
         /// fails TSS signature verification, producing a failure notification.
         @Test
         @DisplayName("Failed WRAPS Verification - tampered block covers VFE extraction path")
-        void testTamperedWRAPSBlockTriggersVfePath() {
+        void testTamperedWRAPSBlockTriggersVfePath() throws NoSuchAlgorithmException {
             final List<org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed> chain =
                     signedChain(2);
             plugin.handleBlockItemsReceived(chain.get(0).block().asBlockItems());
@@ -323,7 +326,7 @@ class VerificationServicePluginTest {
         /// Emits a length-N signed chain starting at block 0. Block 0 carries the LedgerIdPublication
         /// so the plugin under test self-provisions its TSS state.
         private List<org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed> signedChain(
-                final int length) {
+                final int length) throws NoSuchAlgorithmException {
             final org.hiero.block.node.block.verification.harness.HarnessChainBuilder builder = harnessChainBuilder();
             final List<org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed> chain =
                     new ArrayList<>(length);
@@ -352,7 +355,7 @@ class VerificationServicePluginTest {
         /// block carries no LedgerIdPublication, so the start() seed is its only source of TSS data.
         @Test
         @DisplayName("TSS data held by the facility at start() is used for verification")
-        void testTssDataSeededOnStart() {
+        void testTssDataSeededOnStart() throws NoSuchAlgorithmException {
             final TssBlockSigner signer = TssBlockSigner.create();
             final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed block0 =
                     org.hiero.block.node.block.verification.harness.HarnessChainBuilder.create(signer)
@@ -388,7 +391,7 @@ class VerificationServicePluginTest {
 
         @Test
         @DisplayName("Successful StateProof Verification - Live RB")
-        void testSuccessfulStateProofVerificationLiveRB() {
+        void testSuccessfulStateProofVerificationLiveRB() throws NoSuchAlgorithmException {
             final org.hiero.block.node.block.verification.harness.StateProofChainBuilder builder = spBuilder();
             final org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed genesis =
                     builder.genesisWithPublication();
@@ -411,7 +414,7 @@ class VerificationServicePluginTest {
 
         @Test
         @DisplayName("Successful StateProof Verification - Backfill")
-        void testSuccessfulStateProofVerificationBackfill() {
+        void testSuccessfulStateProofVerificationBackfill() throws NoSuchAlgorithmException {
             final org.hiero.block.node.block.verification.harness.StateProofChainBuilder builder = spBuilder();
             final org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed genesis =
                     builder.genesisWithPublication();
@@ -434,7 +437,7 @@ class VerificationServicePluginTest {
 
         @Test
         @DisplayName("Successful consecutive StateProof Verification - Live RB")
-        void testSuccessfulConsecutiveStateProofVerificationLiveRB() {
+        void testSuccessfulConsecutiveStateProofVerificationLiveRB() throws NoSuchAlgorithmException {
             final List<org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed> chain =
                     signedStateProofChain(5);
             plugin.handleBlockItemsReceived(chain.getFirst().block().asBlockItems());
@@ -459,7 +462,7 @@ class VerificationServicePluginTest {
 
         @Test
         @DisplayName("Successful consecutive StateProof Verification - Backfill")
-        void testSuccessfulConsecutiveStateProofVerificationBackfill() {
+        void testSuccessfulConsecutiveStateProofVerificationBackfill() throws NoSuchAlgorithmException {
             final List<org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed> chain =
                     signedStateProofChain(5);
             plugin.handleBackfilled(chain.getFirst().block().asBackfilledNotification());
@@ -484,7 +487,7 @@ class VerificationServicePluginTest {
 
         @Test
         @DisplayName("Successful consecutive StateProof Verification - Multi Source")
-        void testSuccessfulConsecutiveStateProofVerificationMultiSource() {
+        void testSuccessfulConsecutiveStateProofVerificationMultiSource() throws NoSuchAlgorithmException {
             final List<org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed> chain =
                     signedStateProofChain(5);
             final Map<Long, BlockSource> blockSources = new HashMap<>();
@@ -524,7 +527,7 @@ class VerificationServicePluginTest {
 
         @Test
         @DisplayName("Successful StateProof Verification - Multiple Valid Proofs")
-        void testSuccessfulStateProofVerificationMultipleValidProofs() {
+        void testSuccessfulStateProofVerificationMultipleValidProofs() throws NoSuchAlgorithmException {
             final org.hiero.block.node.block.verification.harness.StateProofChainBuilder builder = spBuilder();
             final org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed genesis =
                     builder.genesisWithPublication();
@@ -549,7 +552,7 @@ class VerificationServicePluginTest {
 
         @Test
         @DisplayName("Failed StateProof Verification - One Valid and One Invalid Proof")
-        void testFailedStateProofVerificationOneValidAndOneInvalidProof() {
+        void testFailedStateProofVerificationOneValidAndOneInvalidProof() throws NoSuchAlgorithmException {
             final org.hiero.block.node.block.verification.harness.StateProofChainBuilder builder = spBuilder();
             final org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed genesis =
                     builder.genesisWithPublication();
@@ -572,7 +575,7 @@ class VerificationServicePluginTest {
 
         @Test
         @DisplayName("Failed StateProof Verification - Informational Failure")
-        void testFailedStateProofVerificationInformationalFailure() {
+        void testFailedStateProofVerificationInformationalFailure() throws NoSuchAlgorithmException {
             final org.hiero.block.node.block.verification.harness.StateProofChainBuilder builder = spBuilder();
             final org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed genesis =
                     builder.genesisWithPublication();
@@ -602,7 +605,7 @@ class VerificationServicePluginTest {
 
         @Test
         @DisplayName("Failed StateProof Verification - tampered block covers VFE extraction path")
-        void testTamperedStateProofBlockTriggersVfePath() {
+        void testTamperedStateProofBlockTriggersVfePath() throws NoSuchAlgorithmException {
             final org.hiero.block.node.block.verification.harness.StateProofChainBuilder builder = spBuilder();
             final org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed genesis =
                     builder.genesisWithPublication();
@@ -624,14 +627,15 @@ class VerificationServicePluginTest {
         }
 
         /// Helper: harness with isolated MetricRegistry, safe under PluginTestBase.
-        private org.hiero.block.node.block.verification.harness.StateProofChainBuilder spBuilder() {
+        private org.hiero.block.node.block.verification.harness.StateProofChainBuilder spBuilder()
+                throws NoSuchAlgorithmException {
             return org.hiero.block.node.block.verification.harness.StateProofChainBuilder.create(
                     TssBlockSigner.create());
         }
 
         /// Emits an N-block signed state-proof chain; block 0 self-provisions the plugin's TSS state.
         private List<org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed>
-                signedStateProofChain(final int length) {
+                signedStateProofChain(final int length) throws NoSuchAlgorithmException {
             final org.hiero.block.node.block.verification.harness.StateProofChainBuilder builder = spBuilder();
             final List<org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed> chain =
                     new ArrayList<>(length);
@@ -690,6 +694,8 @@ class VerificationServicePluginTest {
                 value = WRB.class,
                 names = {"V2_BLOCK_0", "V5_BLOCK_26591040"})
         @DisplayName("Successful WRB Verification - real V2/V5 blocks")
+        @Disabled("Disabled until v2/v5 blocks after sha256 migration are available")
+        // @todo(3800) re-enable when test v2/v5 blocks after sha256 migration are available
         void testSuccessfulWRBVerificationRealLegacyVersions(final WRB fixture) throws IOException, ParseException {
             final ResourceTestWRBBlock block = ResourceTestBlockBuilder.load(fixture);
             // First, we update the node address book with the era keys
@@ -979,6 +985,68 @@ class VerificationServicePluginTest {
         }
     }
 
+    /// Tests running the real captured block fixtures through the plugin, one fixture family per
+    /// case: wrapped record blocks from the four node Solo network, state proof blocks and WRAPS
+    /// TSS blocks captured from consensus nodes. The harness based tests above cover the plugin
+    /// behaviour in depth with generated blocks; this class keeps the plugin honest against
+    /// genuine consensus node output, so a drift between the harness and the real block format,
+    /// or a fixture that no longer matches the current hashing rules, is caught here.
+    @Nested
+    @DisplayName("Real Blocks Tests")
+    class RealBlocksTests extends PluginTestBase<VerificationServicePlugin, ExecutorService, ScheduledExecutorService> {
+        RealBlocksTests() {
+            super(
+                    Executors.newVirtualThreadPerTaskExecutor(),
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+            start(new VerificationServicePlugin(), new SimpleInMemoryHistoricalBlockFacility());
+        }
+
+        /// This test aims to assert that a chain of real captured blocks, pushed consecutively
+        /// to the live items RB starting from block 0, passes verification in full: every block
+        /// is reported as a success, in order, with the block root hash recorded for the fixture.
+        /// For wrapped record blocks the network address book is loaded first so the RSA
+        /// signatures can be checked; TSS blocks need no setup because the genesis block
+        /// publishes the TSS parameters in band.
+        @ParameterizedTest(name = "{0}")
+        @MethodSource("org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder#realBlockChains")
+        @DisplayName("Successful consecutive verification of real blocks - Live RB")
+        void testSuccessfulConsecutiveRealBlocksVerificationLiveRB(
+                final String family, final List<? extends ResourceTestBlock> blocks) {
+            // Because when we have no data at the start the plugin accepts the first valid block,
+            // push block 0 alone and await its notification, then the rest in order.
+            final ResourceTestBlock block0 = blocks.getFirst();
+            prepareFor(block0);
+            plugin.handleBlockItemsReceived(block0.asBlockItems());
+            blockMessaging.getSentVerificationNotifications(1);
+            for (final ResourceTestBlock block : blocks.subList(1, blocks.size())) {
+                prepareFor(block);
+                plugin.handleBlockItemsReceived(block.asBlockItems());
+            }
+            final List<VerificationNotification> notifications =
+                    blockMessaging.getSentVerificationNotifications(blocks.size());
+            assertThat(notifications).hasSize(blocks.size());
+            for (int i = 0; i < notifications.size(); i++) {
+                final ResourceTestBlock block = blocks.get(i);
+                assertThat(notifications.get(i))
+                        .returns(true, VerificationNotification::success)
+                        .returns(null, VerificationNotification::failureInfo)
+                        .returns(block.number(), VerificationNotification::blockNumber)
+                        .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                        .returns(block.blockUnparsed(), VerificationNotification::block)
+                        .returns(block.blockRootHash(), VerificationNotification::blockHash);
+            }
+        }
+
+        /// Wrapped record blocks are verified against the RSA keys of the network address book,
+        /// which the plugin learns from the application state. TSS proof blocks carry everything
+        /// they need in band, so there is nothing to prepare for them.
+        private void prepareFor(final ResourceTestBlock block) {
+            if (block instanceof ResourceTestWRBBlock wrbBlock) {
+                updateAddressBook(wrbBlock.nodeAddressBook());
+            }
+        }
+    }
+
     @Nested
     @DisplayName("Active Sessions Buffer Tests")
     class ActiveSessionsBufferTests
@@ -992,11 +1060,24 @@ class VerificationServicePluginTest {
             start(new VerificationServicePlugin(), new SimpleInMemoryHistoricalBlockFacility(), configOverrides);
         }
 
+        /// Seeds the last verified block with block 0, as if block 0 was already stored. Every
+        /// block from block 2 on then waits in result ordering for block 1, which these tests
+        /// never supply, so each session stays active until it is evicted or the plugin stops.
+        /// Without the seed, nothing is verified yet and the first success establishes the last
+        /// verified block: block 2 could complete before block 4 fills the buffer, and blocks 3
+        /// and 4 complete right after the eviction, so the number of notifications would depend
+        /// on timing.
+        private void holdSessionsInResultOrdering() {
+            plugin.handleStoredBlocksUpdate(new StoredBlocksNotification(List.of(new BlockRange(0L, 0L))));
+        }
+
         /// This test aims to verify that when the active sessions buffer is full and a new session comes,
         /// the lowest active session will be canceled to make room, so long as the lowest active session is not
         /// the one we just submitted.
         /// Because the evicted session had already received its complete block, the failure is reported
-        /// with the CANCELLED failure type and not CANCELLED_INCOMPLETE.
+        /// with the CANCELLED failure type and not CANCELLED_INCOMPLETE. Blocks 2, 3 and 4 are held in
+        /// result ordering (see [#holdSessionsInResultOrdering()]), so block 2 is still active when
+        /// block 4 fills the buffer and the eviction is the only notification sent.
         @Test
         @DisplayName(
                 "Active Sessions Buffer - cancel lowest session when buffer full and new submission is not the lowest active session")
@@ -1007,6 +1088,7 @@ class VerificationServicePluginTest {
             final ResourceTestWRBBlock block3 = loadedBlocks.get(3);
             final ResourceTestWRBBlock block4 = loadedBlocks.get(4);
             updateAddressBook(block2.nodeAddressBook());
+            holdSessionsInResultOrdering();
             plugin.handleBlockItemsReceived(block2.asBlockItems());
             plugin.handleBlockItemsReceived(block3.asBlockItems());
             plugin.handleBlockItemsReceived(block4.asBlockItems());
@@ -1028,7 +1110,8 @@ class VerificationServicePluginTest {
         /// supplied by the publisher as a header only batch, so its session never receives the end of
         /// the block. Blocks 3 and 4 are then supplied as backfilled blocks, which do not supersede the
         /// live publisher session, filling the buffer and forcing the eviction of the incomplete
-        /// session for block 2.
+        /// session for block 2. Blocks 3 and 4 are held in result ordering (see
+        /// [#holdSessionsInResultOrdering()]), so the eviction is the only notification sent.
         @Test
         @DisplayName(
                 "Active Sessions Buffer - evicted session that has not received its full block reports CANCELLED_INCOMPLETE")
@@ -1039,6 +1122,7 @@ class VerificationServicePluginTest {
             final ResourceTestWRBBlock block3 = loadedBlocks.get(3);
             final ResourceTestWRBBlock block4 = loadedBlocks.get(4);
             updateAddressBook(block2.nodeAddressBook());
+            holdSessionsInResultOrdering();
             final BlockItems headerOnly =
                     new BlockItems(List.of(block2.getHeaderUnparsed()), block2.number(), true, false);
             plugin.handleBlockItemsReceived(headerOnly);
@@ -1270,23 +1354,228 @@ class VerificationServicePluginTest {
         }
     }
 
+    /// Tests for the hash algorithm check the plugin performs on the header of a new block
+    /// before a session is started: only blocks declaring SHA2_256 are admitted, and every
+    /// admitted block is hashed with SHA-256, never with an algorithm resolved from its header.
+    @Nested
+    @DisplayName("Header Declared Hash Algorithm Tests")
+    class HeaderDeclaredHashAlgorithmTests
+            extends PluginTestBase<VerificationServicePlugin, ExecutorService, ScheduledExecutorService> {
+        HeaderDeclaredHashAlgorithmTests() {
+            super(
+                    Executors.newVirtualThreadPerTaskExecutor(),
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+            start(new VerificationServicePlugin(), new SimpleInMemoryHistoricalBlockFacility());
+        }
+
+        /// This test aims to assert that a block declaring an algorithm other than SHA2_256 is
+        /// refused before any session is started, even when the block is valid under the
+        /// algorithm it declares: the genesis block of a chain built and signed for SHA2_384,
+        /// whose header declares SHA2_384 and whose hashes have the SHA-384 digest size, is
+        /// refused over the live path with `UNSUPPORTED_STREAM_FORMAT`, carrying no block and
+        /// no hash.
+        @Test
+        @DisplayName("Block declaring SHA2_384 is refused - Live RB")
+        void testDeclaredSha384RefusedLiveRB() throws NoSuchAlgorithmException {
+            final HarnessChainBuilder.Signed genesis = HarnessChainBuilder.create(
+                            TssBlockSigner.create(), HashAlgorithm.SHA2_384)
+                    .genesisWithPublication();
+            assertThat(genesis.rootHash().length()).isEqualTo(HashAlgorithm.SHA2_384.hashSize());
+            plugin.handleBlockItemsReceived(genesis.block().asBlockItems());
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(false, VerificationNotification::success)
+                    .returns(
+                            FailureInfo.standard(FailureType.UNSUPPORTED_STREAM_FORMAT),
+                            VerificationNotification::failureInfo)
+                    .returns(genesis.block().number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                    .returns(null, VerificationNotification::block)
+                    .returns(null, VerificationNotification::blockHash);
+        }
+
+        /// This test aims to assert that a backfilled block declaring an algorithm other than
+        /// SHA2_256 is refused before any session is started, even when the block is valid under
+        /// the algorithm it declares: the genesis block of a chain built and signed for SHA2_384
+        /// is refused over the backfill path with `UNSUPPORTED_STREAM_FORMAT`, carrying no block
+        /// and no hash.
+        @Test
+        @DisplayName("Block declaring SHA2_384 is refused - Backfill")
+        void testDeclaredSha384RefusedBackfill() throws NoSuchAlgorithmException {
+            final HarnessChainBuilder.Signed genesis = HarnessChainBuilder.create(
+                            TssBlockSigner.create(), HashAlgorithm.SHA2_384)
+                    .genesisWithPublication();
+            assertThat(genesis.rootHash().length()).isEqualTo(HashAlgorithm.SHA2_384.hashSize());
+            plugin.handleBackfilled(genesis.block().asBackfilledNotification());
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(false, VerificationNotification::success)
+                    .returns(
+                            FailureInfo.standard(FailureType.UNSUPPORTED_STREAM_FORMAT),
+                            VerificationNotification::failureInfo)
+                    .returns(genesis.block().number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.BACKFILL, VerificationNotification::source)
+                    .returns(null, VerificationNotification::block)
+                    .returns(null, VerificationNotification::blockHash);
+        }
+
+        /// This test aims to assert that a block hashed with SHA-384 whose header declares
+        /// SHA2_256 is refused by the hashing stage with `UNSUPPORTED_STREAM_FORMAT`, the same
+        /// failure type as a header declaring SHA2_384, and never as an unknown error. This is
+        /// the shape of a block from before the move to SHA-256: SHA2_384 was the enumeration
+        /// default then, so its header carries no hash algorithm and decodes as SHA2_256, which
+        /// passes the header check. The genesis block of a chain built and signed for SHA2_384,
+        /// with its header rewritten to declare SHA2_256, carries footer hashes of the SHA-384
+        /// digest size, which the hashing stage refuses before computing a root hash, so the
+        /// failure notification carries no block and no hash.
+        @Test
+        @DisplayName("Block declaring SHA2_256 but carrying SHA-384 sized footer hashes is refused - Live RB")
+        void testSha384SizedFooterHashesRefusedLiveRB() throws NoSuchAlgorithmException {
+            final TestBlock sha384Block = HarnessChainBuilder.create(TssBlockSigner.create(), HashAlgorithm.SHA2_384)
+                    .genesisWithPublication()
+                    .block();
+            final TestBlock declaringSha256 = sha384Block.replace(
+                    BlockItemUnparsed::hasBlockHeader, headerDeclaring(sha384Block, BlockHashAlgorithm.SHA2_256));
+            plugin.handleBlockItemsReceived(declaringSha256.asBlockItems());
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(false, VerificationNotification::success)
+                    .returns(
+                            FailureInfo.standard(FailureType.UNSUPPORTED_STREAM_FORMAT),
+                            VerificationNotification::failureInfo)
+                    .returns(sha384Block.number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                    .returns(null, VerificationNotification::block)
+                    .returns(null, VerificationNotification::blockHash);
+        }
+
+        /// This test aims to assert that the backfill path refuses a block hashed with SHA-384
+        /// whose header declares SHA2_256 exactly like the live path: the hashing stage refuses
+        /// its footer hashes of the SHA-384 digest size with `UNSUPPORTED_STREAM_FORMAT`, and the
+        /// failure notification carries the backfill source, no block and no hash.
+        @Test
+        @DisplayName("Block declaring SHA2_256 but carrying SHA-384 sized footer hashes is refused - Backfill")
+        void testSha384SizedFooterHashesRefusedBackfill() throws NoSuchAlgorithmException {
+            final TestBlock sha384Block = HarnessChainBuilder.create(TssBlockSigner.create(), HashAlgorithm.SHA2_384)
+                    .genesisWithPublication()
+                    .block();
+            final TestBlock declaringSha256 = sha384Block.replace(
+                    BlockItemUnparsed::hasBlockHeader, headerDeclaring(sha384Block, BlockHashAlgorithm.SHA2_256));
+            plugin.handleBackfilled(declaringSha256.asBackfilledNotification());
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(false, VerificationNotification::success)
+                    .returns(
+                            FailureInfo.standard(FailureType.UNSUPPORTED_STREAM_FORMAT),
+                            VerificationNotification::failureInfo)
+                    .returns(sha384Block.number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.BACKFILL, VerificationNotification::source)
+                    .returns(null, VerificationNotification::block)
+                    .returns(null, VerificationNotification::blockHash);
+        }
+
+        /// This test aims to assert that a block whose header declares a hash algorithm the node
+        /// does not recognize is refused before any session is started, like any value other
+        /// than SHA2_256: the live path reports `UNSUPPORTED_STREAM_FORMAT` with no block and no
+        /// hash. The header carries the enumeration value 7, which no release of the block
+        /// stream defines.
+        @Test
+        @DisplayName("Block declaring an unrecognized hash algorithm is refused - Live RB")
+        void testUnrecognizedAlgorithmRefusedLiveRB() {
+            final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(0);
+            final TestBlock unrecognized =
+                    block0.replace(BlockItemUnparsed::hasBlockHeader, headerDeclaringUnrecognized(block0));
+            plugin.handleBlockItemsReceived(unrecognized.asBlockItems());
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(false, VerificationNotification::success)
+                    .returns(
+                            FailureInfo.standard(FailureType.UNSUPPORTED_STREAM_FORMAT),
+                            VerificationNotification::failureInfo)
+                    .returns(block0.number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.PUBLISHER, VerificationNotification::source)
+                    .returns(null, VerificationNotification::block)
+                    .returns(null, VerificationNotification::blockHash);
+        }
+
+        /// This test aims to assert that a backfilled block whose header declares a hash
+        /// algorithm the node does not recognize is refused before any session is started, with
+        /// an `UNSUPPORTED_STREAM_FORMAT` failure carrying no block and no hash.
+        @Test
+        @DisplayName("Block declaring an unrecognized hash algorithm is refused - Backfill")
+        void testUnrecognizedAlgorithmRefusedBackfill() {
+            final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(0);
+            final TestBlock unrecognized =
+                    block0.replace(BlockItemUnparsed::hasBlockHeader, headerDeclaringUnrecognized(block0));
+            plugin.handleBackfilled(unrecognized.asBackfilledNotification());
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(false, VerificationNotification::success)
+                    .returns(
+                            FailureInfo.standard(FailureType.UNSUPPORTED_STREAM_FORMAT),
+                            VerificationNotification::failureInfo)
+                    .returns(block0.number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.BACKFILL, VerificationNotification::source)
+                    .returns(null, VerificationNotification::block)
+                    .returns(null, VerificationNotification::blockHash);
+        }
+
+        /// Returns a header item of the block declaring the given algorithm.
+        private static BlockItemUnparsed headerDeclaring(final TestBlock block, final BlockHashAlgorithm declared) {
+            final BlockHeader header =
+                    block.header().copyBuilder().hashAlgorithm(declared).build();
+            return BlockItemUnparsed.newBuilder()
+                    .blockHeader(BlockHeader.PROTOBUF.toBytes(header))
+                    .build();
+        }
+
+        /// Returns a header item of the block declaring a hash algorithm value no release defines.
+        /// The serialized header is extended with field 5, `hash_algorithm`, set to 7, which parses
+        /// as `UNRECOGNIZED`. The block's own header declares the default value, which proto3 does
+        /// not serialize, so the appended field is the only occurrence.
+        private static BlockItemUnparsed headerDeclaringUnrecognized(final TestBlock block) {
+            final byte[] declared =
+                    block.getHeaderUnparsed().blockHeaderOrThrow().toByteArray();
+            final byte[] extended = Arrays.copyOf(declared, declared.length + 2);
+            extended[declared.length] = 0x28;
+            extended[declared.length + 1] = 0x07;
+            return BlockItemUnparsed.newBuilder()
+                    .blockHeader(Bytes.wrap(extended))
+                    .build();
+        }
+    }
+
     @Nested
     @DisplayName("Block Order Tests")
     class BlockOrderTests extends PluginTestBase<VerificationServicePlugin, ExecutorService, ScheduledExecutorService> {
 
         /// Deterministic signer cached at class level so the hinTS ceremony runs once for the
         /// full 200 @RepeatedTest iterations instead of once per iteration. Safe because every
-        /// iteration creates a fresh plugin whose TSS state is provisioned from CACHED_CHAIN[0]'s
+        /// iteration creates a fresh plugin whose TSS state is provisioned from cachedChain[0]'s
         /// LedgerIdPublication.
         private static final TssBlockSigner CACHED_SIGNER = TssBlockSigner.createDeterministic();
 
-        /// Length-5 signed chain built once from CACHED_SIGNER. Blocks are immutable so every
-        /// iteration reuses them without conflict.
-        private static final List<org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed>
-                CACHED_CHAIN = buildCachedChain();
+        /// Length-5 signed chain built once from CACHED_SIGNER by [#buildCachedChain()]. Blocks are
+        /// immutable so every iteration reuses them without conflict.
+        private static List<org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed> cachedChain;
 
-        private static List<org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed>
-                buildCachedChain() {
+        /// Builds the signed chain shared by every iteration of the tests in this group. Building
+        /// the chain hashes its blocks, which declares the checked [NoSuchAlgorithmException], so
+        /// it runs once before all tests instead of in a static field initializer.
+        @BeforeAll
+        static void buildCachedChain() throws NoSuchAlgorithmException {
             final org.hiero.block.node.block.verification.harness.HarnessChainBuilder builder =
                     org.hiero.block.node.block.verification.harness.HarnessChainBuilder.create(CACHED_SIGNER);
             final List<org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed> chain =
@@ -1295,7 +1584,7 @@ class VerificationServicePluginTest {
             for (long n = 1; n < 5; n++) {
                 chain.add(builder.next(n));
             }
-            return chain;
+            cachedChain = chain;
         }
 
         BlockOrderTests() {
@@ -1310,20 +1599,20 @@ class VerificationServicePluginTest {
         @RepeatedTest(100)
         @DisplayName("Block Order Preserved for Out of Order Blocks Received")
         void testOutOfOrderBlocksPreserveOrderingOnCompletion() {
-            plugin.handleBlockItemsReceived(CACHED_CHAIN.get(0).block().asBlockItems());
+            plugin.handleBlockItemsReceived(cachedChain.get(0).block().asBlockItems());
             blockMessaging.getSentVerificationNotifications(1);
             final List<org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed> rest =
-                    new ArrayList<>(CACHED_CHAIN.subList(1, CACHED_CHAIN.size()));
+                    new ArrayList<>(cachedChain.subList(1, cachedChain.size()));
             Collections.shuffle(rest);
             for (final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed signed : rest) {
                 plugin.handleBlockItemsReceived(signed.block().asBlockItems());
             }
             final List<VerificationNotification> notifications =
-                    blockMessaging.getSentVerificationNotifications(CACHED_CHAIN.size());
-            assertThat(notifications).hasSize(CACHED_CHAIN.size());
+                    blockMessaging.getSentVerificationNotifications(cachedChain.size());
+            assertThat(notifications).hasSize(cachedChain.size());
             for (int i = 0; i < notifications.size(); i++) {
                 final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed signed =
-                        CACHED_CHAIN.get(i);
+                        cachedChain.get(i);
                 assertThat(notifications.get(i))
                         .returns(true, VerificationNotification::success)
                         .returns(null, VerificationNotification::failureInfo)
@@ -1339,19 +1628,19 @@ class VerificationServicePluginTest {
         @RepeatedTest(100)
         @DisplayName("No Strict Ordering Below High Water Mark")
         void testNoStrictOrderingBelowHighWaterMark() {
-            plugin.handleBlockItemsReceived(CACHED_CHAIN.get(0).block().asBlockItems());
+            plugin.handleBlockItemsReceived(cachedChain.get(0).block().asBlockItems());
             blockMessaging.getSentVerificationNotifications(1);
             final List<org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed> rest =
-                    new ArrayList<>(CACHED_CHAIN.subList(1, CACHED_CHAIN.size()));
+                    new ArrayList<>(cachedChain.subList(1, cachedChain.size()));
             for (final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed signed : rest) {
                 plugin.handleBlockItemsReceived(signed.block().asBlockItems());
             }
             final List<VerificationNotification> notifications =
-                    blockMessaging.getSentVerificationNotifications(CACHED_CHAIN.size());
-            assertThat(notifications).hasSize(CACHED_CHAIN.size());
+                    blockMessaging.getSentVerificationNotifications(cachedChain.size());
+            assertThat(notifications).hasSize(cachedChain.size());
             for (int i = 0; i < notifications.size(); i++) {
                 final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed signed =
-                        CACHED_CHAIN.get(i);
+                        cachedChain.get(i);
                 assertThat(notifications.get(i))
                         .returns(true, VerificationNotification::success)
                         .returns(null, VerificationNotification::failureInfo)
@@ -1394,7 +1683,7 @@ class VerificationServicePluginTest {
         /// (Publisher Source). The block proof type is irrelevant for this test.
         @Test
         @DisplayName("Live RB Ingestion - Block Received in Multiple Batches")
-        void testLiveRBIngestionBlockReceivedInMultipleBatches() {
+        void testLiveRBIngestionBlockReceivedInMultipleBatches() throws NoSuchAlgorithmException {
             final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed genesis =
                     org.hiero.block.node.block.verification.harness.HarnessChainBuilder.create(TssBlockSigner.create())
                             .genesisWithPublication();
@@ -1426,7 +1715,8 @@ class VerificationServicePluginTest {
         @Test
         @DisplayName(
                 "Live RB Ingestion - Cancel Current Live Session When Same Block Restarted While Not Finished Current One")
-        void testLiveRBIngestionCancelLiveSessionWhenNewBlockReceivedAndCurrentNotComplete() {
+        void testLiveRBIngestionCancelLiveSessionWhenNewBlockReceivedAndCurrentNotComplete()
+                throws NoSuchAlgorithmException {
             final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed genesis =
                     org.hiero.block.node.block.verification.harness.HarnessChainBuilder.create(TssBlockSigner.create())
                             .genesisWithPublication();
@@ -1461,7 +1751,8 @@ class VerificationServicePluginTest {
         @Test
         @DisplayName(
                 "Live RB Ingestion - Cancel Current Live Session When Different Block Received While Not Finished Current One")
-        void testLiveRBIngestionCancelLiveSessionWhenDifferentBlockReceivedAndCurrentNotComplete() {
+        void testLiveRBIngestionCancelLiveSessionWhenDifferentBlockReceivedAndCurrentNotComplete()
+                throws NoSuchAlgorithmException {
             final org.hiero.block.node.block.verification.harness.HarnessChainBuilder chain =
                     org.hiero.block.node.block.verification.harness.HarnessChainBuilder.create(TssBlockSigner.create());
             final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed genesis =

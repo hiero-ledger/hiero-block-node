@@ -37,7 +37,7 @@ public class BlockBuilder {
                         .setSeconds(123)
                         .setNanos(456)
                         .build())
-                .setHashAlgorithm(BlockHashAlgorithm.SHA2_384)
+                .setHashAlgorithm(BlockHashAlgorithm.SHA2_256)
                 .build();
     }
 

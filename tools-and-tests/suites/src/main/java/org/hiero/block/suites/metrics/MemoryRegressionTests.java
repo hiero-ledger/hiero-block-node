@@ -21,7 +21,7 @@ import org.testcontainers.containers.GenericContainer;
 /// deployed with the nano profile (`charts/block-node-server/values-overrides/nano.yaml`).
 ///
 /// The nano profile targets memory-constrained environments (minikube, laptops). Its key overrides:
-/// - `SERVER_SOCKET_RECEIVE_BUFFER_SIZE_BYTES=131072` (128 KB, vs the 8 MB production default)
+/// - `SERVER_SOCKET_RECEIVE_BUFFER_SIZE_BYTES=131072` (128 KB, vs kernel autotune in the production default)
 /// - `JAVA_OPTS` with `-Xmx24m -XX:MaxDirectMemorySize=8m -XX:MaxMetaspaceSize=32m`
 /// - Reduced messaging queue sizes
 ///
@@ -38,8 +38,8 @@ public class MemoryRegressionTests extends BaseSuite {
     private static final int NANO_METRICS_PORT = 16008;
 
     /// RSS threshold (KB) for the nano profile. Set to 200 MB to accommodate Linux RSS overhead
-    /// above the 128 MB container limit while still catching regressions (e.g. reverting the 8 MB
-    /// socket buffer adds ~640 MB).
+    /// above the 128 MB container limit while still catching regressions (e.g. an explicit 8 MB
+    /// socket buffer instead of nano's 128 KB pins adds ~640 MB).
     private static final long NANO_RSS_THRESHOLD_KB = 204_800L; // 200 MB
 
     /// Environment variable overrides mirroring `values-overrides/nano.yaml`.
@@ -48,6 +48,8 @@ public class MemoryRegressionTests extends BaseSuite {
             "-Xmx24m -XX:MaxDirectMemorySize=8m -XX:MaxMetaspaceSize=32m"
                     + " -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/dump.hprof",
             "SERVER_SOCKET_RECEIVE_BUFFER_SIZE_BYTES",
+            "131072",
+            "SERVER_SOCKET_SEND_BUFFER_SIZE_BYTES",
             "131072",
             "MESSAGING_BLOCK_ITEM_QUEUE_SIZE",
             "128",

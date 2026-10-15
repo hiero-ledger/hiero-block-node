@@ -20,6 +20,7 @@ import com.hedera.pbj.runtime.ParseException;
 import com.swirlds.config.api.Configuration;
 import java.io.IOException;
 import java.nio.file.Paths;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -99,19 +100,22 @@ class BlockStreamSimulatorTest {
     }
 
     @Test
-    void start_logsStartedMessage() throws InterruptedException, BlockSimulatorParsingException, IOException {
+    void start_logsStartedMessage()
+            throws InterruptedException, BlockSimulatorParsingException, IOException, NoSuchAlgorithmException {
         blockStreamSimulator.start();
         assertTrue(blockStreamSimulator.isRunning());
     }
 
     @Test
-    void startPublishing_logsStartedMessage() throws InterruptedException, BlockSimulatorParsingException, IOException {
+    void startPublishing_logsStartedMessage()
+            throws InterruptedException, BlockSimulatorParsingException, IOException, NoSuchAlgorithmException {
         blockStreamSimulator.start();
         assertTrue(blockStreamSimulator.isRunning());
     }
 
     @Test
-    void startConsuming() throws IOException, BlockSimulatorParsingException, InterruptedException {
+    void startConsuming()
+            throws IOException, BlockSimulatorParsingException, InterruptedException, NoSuchAlgorithmException {
         SimulatorModeHandler consumerModeHandler = new ConsumerModeHandler(consumerStreamGrpcClient);
         Configuration configuration = TestUtils.getTestConfiguration(Map.of("blockStream.simulatorMode", "CONSUMER"));
 
@@ -133,7 +137,8 @@ class BlockStreamSimulatorTest {
 
     @Test
     void start_constantRateStreaming()
-            throws InterruptedException, BlockSimulatorParsingException, IOException, ParseException {
+            throws InterruptedException, BlockSimulatorParsingException, IOException, ParseException,
+                    NoSuchAlgorithmException {
         BlockItem blockItem = BlockItem.newBuilder()
                 .setBlockHeader(BlockHeader.newBuilder().setNumber(1L).build())
                 .build();
@@ -224,7 +229,8 @@ class BlockStreamSimulatorTest {
 
     @Test
     void start_millisPerBlockStreaming()
-            throws InterruptedException, IOException, BlockSimulatorParsingException, ParseException {
+            throws InterruptedException, IOException, BlockSimulatorParsingException, ParseException,
+                    NoSuchAlgorithmException {
         BlockStreamManager blockStreamManager = mock(BlockStreamManager.class);
         BlockStreamConfig blockStreamConfig = mock(BlockStreamConfig.class);
         SimulatorModeHandler publisherClientModeHandler = new PublisherClientModeHandler(
@@ -261,7 +267,8 @@ class BlockStreamSimulatorTest {
 
     @Test
     void start_millisPerSecond_streamingLagVerifyWarnLog()
-            throws InterruptedException, IOException, BlockSimulatorParsingException, ParseException {
+            throws InterruptedException, IOException, BlockSimulatorParsingException, ParseException,
+                    NoSuchAlgorithmException {
         BlockStreamManager blockStreamManager = mock(BlockStreamManager.class);
         BlockItem blockItem = BlockItem.newBuilder()
                 .setBlockHeader(BlockHeader.newBuilder().setNumber(1L).build())

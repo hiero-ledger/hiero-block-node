@@ -31,7 +31,7 @@ class BlockHeaderHandlerTest {
         assertTrue(item.hasBlockHeader());
 
         BlockHeader header = item.getBlockHeader();
-        assertEquals(BlockHashAlgorithm.SHA2_384, header.getHashAlgorithm());
+        assertEquals(BlockHashAlgorithm.SHA2_256, header.getHashAlgorithm());
         assertEquals(blockNumber, header.getNumber());
         assertNotNull(header.getBlockTimestamp());
         assertNotNull(header.getHapiProtoVersion());

@@ -11,6 +11,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.security.GeneralSecurityException;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.security.NoSuchAlgorithmException;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.SecureRandom;
@@ -72,7 +73,8 @@ public final class RsaBlockSigner implements BlockSigner {
 
     @Override
     @NonNull
-    public BlockProof signBlockProof(final long blockNumber, @NonNull final Bytes recordFileContents) {
+    public BlockProof signBlockProof(final long blockNumber, @NonNull final Bytes recordFileContents)
+            throws NoSuchAlgorithmException {
         final byte[] payload = HashingUtilities.computeV6SignedPayload(recordFileContents);
         final List<RecordFileSignature> signatures = new ArrayList<>(nodes.size());
         for (final RsaNode node : nodes) {

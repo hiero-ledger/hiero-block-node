@@ -18,6 +18,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
@@ -167,7 +168,7 @@ public class BackfillMultiportSourceTests {
     /// awaits an acknowledgement covering the last block. Acknowledgements are watermark-coalesced by
     /// the server (an ack for block N implicitly acks all blocks below N), so fewer acks than blocks
     /// may arrive; waiting for a fixed per-block count would flake (#3401).
-    private void publishBlocks(final int port) throws InterruptedException {
+    private void publishBlocks(final int port) throws InterruptedException, NoSuchAlgorithmException {
         final BlockStreamPublishServiceClient publishClient =
                 new BlockStreamPublishServiceClient(createGrpcClientForPort(port), OPTIONS);
         final ResponsePipelineUtils<PublishStreamResponse> observer = new ResponsePipelineUtils<>();

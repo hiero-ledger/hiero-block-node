@@ -24,6 +24,7 @@ import java.net.SocketException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -228,7 +229,7 @@ public class BlockNodeAPITests {
      * 6. Mimicking MN and subscribing to live block stream and confirming receipt of newly published block
      */
     @Test
-    void e2eBlockStreamsBaseScenarios() throws InterruptedException {
+    void e2eBlockStreamsBaseScenarios() throws InterruptedException, NoSuchAlgorithmException {
         // ==== Scenario 1: Publish new genesis block and confirm acknowledgement response ====
         BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient blockStreamPublishServiceClient =
                 new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(
@@ -472,7 +473,8 @@ public class BlockNodeAPITests {
      *    server closes the stream with EndOfStream(DUPLICATE_BLOCK).
      */
     @Test
-    void duplicateBlockSkipWindowAppliesWithinWindowAndEndsOutsideWindow() throws InterruptedException {
+    void duplicateBlockSkipWindowAppliesWithinWindowAndEndsOutsideWindow()
+            throws InterruptedException, NoSuchAlgorithmException {
         final int totalBlocks = 20;
         final long headBlock = totalBlocks - 1L;
 
@@ -566,7 +568,7 @@ public class BlockNodeAPITests {
     }
 
     @Test
-    void swappedPublisherConnection() throws InterruptedException {
+    void swappedPublisherConnection() throws InterruptedException, NoSuchAlgorithmException {
         BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient initialPublishClient =
                 new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(
                         publishBlockStreamPbjGrpcClient, OPTIONS);
@@ -668,7 +670,7 @@ public class BlockNodeAPITests {
      * </ol>
      */
     @Test
-    void e2eSocketClosureTest() throws InterruptedException {
+    void e2eSocketClosureTest() throws InterruptedException, NoSuchAlgorithmException {
         // ==== Scenario 1: Publish a chain of blocks 0..7 so we can trigger an outside-window duplicate next ====
         BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient blockStreamPublishServiceClient =
                 new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(
@@ -763,7 +765,7 @@ public class BlockNodeAPITests {
     // The server RSTs the connection before END_STREAM is flushed, so onNext(END_STREAM) is never received.
     @Disabled
     @Test
-    void e2eDuplicateBlockPublisherObserversOnComplete() throws InterruptedException {
+    void e2eDuplicateBlockPublisherObserversOnComplete() throws InterruptedException, NoSuchAlgorithmException {
         // ==== Scenario 1: Publish new genesis block and confirm acknowledgement response ====
         BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient blockStreamPublishServiceClient =
                 new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(
@@ -881,7 +883,7 @@ public class BlockNodeAPITests {
     }
 
     /** Publishes genesis block 0 on the given port and awaits the ACK (proves the publisher routes there). */
-    private void publishGenesisBlock(final int port) throws InterruptedException {
+    private void publishGenesisBlock(final int port) throws InterruptedException, NoSuchAlgorithmException {
         final var client = new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(
                 createGrpcClientForPort(Integer.toString(port)), OPTIONS);
         final ResponsePipelineUtils<PublishStreamResponse> observer = new ResponsePipelineUtils<>();
@@ -968,7 +970,8 @@ public class BlockNodeAPITests {
     }
 
     /** Asserts the publisher gRPC service is not routed on the default port: no ACK and the stream is rejected. */
-    private void assertPublisherNotRoutedOnDefaultPort(final int port) throws InterruptedException {
+    private void assertPublisherNotRoutedOnDefaultPort(final int port)
+            throws InterruptedException, NoSuchAlgorithmException {
         final var client = new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(
                 createGrpcClientForPort(Integer.toString(port)), OPTIONS);
         final ResponsePipelineUtils<PublishStreamResponse> observer = new ResponsePipelineUtils<>();

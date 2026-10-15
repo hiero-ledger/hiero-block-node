@@ -18,6 +18,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
@@ -135,7 +136,7 @@ public class BlockNodeApiRegressionTest {
      */
     @Test
     @DisplayName("publisher RESEND fills block gap left by severed connection")
-    void publisherResendFillsBlockGapLeftBySeveredConnection() throws InterruptedException {
+    void publisherResendFillsBlockGapLeftBySeveredConnection() throws InterruptedException, NoSuchAlgorithmException {
         final Bytes hash0 = BlockItemBuilderUtils.computeBlockHash(0L, null);
         final Bytes hash1 = BlockItemBuilderUtils.computeBlockHash(1L, hash0);
         final Bytes hash2 = BlockItemBuilderUtils.computeBlockHash(2L, hash1);
@@ -246,7 +247,8 @@ public class BlockNodeApiRegressionTest {
      */
     @Test
     @DisplayName("stall-detected RESEND must persist stalled block and acknowledge in order")
-    void stallDetectedResendMustPersistStalledBlockAndAcknowledgeInOrder() throws InterruptedException {
+    void stallDetectedResendMustPersistStalledBlockAndAcknowledgeInOrder()
+            throws InterruptedException, NoSuchAlgorithmException {
         final Bytes hash0 = BlockItemBuilderUtils.computeBlockHash(0L, null);
         final Bytes hash1 = BlockItemBuilderUtils.computeBlockHash(1L, hash0);
         final Bytes hash2 = BlockItemBuilderUtils.computeBlockHash(2L, hash1);
@@ -525,7 +527,7 @@ public class BlockNodeApiRegressionTest {
     @Test
     @DisplayName("serverStatus reports unknown nextExpectedBlock when EMB exceeds all stored blocks")
     void serverStatusReturnsUnknownWhenEarliestManagedBlockExceedsStoredBlocks()
-            throws IOException, InterruptedException {
+            throws IOException, InterruptedException, NoSuchAlgorithmException {
         app.shutdown("embRegressionTest", "restart with EMB above stored blocks");
         awaitAppState(app, false);
 

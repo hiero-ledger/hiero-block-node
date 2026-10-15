@@ -145,11 +145,13 @@ public final class RecordFileSignedPayload {
     /// @param hapiProtoVersion the HAPI protocol version from the block header
     /// @param blockNumber the number of the block being verified, used for logging
     /// @return the payload or the failure, exactly one of the two, never both
+    /// @throws NoSuchAlgorithmException if the Java runtime provides no implementation of SHA-384
     static SignedPayloadResult computeSignedWRBPayload(
             final BlockUnparsed block,
             final int version,
             final SemanticVersion hapiProtoVersion,
-            final long blockNumber) {
+            final long blockNumber)
+            throws NoSuchAlgorithmException {
         final SignedPayloadResult result;
         final Bytes rawRecordFileItemBytes = findRecordFileItemBytes(block);
         if (rawRecordFileItemBytes == null) {
@@ -174,11 +176,13 @@ public final class RecordFileSignedPayload {
     /// @param hapiProtoVersion the HAPI protocol version from the block header
     /// @param blockNumber the number of the block being verified, used for logging
     /// @return the payload or the failure, exactly one of the two, never both
+    /// @throws NoSuchAlgorithmException if the Java runtime provides no implementation of SHA-384
     private static SignedPayloadResult getSignedPayload(
             final Bytes rawRecordFileItemBytes,
             final int version,
             final SemanticVersion hapiProtoVersion,
-            final long blockNumber) {
+            final long blockNumber)
+            throws NoSuchAlgorithmException {
         SignedPayloadResult computed;
         try {
             final Bytes recordFileContents = extractRecordStreamFileBytes(rawRecordFileItemBytes);
@@ -323,9 +327,10 @@ public final class RecordFileSignedPayload {
     /// @throws ParseException if the record file contents are malformed protobuf wire data
     ///     or if the version is not 2, 5 or 6; callers are expected to
     ///     gate the version before calling
+    /// @throws NoSuchAlgorithmException if the Java runtime provides no implementation of SHA-384
     static byte[] computeSignedPayload(
             final int version, final SemanticVersion hapiProtoVersion, final Bytes recordFileContents)
-            throws ParseException {
+            throws ParseException, NoSuchAlgorithmException {
         try {
             return switch (version) {
                 case 6 -> computeV6SignedPayload(recordFileContents);
@@ -345,8 +350,9 @@ public final class RecordFileSignedPayload {
     /// @param data the raw components extracted from the record stream file protobuf
     /// @return the 48-byte signed payload, or `null` when a running hash is missing
     /// @throws IOException if the wire data is malformed
+    /// @throws NoSuchAlgorithmException if the Java runtime provides no implementation of SHA-384
     private static byte[] computeV5SignedPayload(final SemanticVersion hapiProtoVersion, final ExtractedRecordData data)
-            throws IOException {
+            throws IOException, NoSuchAlgorithmException {
         final byte[] result;
         if (!isValidHash(data.startRunningHash()) || !isValidHash(data.endRunningHash())) {
             result = null;
@@ -383,8 +389,9 @@ public final class RecordFileSignedPayload {
     /// @param data the raw components extracted from the record stream file protobuf
     /// @return the 48-byte signed payload, or `null` when the start running hash is missing
     /// @throws IOException if the wire data is malformed
+    /// @throws NoSuchAlgorithmException if the Java runtime provides no implementation of SHA-384
     private static byte[] computeV2SignedPayload(final SemanticVersion hapiProtoVersion, final ExtractedRecordData data)
-            throws IOException {
+            throws IOException, NoSuchAlgorithmException {
         final byte[] result;
         if (!isValidHash(data.startRunningHash())) {
             result = null;
@@ -419,7 +426,8 @@ public final class RecordFileSignedPayload {
     ///
     /// @param recordFileContents the verbatim `record_file_contents` bytes
     /// @return the 48-byte signed payload
-    private static byte[] computeV6SignedPayload(final Bytes recordFileContents) {
+    /// @throws NoSuchAlgorithmException if the Java runtime provides no implementation of SHA-384
+    private static byte[] computeV6SignedPayload(final Bytes recordFileContents) throws NoSuchAlgorithmException {
         final MessageDigest digest = sha384Digest();
         digest.update(new byte[] {0, 0, 0, 6});
         recordFileContents.writeTo(digest);
@@ -429,13 +437,9 @@ public final class RecordFileSignedPayload {
     /// Returns a [MessageDigest] for the SHA-384 algorithm.
     ///
     /// @return a fresh SHA-384 digest
-    private static MessageDigest sha384Digest() {
-        try {
-            return MessageDigest.getInstance(HASH_ALGORITHM);
-        } catch (final NoSuchAlgorithmException fatal) {
-            // Cannot occur: SHA-384 is a mandatory JCA algorithm
-            throw new IllegalStateException(fatal);
-        }
+    /// @throws NoSuchAlgorithmException if the Java runtime provides no implementation of SHA-384
+    private static MessageDigest sha384Digest() throws NoSuchAlgorithmException {
+        return MessageDigest.getInstance(HASH_ALGORITHM);
     }
 
     /// Computes the v2 double hash of a reconstructed v2 file:
@@ -444,7 +448,8 @@ public final class RecordFileSignedPayload {
     ///
     /// @param recordFileBytes the reconstructed v2 file bytes
     /// @return the 48-byte double hash
-    private static byte[] computeV2DoubleHash(final byte[] recordFileBytes) {
+    /// @throws NoSuchAlgorithmException if the Java runtime provides no implementation of SHA-384
+    private static byte[] computeV2DoubleHash(final byte[] recordFileBytes) throws NoSuchAlgorithmException {
         final MessageDigest digest = sha384Digest();
         digest.update(recordFileBytes, V2_HEADER_LENGTH, recordFileBytes.length - V2_HEADER_LENGTH);
         final byte[] contentHash = digest.digest();

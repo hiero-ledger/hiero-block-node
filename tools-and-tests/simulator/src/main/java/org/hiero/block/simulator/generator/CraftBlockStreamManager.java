@@ -6,7 +6,7 @@ import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
-import static org.hiero.block.common.hasher.HashingUtilities.EMPTY_TREE_HASH;
+import static org.hiero.block.simulator.Constants.BLOCK_HASH_ALGORITHM;
 
 import com.hedera.hapi.block.stream.output.protoc.BlockFooter;
 import com.hedera.hapi.block.stream.output.protoc.BlockHeader;
@@ -58,6 +58,8 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     private final Logger LOGGER = System.getLogger(getClass().getName());
 
     private static final int MAX_PARSE_DEPTH = 256;
+    /** The previous block hash of block 0 and the all blocks root before any block: the empty tree hash. */
+    private static final Bytes ZERO_BLOCK_HASH = BLOCK_HASH_ALGORITHM.emptyTreeHash();
 
     // Service
     private final Random random;
@@ -92,8 +94,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     private final SimulatorStartupData simulatorStartupData;
     private final TssBlockSigner blockSigner;
 
-    StreamingHasher rootHashOfAllBlockHashesTreeHasher;
-    Bytes ZERO_BLOCK_HASH = Bytes.wrap(EMPTY_TREE_HASH);
+    private StreamingHasher rootHashOfAllBlockHashesTreeHasher;
 
     /**
      * Constructs a new CraftBlockStreamManager with the specified configuration.
@@ -102,6 +103,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
      *                             including event and transaction counts
      * @param simulatorStartupData simulator startup data used for initialization
      * @throws NullPointerException if blockGeneratorConfig is null
+     * @throws IllegalStateException if the Java runtime provides no implementation of the block hash algorithm
      */
     public CraftBlockStreamManager(
             @NonNull final BlockGeneratorConfig blockGeneratorConfig,
@@ -116,8 +118,8 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         this.invalidBlockHash = blockGeneratorConfig.invalidBlockHash();
         this.endBlockNumber = blockGeneratorConfig.endBlockNumber();
         this.random = new Random();
-        this.previousStateRootHash = new byte[StreamingTreeHasher.HASH_LENGTH];
-        this.currentBlockHash = new byte[StreamingTreeHasher.HASH_LENGTH];
+        this.previousStateRootHash = new byte[BLOCK_HASH_ALGORITHM.hashSize()];
+        this.currentBlockHash = new byte[BLOCK_HASH_ALGORITHM.hashSize()];
         this.inputTreeHasher = new NaiveStreamingTreeHasher();
         this.outputTreeHasher = new NaiveStreamingTreeHasher();
         this.consensusHeaderHasher = new NaiveStreamingTreeHasher();
@@ -135,33 +137,28 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         // root hash of all block hashes tree hasher
         this.currentBlockNumber = 0;
         this.previousBlockHash = ZERO_BLOCK_HASH.toByteArray();
-        LOGGER.log(INFO, "Block Stream Simulator will use Craft mode for block management");
-
-        // Unordered streaming
-        unorderedStreamingEnabled = unorderedStreamConfig.enabled();
-        if (unorderedStreamingEnabled) {
-            initUnorderedStreaming(simulatorStartupData, unorderedStreamConfig);
-        }
-
-        // init root hash of all block hashes tree hasher
-        initRootHashOfAllBlockHashesTreeHasher();
-
-        if (simulatorStartupData.getLatestAckBlockNumber() >= 0) {
-            final long targetBlock = simulatorStartupData.getLatestAckBlockNumber() + 1L;
-            resetToBlock(targetBlock);
-        }
-    }
-
-    /***
-     * Initializes the hasher for the root hash of all block hashes tree.
-     * currently only supports from genesis, in the future we might consider
-     * initializing from saved state on file.
-     */
-    private void initRootHashOfAllBlockHashesTreeHasher() {
+        this.unorderedStreamingEnabled = unorderedStreamConfig.enabled();
+        // Dagger creates this manager through a provider method, which cannot declare checked
+        // exceptions, so a missing hash algorithm while crafting the first blocks here is rethrown
+        // unchecked. Everywhere else the checked exception is propagated.
         try {
+            // the all previous block hashes tree hasher must exist before any block is crafted,
+            // unordered streaming crafts its whole sequence right here in the constructor
             this.rootHashOfAllBlockHashesTreeHasher = new StreamingHasher();
-        } catch (NoSuchAlgorithmException e) {
-            LOGGER.log(ERROR, "Error initializing rootHashOfAllBlockHashesTreeHasher", e);
+            LOGGER.log(INFO, "Block Stream Simulator will use Craft mode for block management");
+
+            // Unordered streaming
+            if (unorderedStreamingEnabled) {
+                initUnorderedStreaming(simulatorStartupData, unorderedStreamConfig);
+            }
+
+            if (simulatorStartupData.getLatestAckBlockNumber() >= 0) {
+                final long targetBlock = simulatorStartupData.getLatestAckBlockNumber() + 1L;
+                resetToBlock(targetBlock);
+            }
+        } catch (final NoSuchAlgorithmException e) {
+            throw new IllegalStateException(
+                    "Hash algorithm %s is not available".formatted(BLOCK_HASH_ALGORITHM.jcaName()), e);
         }
     }
 
@@ -210,9 +207,10 @@ public class CraftBlockStreamManager implements BlockStreamManager {
      * @return A newly generated Block
      * @throws IOException                    if there is an error processing block items
      * @throws BlockSimulatorParsingException if there is an error parsing block components
+     * @throws NoSuchAlgorithmException       if the Java runtime provides no implementation of the hash algorithm
      */
     @Override
-    public Block getNextBlock() throws IOException, BlockSimulatorParsingException {
+    public Block getNextBlock() throws IOException, BlockSimulatorParsingException, NoSuchAlgorithmException {
         if (endBlockNumber > 0 && currentBlockNumber > endBlockNumber) {
             return null;
         }
@@ -232,7 +230,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     }
 
     @Override
-    public void resetToBlock(final long block) {
+    public void resetToBlock(final long block) throws NoSuchAlgorithmException {
         try {
             LOGGER.log(DEBUG, "Resetting to block number {0}. current block number = {1}", block, currentBlockNumber);
             // if current block is bigger, we reset state and start from 0 up to block
@@ -245,7 +243,8 @@ public class CraftBlockStreamManager implements BlockStreamManager {
                 resetState();
                 currentBlockNumber = 0;
                 previousBlockHash = ZERO_BLOCK_HASH.toByteArray();
-                initRootHashOfAllBlockHashesTreeHasher();
+                // the all blocks tree restarts from genesis together with the chain
+                rootHashOfAllBlockHashesTreeHasher = new StreamingHasher();
             }
 
             while (currentBlockNumber < block) {
@@ -262,7 +261,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         }
     }
 
-    private Block createNextBlock() throws BlockSimulatorParsingException, ParseException {
+    private Block createNextBlock() throws BlockSimulatorParsingException, ParseException, NoSuchAlgorithmException {
         LOGGER.log(DEBUG, "Started creation of block number {0}.", currentBlockNumber);
         // @todo(#683) Refactor common hasher to accept protoc types, in order to avoid the additional overhead of
         // keeping and unparsing.
@@ -304,14 +303,9 @@ public class CraftBlockStreamManager implements BlockStreamManager {
 
         processBlockItems(blockItemsUnparsed);
 
-        byte[] rootHashOfAllBlockHashesTree = null;
-        if (rootHashOfAllBlockHashesTreeHasher != null) {
-            // When the hasher has no leaves yet (block 0), the protocol defines the value as ZERO_BLOCK_HASH
-            rootHashOfAllBlockHashesTree = rootHashOfAllBlockHashesTreeHasher.leafCount() == 0
-                    ? ZERO_BLOCK_HASH.toByteArray()
-                    : rootHashOfAllBlockHashesTreeHasher.computeRootHash();
-        }
-        ItemHandler footerItemHandler = new BlockFooterHandler(previousBlockHash, rootHashOfAllBlockHashesTree);
+        // When the hasher has no leaves yet (block 0), the all blocks root is the empty tree hash
+        final byte[] rootHashOfAllBlockHashesTree = rootHashOfAllBlockHashesTreeHasher.computeRootHash();
+        final ItemHandler footerItemHandler = new BlockFooterHandler(previousBlockHash, rootHashOfAllBlockHashesTree);
         items.add(footerItemHandler);
         currentBlockFooter = footerItemHandler.getItem().getBlockFooter();
 
@@ -320,7 +314,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
 
         // if the block hash is invalid, generate a random hash and overwrite the legitimate one
         if (invalidBlockHash) {
-            currentBlockHash = new byte[StreamingTreeHasher.HASH_LENGTH];
+            currentBlockHash = new byte[BLOCK_HASH_ALGORITHM.hashSize()];
             random.nextBytes(currentBlockHash);
         }
 
@@ -328,9 +322,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         items.add(proofItemHandler);
         LOGGER.log(DEBUG, "Created block number {0} with hash {1}", currentBlockNumber, Bytes.wrap(currentBlockHash));
 
-        if (rootHashOfAllBlockHashesTreeHasher != null) {
-            rootHashOfAllBlockHashesTreeHasher.addNodeByHash(currentBlockHash);
-        }
+        rootHashOfAllBlockHashesTreeHasher.addNodeByHash(currentBlockHash);
 
         resetState();
 
@@ -339,7 +331,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
                 .build();
     }
 
-    private void updateCurrentBlockHash() throws ParseException {
+    private void updateCurrentBlockHash() throws ParseException, NoSuchAlgorithmException {
         com.hedera.hapi.block.stream.output.BlockHeader blockHeader =
                 com.hedera.hapi.block.stream.output.BlockHeader.PROTOBUF.parse(
                         Bytes.wrap(currentBlockHeader.toByteArray()), false, MAX_PARSE_DEPTH);
@@ -368,8 +360,8 @@ public class CraftBlockStreamManager implements BlockStreamManager {
                 .toByteArray();
     }
 
-    private void processBlockItems(List<BlockItemUnparsed> blockItems) {
-        Hashes hashes = HashingUtilities.getBlockHashes(blockItems);
+    private void processBlockItems(List<BlockItemUnparsed> blockItems) throws NoSuchAlgorithmException {
+        final Hashes hashes = HashingUtilities.getBlockHashes(blockItems);
         while (hashes.inputHashes().hasRemaining()) {
             inputTreeHasher.addLeaf(hashes.inputHashes());
         }

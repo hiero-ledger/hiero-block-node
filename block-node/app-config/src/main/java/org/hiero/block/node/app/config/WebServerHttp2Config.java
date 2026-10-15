@@ -30,5 +30,10 @@ public record WebServerHttp2Config(
         @Loggable @ConfigProperty(defaultValue = "8_388_608") int maxFrameSize,
         @Loggable @ConfigProperty(defaultValue = "8192") long maxHeaderListSize,
         @Loggable @ConfigProperty(defaultValue = "50") int maxRapidResets,
-        @Loggable @ConfigProperty(defaultValue = "10000") int rapidResetCheckPeriod) {}
+        @Loggable @ConfigProperty(defaultValue = "10000") int rapidResetCheckPeriod) {
+    /// Name of Helidon's HTTP/2 protocol config (`Http2ConnectionProvider.CONFIG_NAME`). An `Http2Config` built
+    /// without it is named `@default`, and Helidon's protocol discovery then appends a second, default `Http2Config`
+    /// behind ours; ours only wins by list order.
+    public static final String HELIDON_PROTOCOL_CONFIG_NAME = "http_2";
+}
 // spotless:on

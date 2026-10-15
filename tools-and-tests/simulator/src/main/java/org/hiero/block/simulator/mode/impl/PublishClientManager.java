@@ -6,6 +6,7 @@ import static org.hiero.block.simulator.config.types.EndStreamMode.TOO_FAR_BEHIN
 import com.hedera.hapi.block.stream.protoc.Block;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
+import java.security.NoSuchAlgorithmException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.inject.Inject;
 import org.hiero.block.api.protoc.PublishStreamRequest.EndStream;
@@ -63,7 +64,8 @@ public class PublishClientManager implements SimulatorModeHandler {
     }
 
     @Override
-    public void start() throws BlockSimulatorParsingException, IOException, InterruptedException {
+    public void start()
+            throws BlockSimulatorParsingException, IOException, InterruptedException, NoSuchAlgorithmException {
         currentHandler.start();
     }
 
@@ -73,7 +75,7 @@ public class PublishClientManager implements SimulatorModeHandler {
     }
 
     public void handleResponse(Block nextBlock, PublishStreamResponse publishStreamResponse)
-            throws BlockSimulatorParsingException, IOException, InterruptedException {
+            throws BlockSimulatorParsingException, IOException, InterruptedException, NoSuchAlgorithmException {
         if (publishStreamResponse.hasEndStream()) {
             handleEndOfStream(nextBlock, publishStreamResponse);
         } else if (publishStreamResponse.hasNodeBehindPublisher()) {
@@ -86,7 +88,7 @@ public class PublishClientManager implements SimulatorModeHandler {
     }
 
     private void handleEndOfStream(Block nextBlock, PublishStreamResponse publishStreamResponse)
-            throws InterruptedException, BlockSimulatorParsingException, IOException {
+            throws InterruptedException, BlockSimulatorParsingException, IOException, NoSuchAlgorithmException {
         stop();
         adjustStreamManager(nextBlock, publishStreamResponse);
         initializeNewClientAndHandler();
@@ -94,7 +96,7 @@ public class PublishClientManager implements SimulatorModeHandler {
     }
 
     private void handleNodeBehind(PublishStreamResponse publishStreamResponse)
-            throws InterruptedException, BlockSimulatorParsingException, IOException {
+            throws InterruptedException, BlockSimulatorParsingException, IOException, NoSuchAlgorithmException {
         blockStreamManager.resetToBlock(
                 publishStreamResponse.getNodeBehindPublisher().getBlockNumber());
         // send EndStream(TOO_FAR_BEHIND) if configured to do so
@@ -106,7 +108,7 @@ public class PublishClientManager implements SimulatorModeHandler {
     }
 
     public void sendEndStream(EndStreamMode endStreamMode)
-            throws BlockSimulatorParsingException, IOException, InterruptedException {
+            throws BlockSimulatorParsingException, IOException, InterruptedException, NoSuchAlgorithmException {
         EndStream.Code code =
                 switch (endStreamMode) {
                     case RESET -> EndStream.Code.RESET;
@@ -125,18 +127,19 @@ public class PublishClientManager implements SimulatorModeHandler {
     }
 
     private void handleResendBlock(PublishStreamResponse publishStreamResponse)
-            throws BlockSimulatorParsingException, IOException, InterruptedException {
+            throws BlockSimulatorParsingException, IOException, InterruptedException, NoSuchAlgorithmException {
         blockStreamManager.resetToBlock(publishStreamResponse.getResendBlock().getBlockNumber());
         start();
     }
 
     private void handleSkipBlock(PublishStreamResponse publishStreamResponse)
-            throws BlockSimulatorParsingException, IOException, InterruptedException {
+            throws BlockSimulatorParsingException, IOException, InterruptedException, NoSuchAlgorithmException {
         blockStreamManager.resetToBlock(publishStreamResponse.getSkipBlock().getBlockNumber() + 1);
         start();
     }
 
-    private void adjustStreamManager(Block nextBlock, PublishStreamResponse publishStreamResponse) {
+    private void adjustStreamManager(Block nextBlock, PublishStreamResponse publishStreamResponse)
+            throws NoSuchAlgorithmException {
         if (nextBlock != null) {
             long blockNumber = publishStreamResponse.getEndStream().getBlockNumber();
             blockStreamManager.resetToBlock(blockNumber + 1);

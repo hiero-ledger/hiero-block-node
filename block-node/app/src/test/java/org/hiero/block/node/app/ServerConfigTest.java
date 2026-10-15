@@ -2,16 +2,22 @@
 package org.hiero.block.node.app;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
+import com.swirlds.config.api.validation.ConfigViolationException;
 import java.util.stream.Stream;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 @SuppressWarnings("unused")
 class ServerConfigTest {
@@ -70,6 +76,62 @@ class ServerConfigTest {
     }
 
     @Test
+    @DisplayName("socket send buffer size defaults to 0 (kernel autotune)")
+    void defaultSocketSendBufferSizeIsAutotune() {
+        assertEquals(0, defaultConfig().getConfigData(ServerConfig.class).socketSendBufferSizeBytes());
+    }
+
+    @Test
+    @DisplayName("socket receive buffer size defaults to 0 (kernel autotune)")
+    void defaultSocketReceiveBufferSizeIsAutotune() {
+        assertEquals(0, defaultConfig().getConfigData(ServerConfig.class).socketReceiveBufferSizeBytes());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"server.socketSendBufferSizeBytes", "server.socketReceiveBufferSizeBytes"})
+    @DisplayName("a negative socket buffer size is rejected")
+    void negativeSocketBufferSizeIsRejected(final String property) {
+        final ConfigurationBuilder builder = ConfigurationBuilder.create()
+                .autoDiscoverExtensions()
+                .withConfigDataType(ServerConfig.class)
+                .withValue(property, "-1");
+        assertThrows(ConfigViolationException.class, builder::build);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "server.socketSendBufferSizeBytes, 1",
+        "server.socketSendBufferSizeBytes, 32767",
+        "server.socketReceiveBufferSizeBytes, 1",
+        "server.socketReceiveBufferSizeBytes, 32767"
+    })
+    @DisplayName("an explicit socket buffer size below 32 KiB is rejected")
+    void explicitSocketBufferSizeBelowMinimumIsRejected(final String property, final String bytes) {
+        final ConfigurationBuilder builder = ConfigurationBuilder.create()
+                .autoDiscoverExtensions()
+                .withConfigDataType(ServerConfig.class)
+                .withValue(property, bytes);
+        final IllegalStateException thrown = assertThrows(IllegalStateException.class, builder::build);
+        assertInstanceOf(IllegalArgumentException.class, rootCause(thrown));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"server.socketSendBufferSizeBytes", "server.socketReceiveBufferSizeBytes"})
+    @DisplayName("an explicit socket buffer size of exactly 32 KiB is accepted")
+    void explicitSocketBufferSizeAtMinimumIsAccepted(final String property) {
+        final Configuration config = ConfigurationBuilder.create()
+                .autoDiscoverExtensions()
+                .withConfigDataType(ServerConfig.class)
+                .withValue(property, "32768")
+                .build();
+        final ServerConfig serverConfig = config.getConfigData(ServerConfig.class);
+        final int configured = property.endsWith("SendBufferSizeBytes")
+                ? serverConfig.socketSendBufferSizeBytes()
+                : serverConfig.socketReceiveBufferSizeBytes();
+        assertEquals(ServerConfig.MIN_EXPLICIT_SOCKET_BUFFER_BYTES, configured);
+    }
+
+    @Test
     @DisplayName("server port can be overridden")
     void portCanBeOverridden() {
         final Configuration config = ConfigurationBuilder.create()
@@ -78,6 +140,14 @@ class ServerConfigTest {
                 .withValue("server.port", "12345")
                 .build();
         assertEquals(12345, config.getConfigData(ServerConfig.class).port());
+    }
+
+    private static Throwable rootCause(final Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current;
     }
 
     private static Configuration defaultConfig() {
@@ -94,43 +164,14 @@ class ServerConfigTest {
     }
 
     private static Stream<Arguments> outOfRangeReceiveBufferSizes() {
-        return Stream.of(
-                Arguments.of(
-                        32_767,
-                        String.format(
-                                RANGE_ERROR_TEMPLATE,
-                                "server.socketReceiveBufferSizeBytes",
-                                32_767,
-                                32768,
-                                Integer.MAX_VALUE)),
-                Arguments.of(
-                        1,
-                        String.format(
-                                RANGE_ERROR_TEMPLATE,
-                                "server.socketReceiveBufferSizeBytes",
-                                1,
-                                32768,
-                                Integer.MAX_VALUE)));
+        return Stream.of(Arguments.of(
+                -1,
+                String.format(RANGE_ERROR_TEMPLATE, "server.socketReceiveBufferSizeBytes", -1, 0, Integer.MAX_VALUE)));
     }
 
     private static Stream<Arguments> outOfRangeSendBufferSizes() {
-        return Stream.of(
-                Arguments.of(
-                        32_767,
-                        String.format(
-                                RANGE_ERROR_TEMPLATE,
-                                "server.socketSendBufferSizeBytes",
-                                32_767,
-                                32768,
-                                Integer.MAX_VALUE)),
-                Arguments.of(
-                        1,
-                        String.format(
-                                RANGE_ERROR_TEMPLATE,
-                                "server.socketSendBufferSizeBytes",
-                                1,
-                                32768,
-                                Integer.MAX_VALUE)));
+        return Stream.of(Arguments.of(
+                -1, String.format(RANGE_ERROR_TEMPLATE, "server.socketSendBufferSizeBytes", -1, 0, Integer.MAX_VALUE)));
     }
 
     private static Stream<Arguments> outOfRangeMaxMessageSizes() {

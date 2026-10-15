@@ -15,6 +15,7 @@ import com.hedera.hapi.block.stream.StateProof;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.lang.System.Logger;
+import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -104,8 +105,9 @@ public final class StateProofVerifier implements ProofVerifier {
     ///     the session was cancelled mid-walk, or
     ///     [SessionFailureType#BAD_BLOCK_PROOF] when the proof is malformed, does
     ///     not match the computed root hash, or its signature does not verify
+    /// @throws NoSuchAlgorithmException if the Java runtime provides no implementation of the hash algorithm
     @Override
-    public SessionFailureType verify() {
+    public SessionFailureType verify() throws NoSuchAlgorithmException {
         final SessionFailureType result;
         final List<MerklePath> allPaths = stateProof.paths();
         if (allPaths.size() < 3) {
@@ -164,13 +166,13 @@ public final class StateProofVerifier implements ProofVerifier {
 
     /// Process a leaf by computing its content first and then merging all siblings.
     /// This result will then be used as the content to continue to the next index of the leaf.
-    private byte[] processLeaf(final MerklePath leaf) {
+    private byte[] processLeaf(final MerklePath leaf) throws NoSuchAlgorithmException {
         final byte[] leafContent = computeLeafContent(leaf);
         return mergeSiblings(leaf, leafContent);
     }
 
     /// Compute the content of a leaf.
-    private byte[] computeLeafContent(final MerklePath leaf) {
+    private byte[] computeLeafContent(final MerklePath leaf) throws NoSuchAlgorithmException {
         return switch (leaf.content().kind()) {
             case UNSET -> throw new IllegalArgumentException("Unexpected MerklePath content kind");
             case HASH -> {
@@ -196,7 +198,8 @@ public final class StateProofVerifier implements ProofVerifier {
             final List<MerklePath> allPaths,
             final int leafStartingIndex,
             final byte[] leafResult,
-            final boolean[] visited) {
+            final boolean[] visited)
+            throws NoSuchAlgorithmException {
         byte[] currentResult = leafResult;
         int lowestStartingIndex = leafStartingIndex;
         int currentJoinPointIndex = currentPath.nextPathIndex();
@@ -270,7 +273,7 @@ public final class StateProofVerifier implements ProofVerifier {
     }
 
     /// Merge all available siblings of a [MerklePath] with a provided content.
-    private byte[] mergeSiblings(final MerklePath path, final byte[] content) {
+    private byte[] mergeSiblings(final MerklePath path, final byte[] content) throws NoSuchAlgorithmException {
         byte[] result = content;
         for (final SiblingNode sibling : path.siblings()) {
             if (sibling.hash() == null || sibling.hash().equals(Bytes.EMPTY)) {
@@ -304,7 +307,7 @@ public final class StateProofVerifier implements ProofVerifier {
     }
 
     /// Combine a sibling node with the provided content.
-    private byte[] combineSibling(final byte[] content, final SiblingNode sibling) {
+    private byte[] combineSibling(final byte[] content, final SiblingNode sibling) throws NoSuchAlgorithmException {
         if (sibling.isLeft()) {
             return hashInternalNode(sibling.hash().toByteArray(), content);
         } else {

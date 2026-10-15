@@ -192,6 +192,7 @@ tasks.register<JavaExec>("runWithCleanStorage") {
 
 testModuleInfo {
     requires("org.hiero.block.node.app.test.fixtures")
+    requires("io.helidon.builder.api")
     requires("org.assertj.core")
     requires("org.junit.jupiter.api")
     requires("org.junit.jupiter.params")

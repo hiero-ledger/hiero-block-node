@@ -11,11 +11,12 @@ import com.hedera.hapi.block.stream.StateProof;
 import com.hedera.hapi.block.stream.TssSignedBlockProof;
 import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.hiero.block.common.hasher.HashingUtilities;
+import org.hiero.block.common.hasher.HashAlgorithm;
 import org.hiero.block.common.hasher.StreamingHasher;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
@@ -49,6 +50,9 @@ import org.hiero.block.signing.TssBlockSigner;
  */
 public final class StateProofChainBuilder {
 
+    /** The algorithm the chain is hashed with, the one the headers of the test blocks declare. */
+    private static final HashAlgorithm ALGORITHM = TestBlockBuilder.BLOCK_HASH_ALGORITHM;
+
     private final TssBlockSigner signer;
     private final VerificationDataProvider verificationDataProvider;
     private final MetricsHolder metricsHolder;
@@ -58,19 +62,16 @@ public final class StateProofChainBuilder {
     public StateProofChainBuilder(
             final TssBlockSigner signer,
             final VerificationDataProvider verificationDataProvider,
-            final MetricsHolder metricsHolder) {
+            final MetricsHolder metricsHolder)
+            throws NoSuchAlgorithmException {
         this.signer = signer;
         this.verificationDataProvider = verificationDataProvider;
         this.metricsHolder = metricsHolder;
-        try {
-            this.allBlocksHasher = new StreamingHasher();
-        } catch (final Exception e) {
-            throw new IllegalStateException("SHA-384 unavailable", e);
-        }
+        this.allBlocksHasher = new StreamingHasher();
     }
 
     /** Factory with an isolated MetricRegistry, safe to call inside plugin-based tests. */
-    public static StateProofChainBuilder create(final TssBlockSigner signer) {
+    public static StateProofChainBuilder create(final TssBlockSigner signer) throws NoSuchAlgorithmException {
         final org.hiero.block.node.spi.BlockNodeContext isolated =
                 org.hiero.block.node.app.fixtures.TestUtils.testContext(
                         new org.hiero.block.node.app.fixtures.TestConfigurationBuilder().getOrCreateConfig(),
@@ -90,7 +91,7 @@ public final class StateProofChainBuilder {
      * Emits a genesis (block 0) gap block with the signer's LedgerIdPublication in a signed
      * transaction (so the verifier self-provisions TSS state) and an indirect state proof.
      */
-    public Signed genesisWithPublication() {
+    public Signed genesisWithPublication() throws NoSuchAlgorithmException {
         final TestBlock draft =
                 TestBlockBuilder.generateGenesisBlockWithSignedTransaction(signer.genesisLedgerIdSignedTransaction());
         return finalize(0L, draft);
@@ -101,13 +102,13 @@ public final class StateProofChainBuilder {
      * carries a dummy signed-transaction item so tampering tests that mutate SIGNED_TRANSACTION
      * always have something to modify.
      */
-    public Signed next(final long blockNumber) {
+    public Signed next(final long blockNumber) throws NoSuchAlgorithmException {
         return finalize(
                 blockNumber,
                 TestBlockBuilder.generateBlockWithSignedTransaction(blockNumber, Bytes.wrap(new byte[16])));
     }
 
-    private Signed finalize(final long blockNumber, final TestBlock draft) {
+    private Signed finalize(final long blockNumber, final TestBlock draft) throws NoSuchAlgorithmException {
         final TestBlock chained = withChainedFooter(draft);
         final Bytes rootHash = computeRootHash(chained, blockNumber);
         final TestBlock signed = withStateProof(chained, blockNumber, rootHash);
@@ -117,13 +118,12 @@ public final class StateProofChainBuilder {
     }
 
     private TestBlock withChainedFooter(final TestBlock draft) {
-        final byte[] prev = previousBlockRootHash != null ? previousBlockRootHash : HashingUtilities.EMPTY_TREE_HASH;
-        final byte[] allBlocksRoot =
-                allBlocksHasher.leafCount() > 0 ? allBlocksHasher.computeRootHash() : HashingUtilities.EMPTY_TREE_HASH;
+        final Bytes emptyTreeHash = ALGORITHM.emptyTreeHash();
+        final Bytes prev = previousBlockRootHash != null ? Bytes.wrap(previousBlockRootHash) : emptyTreeHash;
         final BlockFooter footer = BlockFooter.newBuilder()
-                .previousBlockRootHash(Bytes.wrap(prev))
-                .rootHashOfAllBlockHashesTree(Bytes.wrap(allBlocksRoot))
-                .startOfBlockStateRootHash(Bytes.wrap(HashingUtilities.EMPTY_TREE_HASH))
+                .previousBlockRootHash(prev)
+                .rootHashOfAllBlockHashesTree(Bytes.wrap(allBlocksHasher.computeRootHash()))
+                .startOfBlockStateRootHash(emptyTreeHash)
                 .build();
         final BlockItemUnparsed footerItem = BlockItemUnparsed.newBuilder()
                 .blockFooter(BlockFooter.PROTOBUF.toBytes(footer))
@@ -131,22 +131,26 @@ public final class StateProofChainBuilder {
         return replace(draft, StateProofChainBuilder::isFooter, footerItem);
     }
 
-    private TestBlock withStateProof(final TestBlock draft, final long blockNumber, final Bytes rootHash) {
-        // Path 0: TIMESTAMP_LEAF + one right sibling. Deterministic zero-filled placeholders.
-        final byte[] timestampBytes = new byte[48];
-        final byte[] path0SiblingHash = new byte[48];
+    private TestBlock withStateProof(final TestBlock draft, final long blockNumber, final Bytes rootHash)
+            throws NoSuchAlgorithmException {
+        // Path 0: TIMESTAMP_LEAF + one right sibling. Deterministic zero-filled placeholders of
+        // one digest of the block hash algorithm.
+        final int hashSize = ALGORITHM.hashSize();
+        final byte[] timestampBytes = new byte[hashSize];
+        final byte[] path0SiblingHash = new byte[hashSize];
         // Path 1: HASH == gap block root + one left sibling.
-        final byte[] path1SiblingHash = new byte[48];
+        final byte[] path1SiblingHash = new byte[hashSize];
 
         final SiblingNode path0Sibling = new SiblingNode(false, Bytes.wrap(path0SiblingHash));
         final SiblingNode path1Sibling = new SiblingNode(true, Bytes.wrap(path1SiblingHash));
 
         // Reconstruct the same signed root the verifier would compute.
-        // result0 = combineSibling(hashLeaf(timestamp), path0Sibling) — right sibling → parent = hash(content, sibling)
+        // result0 = combineSibling(hashLeaf(timestamp), path0Sibling): a right sibling gives parent = hash(content,
+        // sibling)
         final byte[] leaf0Content = hashLeaf(timestampBytes);
         final byte[] result0 =
                 hashInternalNode(leaf0Content, path0Sibling.hash().toByteArray());
-        // result1 = combineSibling(gapBlockRoot, path1Sibling) — left sibling → parent = hash(sibling, content)
+        // result1 = combineSibling(gapBlockRoot, path1Sibling): a left sibling gives parent = hash(sibling, content)
         final byte[] leaf1Content = rootHash.toByteArray();
         final byte[] result1 = hashInternalNode(path1Sibling.hash().toByteArray(), leaf1Content);
         // Path 2 (join) has no siblings, so the reconstructed signed root is hashInternalNode(result0, result1).

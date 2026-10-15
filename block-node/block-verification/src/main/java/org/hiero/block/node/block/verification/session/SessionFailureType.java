@@ -27,7 +27,9 @@ public enum SessionFailureType {
     UNSUPPORTED_ITEM_TYPE,
     /// This type indicates that the wire encoding parsed successfully, but the content
     /// is not a processable block stream (for example an item that carries more than one
-    /// field, or a mandatory once per block item that appears more than once)
+    /// field, a mandatory once per block item that appears more than once, or a block
+    /// hashed with an algorithm other than SHA-256, as declared by its header or shown by
+    /// the size of its footer hashes)
     UNSUPPORTED_STREAM_FORMAT,
     /// This type indicates that the session was cancelled after the
     /// complete block was received, for example evicted from the active

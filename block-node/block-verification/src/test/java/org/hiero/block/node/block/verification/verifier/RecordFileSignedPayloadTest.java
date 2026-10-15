@@ -192,7 +192,7 @@ class RecordFileSignedPayloadTest {
         /// transaction) are correct.
         @Test
         @DisplayName("computeSignedPayload() v5 multi-item matches reference reconstruction")
-        void testV5MultiItemMatchesReference() throws ParseException, IOException {
+        void testV5MultiItemMatchesReference() throws ParseException, IOException, NoSuchAlgorithmException {
             final SemanticVersion hapi = new SemanticVersion(0, 22, 3, null, null);
             final byte[] startHash = fakeHash(0xCC);
             final byte[] endHash = fakeHash(0xDD);
@@ -207,7 +207,7 @@ class RecordFileSignedPayloadTest {
         /// realistic file shape.
         @Test
         @DisplayName("computeSignedPayload() v5 single-item matches reference reconstruction")
-        void testV5SingleItemMatchesReference() throws ParseException, IOException {
+        void testV5SingleItemMatchesReference() throws ParseException, IOException, NoSuchAlgorithmException {
             final SemanticVersion hapi = new SemanticVersion(0, 30, 0, null, null);
             final byte[] startHash = fakeHash(0x33);
             final byte[] endHash = fakeHash(0x44);
@@ -222,7 +222,7 @@ class RecordFileSignedPayloadTest {
         /// independent reference reconstruction.
         @Test
         @DisplayName("computeSignedPayload() v5 empty item list matches reference reconstruction")
-        void testV5EmptyItemsMatchesReference() throws ParseException, IOException {
+        void testV5EmptyItemsMatchesReference() throws ParseException, IOException, NoSuchAlgorithmException {
             final SemanticVersion hapi = new SemanticVersion(0, 25, 0, null, null);
             final byte[] startHash = fakeHash(0x55);
             final byte[] endHash = fakeHash(0x66);
@@ -236,7 +236,7 @@ class RecordFileSignedPayloadTest {
         /// proving the version parameter selects a genuinely different hash construction.
         @Test
         @DisplayName("computeSignedPayload() v5 payload is 48 bytes and differs from v6")
-        void testV5PayloadDiffersFromV6() throws ParseException {
+        void testV5PayloadDiffersFromV6() throws ParseException, NoSuchAlgorithmException {
             final SemanticVersion hapi = new SemanticVersion(0, 22, 0, null, null);
             final Bytes contents = contentsOf(recordStreamFile(hapi, fakeHash(0xAB), fakeHash(0xBA), fakeItems(2)));
             final byte[] v5Payload = RecordFileSignedPayload.computeSignedPayload(5, hapi, contents);
@@ -313,7 +313,7 @@ class RecordFileSignedPayloadTest {
         /// different minors over identical contents produce different payloads.
         @Test
         @DisplayName("computeSignedPayload() v2 payload is sensitive to hapi minor")
-        void testV2HapiMinorSensitivity() throws ParseException {
+        void testV2HapiMinorSensitivity() throws ParseException, NoSuchAlgorithmException {
             final byte[] previousHash = fakeHash(0x88);
             final List<RecordStreamItem> items = fakeItems(1);
             final SemanticVersion hapiMinor3 = new SemanticVersion(0, 3, 0, null, null);
@@ -329,7 +329,7 @@ class RecordFileSignedPayloadTest {
         /// header-only file.
         @Test
         @DisplayName("computeSignedPayload() v2 empty item list matches reference reconstruction")
-        void testV2EmptyItemsMatchesReference() throws ParseException, IOException {
+        void testV2EmptyItemsMatchesReference() throws ParseException, IOException, NoSuchAlgorithmException {
             final SemanticVersion hapi = new SemanticVersion(0, 5, 0, null, null);
             final byte[] previousHash = fakeHash(0x99);
             final byte[] actual = RecordFileSignedPayload.computeSignedPayload(
@@ -349,7 +349,7 @@ class RecordFileSignedPayloadTest {
         /// block-signing test signer uses to produce V6 fixtures.
         @Test
         @DisplayName("computeSignedPayload() v6 matches the signer's payload formula")
-        void testV6MatchesSignerFormula() throws ParseException {
+        void testV6MatchesSignerFormula() throws ParseException, NoSuchAlgorithmException {
             final SemanticVersion hapi = new SemanticVersion(0, 72, 0, null, null);
             final Bytes arbitraryBytes = Bytes.wrap("not-a-record-stream-file".getBytes());
             final byte[] actual = RecordFileSignedPayload.computeSignedPayload(6, hapi, arbitraryBytes);
@@ -366,7 +366,7 @@ class RecordFileSignedPayloadTest {
         /// a wrong payload.
         @Test
         @DisplayName("computeSignedPayload() v5 missing start running hash returns null")
-        void testV5MissingStartHashReturnsNull() throws ParseException {
+        void testV5MissingStartHashReturnsNull() throws ParseException, NoSuchAlgorithmException {
             final SemanticVersion hapi = new SemanticVersion(0, 22, 0, null, null);
             final Bytes contents = contentsOf(recordStreamFile(hapi, null, fakeHash(0x11), fakeItems(1)));
             assertThat(RecordFileSignedPayload.computeSignedPayload(5, hapi, contents))
@@ -377,7 +377,7 @@ class RecordFileSignedPayloadTest {
         /// cannot be reconstructed and yields the null missing-components sentinel.
         @Test
         @DisplayName("computeSignedPayload() v5 missing end running hash returns null")
-        void testV5MissingEndHashReturnsNull() throws ParseException {
+        void testV5MissingEndHashReturnsNull() throws ParseException, NoSuchAlgorithmException {
             final SemanticVersion hapi = new SemanticVersion(0, 22, 0, null, null);
             final Bytes contents = contentsOf(recordStreamFile(hapi, fakeHash(0x11), null, fakeItems(1)));
             assertThat(RecordFileSignedPayload.computeSignedPayload(5, hapi, contents))
@@ -389,7 +389,7 @@ class RecordFileSignedPayloadTest {
         /// a missing end running hash is tolerated because the v2 format has no end hash.
         @Test
         @DisplayName("computeSignedPayload() v2 requires only the start running hash")
-        void testV2MissingStartHashReturnsNull() throws ParseException {
+        void testV2MissingStartHashReturnsNull() throws ParseException, NoSuchAlgorithmException {
             final SemanticVersion hapi = new SemanticVersion(0, 3, 0, null, null);
             final Bytes noStartHash = contentsOf(recordStreamFile(hapi, null, null, fakeItems(1)));
             assertThat(RecordFileSignedPayload.computeSignedPayload(2, hapi, noStartHash))
@@ -404,7 +404,7 @@ class RecordFileSignedPayloadTest {
         /// reconstruction would silently shift the legacy binary layout.
         @Test
         @DisplayName("computeSignedPayload() wrong-length running hash returns null")
-        void testWrongLengthHashReturnsNull() throws ParseException {
+        void testWrongLengthHashReturnsNull() throws ParseException, NoSuchAlgorithmException {
             final SemanticVersion hapi = new SemanticVersion(0, 22, 0, null, null);
             final byte[] shortHash = new byte[32];
             Arrays.fill(shortHash, (byte) 0x21);
@@ -481,7 +481,7 @@ class RecordFileSignedPayloadTest {
         @ParameterizedTest(name = "version={0}")
         @ValueSource(ints = {2, 5, 6})
         @DisplayName("computeSignedWRBPayload() supported versions produce the payload")
-        void testSupportedVersionsProducePayload(final int version) throws ParseException {
+        void testSupportedVersionsProducePayload(final int version) throws ParseException, NoSuchAlgorithmException {
             final RecordStreamFile contents = recordStreamFile(HAPI, fakeHash(0xAC), fakeHash(0xCA), fakeItems(2));
             final byte[] expected = RecordFileSignedPayload.computeSignedPayload(version, HAPI, contentsOf(contents));
             final RecordFileSignedPayload.SignedPayloadResult result =
@@ -494,7 +494,7 @@ class RecordFileSignedPayloadTest {
         /// MISSING_VERIFICATION_DATA failure: there is nothing to verify the proof against.
         @Test
         @DisplayName("computeSignedWRBPayload() no RECORD_FILE item fails with missing verification data")
-        void testNoRecordFileItemFails() {
+        void testNoRecordFileItemFails() throws NoSuchAlgorithmException {
             final BlockUnparsed emptyBlock =
                     BlockUnparsed.newBuilder().blockItems(List.of()).build();
             final RecordFileSignedPayload.SignedPayloadResult result =
@@ -510,7 +510,7 @@ class RecordFileSignedPayloadTest {
         @ParameterizedTest(name = "version={0}")
         @ValueSource(ints = {0, 1, 3, 4, 7})
         @DisplayName("computeSignedWRBPayload() unsupported version fails with missing mandatory field")
-        void testUnsupportedVersionFails(final int version) {
+        void testUnsupportedVersionFails(final int version) throws NoSuchAlgorithmException {
             final RecordStreamFile contents = recordStreamFile(HAPI, fakeHash(0x0D), fakeHash(0xD0), fakeItems(1));
             final RecordFileSignedPayload.SignedPayloadResult result =
                     RecordFileSignedPayload.computeSignedWRBPayload(blockWith(contents), version, HAPI, BLOCK_NUMBER);
@@ -523,7 +523,7 @@ class RecordFileSignedPayloadTest {
         /// exists but carries no contents to compute the payload from.
         @Test
         @DisplayName("computeSignedWRBPayload() missing record_file_contents fails with missing mandatory field")
-        void testMissingContentsFails() {
+        void testMissingContentsFails() throws NoSuchAlgorithmException {
             final RecordFileSignedPayload.SignedPayloadResult result =
                     RecordFileSignedPayload.computeSignedWRBPayload(blockWith(null), 6, HAPI, BLOCK_NUMBER);
             assertThat(result.payload()).isNull();
@@ -535,7 +535,7 @@ class RecordFileSignedPayloadTest {
         /// MISSING_MANDATORY_FIELD failure instead of a wrong payload.
         @Test
         @DisplayName("computeSignedWRBPayload() contents missing mandatory components fail")
-        void testMissingMandatoryComponentsFails() {
+        void testMissingMandatoryComponentsFails() throws NoSuchAlgorithmException {
             final RecordStreamFile noHashes = recordStreamFile(HAPI, null, null, fakeItems(1));
             final RecordFileSignedPayload.SignedPayloadResult result =
                     RecordFileSignedPayload.computeSignedWRBPayload(blockWith(noHashes), 5, HAPI, BLOCK_NUMBER);
@@ -548,7 +548,7 @@ class RecordFileSignedPayloadTest {
         /// failure.
         @Test
         @DisplayName("computeSignedWRBPayload() malformed contents fail with unable to parse")
-        void testMalformedContentsFails() {
+        void testMalformedContentsFails() throws NoSuchAlgorithmException {
             // RecordFileItem proto: field 2 (LEN) carrying two inner bytes that declare a
             // 127-byte field with nothing following.
             final Bytes malformedItemBytes = Bytes.wrap(new byte[] {0x12, 0x02, 0x12, 0x7F});

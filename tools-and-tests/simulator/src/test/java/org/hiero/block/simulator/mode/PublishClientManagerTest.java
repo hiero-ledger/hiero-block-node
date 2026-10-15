@@ -16,6 +16,7 @@ import com.hedera.hapi.block.stream.protoc.Block;
 import com.hedera.pbj.runtime.ParseException;
 import com.swirlds.config.api.Configuration;
 import java.io.IOException;
+import java.security.NoSuchAlgorithmException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 import org.hiero.block.api.protoc.PublishStreamRequest.EndStream;
@@ -85,7 +86,8 @@ class PublishClientManagerTest {
 
     @Test
     void handleEndOfStreamOnSuccess()
-            throws BlockSimulatorParsingException, IOException, InterruptedException, ParseException {
+            throws BlockSimulatorParsingException, IOException, InterruptedException, ParseException,
+                    NoSuchAlgorithmException {
         Block nextBlock = createBlocks(0, 1);
         PublishStreamResponse response = mock(PublishStreamResponse.class);
         PublishStreamResponse.EndOfStream endOfStream = mock(PublishStreamResponse.EndOfStream.class);
@@ -103,7 +105,8 @@ class PublishClientManagerTest {
 
     @Test
     void handleNodeBehindPublisher()
-            throws BlockSimulatorParsingException, IOException, InterruptedException, ParseException {
+            throws BlockSimulatorParsingException, IOException, InterruptedException, ParseException,
+                    NoSuchAlgorithmException {
         Block nextBlock = createBlocks(0, 1);
         PublishStreamResponse response = mock(PublishStreamResponse.class);
         PublishStreamResponse.BehindPublisher behindPublisher = mock(PublishStreamResponse.BehindPublisher.class);
@@ -120,7 +123,8 @@ class PublishClientManagerTest {
 
     @Test
     void handleEndOfStreamOnDuplicateBlock()
-            throws BlockSimulatorParsingException, IOException, InterruptedException, ParseException {
+            throws BlockSimulatorParsingException, IOException, InterruptedException, ParseException,
+                    NoSuchAlgorithmException {
         Block nextBlock = createBlocks(0, 1);
         PublishStreamResponse response = mock(PublishStreamResponse.class);
         PublishStreamResponse.EndOfStream endOfStream = mock(PublishStreamResponse.EndOfStream.class);
@@ -138,7 +142,8 @@ class PublishClientManagerTest {
 
     @Test
     void handleEndOfStreamOnTimeout()
-            throws BlockSimulatorParsingException, IOException, InterruptedException, ParseException {
+            throws BlockSimulatorParsingException, IOException, InterruptedException, ParseException,
+                    NoSuchAlgorithmException {
         Block nextBlock = createBlocks(0, 1);
         PublishStreamResponse response = mock(PublishStreamResponse.class);
         PublishStreamResponse.EndOfStream endOfStream = mock(PublishStreamResponse.EndOfStream.class);
@@ -156,7 +161,8 @@ class PublishClientManagerTest {
 
     @Test
     void handleEndOfStreamOnBadBlockProof()
-            throws BlockSimulatorParsingException, IOException, InterruptedException, ParseException {
+            throws BlockSimulatorParsingException, IOException, InterruptedException, ParseException,
+                    NoSuchAlgorithmException {
         Block nextBlock = createBlocks(0, 1);
         PublishStreamResponse response = mock(PublishStreamResponse.class);
         PublishStreamResponse.EndOfStream endOfStream = mock(PublishStreamResponse.EndOfStream.class);
@@ -174,7 +180,8 @@ class PublishClientManagerTest {
 
     @Test
     void handleEndOfStreamOnInternalError()
-            throws BlockSimulatorParsingException, IOException, InterruptedException, ParseException {
+            throws BlockSimulatorParsingException, IOException, InterruptedException, ParseException,
+                    NoSuchAlgorithmException {
         Block nextBlock = createBlocks(0, 1);
         PublishStreamResponse response = mock(PublishStreamResponse.class);
         PublishStreamResponse.EndOfStream endOfStream = mock(PublishStreamResponse.EndOfStream.class);
@@ -192,7 +199,8 @@ class PublishClientManagerTest {
 
     @Test
     void handleEndOfStreamOnPersistenceFailed()
-            throws BlockSimulatorParsingException, IOException, InterruptedException, ParseException {
+            throws BlockSimulatorParsingException, IOException, InterruptedException, ParseException,
+                    NoSuchAlgorithmException {
         Block nextBlock = createBlocks(0, 1);
         PublishStreamResponse response = mock(PublishStreamResponse.class);
         PublishStreamResponse.EndOfStream endOfStream = mock(PublishStreamResponse.EndOfStream.class);
@@ -209,7 +217,9 @@ class PublishClientManagerTest {
     }
 
     @Test
-    void handleResendBlock() throws BlockSimulatorParsingException, IOException, InterruptedException, ParseException {
+    void handleResendBlock()
+            throws BlockSimulatorParsingException, IOException, InterruptedException, ParseException,
+                    NoSuchAlgorithmException {
         Block nextBlock = createBlocks(0, 1);
         PublishStreamResponse response = mock(PublishStreamResponse.class);
         PublishStreamResponse.ResendBlock resendBlock = mock(PublishStreamResponse.ResendBlock.class);
@@ -225,7 +235,9 @@ class PublishClientManagerTest {
     }
 
     @Test
-    void handleSkipBlock() throws BlockSimulatorParsingException, IOException, InterruptedException, ParseException {
+    void handleSkipBlock()
+            throws BlockSimulatorParsingException, IOException, InterruptedException, ParseException,
+                    NoSuchAlgorithmException {
         Block nextBlock = createBlocks(0, 1);
         PublishStreamResponse response = mock(PublishStreamResponse.class);
         PublishStreamResponse.SkipBlock skipBlock = mock(PublishStreamResponse.SkipBlock.class);
@@ -243,7 +255,7 @@ class PublishClientManagerTest {
     @ParameterizedTest
     @MethodSource("provideEndStreamMode")
     void sendEndStream(EndStreamMode endStreamMode, EndStream.Code endStreamCode)
-            throws BlockSimulatorParsingException, IOException, InterruptedException {
+            throws BlockSimulatorParsingException, IOException, InterruptedException, NoSuchAlgorithmException {
         publishClientManager.sendEndStream(endStreamMode);
         verify(publishStreamGrpcClient).handleEndStreamModeIfSet(endStreamCode);
     }

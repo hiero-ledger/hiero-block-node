@@ -31,12 +31,11 @@ import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
+import org.hiero.block.common.hasher.HashAlgorithm;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlock;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder;
-import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder.StateProof;
-import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder.WRAPS;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder.WRB;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestWRBBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
@@ -67,10 +66,12 @@ import org.junit.jupiter.params.provider.ValueSource;
 @Timeout(unit = TimeUnit.SECONDS, value = 5)
 @DisplayName("Block Hasher Tests")
 class BlockHasherTest {
-    private static final String ALL_RESOURCE_BLOCKS_SOURCE =
-            "org.hiero.block.node.block.verification.hasher.BlockHasherTest#allResourceBlocks";
+    private static final String REAL_BLOCKS_SOURCE =
+            "org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder#realBlocks";
     private static final String FOOTER_WITH_MISSING_VALUES =
             "org.hiero.block.node.block.verification.hasher.BlockHasherTest#footerWithMissingValues";
+    private static final String FOOTER_HASHES_OF_OTHER_SIZE =
+            "org.hiero.block.node.block.verification.hasher.BlockHasherTest#footerHashesOfOtherSize";
     private static final String UNSUPPORTED_ITEM_TYPES =
             "org.hiero.block.node.block.verification.hasher.BlockHasherTest#unsupportedItemTypes";
     private static final String ITEM_TYPES_ALLOWED_ONLY_ONCE_PER_BLOCK =
@@ -100,10 +101,10 @@ class BlockHasherTest {
     class PositiveBlockHasherTests {
         /// This test aims to assert that when a block is fully supplied and we hash it, the returned [HashingResult]
         /// will contain the expected block number of the block we want to hash.
-        @ParameterizedTest
-        @MethodSource(ALL_RESOURCE_BLOCKS_SOURCE)
+        @ParameterizedTest(name = "{0}")
+        @MethodSource(REAL_BLOCKS_SOURCE)
         @DisplayName("get() successful hashing produces expected block number")
-        void testSuccessfulHashingProducesExpectedBlockNumber(final ResourceTestBlock block) {
+        void testSuccessfulHashingProducesExpectedBlockNumber(final String name, final ResourceTestBlock block) {
             // Create a new block hasher based on what block we have
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockHasher toTest = new BlockHasher(
@@ -123,10 +124,10 @@ class BlockHasherTest {
 
         /// This test aims to assert that when a block is fully supplied and we hash it, the returned [HashingResult]
         /// will contain the expected root hash of the block we want to hash.
-        @ParameterizedTest
-        @MethodSource(ALL_RESOURCE_BLOCKS_SOURCE)
+        @ParameterizedTest(name = "{0}")
+        @MethodSource(REAL_BLOCKS_SOURCE)
         @DisplayName("get() successful hashing produces expected block hash")
-        void testSuccessfulHashingProducesExpectedHash(final ResourceTestBlock block) {
+        void testSuccessfulHashingProducesExpectedHash(final String name, final ResourceTestBlock block) {
             // Create a new block hasher based on what block we have
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockHasher toTest = new BlockHasher(
@@ -146,10 +147,10 @@ class BlockHasherTest {
 
         /// This test aims to assert that when a block is fully supplied and we hash it, the returned [HashingResult]
         /// will contain the expected source of the block we want to hash.
-        @ParameterizedTest
-        @MethodSource(ALL_RESOURCE_BLOCKS_SOURCE)
+        @ParameterizedTest(name = "{0}")
+        @MethodSource(REAL_BLOCKS_SOURCE)
         @DisplayName("get() successful hashing produces expected block source")
-        void testSuccessfulHashingProducesExpectedSource(final ResourceTestBlock block) {
+        void testSuccessfulHashingProducesExpectedSource(final String name, final ResourceTestBlock block) {
             // Create a new block hasher based on what block we have
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final Random random = new Random();
@@ -172,10 +173,10 @@ class BlockHasherTest {
 
         /// This test aims to assert that when a block is fully supplied and we hash it, the returned [HashingResult]
         /// will contain the expected block unparsed of the block we want to hash.
-        @ParameterizedTest
-        @MethodSource(ALL_RESOURCE_BLOCKS_SOURCE)
+        @ParameterizedTest(name = "{0}")
+        @MethodSource(REAL_BLOCKS_SOURCE)
         @DisplayName("get() successful hashing produces expected block unparsed")
-        void testSuccessfulHashingProducesExpectedBlockUnparsed(final ResourceTestBlock block) {
+        void testSuccessfulHashingProducesExpectedBlockUnparsed(final String name, final ResourceTestBlock block) {
             // Create a new block hasher based on what block we have
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockHasher toTest = new BlockHasher(
@@ -195,10 +196,10 @@ class BlockHasherTest {
 
         /// This test aims to assert that when a block is fully supplied and we hash it, the returned [HashingResult]
         /// will contain the expected header of the block we want to hash.
-        @ParameterizedTest
-        @MethodSource(ALL_RESOURCE_BLOCKS_SOURCE)
+        @ParameterizedTest(name = "{0}")
+        @MethodSource(REAL_BLOCKS_SOURCE)
         @DisplayName("get() successful hashing produces expected block header")
-        void testSuccessfulHashingProducesExpectedHeader(final ResourceTestBlock block) {
+        void testSuccessfulHashingProducesExpectedHeader(final String name, final ResourceTestBlock block) {
             // Create a new block hasher based on what block we have
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockHasher toTest = new BlockHasher(
@@ -218,10 +219,10 @@ class BlockHasherTest {
 
         /// This test aims to assert that when a block is fully supplied and we hash it, the returned [HashingResult]
         /// will contain the expected footer of the block we want to hash.
-        @ParameterizedTest
-        @MethodSource(ALL_RESOURCE_BLOCKS_SOURCE)
+        @ParameterizedTest(name = "{0}")
+        @MethodSource(REAL_BLOCKS_SOURCE)
         @DisplayName("get() successful hashing produces expected block footer")
-        void testSuccessfulHashingProducesExpectedFooter(final ResourceTestBlock block) {
+        void testSuccessfulHashingProducesExpectedFooter(final String name, final ResourceTestBlock block) {
             // Create a new block hasher based on what block we have
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockHasher toTest = new BlockHasher(
@@ -241,10 +242,10 @@ class BlockHasherTest {
 
         /// This test aims to assert that when a block is fully supplied and we hash it, the returned [HashingResult]
         /// will contain the expected proofs of the block we want to hash.
-        @ParameterizedTest
-        @MethodSource(ALL_RESOURCE_BLOCKS_SOURCE)
+        @ParameterizedTest(name = "{0}")
+        @MethodSource(REAL_BLOCKS_SOURCE)
         @DisplayName("get() successful hashing produces expected block proofs")
-        void testSuccessfulHashingProducesExpectedProofs(final ResourceTestBlock block) {
+        void testSuccessfulHashingProducesExpectedProofs(final String name, final ResourceTestBlock block) {
             // Create a new block hasher based on what block we have
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockHasher toTest = new BlockHasher(
@@ -267,10 +268,10 @@ class BlockHasherTest {
 
         /// This test aims to assert that when a block is fully supplied and we hash it, the returned [HashingResult]
         /// will contain the expected Hapi Version of the block we want to hash.
-        @ParameterizedTest
-        @MethodSource(ALL_RESOURCE_BLOCKS_SOURCE)
+        @ParameterizedTest(name = "{0}")
+        @MethodSource(REAL_BLOCKS_SOURCE)
         @DisplayName("get() successful hashing produces expected block hapi version")
-        void testSuccessfulHashingProducesExpectedHapiVersion(final ResourceTestBlock block) {
+        void testSuccessfulHashingProducesExpectedHapiVersion(final String name, final ResourceTestBlock block) {
             // Create a new block hasher based on what block we have
             final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
             final BlockHasher toTest = new BlockHasher(
@@ -311,6 +312,22 @@ class BlockHasherTest {
             blockItemsDeque.offer(new BlockItems(items, 0, true, true));
             final HashingResult actual = toTest.get();
             assertThat(actual.blockProofs()).hasSize(1);
+        }
+
+        /// This test aims to assert that the hasher always hashes with SHA-256, the one algorithm
+        /// the Block Node computes the block root tree with: its root hash has the SHA-256 digest
+        /// size and equals the root the reference implementation computes with the JDK SHA-256
+        /// digest, independent of the production hashing code. Every hash the node reports and
+        /// chains into the next block is therefore a SHA-256 digest.
+        @Test
+        @DisplayName("get() hashes with SHA-256")
+        void testHashesWithSha256() throws ParseException, NoSuchAlgorithmException {
+            final List<BlockItemUnparsed> items = TestBlockBuilder.generateBlockWithNumber(BLOCK_NUMBER)
+                    .blockUnparsed()
+                    .blockItems();
+            final HashingResult actual = hashBlockItems(items);
+            assertThat(actual.rootHash().length()).isEqualTo(HashAlgorithm.SHA2_256.hashSize());
+            assertThat(actual.rootHash()).isEqualTo(referenceRootHash(items));
         }
     }
 
@@ -598,6 +615,45 @@ class BlockHasherTest {
                                         VerificationSessionFailedException::getFailureType);
                     });
         }
+
+        /// This test aims to assert that a block whose footer carries a hash that is not one
+        /// SHA-256 digest is refused with `UNSUPPORTED_STREAM_FORMAT`, never as an unknown error.
+        /// The footer hashes are leaves of the block root tree, so a hash of another size was
+        /// computed with another algorithm and the block cannot be hashed by this node. Each
+        /// footer hash is checked on its own: the cases cover each hash alone of the SHA-384
+        /// digest size, all three of it (the footer of a block from before the move to SHA-256,
+        /// whose header passes the header check because it carries no hash algorithm), and a
+        /// hash one byte short of a SHA-256 digest. The session failure names the block number
+        /// and source, so the failure notification is reported for the right block.
+        @ParameterizedTest(name = "{0}")
+        @MethodSource(FOOTER_HASHES_OF_OTHER_SIZE)
+        @DisplayName("get() refuses footer hashes that are not SHA-256 digests")
+        void testFooterHashesOfOtherSizeRefused(final String name, final BlockItemUnparsed footer) {
+            final long blockNumber = 0;
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(blockNumber)
+                    .replace(BlockItemUnparsed::hasBlockFooter, footer);
+            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockSource blockSource = BlockSource.PUBLISHER;
+            final BlockHasher toTest = new BlockHasher(
+                    new AtomicBoolean(false),
+                    blockItemsDeque,
+                    metrics.hashingMetrics(),
+                    block.number(),
+                    blockSource,
+                    verificationDataProvider);
+            blockItemsDeque.offer(block.asBlockItems());
+            assertThatThrownBy(toTest::get)
+                    .isInstanceOf(VerificationSessionFailedException.class)
+                    .asInstanceOf(type(VerificationSessionFailedException.class))
+                    .satisfies(e -> {
+                        assertThat(e)
+                                .returns(block.number(), VerificationSessionFailedException::getBlockNumber)
+                                .returns(blockSource, VerificationSessionFailedException::getBlockSource)
+                                .returns(
+                                        SessionFailureType.UNSUPPORTED_STREAM_FORMAT,
+                                        VerificationSessionFailedException::getFailureType);
+                    });
+        }
     }
 
     /// Tests for the forward compatibility handling of [BlockHasher]: block item types unknown
@@ -632,7 +688,8 @@ class BlockHasherTest {
         @ParameterizedTest
         @ValueSource(ints = {23, 24, 25, 26, 27, 43, 47})
         @DisplayName("get() future item in a defined category is hashed into that subtree")
-        void testFutureItemHashedIntoExistingSubtree(final int fieldNumber) throws ParseException {
+        void testFutureItemHashedIntoExistingSubtree(final int fieldNumber)
+                throws ParseException, NoSuchAlgorithmException {
             final List<BlockItemUnparsed> baseItems = TestBlockBuilder.generateBlockWithNumber(BLOCK_NUMBER)
                     .blockUnparsed()
                     .blockItems();
@@ -651,7 +708,8 @@ class BlockHasherTest {
         @ParameterizedTest
         @ValueSource(ints = {28, 29, 30, 31, 32, 33, 34, 35, 48, 55})
         @DisplayName("get() future item in an extension category is hashed into the extension subtree")
-        void testFutureItemHashedIntoExtensionSubtree(final int fieldNumber) throws ParseException {
+        void testFutureItemHashedIntoExtensionSubtree(final int fieldNumber)
+                throws ParseException, NoSuchAlgorithmException {
             final List<BlockItemUnparsed> baseItems = TestBlockBuilder.generateBlockWithNumber(BLOCK_NUMBER)
                     .blockUnparsed()
                     .blockItems();
@@ -668,7 +726,7 @@ class BlockHasherTest {
         /// not hashed item, produces the root hash computed by the reference implementation.
         @Test
         @DisplayName("get() future items across several categories hash correctly together")
-        void testMultipleFutureItemsAcrossSubtrees() throws ParseException {
+        void testMultipleFutureItemsAcrossSubtrees() throws ParseException, NoSuchAlgorithmException {
             final List<BlockItemUnparsed> baseItems = TestBlockBuilder.generateBlockWithNumber(BLOCK_NUMBER)
                     .blockUnparsed()
                     .blockItems();
@@ -869,7 +927,8 @@ class BlockHasherTest {
         @ParameterizedTest
         @ValueSource(ints = {23, 24, 25, 26, 27, 43, 47})
         @DisplayName("get() fixture item in a defined category is hashed into that subtree")
-        void testFixtureItemHashedIntoExistingSubtree(final int fieldNumber) throws ParseException {
+        void testFixtureItemHashedIntoExistingSubtree(final int fieldNumber)
+                throws ParseException, NoSuchAlgorithmException {
             final List<BlockItemUnparsed> baseItems = TestBlockBuilder.generateBlockWithNumber(BLOCK_NUMBER)
                     .blockUnparsed()
                     .blockItems();
@@ -888,7 +947,8 @@ class BlockHasherTest {
         @ParameterizedTest
         @ValueSource(ints = {28, 29, 30, 31, 32, 33, 34, 35, 48, 55})
         @DisplayName("get() fixture item in an extension category is hashed into the extension subtree")
-        void testFixtureItemHashedIntoExtensionSubtree(final int fieldNumber) throws ParseException {
+        void testFixtureItemHashedIntoExtensionSubtree(final int fieldNumber)
+                throws ParseException, NoSuchAlgorithmException {
             final List<BlockItemUnparsed> baseItems = TestBlockBuilder.generateBlockWithNumber(BLOCK_NUMBER)
                     .blockUnparsed()
                     .blockItems();
@@ -906,7 +966,7 @@ class BlockHasherTest {
         /// implementation.
         @Test
         @DisplayName("get() fixture items across several categories hash correctly together")
-        void testMultipleFixtureItemsAcrossSubtrees() throws ParseException {
+        void testMultipleFixtureItemsAcrossSubtrees() throws ParseException, NoSuchAlgorithmException {
             final List<BlockItemUnparsed> baseItems = TestBlockBuilder.generateBlockWithNumber(BLOCK_NUMBER)
                     .blockUnparsed()
                     .blockItems();
@@ -924,7 +984,7 @@ class BlockHasherTest {
         /// inside a oneof, so the item is hashed like any other future item.
         @Test
         @DisplayName("get() single field from the multi field fixture message is a valid future item")
-        void testSingleFieldFromMultiFieldMessageIsValid() throws ParseException {
+        void testSingleFieldFromMultiFieldMessageIsValid() throws ParseException, NoSuchAlgorithmException {
             final Bytes wireBytes = MultiFieldBlockItem.PROTOBUF.toBytes(MultiFieldBlockItem.newBuilder()
                     .futureConsensusHeader23(FUTURE_PAYLOAD)
                     .build());
@@ -1028,7 +1088,7 @@ class BlockHasherTest {
         /// hashed into its category like any other future item.
         @Test
         @DisplayName("get() outside field set alone is a valid future item")
-        void testOutsideFieldAloneIsValidFutureItem() throws ParseException {
+        void testOutsideFieldAloneIsValidFutureItem() throws ParseException, NoSuchAlgorithmException {
             final Bytes wireBytes =
                     OneofWithExtraFieldBlockItem.PROTOBUF.toBytes(OneofWithExtraFieldBlockItem.newBuilder()
                             .outsideTraceData27(FUTURE_PAYLOAD)
@@ -1257,8 +1317,9 @@ class BlockHasherTest {
     /// fixed assignment, unknown types by field number modulo 20), each category is folded
     /// with the streaming merkle tree algorithm, and the category roots are combined into the
     /// fixed 16 leaf block root tree, where every empty subtree and the absent state root
-    /// contribute the empty tree hash (SHA-384 of a single 0x00 byte).
-    private static Bytes referenceRootHash(final List<BlockItemUnparsed> items) throws ParseException {
+    /// contribute the empty tree hash (SHA-256 of a single 0x00 byte).
+    private static Bytes referenceRootHash(final List<BlockItemUnparsed> items)
+            throws ParseException, NoSuchAlgorithmException {
         final List<byte[]> consensusLeaves = new ArrayList<>();
         final List<byte[]> inputLeaves = new ArrayList<>();
         final List<byte[]> outputLeaves = new ArrayList<>();
@@ -1307,8 +1368,8 @@ class BlockHasherTest {
             }
         }
         // Merkle Mountain Top: always feed all 16 leaves in fixed positional order.
-        // Absent state root and empty subtrees contribute EMPTY_TREE_HASH (SHA-384(0x00)).
-        final byte[] emptyTreeHash = refSha384(new byte[] {0x00});
+        // Absent state root and empty subtrees contribute the empty tree hash (SHA-256(0x00)).
+        final byte[] emptyTreeHash = refSha256(new byte[] {0x00});
         final byte[] stateRoot = footer.startOfBlockStateRootHash().length() == 0
                 ? emptyTreeHash
                 : footer.startOfBlockStateRootHash().toByteArray();
@@ -1333,9 +1394,9 @@ class BlockHasherTest {
     /// Reference streaming merkle tree root over the given leaf hashes: fold complete sibling
     /// pairs as leaves arrive, then fold the remaining open branches right to left. An empty
     /// tree is the hash of a single zero byte.
-    private static byte[] refStreamingRoot(final List<byte[]> leafHashes) {
+    private static byte[] refStreamingRoot(final List<byte[]> leafHashes) throws NoSuchAlgorithmException {
         if (leafHashes.isEmpty()) {
-            return refSha384(new byte[] {0x00});
+            return refSha256(new byte[] {0x00});
         }
         final List<byte[]> hashList = new ArrayList<>();
         for (int i = 0; i < leafHashes.size(); i++) {
@@ -1353,47 +1414,24 @@ class BlockHasherTest {
         return root;
     }
 
-    /// Reference hash of an internal node whose children may be absent.
-    private static byte[] refCombineOptional(final byte[] left, final byte[] right) {
-        final byte[] node;
-        if (left == null && right == null) {
-            node = null;
-        } else if (left == null) {
-            node = refSingle(right);
-        } else if (right == null) {
-            node = refSingle(left);
-        } else {
-            node = refNode(left, right);
-        }
-        return node;
-    }
-
     /// Reference leaf hash with the 0x00 domain separation prefix.
-    private static byte[] refLeaf(final byte[] data) {
-        return refSha384(new byte[] {0x00}, data);
-    }
-
-    /// Reference single child internal node hash with the 0x01 domain separation prefix.
-    private static byte[] refSingle(final byte[] child) {
-        return refSha384(new byte[] {0x01}, child);
+    private static byte[] refLeaf(final byte[] data) throws NoSuchAlgorithmException {
+        return refSha256(new byte[] {0x00}, data);
     }
 
     /// Reference two children internal node hash with the 0x02 domain separation prefix.
-    private static byte[] refNode(final byte[] left, final byte[] right) {
-        return refSha384(new byte[] {0x02}, left, right);
+    private static byte[] refNode(final byte[] left, final byte[] right) throws NoSuchAlgorithmException {
+        return refSha256(new byte[] {0x02}, left, right);
     }
 
-    /// SHA-384 over the concatenation of the given parts.
-    private static byte[] refSha384(final byte[]... parts) {
-        try {
-            final MessageDigest digest = MessageDigest.getInstance("SHA-384");
-            for (final byte[] part : parts) {
-                digest.update(part);
-            }
-            return digest.digest();
-        } catch (final NoSuchAlgorithmException e) {
-            throw new IllegalStateException(e);
+    /// SHA-256 over the concatenation of the given parts, the block hash algorithm spelled out
+    /// here so the reference stays independent of the production code.
+    private static byte[] refSha256(final byte[]... parts) throws NoSuchAlgorithmException {
+        final MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        for (final byte[] part : parts) {
+            digest.update(part);
         }
+        return digest.digest();
     }
 
     private BlockItemUnparsed headerWithNoValues(final long blockNumber) throws ParseException {
@@ -1404,7 +1442,7 @@ class BlockHasherTest {
 
     private BlockItemUnparsed headerWithNoTimestamp(final long blockNumber) throws ParseException {
         final BlockHeader headerWithNoTimestamp = new BlockHeader(
-                SemanticVersion.DEFAULT, SemanticVersion.DEFAULT, blockNumber, null, BlockHashAlgorithm.SHA2_384);
+                SemanticVersion.DEFAULT, SemanticVersion.DEFAULT, blockNumber, null, BlockHashAlgorithm.SHA2_256);
         return TestBlockBuilder.convertToUnparsedItem(
                 new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_HEADER, headerWithNoTimestamp)));
     }
@@ -1417,9 +1455,9 @@ class BlockHasherTest {
                 new SemanticVersion(1, 0, 0, "", ""),
                 0,
                 new Timestamp(1_500_000_000L, 0),
-                BlockHashAlgorithm.SHA2_384);
-        final BlockFooter footer =
-                new BlockFooter(Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]));
+                BlockHashAlgorithm.SHA2_256);
+        final Bytes zeroHash = Bytes.wrap(new byte[TestBlockBuilder.BLOCK_HASH_ALGORITHM.hashSize()]);
+        final BlockFooter footer = new BlockFooter(zeroHash, zeroHash, zeroHash);
         final BlockProof proof = BlockProof.newBuilder()
                 .block(0)
                 .signedRecordFileProof(new SignedRecordFileProof(proofVersion, List.of()))
@@ -1439,14 +1477,6 @@ class BlockHasherTest {
                         .build());
     }
 
-    /// All available resource blocks.
-    private static Stream<Arguments> allResourceBlocks() throws IOException, ParseException {
-        final List<ResourceTestBlock> wraps = ResourceTestBlockBuilder.loadMultiple(WRAPS.values());
-        final List<ResourceTestWRBBlock> wrb = ResourceTestBlockBuilder.loadMultiple(WRB.values());
-        final List<ResourceTestBlock> stateProof = ResourceTestBlockBuilder.loadMultiple(StateProof.values());
-        return Stream.of(wraps, wrb, stateProof).flatMap(List::stream).map(Arguments::of);
-    }
-
     private static Stream<Arguments> footerWithMissingValues() throws ParseException {
         final Bytes someBytes = Bytes.wrap("someBytes");
         final Bytes empty = Bytes.EMPTY;
@@ -1463,6 +1493,31 @@ class BlockHasherTest {
                         new OneOf<>(ItemOneOfType.BLOCK_FOOTER, new BlockFooter(someBytes, someBytes, null))))),
                 Arguments.of(TestBlockBuilder.convertToUnparsedItem(new BlockItem(
                         new OneOf<>(ItemOneOfType.BLOCK_FOOTER, new BlockFooter(someBytes, someBytes, empty))))));
+    }
+
+    /// Footers carrying at least one hash that is not one SHA-256 digest, every other hash
+    /// being a SHA-256 digest, named by the case they cover.
+    private static Stream<Arguments> footerHashesOfOtherSize() throws ParseException {
+        final Bytes digest = Bytes.wrap(new byte[HashAlgorithm.SHA2_256.hashSize()]);
+        final Bytes sha384Size = Bytes.wrap(new byte[HashAlgorithm.SHA2_384.hashSize()]);
+        final Bytes oneByteShort = Bytes.wrap(new byte[HashAlgorithm.SHA2_256.hashSize() - 1]);
+        return Stream.of(
+                Arguments.of("previous block root hash of the SHA-384 size", footerOf(sha384Size, digest, digest)),
+                Arguments.of("root of all previous blocks of the SHA-384 size", footerOf(digest, sha384Size, digest)),
+                Arguments.of("start of block state root of the SHA-384 size", footerOf(digest, digest, sha384Size)),
+                Arguments.of("all footer hashes of the SHA-384 size", footerOf(sha384Size, sha384Size, sha384Size)),
+                Arguments.of("previous block root hash one byte short", footerOf(oneByteShort, digest, digest)));
+    }
+
+    /// Returns an unparsed footer item carrying the given hashes.
+    private static BlockItemUnparsed footerOf(
+            final Bytes previousBlockRootHash,
+            final Bytes rootHashOfAllBlockHashesTree,
+            final Bytes startOfBlockStateRootHash)
+            throws ParseException {
+        return TestBlockBuilder.convertToUnparsedItem(new BlockItem(new OneOf<>(
+                ItemOneOfType.BLOCK_FOOTER,
+                new BlockFooter(previousBlockRootHash, rootHashOfAllBlockHashesTree, startOfBlockStateRootHash))));
     }
 
     private static Stream<Arguments> unsupportedItemTypes() throws ParseException {

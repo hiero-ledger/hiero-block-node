@@ -12,6 +12,7 @@ import com.swirlds.config.extensions.sources.SystemPropertiesConfigSource;
 import java.io.IOException;
 import java.lang.System.Logger;
 import java.nio.file.Path;
+import java.security.NoSuchAlgorithmException;
 import org.hiero.block.simulator.config.SimulatorMappedConfigSourceInitializer;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
 
@@ -29,9 +30,10 @@ public class BlockStreamSimulator {
      * @throws IOException if an I/O error occurs
      * @throws InterruptedException if the thread is interrupted
      * @throws BlockSimulatorParsingException if a parse error occurs
+     * @throws NoSuchAlgorithmException if the Java runtime provides no implementation of the hash algorithm
      */
     public static void main(final String[] args)
-            throws IOException, InterruptedException, BlockSimulatorParsingException {
+            throws IOException, InterruptedException, BlockSimulatorParsingException, NoSuchAlgorithmException {
 
         LOGGER.log(INFO, "Starting Block Stream Simulator!");
 

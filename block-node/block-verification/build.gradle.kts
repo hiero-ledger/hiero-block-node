@@ -36,6 +36,8 @@ testModuleInfo {
 /// workflow to produce valid TSS-signed blocks at CI time instead of reading a committed
 /// fixture set. Usage:
 ///   ./gradlew :block-verification:generateHarnessBlocks -PoutputDir=/tmp/blocks -Pcount=5
+/// The optional -Palgorithm selects the HashAlgorithm of the chain (default SHA2_256), for
+/// example SHA2_384 to produce blocks a release from before the move to SHA-256 verifies.
 tasks.register<JavaExec>("generateHarnessBlocks") {
     description = "Generate a chain of TSS-signed .blk.gz files via HarnessChainBuilder."
     group = "verification"
@@ -44,5 +46,6 @@ tasks.register<JavaExec>("generateHarnessBlocks") {
     mainClass.set("org.hiero.block.node.block.verification.harness.GenerateHarnessBlocksMain")
     val outputDir = (project.findProperty("outputDir") as String?) ?: "build/harness-blocks"
     val count = (project.findProperty("count") as String?) ?: "5"
-    args(outputDir, count)
+    val algorithm = (project.findProperty("algorithm") as String?) ?: "SHA2_256"
+    args(outputDir, count, algorithm)
 }

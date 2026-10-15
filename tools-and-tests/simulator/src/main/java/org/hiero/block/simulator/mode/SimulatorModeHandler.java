@@ -2,6 +2,7 @@
 package org.hiero.block.simulator.mode;
 
 import java.io.IOException;
+import java.security.NoSuchAlgorithmException;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
 
 /**
@@ -32,8 +33,9 @@ public interface SimulatorModeHandler {
      * @throws BlockSimulatorParsingException if an error occurs while parsing blocks
      * @throws IOException if an I/O error occurs during block streaming
      * @throws InterruptedException if the thread running the simulator is interrupted
+     * @throws NoSuchAlgorithmException if the Java runtime provides no implementation of the hash algorithm
      */
-    void start() throws BlockSimulatorParsingException, IOException, InterruptedException;
+    void start() throws BlockSimulatorParsingException, IOException, InterruptedException, NoSuchAlgorithmException;
 
     /**
      * Gracefully stops the handler, cleaning up resources and terminating any active streams.

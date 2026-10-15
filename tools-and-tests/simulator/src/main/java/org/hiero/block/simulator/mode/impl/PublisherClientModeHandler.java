@@ -10,6 +10,7 @@ import static org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter.Liv
 import com.hedera.hapi.block.stream.protoc.Block;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
+import java.security.NoSuchAlgorithmException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.inject.Inject;
 import org.hiero.block.api.protoc.PublishStreamResponse;
@@ -94,9 +95,12 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
      *                                        streaming
      * @throws InterruptedException           if the thread running the simulator is
      *                                        interrupted
+     * @throws NoSuchAlgorithmException       if the Java runtime provides no
+     *                                        implementation of the hash algorithm
      */
     @Override
-    public void start() throws BlockSimulatorParsingException, IOException, InterruptedException {
+    public void start()
+            throws BlockSimulatorParsingException, IOException, InterruptedException, NoSuchAlgorithmException {
         LOGGER.log(INFO, "Block Stream Simulator is starting in publisher mode.");
         try {
             if (streamingMode == StreamingMode.MILLIS_PER_BLOCK) {
@@ -110,7 +114,8 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
         LOGGER.log(INFO, "Block Stream Simulator has stopped streaming.");
     }
 
-    private void millisPerBlockStreaming() throws IOException, InterruptedException, BlockSimulatorParsingException {
+    private void millisPerBlockStreaming()
+            throws IOException, InterruptedException, BlockSimulatorParsingException, NoSuchAlgorithmException {
         final long secondsPerBlockNanos = (long) millisecondsPerBlock * NANOS_PER_MILLI;
         PublishStreamResponse[] responseHolder = new PublishStreamResponse[1];
         long blockCount = 0;
@@ -164,7 +169,8 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
                 "Number of Blocks sent by the Block Stream Simulator: " + metricsService.getValue(LiveBlocksSent));
     }
 
-    private void constantRateStreaming() throws InterruptedException, IOException, BlockSimulatorParsingException {
+    private void constantRateStreaming()
+            throws InterruptedException, IOException, BlockSimulatorParsingException, NoSuchAlgorithmException {
         int delayMSBetweenBlockItems = delayBetweenBlockItems / NANOS_PER_MILLI;
         int delayNSBetweenBlockItems = delayBetweenBlockItems % NANOS_PER_MILLI;
         int blockItemsStreamed = 0;

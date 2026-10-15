@@ -25,6 +25,7 @@ message HelidonWebServerConfig {
   uint32 maxFrameSize = 2;
   uint32 maxConcurrentStreams = 3;
   uint32 flowControlTimeoutMillis = 4;
+  // Socket buffer sizes in bytes. 0 (the default) leaves them unset so the kernel autotunes them.
   uint32 sendBufferSize = 5;
   uint32 receiveBufferSize = 6;
   uint32 maxMessageSizeBytes = 7;

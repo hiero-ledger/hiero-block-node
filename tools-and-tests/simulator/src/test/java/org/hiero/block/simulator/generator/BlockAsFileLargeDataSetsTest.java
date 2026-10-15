@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.NoSuchAlgorithmException;
 import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
 import org.hiero.block.simulator.config.types.GenerationMode;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
@@ -42,7 +43,7 @@ class BlockAsFileLargeDataSetsTest {
     }
 
     @Test
-    void getNextBlock() throws IOException, BlockSimulatorParsingException, ParseException {
+    void getNextBlock() throws IOException, BlockSimulatorParsingException, ParseException, NoSuchAlgorithmException {
         BlockStreamManager blockStreamManager =
                 getBlockAsFileLargeDatasetsBlockStreamManager(getAbsoluteFolder(rootFolder));
         blockStreamManager.init();
@@ -54,7 +55,8 @@ class BlockAsFileLargeDataSetsTest {
     }
 
     @Test
-    void getNextBlockInRange() throws IOException, BlockSimulatorParsingException, ParseException {
+    void getNextBlockInRange()
+            throws IOException, BlockSimulatorParsingException, ParseException, NoSuchAlgorithmException {
 
         final BlockGeneratorConfig blockGeneratorConfig = BlockGeneratorConfig.builder()
                 .generationMode(GenerationMode.DIR)

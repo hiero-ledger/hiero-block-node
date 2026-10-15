@@ -2,16 +2,16 @@
 package org.hiero.block.simulator.generator.itemhandler;
 
 import static java.util.Objects.requireNonNull;
+import static org.hiero.block.simulator.Constants.BLOCK_HASH_ALGORITHM;
 
 import com.google.protobuf.ByteString;
 import com.hedera.hapi.block.stream.output.protoc.BlockFooter;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
-import edu.umd.cs.findbugs.annotations.NonNull;
-import org.hiero.block.common.hasher.StreamingTreeHasher;
 
 /**
- * Handler for block proofs in the block stream.
- * Creates and manages block proof items containing cryptographic proof of block validity.
+ * Handler for block footers in the block stream.
+ * Creates and manages block footer items carrying the previous block root hash, the start of block state root
+ * hash and the root of the all previous block hashes tree.
  */
 public class BlockFooterHandler extends AbstractBlockItemHandler {
     private final byte[] previousBlockHash;
@@ -19,16 +19,17 @@ public class BlockFooterHandler extends AbstractBlockItemHandler {
     private final byte[] hashOfAllBlockHashesTree;
 
     /**
-     * Constructs a new BlockProofHandler.
+     * Constructs a new BlockFooterHandler.
      *
      * @param previousBlockHash Hash of the previous block
-     * @throws NullPointerException if previousBlockHash or currentBlockHash is null
+     * @param hashOfAllBlockHashesTree Root hash of the all previous block hashes tree
+     * @throws NullPointerException if previousBlockHash or hashOfAllBlockHashesTree is null
      */
-    public BlockFooterHandler(@NonNull final byte[] previousBlockHash, final byte[] hashOfAllBlockHashesTree) {
+    public BlockFooterHandler(final byte[] previousBlockHash, final byte[] hashOfAllBlockHashesTree) {
         this.previousBlockHash = requireNonNull(previousBlockHash);
-        this.previousStateRootHash = new byte[StreamingTreeHasher.HASH_LENGTH];
-        this.hashOfAllBlockHashesTree =
-                hashOfAllBlockHashesTree != null ? hashOfAllBlockHashesTree : new byte[StreamingTreeHasher.HASH_LENGTH];
+        // the crafted blocks carry no state, so the state root placeholder is one zero filled digest
+        this.previousStateRootHash = new byte[BLOCK_HASH_ALGORITHM.hashSize()];
+        this.hashOfAllBlockHashesTree = requireNonNull(hashOfAllBlockHashesTree);
     }
 
     @Override

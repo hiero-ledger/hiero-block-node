@@ -4,6 +4,7 @@ package org.hiero.block.node.block.verification.harness;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.security.NoSuchAlgorithmException;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -49,7 +50,7 @@ class StateProofChainBuilderTest {
 
     @Test
     @DisplayName("Every gap block in a 3-block chain verifies via StateProofVerifier")
-    void threeGapBlockChainAllVerify() {
+    void threeGapBlockChainAllVerify() throws NoSuchAlgorithmException {
         final TssBlockSigner signer = TssBlockSigner.create();
         verificationDataProvider.safeUpdateTssData(signer.verificationMaterial().tssData(), false);
         final StateProofChainBuilder builder =

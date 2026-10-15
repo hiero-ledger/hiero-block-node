@@ -19,6 +19,7 @@ import com.hedera.hapi.streams.HashAlgorithm;
 import com.hedera.hapi.streams.HashObject;
 import com.hedera.hapi.streams.RecordStreamFile;
 import com.hedera.hapi.streams.RecordStreamItem;
+import com.hedera.pbj.runtime.io.ReadableSequentialData;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.ByteArrayOutputStream;
 import java.security.KeyFactory;
@@ -43,6 +44,7 @@ import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder.WRB;
 import org.hiero.block.node.app.fixtures.blocks.ResourceTestWRBBlock;
+import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.block.verification.VerificationDataProvider;
 import org.hiero.block.node.block.verification.hasher.BlockHasher;
 import org.hiero.block.node.block.verification.hasher.HashingResult;
@@ -52,6 +54,7 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -142,9 +145,8 @@ class RSAProofVerifierTest {
     /// @return list of unparsed block items ready to pass to `processBlockItems`
     private static List<BlockItemUnparsed> buildWrbBlock(final List<RecordFileSignature> signatures) {
         final BlockHeader header =
-                new BlockHeader(HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
-        final BlockFooter footer =
-                new BlockFooter(Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]));
+                new BlockHeader(HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_256);
+        final BlockFooter footer = new BlockFooter(zeroHash(), zeroHash(), zeroHash());
         final BlockProof proof = BlockProof.newBuilder()
                 .block(BLOCK_NUMBER)
                 .signedRecordFileProof(new SignedRecordFileProof(6, signatures))
@@ -168,9 +170,8 @@ class RSAProofVerifierTest {
     private static List<BlockItemUnparsed> buildWrbBlockWithCustomRecordFile(
             final Bytes customRecordFileBytes, final List<RecordFileSignature> signatures) {
         final BlockHeader header =
-                new BlockHeader(HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
-        final BlockFooter footer =
-                new BlockFooter(Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]));
+                new BlockHeader(HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_256);
+        final BlockFooter footer = new BlockFooter(zeroHash(), zeroHash(), zeroHash());
         final BlockProof proof = BlockProof.newBuilder()
                 .block(BLOCK_NUMBER)
                 .signedRecordFileProof(new SignedRecordFileProof(6, signatures))
@@ -460,9 +461,8 @@ class RSAProofVerifierTest {
     @DisplayName("record file proof without a RECORD_FILE item is rejected")
     void testMissingRecordFileItemRejected() throws Exception {
         final BlockHeader header =
-                new BlockHeader(HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
-        final BlockFooter footer =
-                new BlockFooter(Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]));
+                new BlockHeader(HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_256);
+        final BlockFooter footer = new BlockFooter(zeroHash(), zeroHash(), zeroHash());
         final BlockProof proof = BlockProof.newBuilder()
                 .block(BLOCK_NUMBER)
                 .signedRecordFileProof(new SignedRecordFileProof(6, signaturesFor(0L)))
@@ -493,9 +493,8 @@ class RSAProofVerifierTest {
         final List<BlockItemUnparsed> items;
         {
             final BlockHeader header = new BlockHeader(
-                    HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
-            final BlockFooter footer =
-                    new BlockFooter(Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]));
+                    HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_256);
+            final BlockFooter footer = new BlockFooter(zeroHash(), zeroHash(), zeroHash());
             final BlockProof proof = BlockProof.newBuilder()
                     .block(BLOCK_NUMBER)
                     .signedRecordFileProof(new SignedRecordFileProof(version, signaturesFor(0L, 1L, 2L, 3L, 4L)))
@@ -537,9 +536,8 @@ class RSAProofVerifierTest {
         final List<BlockItemUnparsed> items;
         {
             final BlockHeader header = new BlockHeader(
-                    HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
-            final BlockFooter footer =
-                    new BlockFooter(Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]));
+                    HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_256);
+            final BlockFooter footer = new BlockFooter(zeroHash(), zeroHash(), zeroHash());
             final BlockProof proof = BlockProof.newBuilder()
                     .block(BLOCK_NUMBER)
                     .signedRecordFileProof(new SignedRecordFileProof(6, sigs))
@@ -649,9 +647,8 @@ class RSAProofVerifierTest {
                 final Bytes recordFileItemProtoBytes,
                 final List<RecordFileSignature> signatures) {
             final BlockHeader header = new BlockHeader(
-                    hapiVersion, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
-            final BlockFooter footer =
-                    new BlockFooter(Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]));
+                    hapiVersion, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_256);
+            final BlockFooter footer = new BlockFooter(zeroHash(), zeroHash(), zeroHash());
             final BlockProof proof = BlockProof.newBuilder()
                     .block(BLOCK_NUMBER)
                     .signedRecordFileProof(new SignedRecordFileProof(version, signatures))
@@ -778,9 +775,8 @@ class RSAProofVerifierTest {
             final byte[] v5Payload = RecordFileSignedPayload.computeSignedPayload(5, V5_HAPI, contentsBytes);
             final byte[] v6Payload = RecordFileSignedPayload.computeSignedPayload(6, V5_HAPI, contentsBytes);
             final BlockHeader header =
-                    new BlockHeader(V5_HAPI, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
-            final BlockFooter footer =
-                    new BlockFooter(Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]), Bytes.wrap(new byte[48]));
+                    new BlockHeader(V5_HAPI, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_256);
+            final BlockFooter footer = new BlockFooter(zeroHash(), zeroHash(), zeroHash());
             final BlockProof v5Proof = BlockProof.newBuilder()
                     .block(BLOCK_NUMBER)
                     .signedRecordFileProof(new SignedRecordFileProof(5, signaturesOver(v5Payload, 0L, 1L)))
@@ -824,8 +820,9 @@ class RSAProofVerifierTest {
 
     /// Tests running real wrapped record blocks, carrying their original RSA
     /// signatures, through the hashing stage and the verifier with the era address book keys.
-    /// These fixtures are the ultimate oracle for the legacy payload reconstructions: the
-    /// signatures were produced by the consensus nodes over the original v2/v5 files.
+    /// These fixtures are the ultimate oracle for the signed payload computations: the
+    /// signatures were produced by the consensus nodes over the original v2/v5/v6 record
+    /// files, so any drift in the payload reconstruction fails signature verification.
     @Nested
     @DisplayName("Real Data Tests")
     class RealDataTests {
@@ -847,12 +844,16 @@ class RSAProofVerifierTest {
         /// is accepted by the verifier: the hashing stage reconstructs the original legacy
         /// binary file from the normalized protobuf contents, computes the version-appropriate
         /// signed payload, and every original consensus node signature verifies against the
-        /// era address book keys.
+        /// era address book keys. Until fixtures hashed with SHA-256 exist, the signatures are
+        /// covered without the hashing stage by
+        /// [#realLegacyBlockSignatures_verifyOverReconstructedPayload].
         @ParameterizedTest(name = "{0}")
         @EnumSource(
                 value = WRB.class,
                 names = {"V2_BLOCK_0", "V5_BLOCK_26591040"})
         @DisplayName("real V2/V5 block with original signatures is accepted")
+        @Disabled("Disabled until v2/v5 blocks after sha256 migration are available")
+        // @todo(3800) re-enable when test v2/v5 blocks after sha256 migration are available
         void realBlock_accepted(final WRB fixture) throws Exception {
             final ResourceTestWRBBlock block = ResourceTestBlockBuilder.load(fixture);
             final BlockNodeContext context = TestUtils.testContext();
@@ -868,6 +869,234 @@ class RSAProofVerifierTest {
                     verifyProof(hashingResult, proof, eraKeyMap(block.nodeAddressBook()), metricsHolder);
             assertThat(result).isNull();
         }
+
+        /// This test aims to assert that a real wrapped record block of a legacy record file
+        /// format version (v2 block 0 from 2019 and v5 block 26591040 from 2022) whose header
+        /// declares another HAPI version, here one minor version higher, is refused when it goes
+        /// through the hashing stage and the verifier: the verifier reconstructs the legacy file
+        /// with the HAPI version the hashing stage parsed from the header, which is written into
+        /// the v2 and v5 file headers, so no original signature verifies and the proof is
+        /// refused with `BAD_BLOCK_PROOF`. This is the end to end counterpart of
+        /// [#realLegacyBlockSignatures_failOverPayloadOfAnotherHapiVersion].
+        @ParameterizedTest(name = "{0}")
+        @EnumSource(
+                value = WRB.class,
+                names = {"V2_BLOCK_0", "V5_BLOCK_26591040"})
+        @DisplayName("real V2/V5 block with another HAPI version in its header is rejected")
+        @Disabled("Disabled until v2/v5 blocks after sha256 migration are available")
+        // @todo(3800) re-enable when test v2/v5 blocks after sha256 migration are available
+        void realBlock_failsOverPayloadOfAnotherHapiVersion(final WRB fixture) throws Exception {
+            final ResourceTestWRBBlock original = ResourceTestBlockBuilder.load(fixture);
+            final BlockHeader otherHapiHeader = original.header()
+                    .copyBuilder()
+                    .hapiProtoVersion(original.hapiVersion()
+                            .copyBuilder()
+                            .minor(original.hapiVersion().minor() + 1)
+                            .build())
+                    .build();
+            final ResourceTestWRBBlock block = original.replace(
+                    BlockItemUnparsed::hasBlockHeader,
+                    BlockItemUnparsed.newBuilder()
+                            .blockHeader(BlockHeader.PROTOBUF.toBytes(otherHapiHeader))
+                            .build());
+            final BlockNodeContext context = TestUtils.testContext();
+            final MetricsHolder metricsHolder = MetricsHolder.create(context.metricRegistry());
+            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockHasher hasher = createHasher(blockItemsDeque, block.number(), context, metricsHolder);
+            blockItemsDeque.offer(block.asBlockItems());
+            final HashingResult hashingResult = hasher.get();
+            assertThat(hashingResult.hapiProtoVersion()).isEqualTo(otherHapiHeader.hapiProtoVersion());
+            final SignedRecordFileProof proof =
+                    hashingResult.blockProofs().getFirst().signedRecordFileProofOrThrow();
+            final SessionFailureType result =
+                    verifyProof(hashingResult, proof, eraKeyMap(block.nodeAddressBook()), metricsHolder);
+            assertThat(result).isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+        }
+
+        /// This test aims to assert that the original consensus node signatures of a real wrapped
+        /// record block of a legacy record file format version (v2 block 0 from 2019 and v5 block
+        /// 26591040 from 2022) verify over the signed payload the verifier reconstructs from the
+        /// block, without the hashing stage. The record file signed payload is SHA-384 by
+        /// definition of the record file format and the RSA proof verifier never reads the block
+        /// root hash, so these fixtures stay valid for the payload reconstruction even though
+        /// their footers carry SHA-384 hashes that the hashing stage now refuses. The hashing
+        /// result is built straight from the fixture with a placeholder root hash; the proof is
+        /// asserted to declare the fixture's format version, so the legacy reconstruction runs
+        /// and not the v6 payload.
+        @ParameterizedTest(name = "{0}")
+        @MethodSource("legacyWRBBlocks")
+        @DisplayName("real V2/V5 block original signatures verify over the reconstructed payload")
+        // @todo(3800) remove once realBlock_accepted is re-enabled with v2/v5 blocks hashed with SHA-256,
+        //     it covers these signatures end to end through the hashing stage
+        void realLegacyBlockSignatures_verifyOverReconstructedPayload(final WRB fixture, final int formatVersion)
+                throws Exception {
+            final ResourceTestWRBBlock block = ResourceTestBlockBuilder.load(fixture);
+            final MetricsHolder metricsHolder =
+                    MetricsHolder.create(TestUtils.testContext().metricRegistry());
+            final HashingResult hashingResult = hashingResultOf(block, block.hapiVersion());
+            final SignedRecordFileProof proof =
+                    hashingResult.blockProofs().getFirst().signedRecordFileProofOrThrow();
+            assertThat(proof.version()).isEqualTo(formatVersion);
+            assertThat(proof.recordFileSignatures()).isNotEmpty();
+            final SessionFailureType result =
+                    verifyProof(hashingResult, proof, eraKeyMap(block.nodeAddressBook()), metricsHolder);
+            assertThat(result).isNull();
+        }
+
+        /// This test aims to assert that the previous test cannot pass without the reconstruction
+        /// being exact: the same real legacy block, with the HAPI version raised by one minor
+        /// version, reconstructs a different legacy file (the version is written into the v2 and
+        /// v5 file headers), so no original signature verifies and the proof is refused with
+        /// `BAD_BLOCK_PROOF`.
+        @ParameterizedTest(name = "{0}")
+        @MethodSource("legacyWRBBlocks")
+        @DisplayName("real V2/V5 block original signatures fail over a payload of another HAPI version")
+        // @todo(3800) remove once realBlock_failsOverPayloadOfAnotherHapiVersion is re-enabled with v2/v5
+        //     blocks hashed with SHA-256, it covers this refusal end to end through the hashing stage
+        void realLegacyBlockSignatures_failOverPayloadOfAnotherHapiVersion(final WRB fixture, final int formatVersion)
+                throws Exception {
+            final ResourceTestWRBBlock block = ResourceTestBlockBuilder.load(fixture);
+            final MetricsHolder metricsHolder =
+                    MetricsHolder.create(TestUtils.testContext().metricRegistry());
+            final SemanticVersion otherHapiVersion = block.hapiVersion()
+                    .copyBuilder()
+                    .minor(block.hapiVersion().minor() + 1)
+                    .build();
+            final HashingResult hashingResult = hashingResultOf(block, otherHapiVersion);
+            final SignedRecordFileProof proof =
+                    hashingResult.blockProofs().getFirst().signedRecordFileProofOrThrow();
+            assertThat(proof.version()).isEqualTo(formatVersion);
+            final SessionFailureType result =
+                    verifyProof(hashingResult, proof, eraKeyMap(block.nodeAddressBook()), metricsHolder);
+            assertThat(result).isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+        }
+
+        /// This test aims to assert that a real wrapped record block of the current v6
+        /// record file format (blocks 0 to 5 captured from a four node Solo network) is
+        /// accepted by the verifier: the hashing stage computes the block root hash declared
+        /// by the fixture, the v6 signed payload is derived from the record file contents
+        /// carried in the block, and every original consensus node signature verifies against
+        /// the network address book keys.
+        @ParameterizedTest(name = "{0}")
+        @MethodSource("consecutiveWRBBlocks")
+        @DisplayName("real V6 block with original signatures is accepted")
+        void realV6Block_accepted(final WRB fixture) throws Exception {
+            final ResourceTestWRBBlock block = ResourceTestBlockBuilder.load(fixture);
+            final BlockNodeContext context = TestUtils.testContext();
+            final MetricsHolder metricsHolder = MetricsHolder.create(context.metricRegistry());
+            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockHasher hasher = createHasher(blockItemsDeque, block.number(), context, metricsHolder);
+            blockItemsDeque.offer(block.asBlockItems());
+            final HashingResult hashingResult = hasher.get();
+            assertThat(hashingResult.rootHash()).isEqualTo(block.blockRootHash());
+            assertThat(hashingResult.blockProofs()).hasSize(1);
+            final SignedRecordFileProof proof =
+                    hashingResult.blockProofs().getFirst().signedRecordFileProofOrThrow();
+            assertThat(proof.version()).isEqualTo(6);
+            assertThat(proof.recordFileSignatures()).isNotEmpty();
+            final SessionFailureType result =
+                    verifyProof(hashingResult, proof, eraKeyMap(block.nodeAddressBook()), metricsHolder);
+            assertThat(result).isNull();
+        }
+
+        /// This test aims to assert that the original consensus node signatures of a real wrapped
+        /// record block of the current v6 record file format (blocks 0 to 5 captured from a four
+        /// node Solo network) no longer verify once the bytes they were computed over change.
+        /// The v6 signed payload covers the verbatim `record_file_contents` and not the HAPI
+        /// version, so this is the v6 counterpart of
+        /// [#realBlock_failsOverPayloadOfAnotherHapiVersion]: one byte inside the contents is
+        /// inverted, the block goes through the hashing stage, which hashes the changed item
+        /// into a different root, and the verifier refuses the proof with `BAD_BLOCK_PROOF`.
+        /// Neither stage parses the v6 contents, so the changed byte may land anywhere in them;
+        /// the items are therefore handed to the hasher directly instead of through a fixture,
+        /// which would parse every item.
+        @ParameterizedTest(name = "{0}")
+        @MethodSource("consecutiveWRBBlocks")
+        @DisplayName("real V6 block with changed record file contents is rejected")
+        void realV6Block_failsOverChangedRecordFileContents(final WRB fixture) throws Exception {
+            final ResourceTestWRBBlock original = ResourceTestBlockBuilder.load(fixture);
+            final List<BlockItemUnparsed> changedItems = new ArrayList<>();
+            for (final BlockItemUnparsed item : original.blockUnparsed().blockItems()) {
+                if (item.hasRecordFile()) {
+                    changedItems.add(BlockItemUnparsed.newBuilder()
+                            .recordFile(withChangedRecordFileContents(item.recordFile()))
+                            .build());
+                } else {
+                    changedItems.add(item);
+                }
+            }
+            final BlockNodeContext context = TestUtils.testContext();
+            final MetricsHolder metricsHolder = MetricsHolder.create(context.metricRegistry());
+            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockHasher hasher = createHasher(blockItemsDeque, original.number(), context, metricsHolder);
+            blockItemsDeque.offer(new BlockItems(changedItems, original.number(), true, true));
+            final HashingResult hashingResult = hasher.get();
+            assertThat(hashingResult.rootHash()).isNotEqualTo(original.blockRootHash());
+            final SignedRecordFileProof proof =
+                    hashingResult.blockProofs().getFirst().signedRecordFileProofOrThrow();
+            assertThat(proof.version()).isEqualTo(6);
+            final SessionFailureType result =
+                    verifyProof(hashingResult, proof, eraKeyMap(original.nodeAddressBook()), metricsHolder);
+            assertThat(result).isEqualTo(SessionFailureType.BAD_BLOCK_PROOF);
+        }
+
+        /// Returns the raw `RecordFileItem` bytes with one byte in the middle of its
+        /// `record_file_contents` (field 2) inverted. Every field of a `RecordFileItem` is length
+        /// delimited, so the walk reads each tag and length and leaves every length, and with it
+        /// the wire structure, intact.
+        private static Bytes withChangedRecordFileContents(final Bytes recordFileItem) {
+            final byte[] changed = recordFileItem.toByteArray();
+            final ReadableSequentialData input = recordFileItem.toReadableSequentialData();
+            boolean contentsChanged = false;
+            while (!contentsChanged && input.hasRemaining()) {
+                final int tag = input.readVarInt(false);
+                assertThat(tag & 0x7)
+                        .as("every RecordFileItem field is length delimited")
+                        .isEqualTo(2);
+                final int length = input.readVarInt(false);
+                if (tag >>> 3 == 2) {
+                    final int middle = Math.toIntExact(input.position()) + length / 2;
+                    changed[middle] = (byte) ~changed[middle];
+                    contentsChanged = true;
+                } else {
+                    input.skip(length);
+                }
+            }
+            assertThat(contentsChanged)
+                    .as("the RecordFileItem carries record_file_contents")
+                    .isTrue();
+            return Bytes.wrap(changed);
+        }
+
+        /// The real legacy wrapped record blocks with the record file format version their proof
+        /// declares.
+        // @todo(3800) remove together with the legacy signature tests that use it
+        static Stream<Arguments> legacyWRBBlocks() {
+            return Stream.of(Arguments.of(WRB.V2_BLOCK_0, 2), Arguments.of(WRB.V5_BLOCK_26591040, 5));
+        }
+
+        /// Builds the hashing result of the given block straight from the fixture, without the
+        /// hashing stage, the way the RSA proof verifier consumes it: the block, its header,
+        /// footer, proofs and the given HAPI version. The root hash is a placeholder, the RSA
+        /// proof verifier does not read it.
+        // @todo(3800) remove together with the legacy signature tests that use it
+        private static HashingResult hashingResultOf(
+                final ResourceTestWRBBlock block, final SemanticVersion hapiProtoVersion) {
+            return new HashingResult(
+                    block.number(),
+                    BlockSource.PUBLISHER,
+                    block.blockUnparsed(),
+                    zeroHash(),
+                    block.header(),
+                    block.footer(),
+                    block.proofs(),
+                    hapiProtoVersion);
+        }
+
+        /// The real v6 wrapped record block chain, from the shared fixture definition.
+        static Stream<WRB> consecutiveWRBBlocks() {
+            return Arrays.stream(ResourceTestBlockBuilder.consecutiveWRBBlocks);
+        }
     }
 
     static Stream<Arguments> rosterSizes() {
@@ -879,5 +1108,11 @@ class RSAProofVerifierTest {
                 Arguments.of(7),
                 Arguments.of(8),
                 Arguments.of(9));
+    }
+
+    /// A zero-filled hash of one digest of the block hash algorithm, the footer placeholder the
+    /// hasher accepts for the previous block root hash, the all blocks root and the state root.
+    private static Bytes zeroHash() {
+        return Bytes.wrap(new byte[TestBlockBuilder.BLOCK_HASH_ALGORITHM.hashSize()]);
     }
 }

@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -426,7 +427,7 @@ public abstract class BaseSuite {
         return executorService.submit(() -> {
             try {
                 blockStreamSimulatorAppInstance.start();
-            } catch (InterruptedException | BlockSimulatorParsingException | IOException e) {
+            } catch (InterruptedException | BlockSimulatorParsingException | IOException | NoSuchAlgorithmException e) {
                 throw new RuntimeException(e);
             }
         });

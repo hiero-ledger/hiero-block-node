@@ -3,8 +3,9 @@
 #
 # Replace the Maven-resolved block-node plugin jars on the kind node's plugins hostPath with the jars built
 # from this checkout. The chart's resolve-plugins init container downloads plugins from Maven, so for a PR
-# it gets the plugin jars published from main, not the PR's. When a PR changes the SPI this fails with
-# NoSuchMethodError, because the PR's core runs against the old plugins.
+# it gets the plugin jars published from main, not the PR's. When a PR changes an API shared by the core
+# modules and the plugins (the SPI, or the common module as in #3688) the node fails with NoSuchMethodError,
+# because the PR's core runs against the old plugins.
 #
 # The init container skips resolution when /plugins/.resolved-hash matches, so after replacing the jars
 # and restarting the pod the PR jars stay in place.

@@ -10,6 +10,7 @@ import com.hedera.hapi.block.stream.SiblingNode;
 import com.hedera.hapi.block.stream.TssSignedBlockProof;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedDeque;
@@ -48,7 +49,7 @@ class StateProofVerifierTest {
     private StateProofChainBuilder builder;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws NoSuchAlgorithmException {
         final BlockNodeContext context = TestUtils.testContext(
                 new TestConfigurationBuilder().getOrCreateConfig(),
                 new TestThreadPoolManager<>(
@@ -65,7 +66,7 @@ class StateProofVerifierTest {
     @ParameterizedTest
     @ValueSource(longs = {1L, 2L, 3L, 4L})
     @DisplayName("verify() passes for valid state proof")
-    void testPassingStateProofVerification(final long blockNumber) {
+    void testPassingStateProofVerification(final long blockNumber) throws NoSuchAlgorithmException {
         builder.genesisWithPublication();
         final StateProofChainBuilder.Signed signed = advanceTo(blockNumber);
         assertVerifies(signed);
@@ -73,7 +74,7 @@ class StateProofVerifierTest {
 
     @Test
     @DisplayName("verify() reject tampered sibling hash")
-    void testShouldRejectTamperedSiblingHash() throws ParseException {
+    void testShouldRejectTamperedSiblingHash() throws ParseException, NoSuchAlgorithmException {
         builder.genesisWithPublication();
         final StateProofChainBuilder.Signed original = advanceTo(3L);
         final TestBlock tampered = tamperSiblingHash(original.block());
@@ -82,7 +83,7 @@ class StateProofVerifierTest {
 
     @Test
     @DisplayName("verify() reject tampered timestamp leaf")
-    void testShouldRejectTamperedTimestampLeaf() throws ParseException {
+    void testShouldRejectTamperedTimestampLeaf() throws ParseException, NoSuchAlgorithmException {
         builder.genesisWithPublication();
         final StateProofChainBuilder.Signed original = advanceTo(3L);
         final TestBlock tampered = tamperTimestampLeaf(original.block());
@@ -91,7 +92,7 @@ class StateProofVerifierTest {
 
     @Test
     @DisplayName("verify() reject tampered block content with valid state proof")
-    void testShouldRejectTamperedBlockContentWithValidStateProof() {
+    void testShouldRejectTamperedBlockContentWithValidStateProof() throws NoSuchAlgorithmException {
         builder.genesisWithPublication();
         final StateProofChainBuilder.Signed original = advanceTo(3L);
         final TestBlock tampered = tamperSignedTransaction(original.block());
@@ -100,7 +101,7 @@ class StateProofVerifierTest {
 
     @Test
     @DisplayName("verify() reject when null signed proof")
-    void testShouldRejectNullSignedProof() throws ParseException {
+    void testShouldRejectNullSignedProof() throws ParseException, NoSuchAlgorithmException {
         builder.genesisWithPublication();
         final StateProofChainBuilder.Signed original = advanceTo(3L);
         final TestBlock tampered = swapSignedProof(original.block(), null);
@@ -109,7 +110,7 @@ class StateProofVerifierTest {
 
     @Test
     @DisplayName("verify() reject when empty signed proof")
-    void testShouldRejectEmptySignedProof() throws ParseException {
+    void testShouldRejectEmptySignedProof() throws ParseException, NoSuchAlgorithmException {
         builder.genesisWithPublication();
         final StateProofChainBuilder.Signed original = advanceTo(3L);
         final TssSignedBlockProof emptySigned =
@@ -120,7 +121,7 @@ class StateProofVerifierTest {
 
     @Test
     @DisplayName("verify() reject when tampered signed proof")
-    void testShouldRejectTamperedSignedProof() throws ParseException {
+    void testShouldRejectTamperedSignedProof() throws ParseException, NoSuchAlgorithmException {
         builder.genesisWithPublication();
         final StateProofChainBuilder.Signed original = advanceTo(3L);
         final TssSignedBlockProof tamperedSigned = TssSignedBlockProof.newBuilder()
@@ -133,7 +134,7 @@ class StateProofVerifierTest {
     @ParameterizedTest
     @ValueSource(ints = {0, 1, 2})
     @DisplayName("verify() reject when not enough merkle paths")
-    void testShouldRejectNoMerklePaths(final int pathCount) throws ParseException {
+    void testShouldRejectNoMerklePaths(final int pathCount) throws ParseException, NoSuchAlgorithmException {
         builder.genesisWithPublication();
         final StateProofChainBuilder.Signed original = advanceTo(3L);
         final List<MerklePath> paths = new ArrayList<>();
@@ -146,7 +147,7 @@ class StateProofVerifierTest {
 
     @Test
     @DisplayName("verify() passes for valid state proof that does not start with a leaf")
-    void testPassingStateProofWithNonLeafFirstPath() throws ParseException {
+    void testPassingStateProofWithNonLeafFirstPath() throws ParseException, NoSuchAlgorithmException {
         builder.genesisWithPublication();
         final StateProofChainBuilder.Signed original = advanceTo(3L);
         // Reorder [leaf, leaf, join] → [join, leaf, leaf] with next indices remapped to the join's new position.
@@ -164,7 +165,7 @@ class StateProofVerifierTest {
     @ParameterizedTest
     @ValueSource(ints = {0, 1, 2})
     @DisplayName("verify() reject valid state proof carrying a join point that is never followed")
-    void testShouldRejectJoinPointNeverFollowed(final int orphanIndex) throws ParseException {
+    void testShouldRejectJoinPointNeverFollowed(final int orphanIndex) throws ParseException, NoSuchAlgorithmException {
         builder.genesisWithPublication();
         final StateProofChainBuilder.Signed original = advanceTo(3L);
         final List<MerklePath> pathsOriginal = statePaths(original.block());
@@ -179,7 +180,7 @@ class StateProofVerifierTest {
 
     @Test
     @DisplayName("verify() reject when no leaf leads to a join point")
-    void testShouldRejectUnreachableJoinPoint() throws ParseException {
+    void testShouldRejectUnreachableJoinPoint() throws ParseException, NoSuchAlgorithmException {
         builder.genesisWithPublication();
         final StateProofChainBuilder.Signed original = advanceTo(3L);
         final List<MerklePath> paths = new ArrayList<>();
@@ -192,7 +193,7 @@ class StateProofVerifierTest {
 
     @Test
     @DisplayName("verify() reject when a leaf has a path outside of bounds")
-    void testShouldRejectWhenNextPathOfALeafIsOutsideOfBounds() throws ParseException {
+    void testShouldRejectWhenNextPathOfALeafIsOutsideOfBounds() throws ParseException, NoSuchAlgorithmException {
         builder.genesisWithPublication();
         final StateProofChainBuilder.Signed original = advanceTo(3L);
         final List<MerklePath> paths = new ArrayList<>();
@@ -205,7 +206,7 @@ class StateProofVerifierTest {
 
     @Test
     @DisplayName("verify() reject when the next path of leaf is not a join point")
-    void testShouldRejectWhenNextPathOfALeafIsNotAJoinPoint() throws ParseException {
+    void testShouldRejectWhenNextPathOfALeafIsNotAJoinPoint() throws ParseException, NoSuchAlgorithmException {
         builder.genesisWithPublication();
         final StateProofChainBuilder.Signed original = advanceTo(3L);
         final List<MerklePath> paths = new ArrayList<>();
@@ -218,7 +219,7 @@ class StateProofVerifierTest {
 
     @Test
     @DisplayName("verify() reject if canceled")
-    void testShouldRejectIfCanceled() {
+    void testShouldRejectIfCanceled() throws NoSuchAlgorithmException {
         builder.genesisWithPublication();
         final StateProofChainBuilder.Signed signed = advanceTo(3L);
         final HashingResult hashing = runHashing(signed.block());
@@ -235,7 +236,7 @@ class StateProofVerifierTest {
 
     @Test
     @DisplayName("verify() reject when not all paths visited")
-    void testShouldRejectWhenNotAllPathsVisited() throws ParseException {
+    void testShouldRejectWhenNotAllPathsVisited() throws ParseException, NoSuchAlgorithmException {
         builder.genesisWithPublication();
         final StateProofChainBuilder.Signed original = advanceTo(3L);
         final List<MerklePath> paths = new ArrayList<>();
@@ -249,7 +250,7 @@ class StateProofVerifierTest {
 
     @Test
     @DisplayName("verify() reject when checkpoints left after visiting all indices")
-    void testShouldRejectWhenCheckpointsLeftAfterVisitingAllIndices() throws ParseException {
+    void testShouldRejectWhenCheckpointsLeftAfterVisitingAllIndices() throws ParseException, NoSuchAlgorithmException {
         builder.genesisWithPublication();
         final StateProofChainBuilder.Signed original = advanceTo(3L);
         final List<MerklePath> paths = new ArrayList<>();
@@ -262,7 +263,7 @@ class StateProofVerifierTest {
     }
 
     /// Emits blocks 1..blockNumber through the builder, returning the last signed one.
-    private StateProofChainBuilder.Signed advanceTo(final long blockNumber) {
+    private StateProofChainBuilder.Signed advanceTo(final long blockNumber) throws NoSuchAlgorithmException {
         StateProofChainBuilder.Signed signed = null;
         for (long n = 1L; n <= blockNumber; n++) {
             signed = builder.next(n);
@@ -270,7 +271,7 @@ class StateProofVerifierTest {
         return signed;
     }
 
-    private void assertVerifies(final StateProofChainBuilder.Signed signed) {
+    private void assertVerifies(final StateProofChainBuilder.Signed signed) throws NoSuchAlgorithmException {
         final HashingResult hashing = runHashing(signed.block());
         final StateProofVerifier toTest = new StateProofVerifier(
                 isCanceled,
@@ -282,7 +283,7 @@ class StateProofVerifierTest {
         assertThat(toTest.verify()).isNull();
     }
 
-    private void assertRejects(final TestBlock tampered) {
+    private void assertRejects(final TestBlock tampered) throws NoSuchAlgorithmException {
         final HashingResult hashing = runHashing(tampered);
         final StateProofVerifier toTest = new StateProofVerifier(
                 isCanceled,
