@@ -185,6 +185,7 @@ Replays verified block-stream `state_changes` onto a live, queryable copy of Has
 | Gauge   | `state_apply_halted`        | `1` when block apply has halted (e.g. footer hash mismatch), else `0` |
 | Gauge   | `state_apply_latency_ms`    | Wall-clock duration of the most recent block apply, in milliseconds   |
 | Counter | `state_hash_mismatch_total` | Cumulative footer hash mismatches observed                            |
+| Gauge   | `state_block_lag`           | Blocks between the latest available block and the attested block      |
 
 ---
 
