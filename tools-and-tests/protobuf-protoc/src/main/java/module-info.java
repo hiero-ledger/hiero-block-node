@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 open module org.hiero.block.protobuf.protoc {
+    exports com.hedera.hapi.services.auxiliary.clpr.legacy;
     exports com.hedera.hapi.services.auxiliary.hints.legacy;
     exports com.hedera.hapi.services.auxiliary.tss.legacy;
     exports com.hedera.hapi.services.auxiliary.blockrecords.legacy;
