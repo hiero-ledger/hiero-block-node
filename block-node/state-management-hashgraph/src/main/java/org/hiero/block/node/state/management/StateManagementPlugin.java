@@ -310,9 +310,24 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         final Path snapshotDir = recentSnapshotDirectoryFor(metadata.blockNumber());
         if (Files.isDirectory(snapshotDir)) {
             try {
-                lifecycleManager.loadSnapshot(snapshotDir);
-                snapshotLoaded = true;
-                LOGGER.log(System.Logger.Level.INFO, "Loaded state snapshot from {0}", snapshotDir);
+                final Bytes onDiskHash =
+                        lifecycleManager.loadSnapshot(snapshotDir).getBytes();
+                if (onDiskHash.equals(metadata.stateRootHash())) {
+                    snapshotLoaded = true;
+                    LOGGER.log(System.Logger.Level.INFO, "Loaded state snapshot from {0}", snapshotDir);
+                } else {
+                    // Stale/corrupt snapshot paired with newer metadata. Unrecoverable in place,
+                    // same as a block-apply hash mismatch: halt rather than serve wrong data.
+                    LOGGER.log(
+                            System.Logger.Level.ERROR,
+                            "Snapshot at {0} has root hash {1}, metadata expects {2}; halting",
+                            snapshotDir,
+                            onDiskHash.toHex(),
+                            metadata.stateRootHash().toHex());
+                    hashMismatchTotal.incrementAndGet();
+                    hashMismatchMetric.increment();
+                    applyHalted.set(true);
+                }
             } catch (final IOException e) {
                 LOGGER.log(
                         System.Logger.Level.WARNING,
@@ -343,13 +358,20 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             final VirtualMapState loaded = lifecycleManager.getLatestImmutableState();
             setAttested(loaded);
             hashingImmutable = loaded;
+        } else if (!applyHalted.get()) {
+            // True genesis: seed state 2 with the sealed empty VirtualMap so block 0 validates
+            // through the same path as every other block, no special-casing needed. Skipped if
+            // we just halted on a corrupt snapshot above, so hashingImmutable stays null rather
+            // than surfacing a hash we've declared untrustworthy.
+            hashingImmutable = lifecycleManager.getLatestImmutableState();
         }
     }
 
     /// Drain the pending-blocks queue in strict block-number order, applying each contiguous
     /// next block via `applyBlockStateChanges`. Stops on the first gap, when stopping, or when
-    /// apply is halted. Blocks are removed only after a successful apply so failures leave the
-    /// block queued for inspection / retry.
+    /// apply is halted. A failed block stays in `pendingBlocks` for post-mortem inspection, not
+    /// retry — a halt is terminal, since the mutable state may already be partially mutated;
+    /// recovery is a restart from the last snapshot.
     void applyPending() {
         applyLock.lock();
         try {
@@ -359,8 +381,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                         && metadata.stateRootHash().length() == 0L;
                 final long expectedNext =
                         atGenesis ? pendingBlocks.firstKey() : Math.max(lastAppliedBlock, metadata.blockNumber()) + 1L;
-                // Peek (not remove) so an applier failure leaves the block in the queue for
-                // inspection / future retry rather than silently dropping it.
+                // Peek (not remove) so a failure leaves the block for inspection, not retry.
                 final BlockUnparsed block = pendingBlocks.get(expectedNext);
                 if (block == null) {
                     return;
@@ -371,7 +392,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                 } catch (final RuntimeException e) {
                     LOGGER.log(
                             System.Logger.Level.WARNING,
-                            "applyBlockStateChanges threw for block {0}; halting apply (block retained in queue)",
+                            "applyBlockStateChanges threw for block {0}; halting apply (restart required to recover)",
                             expectedNext,
                             e);
                     applyHalted.set(true);
@@ -434,12 +455,10 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         try {
             final HistoricalBlockFacility historic = context == null ? null : context.historicalBlockProvider();
             if (historic == null) {
-                stateIsCaughtUp.set(true);
                 return;
             }
             final BlockRangeSet available = historic.availableBlocks();
             if (available == null || available.size() == 0L) {
-                stateIsCaughtUp.set(true);
                 return;
             }
             final long latest = available.max();
@@ -447,7 +466,6 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                     metadata.blockNumber() == 0L && metadata.stateRootHash().length() == 0L;
             final long start = atGenesis ? available.min() : metadata.blockNumber() + 1L;
             if (start > latest) {
-                stateIsCaughtUp.set(true);
                 return;
             }
             final int batchSize = Math.max(1, config.historicCatchUpBatchSize());
@@ -466,9 +484,13 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         } catch (final RuntimeException e) {
             LOGGER.log(System.Logger.Level.WARNING, "Catch-up failed; plugin remains not ready", e);
         } finally {
-            // Even if catch-up hit a gap or an apply-halted state, start serving queries
-            // against whatever applied.
-            stateIsCaughtUp.set(true);
+            // Ready means caught up AND not halted, so state_ready can't be confused with a
+            // caught-up-then-halted state.
+            if (applyHalted.get()) {
+                LOGGER.log(System.Logger.Level.WARNING, "Catch-up halted; plugin remains not ready");
+            } else {
+                stateIsCaughtUp.set(true);
+            }
         }
     }
 
@@ -526,8 +548,9 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             return false;
         }
         // Hash state 2 (post-(lastAppliedBlock)) exactly here, as we attempt to promote it —
-        // never at seal, never on the mutable. Empty at genesis (no state 2 yet).
-        final Bytes attestedHash = lastAppliedBlock < 0L ? Bytes.EMPTY : rootHashOf(hashingImmutable);
+        // never at seal, never on the mutable. hashingImmutable is seeded at boot (genesis or
+        // loaded snapshot), so this is never null by the time a block reaches apply.
+        final Bytes attestedHash = rootHashOf(hashingImmutable);
         if (!validateStartHash(startHash, attestedHash)) {
             hashMismatchTotal.incrementAndGet();
             hashMismatchMetric.increment();
@@ -579,19 +602,13 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
 
     /// Validate block N's `BlockFooter.startOfBlockStateRootHash` against `attestedHash` — the
     /// root hash of state 2 (post-(N-1)), computed off the *sealed* `hashingImmutable` (never
-    /// the live mutable). A match confirms our post-(N-1) equals the network's attested
-    /// start-of-N hash.
-    ///
-    /// Genesis branch: when no block has been applied yet, there is no state 2 to hash and the
-    /// expected start hash is empty / all-zeros; accept either.
+    /// the live mutable). At genesis, state 2 is the sealed empty `VirtualMap`, so block 0
+    /// validates through this same path with no special case.
     ///
     /// @param startHash the incoming block's footer start-of-block state root hash
-    /// @param attestedHash the root hash of state 2 (post-(N-1)); empty at genesis
-    /// @return `true` if the hashes match (or the genesis shape holds)
+    /// @param attestedHash the root hash of state 2 (post-(N-1))
+    /// @return `true` if the hashes match
     private boolean validateStartHash(@NonNull final Bytes startHash, @NonNull final Bytes attestedHash) {
-        if (lastAppliedBlock < 0L) {
-            return startHash.length() == 0L || isAllZeros(startHash);
-        }
         return attestedHash.equals(startHash);
     }
 
@@ -627,21 +644,6 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         } catch (final ParseException e) {
             return -1L;
         }
-    }
-
-    /// Whether every byte in `b` is zero. Used to accept an all-zeros genesis
-    /// start-of-block state root hash.
-    ///
-    /// @param b the bytes to test
-    /// @return `true` if all bytes are zero (vacuously true for empty)
-    private static boolean isAllZeros(@NonNull final Bytes b) {
-        final long len = b.length();
-        for (long i = 0; i < len; i++) {
-            if (b.getByte(i) != 0) {
-                return false;
-            }
-        }
-        return true;
     }
 
     /// The recent-snapshot directory path for a given block number.
