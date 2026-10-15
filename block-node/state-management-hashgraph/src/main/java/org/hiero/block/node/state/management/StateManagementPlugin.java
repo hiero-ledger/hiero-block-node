@@ -14,8 +14,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -152,16 +155,20 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     // ── Three concurrent state versions ────────────────────────────────────────
     // (3) MUTABLE — `lifecycleManager.getMutableState()`; receives the current block's
     //     state_changes (library-managed, no field here).
-    // (2) HASHING — `hashingImmutable`; sealed by copyMutableState, awaiting hash +
+    // (2) HASHING — `hashingImmutable`; sealed by copyMutableState, awaiting
     //     attestation by the next block's footer.
     // (1) ATTESTED — `attested.state()`; the network-confirmed, query-serving copy.
-    // A state is hashed exactly once, when promoted from (2) to (1) — never while mutable (3)
-    // and never eagerly at seal.
+    // A state is hashed exactly once, never while mutable (3). VirtualMap.getHash() caches, so
+    // hashing costs the same either way — the only choice is *when* to pay it. Hashing starts
+    // in the background right after seal (hashingFuture), overlapping with the next block's
+    // apply, instead of blocking the apply path behind a synchronous hash.
 
-    /// **State (2) — sealed, awaiting hash/attestation.** Not hashed at seal time; its root
-    /// hash is computed lazily, only when the next block's footer arrives to attest it. `null`
-    /// until the first apply.
+    /// **State (2) — sealed, awaiting attestation.** `null` until the first apply.
     private volatile VirtualMapState hashingImmutable;
+
+    /// Background hash of `hashingImmutable`, started right after it is sealed — see
+    /// `startBackgroundHash`/`currentStagedHash`. `null` only before the first seal.
+    private volatile Future<Bytes> hashingFuture;
 
     /// {@inheritDoc}
     @Override
@@ -223,13 +230,12 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             // init() could not prepare the state directory; there is nothing to start.
             return;
         }
-        loadPersistedState();
-        context.blockMessaging().registerBlockNotificationHandler(this, true, name());
-
         backgroundExecutor = context.threadPoolManager()
                 .createSingleThreadScheduledExecutor(
                         "StateManagement-background",
                         (t, e) -> LOGGER.log(System.Logger.Level.WARNING, "Uncaught exception in " + t.getName(), e));
+        loadPersistedState();
+        context.blockMessaging().registerBlockNotificationHandler(this, true, name());
 
         // Single apply worker: runs one-shot historical catch-up, then blocks on `arrivals`
         // and drains `pendingBlocks` the instant a verified block shows up — no polling.
@@ -300,13 +306,12 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
 
     /// The `startOfBlockStateRootHash` the next block's footer must carry to be accepted — the
     /// root hash of the most recently applied (staged) block (state 2), one ahead of `metadata`
-    /// under lag-1. Computed lazily from `hashingImmutable` (VirtualMap caches the hash after
-    /// the first call). Empty before the first apply.
+    /// under lag-1. Empty before the first apply.
     ///
     /// @return the staged state root hash, or empty before the first apply
     @NonNull
     Bytes stagedStateRootHash() {
-        return rootHashOf(hashingImmutable);
+        return currentStagedHash();
     }
 
     /// Total count of footer hash mismatches observed.
@@ -383,18 +388,18 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         lifecycleManager.copyMutableState();
         if (snapshotLoaded) {
             // The loaded (already-attested) block is simultaneously state 1 (exposed to
-            // readers) and state 2 (the base the next block's footer validates against). Its
-            // root hash is derived on demand from `hashingImmutable` when that next block
-            // arrives — no eager hash here.
+            // readers) and state 2 (the base the next block's footer validates against).
             final VirtualMapState loaded = lifecycleManager.getLatestImmutableState();
             publishAttested(loaded, loadedMetadata);
             hashingImmutable = loaded;
+            startBackgroundHash(loaded);
         } else if (!applyHalted.get()) {
             // True genesis: seed state 2 with the sealed empty VirtualMap so block 0 validates
             // through the same path as every other block, no special-casing needed. Skipped if
             // we just halted on a corrupt snapshot above, so hashingImmutable stays null rather
             // than surfacing a hash we've declared untrustworthy.
             hashingImmutable = lifecycleManager.getLatestImmutableState();
+            startBackgroundHash(hashingImmutable);
         }
     }
 
@@ -593,8 +598,8 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// Flow for block N (given block N-1 was the last applied, post-(N-1) sealed):
     ///
     /// 1. Pull `BlockFooter.startOfBlockStateRootHash` from N.
-    /// 2. Hash state 2 (`hashingImmutable`, post-(N-1)) now and validate N's footer against it.
-    ///    Mismatch ⇒ halt apply without mutating.
+    /// 2. Join state 2's hash (`hashingImmutable`, post-(N-1)), computed in the background since
+    ///    it was sealed, and validate N's footer against it. Mismatch ⇒ halt without mutating.
     /// 3. Promote state 2 → state 1 (`attested`), publishing its state and metadata together.
     /// 4. Apply N's `state_changes` to the live mutable, then seal it as the new state 2 —
     ///    left un-hashed and un-exposed until block N+1 attests it.
@@ -615,10 +620,10 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             applyHalted.set(true);
             return false;
         }
-        // Hash state 2 (post-(lastAppliedBlock)) exactly here, as we attempt to promote it —
-        // never at seal, never on the mutable. hashingImmutable is seeded at boot (genesis or
-        // loaded snapshot), so this is never null by the time a block reaches apply.
-        final Bytes attestedHash = rootHashOf(hashingImmutable);
+        // Join the hash of state 2 (post-(lastAppliedBlock)), started in the background right
+        // after it was sealed. hashingImmutable is seeded at boot (genesis or loaded snapshot),
+        // so this is never null by the time a block reaches apply.
+        final Bytes attestedHash = currentStagedHash();
         if (!validateStartHash(startHash, attestedHash)) {
             hashMismatchTotal.incrementAndGet();
             hashMismatchMetric.increment();
@@ -662,6 +667,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         }
         lifecycleManager.copyMutableState();
         hashingImmutable = lifecycleManager.getLatestImmutableState();
+        startBackgroundHash(hashingImmutable);
         lastAppliedBlock = result.blockNumber();
         if (result.roundNumber() >= 0L) {
             lastAppliedRound = result.roundNumber();
@@ -725,6 +731,38 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     @NonNull
     private Path recentSnapshotDirectoryFor(final long blockNumber) {
         return Path.of(config.snapshotRecentPath(), Long.toString(blockNumber));
+    }
+
+    /// Start hashing `state` on `backgroundExecutor`, right after it is sealed, so the hash
+    /// overlaps with whatever happens next instead of blocking the apply path. `VirtualMap`
+    /// caches its hash, so this computes it exactly once either way.
+    ///
+    /// @param state the newly-sealed state to hash
+    private void startBackgroundHash(@NonNull final VirtualMapState state) {
+        hashingFuture = backgroundExecutor == null
+                ? CompletableFuture.completedFuture(rootHashOf(state))
+                : backgroundExecutor.submit(() -> rootHashOf(state));
+    }
+
+    /// Join `hashingFuture` for `hashingImmutable`'s root hash. Falls back to hashing
+    /// synchronously if no background computation was ever started.
+    ///
+    /// @return the root hash of `hashingImmutable`, or empty before the first apply
+    @NonNull
+    private Bytes currentStagedHash() {
+        final Future<Bytes> future = hashingFuture;
+        if (future == null) {
+            return rootHashOf(hashingImmutable);
+        }
+        try {
+            return future.get();
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return rootHashOf(hashingImmutable);
+        } catch (final ExecutionException e) {
+            LOGGER.log(System.Logger.Level.WARNING, "Background state hash failed; hashing synchronously", e);
+            return rootHashOf(hashingImmutable);
+        }
     }
 
     /// The root hash of a sealed state, or empty if the state/root is absent or not yet hashed.
