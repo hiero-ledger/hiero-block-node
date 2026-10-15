@@ -42,15 +42,15 @@ class StateManagementCatchUpTest {
     @Test
     void catchesUpFromHistoricalProvider(@TempDir final Path tmp) throws Exception {
         final InMemoryHistoricalBlockFacility historic = new InMemoryHistoricalBlockFacility();
+        // Genesis state 2 is seeded synchronously in start(), before anything is in `historic` —
+        // read the real (network-specific) empty-state hash rather than guessing empty/zero.
+        final StateManagementPlugin plugin = startPlugin(tmp, historic);
+        final Bytes genesisHash = plugin.stagedStateRootHash();
         // Pre-seed three chained blocks: 0 (genesis), 1, 2.
         // No state changes in the blocks → root hash never changes after the first apply,
         // so all subsequent blocks carry the same footer hash.
-        historic.put(0L, buildBlock(0L, 0L, Bytes.EMPTY));
-        // The other blocks need a startOfBlockStateRootHash equal to the live hash after
-        // block 0, which only the plugin can compute. Two-phase fixture: catch-up applies
-        // block 0, we read the staged hash, then push the chained blocks and catch up again.
-        final StateManagementPlugin plugin = startPlugin(tmp, historic);
-        StateManagementPluginTestSupport.awaitReady(plugin, 5_000L);
+        historic.put(0L, buildBlock(0L, 0L, genesisHash));
+        plugin.catchUpFromHistoricalBlocks();
         // Under lag-1 block 0 is applied (staged) but not yet exposed — nothing attests it.
         assertThat(plugin.metadata()).isEqualTo(StateMetadata.DEFAULT);
 

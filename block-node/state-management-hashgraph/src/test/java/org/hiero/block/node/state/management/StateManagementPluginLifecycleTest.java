@@ -127,11 +127,59 @@ class StateManagementPluginLifecycleTest {
     }
 
     @Test
+    void snapshotHashMismatchHaltsRatherThanServingCorruptedState(@TempDir final Path tmp) throws Exception {
+        final Path metadataPath = tmp.resolve("stateMetadata.json");
+        final Path recentRoot = tmp.resolve("recent");
+        Files.createDirectories(recentRoot);
+
+        final var seedConfig = ConfigurationBuilder.create()
+                .withConfigDataType(MerkleDbConfig.class)
+                .withConfigDataType(VirtualMapConfig.class)
+                .withConfigDataType(PathsConfig.class)
+                .build();
+        final var seedManager = new VirtualMapStateLifecycleManager(
+                new NoOpMetrics(), Time.getCurrent(), seedConfig, new FileSystemManager(recentRoot));
+        seedManager.copyMutableState();
+        seedManager.getMutableState().updateSingleton(1, Bytes.fromHex("c0ffee"));
+        seedManager.copyMutableState();
+        seedManager.createSnapshot(seedManager.getLatestImmutableState(), recentRoot.resolve("5"));
+        // Metadata's stateRootHash doesn't match the real on-disk snapshot — a stale/corrupt
+        // snapshot paired with newer metadata.
+        new StateMetadataStore(metadataPath)
+                .save(StateMetadata.newBuilder()
+                        .blockNumber(5L)
+                        .roundNumber(50L)
+                        .stateRootHash(Bytes.fromHex("deadbeef".repeat(12)))
+                        .stateSize(1L)
+                        .build());
+
+        final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
+        final var configuration = ConfigurationBuilder.create()
+                .withConfigDataType(StateManagementConfig.class)
+                .withConfigDataType(MerkleDbConfig.class)
+                .withConfigDataType(VirtualMapConfig.class)
+                .withConfigDataType(PathsConfig.class)
+                .withValue("state.management.metadataPath", metadataPath.toString())
+                .withValue("state.management.snapshotRecentPath", recentRoot.toString())
+                .build();
+        final BlockNodeContext context = new BlockNodeContext(
+                configuration, MetricRegistry.builder().build(), null, facility, null, null, null, null, null);
+        final StateManagementPlugin plugin = new StateManagementPlugin();
+        plugin.init(context, NOOP_SERVICE_BUILDER);
+        plugin.start();
+
+        assertThat(plugin.isApplyHalted()).isTrue();
+        assertThat(plugin.hashMismatchTotal()).isEqualTo(1L);
+        assertThat(plugin.metadata()).isEqualTo(StateMetadata.DEFAULT);
+        plugin.stop();
+    }
+
+    @Test
     void malformedStateChangesHaltsApplyWithoutApplying(@TempDir final Path tmp) throws Exception {
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
         final StateManagementPlugin plugin = startPlugin(tmp.resolve("md.json"), tmp.resolve("recent"), facility);
 
-        // Genesis block 0 with a valid header/footer (empty start hash passes genesis
+        // Genesis block 0 with a valid header/footer (real empty-state hash passes genesis
         // validation) but a state_changes item carrying invalid protobuf bytes. The applier
         // throws; applyPending must halt apply and leave the block unapplied.
         final BlockUnparsed badBlock = BlockUnparsed.newBuilder()
@@ -145,7 +193,7 @@ class StateManagementPluginLifecycleTest {
                                 .build(),
                         BlockItemUnparsed.newBuilder()
                                 .blockFooter(BlockFooter.PROTOBUF.toBytes(BlockFooter.newBuilder()
-                                        .startOfBlockStateRootHash(Bytes.EMPTY)
+                                        .startOfBlockStateRootHash(plugin.stagedStateRootHash())
                                         .build()))
                                 .build())
                 .build();
@@ -159,6 +207,22 @@ class StateManagementPluginLifecycleTest {
     }
 
     @Test
+    void genesisBlockWithWrongStartHashIsRejectedNotAcceptedUnconditionally(@TempDir final Path tmp) throws Exception {
+        final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
+        final StateManagementPlugin plugin = startPlugin(tmp.resolve("md.json"), tmp.resolve("recent"), facility);
+
+        // Block 0's footer must carry the real (computed) empty-state hash, not just any
+        // empty/zero placeholder — an arbitrary wrong hash must still be rejected at genesis.
+        facility.sendBlockVerification(new VerificationNotification(
+                true, null, 0L, Bytes.fromHex("aabb"), buildBlock(0L, 0L, Bytes.EMPTY), BlockSource.PUBLISHER));
+        plugin.applyPending();
+
+        assertThat(plugin.isApplyHalted()).isTrue();
+        assertThat(plugin.hashMismatchTotal()).isEqualTo(1L);
+        plugin.stop();
+    }
+
+    @Test
     void restartAfterApplyHaltStartsClean(@TempDir final Path tmp) throws Exception {
         final Path metadataPath = tmp.resolve("stateMetadata.json");
         final Path recentRoot = tmp.resolve("recent");
@@ -168,7 +232,12 @@ class StateManagementPluginLifecycleTest {
         // Apply genesis block 0 (staged), then deliver block 1 whose footer start hash does
         // not match post-0 — a hash mismatch that halts apply.
         facility.sendBlockVerification(new VerificationNotification(
-                true, null, 0L, Bytes.fromHex("aabb"), buildBlock(0L, 0L), BlockSource.PUBLISHER));
+                true,
+                null,
+                0L,
+                Bytes.fromHex("aabb"),
+                buildBlock(0L, 0L, plugin.stagedStateRootHash()),
+                BlockSource.PUBLISHER));
         plugin.applyPending();
         facility.sendBlockVerification(new VerificationNotification(
                 true,
@@ -228,7 +297,12 @@ class StateManagementPluginLifecycleTest {
         // apply genesis block 0, then deliver block 1 with a footer start hash that doesn't
         // match.
         facility.sendBlockVerification(new VerificationNotification(
-                true, null, 0L, Bytes.fromHex("aabb"), buildBlock(0L, 0L), BlockSource.PUBLISHER));
+                true,
+                null,
+                0L,
+                Bytes.fromHex("aabb"),
+                buildBlock(0L, 0L, plugin.stagedStateRootHash()),
+                BlockSource.PUBLISHER));
         plugin.applyPending();
         facility.sendBlockVerification(new VerificationNotification(
                 true,
