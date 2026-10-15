@@ -275,20 +275,28 @@ The apply pipeline runs three versions of the state concurrently:
 - **(1) ATTESTED** — `attestedImmutable`: the network-confirmed, query-serving copy (a
   plugin-local cache variable; the only state the query API reads).
 
-A state is hashed **exactly once, on promotion** from (2) to (1) — never while it is still
-mutable (3) and never eagerly at seal. Hashing a `VirtualMap` is expensive, so we hash only
-the sealed immutable and only when a successor block actually attests it (a never-confirmed
-stream tip is therefore never hashed).
+A state is hashed **exactly once**, never while it is still mutable (3). `VirtualMap.getHash()`
+caches its result, so the total hashing work is the same whether it runs eagerly or lazily —
+the only real choice is *when* to pay the cost. Hashing starts in the background right after a
+state is sealed into (2), overlapping with whatever the apply pipeline does next; the block
+that needs the hash to validate against joins that in-flight computation instead of blocking
+on a synchronous hash. (An earlier version of this design deferred hashing until promotion,
+reasoning it would "avoid unnecessary work" for a never-confirmed stream tip — that reasoning
+doesn't hold, since the hash is computed exactly once either way; deferring only serialized the
+cost onto the apply path instead of overlapping it.)
 
 `applyBlockStateChanges(block N)` — **lag-1 commit**: a block is applied into the live
 mutable, but only exposed once the *next* block's footer attests its root hash.
 
 1. Pull `BlockFooter.startOfBlockStateRootHash` from N (cheap reverse scan). Missing →
    `applyHalted=true`, return.
-2. **Hash state 2** (`hashingImmutable`, post-(N-1)) *now* — the single point at which a
-   state is hashed — and **validate** N's start hash against it:
-   - genesis (`lastAppliedBlock < 0`): no state 2; accept iff the footer hash is empty/all-zeros.
-   - otherwise: must equal `hash(post-(N-1))`.
+2. **Join state 2's hash** (`hashingImmutable`, post-(N-1)), started in the background when it
+   was sealed, and **validate** N's start hash against it. State 2 is seeded at boot — with the
+   loaded snapshot if one exists, otherwise with the sealed *empty* `VirtualMap` — so this check
+   has no genesis special case: block 0's footer carries the real hash of empty state (which
+   differs per network/config, e.g. a seeded genesis bootstrap vs. a truly empty map), and this
+   step computes that hash the same way it computes every other block's, rather than assuming
+   it's empty or all-zeros.
    - On mismatch: increment `hashMismatchTotal`, set `applyHalted=true`, log at ERROR, return
      without exposing anything. Further applies short-circuit on `applyHalted`.
      `hashMismatchTotal` is a counter rather than a boolean because it's cumulative over the
@@ -337,20 +345,37 @@ decides whether that scheduled invocation has anything new to write.
 
 ## 7. State change application
 
-`StateChangeApplier` walks block items via PBJ codecs (no manual wire-byte
-parsing) and dispatches each `StateChange` oneof variant to a `BinaryState`
-write call. The wire form of the change carrier is preserved as the canonical
-storage shape, so clients querying the live state get back identical bytes
-they could parse themselves with the same PBJ codecs.
+`BinaryState` (`VirtualMapStateImpl`) tags whatever bytes it's given with its own
+`(stateId << 3 | WIRE_TYPE_DELIMITED)` wrapper — it expects the **raw inner entity payload**,
+not an already-tagged `state_changes` oneof wrapper message. So `StateChangeApplier` walks each
+`state_changes` item at the protobuf wire level (mirroring consensus-node's reference
+`BlockStreamRecoveryWorkflow.BinaryStateChangeApplier`) and extracts just the first delimited
+field — the oneof-selected payload — rather than storing the whole wrapper. PBJ's generated
+oneof accessors only hand back a decoded Java object for whichever variant is set, not that
+variant's raw bytes, so doing this extraction from an already-parsed `StateChange` would need a
+hand-written switch over every oneof variant that silently goes stale as HAPI adds new ones;
+walking the wire format directly needs no such switch.
 
-|         Wire variant         |                BinaryState call                |                Stored bytes                |
-|------------------------------|------------------------------------------------|--------------------------------------------|
-| `SingletonUpdateChange`      | `updateSingleton(stateId, bytes)`              | `SingletonUpdateChange.PROTOBUF.toBytes`   |
-| `MapUpdateChange`            | `updateKv(stateId, keyBytes, valueBytes)`      | `MapChangeKey` / `MapChangeValue` carriers |
-| `MapDeleteChange`            | `removeKv(stateId, keyBytes)`                  | `MapChangeKey` carrier                     |
-| `QueuePushChange`            | `pushQueue(stateId, bytes)`                    | `QueuePushChange.PROTOBUF.toBytes`         |
-| `QueuePopChange`             | `popQueue(stateId)`                            | —                                          |
-| `STATE_ADD` / `STATE_REMOVE` | (skipped — schema events, out of scope for v1) | —                                          |
+|         Wire variant         |                BinaryState call                |                  Stored bytes                   |
+|------------------------------|------------------------------------------------|-------------------------------------------------|
+| `SingletonUpdateChange`      | `updateSingleton(stateId, bytes)`              | the oneof-selected value's own encoded bytes    |
+| `MapUpdateChange`            | `updateKv(stateId, keyBytes, valueBytes)`      | `MapChangeKey`/`MapChangeValue`'s oneof payload |
+| `MapDeleteChange`            | `removeKv(stateId, keyBytes)`                  | `MapChangeKey`'s oneof payload                  |
+| `QueuePushChange`            | `pushQueue(stateId, bytes)`                    | the oneof-selected element's own encoded bytes  |
+| `QueuePopChange`             | `popQueue(stateId)`                            | —                                               |
+| `STATE_ADD` / `STATE_REMOVE` | (skipped — schema events, out of scope for v1) | —                                               |
+
+Token-relationship keys (`stateId == 9`) need no special-casing: this plugin's pinned
+`state_changes.proto` carries that key as `AccountTokenAssociation` (field 25), introduced
+upstream specifically so its field order/types match state's `EntityIDPair` exactly — unlike
+the older `TokenAssociation` encoding (now reserved field 2) that consensus-node's own reference
+applier still remaps for compatibility with older captured chains.
+
+Because stored bytes are now the oneof payload rather than the wrapper carrier, a caller can no
+longer recover the concrete entity type from the bytes alone (the wrapper's field number, which
+disclosed the type, isn't stored) — `getBinary*` callers need that mapping from elsewhere, e.g.
+a `stateId → type` table. This is an open API-surface question for the not-yet-implemented
+`StateService` gRPC query path (§8); it doesn't affect this plugin's own apply-and-store logic.
 
 A malformed `state_changes` item aborts the apply with
 `IllegalStateException`; the plugin treats that as a hard failure for the
@@ -381,32 +406,34 @@ registered as the gRPC service in `init`. Each RPC:
 
 ## 9. Metrics
 
-Current implementation tracks `hashMismatchTotal` as an in-process
-`AtomicLong` (test-visible via `StateManagementPlugin.hashMismatchTotal()`). Full
-metric-registry integration — gauges and histograms below — is not yet
-wired and is parked as a follow-up:
+Registered with the block node's `MetricRegistry` in `init()`, under the `blocknode:` prefix:
 
-|                 Metric                 |   Type    |
-|----------------------------------------|-----------|
-| `applied_block_number`                 | Gauge     |
-| `apply_latency_ms`                     | Histogram |
-| `snapshot_latency_ms`                  | Histogram |
-| `pending_blocks`                       | Gauge     |
-| `catch_up_blocks_total`                | Counter   |
-| `hash_mismatch_total`                  | Counter   |
-| `query_total{kind=kv|singleton|queue}` | Counter   |
+|           Metric            |      Type       |                              Description                              |
+|-----------------------------|-----------------|-----------------------------------------------------------------------|
+| `state_applied_block`       | ObservableGauge | Latest committed (reader-visible) block number applied to live state  |
+| `state_size`                | ObservableGauge | Node count of the latest network-attested state                       |
+| `state_pending_blocks`      | ObservableGauge | Blocks buffered awaiting apply (bounded by `pendingBlocksMax`)        |
+| `state_ready`               | ObservableGauge | `1` once catch-up has completed without halting, else `0`             |
+| `state_apply_halted`        | ObservableGauge | `1` when block apply has halted (e.g. footer hash mismatch), else `0` |
+| `state_apply_latency_ms`    | ObservableGauge | Wall-clock duration of the most recent block apply, in milliseconds   |
+| `state_hash_mismatch_total` | LongCounter     | Cumulative footer hash mismatches observed                            |
+
+`snapshot_latency_ms`/`catch_up_blocks_total`/`query_total{kind=...}` from an earlier draft of
+this table are not implemented — snapshot creation and the query path don't exist yet in this
+plugin (see Roadmap); add them alongside those features.
 
 ## 10. Failure modes
 
-|               Failure                |                                                                    Behaviour                                                                     |
-|--------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|
-| Snapshot dir unreadable at startup   | Log at WARNING, continue with the eagerly-created genesis state; plugin is not failed.                                                           |
-| `startOfBlockStateRootHash` mismatch | Increment `hashMismatchTotal`, set `applyHalted=true`, log at ERROR. Apply loop short-circuits thereafter; further blocks ignored until restart. |
-| Malformed `state_changes` item       | `IllegalStateException` from the applier; plugin refuses to advance metadata for that block.                                                     |
-| Verification gap                     | Block parks in `pendingBlocks` until predecessor arrives (via notification or catch-up); apply loop never advances past a gap.                   |
-| Historical block missing locally     | Catch-up skips it; the same block can arrive via notification later.                                                                             |
-| Snapshot write fails (I/O)           | Log at WARNING; recent dir not deleted; next snapshot cycle retries.                                                                             |
-| Missing-queue query                  | gRPC handler defensively maps NPE from `getQueueState`/`getQueueAsList`/`peekQueue` to `NOT_FOUND`.                                              |
+|                 Failure                  |                                                                                                                        Behaviour                                                                                                                         |
+|------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Snapshot dir unreadable at startup (I/O) | Log at WARNING, continue with the eagerly-created genesis state; plugin is not failed.                                                                                                                                                                   |
+| Snapshot root hash mismatch at startup   | On-disk snapshot's hash doesn't match persisted metadata's `stateRootHash` — treated the same as a block-apply hash mismatch below: halt rather than serve a stale/corrupt snapshot.                                                                     |
+| `startOfBlockStateRootHash` mismatch     | Increment `hashMismatchTotal`, set `applyHalted=true`, log at ERROR. Apply loop short-circuits thereafter; further blocks ignored until restart.                                                                                                         |
+| Malformed `state_changes` item           | `IllegalStateException` from the applier; plugin refuses to advance metadata for that block.                                                                                                                                                             |
+| Verification gap                         | Block parks in `pendingBlocks` until the predecessor arrives (via notification or catch-up); apply loop retries from `historicalBlockProvider` on a delay. `pendingBlocks` is capped (`pendingBlocksMax`) so a long-lived gap can't grow it unboundedly. |
+| Historical block missing locally         | Catch-up skips it; the same block can arrive via notification later.                                                                                                                                                                                     |
+| Snapshot write fails (I/O)               | Log at WARNING; recent dir not deleted; next snapshot cycle retries.                                                                                                                                                                                     |
+| Missing-queue query                      | gRPC handler defensively maps NPE from `getQueueState`/`getQueueAsList`/`peekQueue` to `NOT_FOUND`.                                                                                                                                                      |
 
 ## 11. Acceptance tests
 
