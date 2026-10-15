@@ -607,7 +607,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// @param block the block to apply
     /// @return `true` on successful apply, `false` if rejected (caller leaves it queued)
     private boolean applyBlockStateChanges(@NonNull final BlockUnparsed block) {
-        final long applyStartMs = System.currentTimeMillis();
+        final long applyStartNanos = System.nanoTime();
         // Block number is pulled up-front purely for diagnostics — the apply path below
         // re-parses it from the header as the authoritative value.
         final long incomingBlock = incomingBlockNumberOf(block);
@@ -672,7 +672,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         if (result.roundNumber() >= 0L) {
             lastAppliedRound = result.roundNumber();
         }
-        lastApplyDurationMs = System.currentTimeMillis() - applyStartMs;
+        lastApplyDurationMs = (System.nanoTime() - applyStartNanos) / 1_000_000L;
         return true;
     }
 
