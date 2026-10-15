@@ -13,6 +13,11 @@ import com.hedera.hapi.block.stream.output.QueuePushChange;
 import com.hedera.hapi.block.stream.output.SingletonUpdateChange;
 import com.hedera.hapi.block.stream.output.StateChange;
 import com.hedera.hapi.block.stream.output.StateChanges;
+import com.hedera.hapi.node.base.AccountID;
+import com.hedera.hapi.node.base.AccountTokenAssociation;
+import com.hedera.hapi.node.base.TokenID;
+import com.hedera.hapi.node.state.common.EntityIDPair;
+import com.hedera.pbj.runtime.io.ReadableSequentialData;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.ArrayList;
 import java.util.List;
@@ -52,9 +57,12 @@ class StateChangeApplierTest {
 
         assertThat(result.blockNumber()).isEqualTo(7L);
         assertThat(result.appliedChanges()).isEqualTo(4);
-        assertThat(state.getSingleton(1)).isEqualTo(SingletonUpdateChange.PROTOBUF.toBytes(singleton));
-        assertThat(state.getKv(2, MapChangeKey.PROTOBUF.toBytes(kvKey)))
-                .isEqualTo(MapChangeValue.PROTOBUF.toBytes(kvValue));
+        // BinaryState stores the oneof-selected payload, not the whole wrapper message — see
+        // StateChangeApplier's class doc.
+        assertThat(state.getSingleton(1))
+                .isEqualTo(firstDelimitedFieldPayload(SingletonUpdateChange.PROTOBUF.toBytes(singleton)));
+        assertThat(state.getKv(2, firstDelimitedFieldPayload(MapChangeKey.PROTOBUF.toBytes(kvKey))))
+                .isEqualTo(firstDelimitedFieldPayload(MapChangeValue.PROTOBUF.toBytes(kvValue)));
         assertThat(state.getQueueAsList(3)).hasSize(2);
     }
 
@@ -67,7 +75,8 @@ class StateChangeApplierTest {
                 MapChangeKey.newBuilder().protoBytesKey(Bytes.fromHex("01")).build();
         final MapChangeValue value =
                 MapChangeValue.newBuilder().protoStringValue("v").build();
-        state.updateKv(2, MapChangeKey.PROTOBUF.toBytes(key), MapChangeValue.PROTOBUF.toBytes(value));
+        final Bytes storedKey = firstDelimitedFieldPayload(MapChangeKey.PROTOBUF.toBytes(key));
+        state.updateKv(2, storedKey, firstDelimitedFieldPayload(MapChangeValue.PROTOBUF.toBytes(value)));
         state.pushQueue(3, Bytes.fromHex("0a"));
         state.pushQueue(3, Bytes.fromHex("0b"));
         assertThat(state.size()).isEqualTo(3L);
@@ -76,8 +85,33 @@ class StateChangeApplierTest {
 
         applier.applyBlock(state, block);
 
-        assertThat(state.getKv(2, MapChangeKey.PROTOBUF.toBytes(key))).isNull();
+        assertThat(state.getKv(2, storedKey)).isNull();
         assertThat(state.getQueueAsList(3)).hasSize(1);
+    }
+
+    @Test
+    void tokenRelationshipKeyNeedsNoFieldReorder() {
+        // The current MapChangeKey.token_relationship_key (field 25, AccountTokenAssociation)
+        // already matches EntityIDPair's field order/types — unlike CN's older reference
+        // applier's TokenAssociation remap (which targeted the now-reserved field 2). This
+        // guards against that changing again upstream without us noticing.
+        final InMemoryBinaryState state = new InMemoryBinaryState();
+        final StateChangeApplier applier = new StateChangeApplier();
+
+        final AccountID accountId = AccountID.newBuilder().accountNum(1001).build();
+        final TokenID tokenId = TokenID.newBuilder().tokenNum(2002).build();
+        final MapChangeKey key = MapChangeKey.newBuilder()
+                .tokenRelationshipKey(new AccountTokenAssociation(accountId, tokenId))
+                .build();
+        final MapChangeValue value =
+                MapChangeValue.newBuilder().protoStringValue("associated").build();
+
+        final BlockUnparsed block = buildBlockWithChanges(List.of(mapUpdateChange(9, key, value)));
+        applier.applyBlock(state, block);
+
+        final Bytes expectedKey = EntityIDPair.PROTOBUF.toBytes(new EntityIDPair(accountId, tokenId));
+        assertThat(state.getKv(9, expectedKey))
+                .isEqualTo(firstDelimitedFieldPayload(MapChangeValue.PROTOBUF.toBytes(value)));
     }
 
     @Test
@@ -99,6 +133,19 @@ class StateChangeApplierTest {
     }
 
     // ── Fixtures ───────────────────────────────────────────────────────────
+
+    /// Independent re-implementation of the "first delimited field" extraction a oneof wrapper
+    /// message undergoes in `StateChangeApplier` (not a call into production code), so tests can
+    /// compute the expected stored bytes without hardcoding wire-format byte literals.
+    private static Bytes firstDelimitedFieldPayload(final Bytes wrapperMessageBytes) {
+        final ReadableSequentialData input = wrapperMessageBytes.toReadableSequentialData();
+        final int tag = input.readVarInt(false);
+        if ((tag & 0x7) != 2) {
+            throw new IllegalStateException("Expected a length-delimited field, got wire type " + (tag & 0x7));
+        }
+        final int length = input.readVarInt(false);
+        return input.readBytes(length);
+    }
 
     private static BlockUnparsed buildBlockWithChanges(final List<StateChange> changes) {
         return BlockUnparsed.newBuilder()
