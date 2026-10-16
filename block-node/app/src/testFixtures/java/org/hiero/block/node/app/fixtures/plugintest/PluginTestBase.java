@@ -265,6 +265,13 @@ public abstract class PluginTestBase<
         if (metricsRegistry != null) metricsRegistry.close();
     }
 
+    /**
+     * Get a metric from the metrics registry.
+     *
+     * @param metricKey the key of the metric to get
+     * @param <M> the type of the metric
+     * @return the metric
+     */
     @NonNull
     protected <M extends Metric> M getMetric(MetricKey<M> metricKey) {
         return metricsRegistry.getMetric(metricKey);

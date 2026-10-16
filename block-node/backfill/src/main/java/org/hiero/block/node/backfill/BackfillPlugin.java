@@ -267,7 +267,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         return determineStatus(pendingBackfillBlocks);
     }
 
-    static int determineStatus(AtomicLong pendingBackfillBlocks) {
+    private static int determineStatus(AtomicLong pendingBackfillBlocks) {
         long pending = Math.max(pendingBackfillBlocks.get(), 0);
         final BackfillStatus status = pending > 0 ? BackfillStatus.RUNNING : BackfillStatus.IDLE;
         return status.ordinal();

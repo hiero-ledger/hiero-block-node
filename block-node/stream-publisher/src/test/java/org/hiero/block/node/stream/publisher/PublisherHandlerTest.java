@@ -2946,7 +2946,7 @@ class PublisherHandlerTest {
                 // Assert both sets accepted, no responses
                 assertThat(repliesPipeline.getOnNextCalls()).isEmpty();
                 assertThat(manager.getQueueForBlock(1L)).hasSize(1);
-                assertThat(metrics.flowControlIndividualPauses().get()).isEqualTo(0);
+                assertThat(metrics.disconnectedOversize().get()).isEqualTo(0);
             }
 
             /// Rebuilds the manager and the handler under test with the
