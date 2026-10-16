@@ -4012,4 +4012,10 @@ class LiveStreamPublisherManagerTest {
     private MetricsHolder generateManagerMetrics() {
         return MetricsHolder.createMetrics(newRegistry());
     }
+
+    /// Creates a new [PublisherHandler.MetricsHolder] with default counters for testing.
+    /// These counters could be queried to verify the metrics' states.
+    private PublisherHandler.MetricsHolder generateHandlerMetrics() {
+        return PublisherHandler.MetricsHolder.createMetrics(TestUtils.createMetrics());
+    }
 }

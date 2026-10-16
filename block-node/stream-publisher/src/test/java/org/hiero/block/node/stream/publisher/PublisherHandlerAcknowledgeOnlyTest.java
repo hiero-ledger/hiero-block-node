@@ -11,7 +11,6 @@ import org.hiero.block.api.PublishStreamResponse.BlockAcknowledgement;
 import org.hiero.block.api.PublishStreamResponse.ResponseOneOfType;
 import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
-import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
@@ -36,7 +35,6 @@ class PublisherHandlerAcknowledgeOnlyTest {
 
     private static final long HANDLER_ID = 1L;
 
-    private TestMetricsExporter metricsExporter;
     private TestResponsePipeline<PublishStreamResponse> replies;
     private MetricsHolder metrics;
     private TestStreamPublisherManager manager;
@@ -258,8 +256,6 @@ class PublisherHandlerAcknowledgeOnlyTest {
     }
 
     private MetricsHolder createMetrics() {
-        metricsExporter = new TestMetricsExporter();
-        return MetricsHolder.createMetrics(
-                MetricRegistry.builder().setMetricsExporter(metricsExporter).build());
+        return MetricsHolder.createMetrics(MetricRegistry.builder().build());
     }
 }
