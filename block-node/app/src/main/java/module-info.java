@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import com.swirlds.config.api.ConfigurationExtension;
+import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
@@ -27,6 +28,7 @@ module org.hiero.block.node.app {
     requires static transitive com.github.spotbugs.annotations;
     requires static java.compiler;
 
+    uses ApplicationStateFacility;
     uses BlockMessagingFacility;
     uses BlockNodePlugin;
     uses BlockProviderPlugin;

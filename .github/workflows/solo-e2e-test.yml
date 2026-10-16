@@ -255,7 +255,7 @@ jobs:
           echo "workflow_start=$(date +%s)" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
 
@@ -267,7 +267,7 @@ jobs:
           version: v3.14.4
 
       - name: Setup Kind
-        uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
         with:
           install_only: true
           node_image: kindest/node:v1.31.4@sha256:2cb39f7295fe7eafee0842b1052a599a4fb0f8bcf3f83d96c7f4864c357c6c30
@@ -1008,7 +1008,7 @@ jobs:
           fi
 
       - name: BN Based - SDK TCK Regression Test Report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled()  &&  inputs.run-tck-regression-tests }}
         with:
           name: SDK TCK Regression Test Report-${{ inputs.topology }}
@@ -1160,7 +1160,7 @@ jobs:
       - name: Upload CN Logs
         if: always()
         id: upload_logs_cn
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cn-logs-${{ inputs.topology }}
           path: ${{ env.CN_LOG_FOLDER }}/
@@ -1169,7 +1169,7 @@ jobs:
         if: always()
         continue-on-error: true
         id: upload_logs_bn
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: BN-logs-${{ inputs.topology }}
           path: bn-logs/
@@ -1178,7 +1178,7 @@ jobs:
         if: always()
         continue-on-error: true
         id: upload_logs_mn
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: MN-logs-${{ inputs.topology }}
           path: mn-logs/

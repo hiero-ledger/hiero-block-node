@@ -2,8 +2,6 @@
 import org.hiero.block.node.app.config.AppConfigExtension;
 
 module org.hiero.block.node.app.config {
-    exports org.hiero.block.node.app.config.state;
-
     // export configuration classes to the config module
     exports org.hiero.block.node.app.config to
             com.swirlds.config.impl,

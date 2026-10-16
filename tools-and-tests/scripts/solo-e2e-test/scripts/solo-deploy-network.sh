@@ -167,7 +167,7 @@ WRB_RSA="false"
 
 # Full Block Node plugin list with roster-bootstrap-rsa appended (rsa-wrb mode only).
 # Mirrors charts/block-node-server/values.yaml plugins.names plus roster-bootstrap-rsa.
-readonly WRB_RSA_PLUGIN_NAMES="facility-messaging,block-access-service,health,server-status,stream-publisher,stream-subscriber,block-verification,blocks-file-historic,blocks-file-recent,backfill,roster-bootstrap-rsa"
+readonly WRB_RSA_PLUGIN_NAMES="facility-app-state,facility-messaging,block-access-service,health,server-status,stream-publisher,stream-subscriber,block-verification,blocks-file-historic,blocks-file-recent,backfill,roster-bootstrap-rsa"
 
 # Generated overlay directory (set by deploy_block_nodes, used by deploy_mirror_node)
 OVERLAY_DIR=""

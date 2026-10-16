@@ -2,7 +2,7 @@
 # 2 Consensus Nodes, 3 Block Nodes exercising the lfh, minimal, and all plugin profiles.
 #
 # BN1: lfh profile -- chart-default plugin set; receives live stream from CN1, serves MN.
-# BN2: minimal profile -- only facility-messaging, block-access-service, health, server-status
+# BN2: minimal profile -- only facility-app-state, facility-messaging, block-access-service, health, server-status
 #      plugins; no stream-publisher, no stream-subscriber, no backfill, no block provider.
 #      Fully inert by design -- it can never receive a block by any path.
 # BN3: all profile -- lfh + cloud-storage-archive + cloud-storage-expanded; receives live
