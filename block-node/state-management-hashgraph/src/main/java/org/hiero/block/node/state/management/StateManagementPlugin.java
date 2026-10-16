@@ -535,35 +535,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// sets `stateIsCaughtUp`.
     void catchUpFromHistoricalBlocks() {
         try {
-            final HistoricalBlockFacility historic = context == null ? null : context.historicalBlockProvider();
-            if (historic == null) {
-                return;
-            }
-            final BlockRangeSet available = historic.availableBlocks();
-            if (available == null || available.size() == 0L) {
-                return;
-            }
-            final long latest = available.max();
-            final StateMetadata metadata = attested.metadata();
-            final boolean atGenesis =
-                    metadata.blockNumber() == 0L && metadata.stateRootHash().length() == 0L;
-            final long start = atGenesis ? available.min() : metadata.blockNumber() + 1L;
-            if (start > latest) {
-                return;
-            }
-            final int batchSize = Math.max(1, config.historicCatchUpBatchSize());
-            long cursor = start;
-            while (cursor <= latest && !stopping.get() && !applyHalted.get()) {
-                final long batchEnd = Math.min(cursor + batchSize - 1L, latest);
-                for (long i = cursor; i <= batchEnd; i++) {
-                    if (pendingBlocks.containsKey(i)) {
-                        continue; // already supplied by a verification notification
-                    }
-                    enqueueHistoricalBlock(historic, i);
-                }
-                applyPending();
-                cursor = batchEnd + 1L;
-            }
+            sweepHistoricalBlocks();
         } catch (final RuntimeException e) {
             LOGGER.log(System.Logger.Level.WARNING, "Catch-up failed; plugin remains not ready", e);
         } finally {
@@ -574,6 +546,52 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             } else {
                 stateIsCaughtUp.set(true);
             }
+        }
+    }
+
+    /// Walk forward from the next expected block (same lag-1-aware formula `applyPending` uses:
+    /// `max(lastAppliedBlock, metadata.blockNumber()) + 1`) to whatever `historicalBlockProvider`
+    /// currently has, applying in `historicCatchUpBatchSize` batches via `applyPending`. Shared by
+    /// the one-shot startup catch-up (`catchUpFromHistoricalBlocks`) and by gap recovery while
+    /// live (`retryGap`), so a gap that has grown deep — for example a backlog that built up past
+    /// `pendingBlocksMax` during a slow catch-up — converges in one sweep instead of trickling in
+    /// one block per `GAP_RETRY_DELAY_SECONDS`.
+    ///
+    /// Runs on whichever thread calls it: the apply-worker thread for startup catch-up, or the
+    /// background scheduler thread for gap recovery. Safe either way — `applyPending` serialises
+    /// state mutation via `applyLock` regardless of caller. Package-private (not `private`) so
+    /// tests can drive gap recovery directly rather than waiting on the real
+    /// `GAP_RETRY_DELAY_SECONDS` timer, same as `applyPending`/`catchUpFromHistoricalBlocks`.
+    void sweepHistoricalBlocks() {
+        final HistoricalBlockFacility historic = context == null ? null : context.historicalBlockProvider();
+        if (historic == null) {
+            return;
+        }
+        final BlockRangeSet available = historic.availableBlocks();
+        if (available == null || available.size() == 0L) {
+            return;
+        }
+        final long latest = available.max();
+        final StateMetadata metadata = attested.metadata();
+        final boolean atGenesis = lastAppliedBlock < 0L
+                && metadata.blockNumber() == 0L
+                && metadata.stateRootHash().length() == 0L;
+        final long start = atGenesis ? available.min() : Math.max(lastAppliedBlock, metadata.blockNumber()) + 1L;
+        if (start > latest) {
+            return;
+        }
+        final int batchSize = Math.max(1, config.historicCatchUpBatchSize());
+        long cursor = start;
+        while (cursor <= latest && !stopping.get() && !applyHalted.get()) {
+            final long batchEnd = Math.min(cursor + batchSize - 1L, latest);
+            for (long i = cursor; i <= batchEnd; i++) {
+                if (pendingBlocks.containsKey(i)) {
+                    continue; // already supplied by a verification notification
+                }
+                enqueueHistoricalBlock(historic, i);
+            }
+            applyPending();
+            cursor = batchEnd + 1L;
         }
     }
 
@@ -595,17 +613,26 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         backgroundExecutor.schedule(() -> retryGap(expectedNext), GAP_RETRY_DELAY_SECONDS, TimeUnit.SECONDS);
     }
 
-    /// Re-check a previously missing block: pull it from `historicalBlockProvider` if backfill
-    /// has it by now, then wake the apply worker either way so `applyPending` re-evaluates (and
-    /// reschedules another retry if it is still missing).
+    /// Re-run the historical sweep after a gap: pulls everything `historicalBlockProvider`
+    /// currently has from the next expected block onward, not just the single block that was
+    /// missing when the gap was first detected — a block arriving mid-delay, or several blocks
+    /// having accumulated past `pendingBlocksMax` during a slow catch-up, are both picked up in
+    /// one pass. Wakes the apply worker either way so `applyPending` re-evaluates (and
+    /// reschedules another retry if a block is still genuinely missing from history).
     ///
-    /// @param expectedNext the block number to re-check
+    /// @param expectedNext the block number that was missing when this retry was scheduled (for
+    ///     logging only — the sweep recomputes the live starting point itself)
     private void retryGap(final long expectedNext) {
         gapRetryScheduled.set(false);
-        if (!stopping.get() && !applyHalted.get() && !pendingBlocks.containsKey(expectedNext)) {
-            final HistoricalBlockFacility historic = context == null ? null : context.historicalBlockProvider();
-            if (historic != null) {
-                enqueueHistoricalBlock(historic, expectedNext);
+        if (!stopping.get() && !applyHalted.get()) {
+            try {
+                sweepHistoricalBlocks();
+            } catch (final RuntimeException e) {
+                LOGGER.log(
+                        System.Logger.Level.WARNING,
+                        "Gap-recovery sweep failed starting from block {0}",
+                        expectedNext,
+                        e);
             }
         }
         arrivals.offer(expectedNext);
