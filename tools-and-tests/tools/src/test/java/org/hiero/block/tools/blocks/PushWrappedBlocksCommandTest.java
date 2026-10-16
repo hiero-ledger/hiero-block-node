@@ -12,7 +12,7 @@ import java.util.List;
 import org.hiero.block.tools.blocks.model.BlockArchiveType;
 import org.hiero.block.tools.blocks.model.BlockWriter;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
-import org.hiero.block.tools.utils.Sha384;
+import org.hiero.block.tools.utils.Sha256;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -49,7 +49,7 @@ class PushWrappedBlocksCommandTest {
         BlockWriter.writeBlock(dir, createTestBlock(blockNumber), BlockArchiveType.INDIVIDUAL_FILES);
         try (final BlockStreamBlockHashRegistry registry =
                 new BlockStreamBlockHashRegistry(dir.resolve("blockStreamBlockHashes.bin"))) {
-            registry.addBlock(blockNumber, new byte[Sha384.SHA_384_HASH_SIZE]);
+            registry.addBlock(blockNumber, new byte[Sha256.SHA_256_HASH_SIZE]);
         }
     }
 

@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
-import org.hiero.block.tools.utils.Sha384;
+import org.hiero.block.tools.utils.Sha256;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -20,9 +20,9 @@ class BlockStreamBlockHashRegistryTest {
     @TempDir
     Path tempDir;
 
-    /** Create a 48-byte hash filled with the given byte value. */
+    /** Create a 32-byte hash filled with the given byte value. */
     private static byte[] fakeHash(int value) {
-        byte[] hash = new byte[Sha384.SHA_384_HASH_SIZE];
+        byte[] hash = new byte[Sha256.SHA_256_HASH_SIZE];
         Arrays.fill(hash, (byte) value);
         return hash;
     }
@@ -51,6 +51,72 @@ class BlockStreamBlockHashRegistryTest {
                 assertArrayEquals(EMPTY_TREE_HASH, registry.mostRecentBlockHash());
             }
         });
+    }
+
+    @Test
+    void freshRegistry_writesHeader() throws Exception {
+        Path file = tempDir.resolve("header.bin");
+        try (var registry = new BlockStreamBlockHashRegistry(file)) {
+            assertEquals(-1, registry.highestBlockNumberStored());
+        }
+        assertArrayEquals(BlockStreamBlockHashRegistry.MAGIC, Files.readAllBytes(file));
+    }
+
+    @Test
+    void partialHeader_isResetToCleanHeader() throws Exception {
+        // A crash while writing the header leaves 1-3 bytes; no legacy file is ever this short
+        Path file = tempDir.resolve("partial-header.bin");
+        Files.write(file, new byte[] {'S', '2'});
+        try (var registry = new BlockStreamBlockHashRegistry(file)) {
+            assertEquals(-1, registry.highestBlockNumberStored());
+        }
+        assertArrayEquals(BlockStreamBlockHashRegistry.MAGIC, Files.readAllBytes(file));
+    }
+
+    @Test
+    void truncateToMinusOne_keepsHeader() throws Exception {
+        Path file = tempDir.resolve("truncate-all.bin");
+        try (var registry = new BlockStreamBlockHashRegistry(file)) {
+            registry.addBlock(0, fakeHash(0x01));
+            registry.addBlock(1, fakeHash(0x02));
+            registry.truncateTo(-1);
+            assertEquals(-1, registry.highestBlockNumberStored());
+            assertArrayEquals(EMPTY_TREE_HASH, registry.mostRecentBlockHash());
+        }
+        assertArrayEquals(BlockStreamBlockHashRegistry.MAGIC, Files.readAllBytes(file));
+        // Reopening must accept the file and start from block 0 again
+        try (var registry = new BlockStreamBlockHashRegistry(file)) {
+            assertEquals(-1, registry.highestBlockNumberStored());
+            registry.addBlock(0, fakeHash(0x03));
+            assertArrayEquals(fakeHash(0x03), registry.getBlockHash(0));
+        }
+    }
+
+    // ===== Legacy SHA-384 file tests =====
+
+    /** Write a headerless legacy registry of {@code slots} 48-byte SHA-384 hashes. */
+    private Path writeLegacyRegistry(String name, int slots) throws Exception {
+        Path file = tempDir.resolve(name);
+        byte[] content = new byte[slots * 48];
+        Arrays.fill(content, (byte) 0x11);
+        Files.write(file, content);
+        return file;
+    }
+
+    @Test
+    void legacyRegistry_evenSlotCount_isRejectedAndUnchanged() throws Exception {
+        // 2 legacy slots = 96 bytes, which is also exactly 3 SHA-256 slots, so length alone can't detect it
+        Path file = writeLegacyRegistry("legacy-even.bin", 2);
+        assertThrows(IllegalStateException.class, () -> new BlockStreamBlockHashRegistry(file));
+        assertEquals(96, Files.size(file));
+    }
+
+    @Test
+    void legacyRegistry_oddSlotCount_isRejectedAndNotTruncated() throws Exception {
+        // 3 legacy slots = 144 bytes, which the partial-write check would have truncated to 128
+        Path file = writeLegacyRegistry("legacy-odd.bin", 3);
+        assertThrows(IllegalStateException.class, () -> new BlockStreamBlockHashRegistry(file));
+        assertEquals(144, Files.size(file));
     }
 
     @Test

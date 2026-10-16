@@ -3,6 +3,7 @@ package org.hiero.block.tools.blocks.validation;
 
 import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
+import static org.hiero.block.tools.utils.Sha256.SHA_256_HASH_SIZE;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -17,7 +18,6 @@ import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
-import java.io.RandomAccessFile;
 import java.nio.file.Path;
 import java.util.List;
 import org.hiero.block.internal.BlockUnparsed;
@@ -65,11 +65,8 @@ class HashRegistryValidationTest {
 
         // Write that hash to a registry file
         Path registryPath = tempDir.resolve("blockStreamBlockHashes.bin");
-        try (RandomAccessFile raf = new RandomAccessFile(registryPath.toFile(), "rw")) {
-            raf.write(blockHash);
-        }
-
         BlockStreamBlockHashRegistry registry = new BlockStreamBlockHashRegistry(registryPath);
+        registry.addBlock(0, blockHash);
         HashRegistryValidation validation = new HashRegistryValidation(registry, chainValidation);
         assertDoesNotThrow(() -> validation.validate(toUnparsed(VALID_BLOCK), 0));
         validation.close();
@@ -82,13 +79,10 @@ class HashRegistryValidationTest {
 
         // Write a different (wrong) hash to the registry
         Path registryPath = tempDir.resolve("blockStreamBlockHashes.bin");
-        byte[] wrongHash = new byte[48];
+        byte[] wrongHash = new byte[SHA_256_HASH_SIZE];
         wrongHash[0] = (byte) 0xFF;
-        try (RandomAccessFile raf = new RandomAccessFile(registryPath.toFile(), "rw")) {
-            raf.write(wrongHash);
-        }
-
         BlockStreamBlockHashRegistry registry = new BlockStreamBlockHashRegistry(registryPath);
+        registry.addBlock(0, wrongHash);
         HashRegistryValidation validation = new HashRegistryValidation(registry, chainValidation);
         ValidationException ex =
                 assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(VALID_BLOCK), 0));
@@ -103,11 +97,8 @@ class HashRegistryValidationTest {
         byte[] blockHash = chainValidation.getStagedBlockHash();
 
         Path registryPath = tempDir.resolve("blockStreamBlockHashes.bin");
-        try (RandomAccessFile raf = new RandomAccessFile(registryPath.toFile(), "rw")) {
-            raf.write(blockHash);
-        }
-
         BlockStreamBlockHashRegistry registry = new BlockStreamBlockHashRegistry(registryPath);
+        registry.addBlock(0, blockHash);
         HashRegistryValidation validation = new HashRegistryValidation(registry, chainValidation);
         assertDoesNotThrow(() -> validation.finalize(1, 0));
         validation.close();
@@ -120,11 +111,8 @@ class HashRegistryValidationTest {
         byte[] blockHash = chainValidation.getStagedBlockHash();
 
         Path registryPath = tempDir.resolve("blockStreamBlockHashes.bin");
-        try (RandomAccessFile raf = new RandomAccessFile(registryPath.toFile(), "rw")) {
-            raf.write(blockHash);
-        }
-
         BlockStreamBlockHashRegistry registry = new BlockStreamBlockHashRegistry(registryPath);
+        registry.addBlock(0, blockHash);
         HashRegistryValidation validation = new HashRegistryValidation(registry, chainValidation);
         // Registry has highest block 0, but we claim last block was 5
         ValidationException ex = assertThrows(ValidationException.class, () -> validation.finalize(6, 5));
@@ -135,10 +123,8 @@ class HashRegistryValidationTest {
     @Test
     void doesNotRequireGenesisStart(@TempDir Path tempDir) throws IOException {
         Path registryPath = tempDir.resolve("blockStreamBlockHashes.bin");
-        try (RandomAccessFile raf = new RandomAccessFile(registryPath.toFile(), "rw")) {
-            raf.write(new byte[48]); // dummy
-        }
         BlockStreamBlockHashRegistry registry = new BlockStreamBlockHashRegistry(registryPath);
+        registry.addBlock(0, new byte[SHA_256_HASH_SIZE]); // dummy
         HashRegistryValidation validation = new HashRegistryValidation(registry, new BlockChainValidation());
         assertFalse(validation.requiresGenesisStart());
         validation.close();

@@ -11,6 +11,7 @@ import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
+import org.hiero.block.tools.utils.Sha256;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -20,11 +21,11 @@ import org.jspecify.annotations.Nullable;
  * <p>The jumpstart file contains:
  * <ol>
  *   <li>Block number (long)</li>
- *   <li>Block hash (48 bytes)</li>
- *   <li>Consensus timestamp hash (48 bytes, SHA-384 leaf hash of the block's first consensus timestamp)</li>
- *   <li>Output items tree root hash (48 bytes, streaming merkle root of all output items)</li>
+ *   <li>Block hash (32 bytes)</li>
+ *   <li>Consensus timestamp hash (32 bytes, SHA-256 leaf hash of the block's first consensus timestamp)</li>
+ *   <li>Output items tree root hash (32 bytes, streaming merkle root of all output items)</li>
  *   <li>Leaf count (long)</li>
- *   <li>Hash count (int) followed by that many 48-byte hashes (streaming hasher state)</li>
+ *   <li>Hash count (int) followed by that many 32-byte hashes (streaming hasher state)</li>
  * </ol>
  *
  * <p>This validation only performs work in {@link #finalize(long, long)} because the state
@@ -85,17 +86,25 @@ public final class JumpstartValidation implements BlockValidation {
         StreamingHasher freshHasher = treeValidation.getStreamingHasher();
         try (DataInputStream din = new DataInputStream(Files.newInputStream(jumpstartPath))) {
             long jBlockNum = din.readLong();
-            byte[] jHash = new byte[48];
+            byte[] jHash = new byte[Sha256.SHA_256_HASH_SIZE];
             din.readFully(jHash);
-            byte[] jConsensusTimestampHash = new byte[48];
+            byte[] jConsensusTimestampHash = new byte[Sha256.SHA_256_HASH_SIZE];
             din.readFully(jConsensusTimestampHash);
-            byte[] jOutputItemsTreeRootHash = new byte[48];
+            byte[] jOutputItemsTreeRootHash = new byte[Sha256.SHA_256_HASH_SIZE];
             din.readFully(jOutputItemsTreeRootHash);
             long jLeafCount = din.readLong();
             int jHashCount = din.readInt();
+            // A legacy SHA-384 file (48-byte hashes) never has the size a 32-byte layout expects for its hash count
+            final long expectedSize = Long.BYTES * 2 + Integer.BYTES + (3L + jHashCount) * Sha256.SHA_256_HASH_SIZE;
+            final long actualSize = Files.size(jumpstartPath);
+            if (jHashCount < 0 || actualSize != expectedSize) {
+                throw new ValidationException("jumpstart.bin is " + actualSize + " bytes but a hash count of "
+                        + jHashCount + " needs " + expectedSize
+                        + ". It is probably SHA-384 output from an older CLI version.");
+            }
             List<byte[]> jHashes = new ArrayList<>();
             for (int i = 0; i < jHashCount; i++) {
-                byte[] h = new byte[48];
+                byte[] h = new byte[Sha256.SHA_256_HASH_SIZE];
                 din.readFully(h);
                 jHashes.add(h);
             }

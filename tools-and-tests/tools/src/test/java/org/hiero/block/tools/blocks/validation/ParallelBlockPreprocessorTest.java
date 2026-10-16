@@ -3,6 +3,7 @@ package org.hiero.block.tools.blocks.validation;
 
 import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher.hashBlock;
+import static org.hiero.block.tools.utils.Sha256.SHA_256_HASH_SIZE;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -44,8 +45,8 @@ class ParallelBlockPreprocessorTest {
             BlockItem.newBuilder().recordFile(RecordFileItem.DEFAULT).build();
     private static final BlockItem FOOTER_ITEM = BlockItem.newBuilder()
             .blockFooter(BlockFooter.newBuilder()
-                    .previousBlockRootHash(Bytes.wrap(new byte[48]))
-                    .rootHashOfAllBlockHashesTree(Bytes.wrap(new byte[48]))
+                    .previousBlockRootHash(Bytes.wrap(new byte[SHA_256_HASH_SIZE]))
+                    .rootHashOfAllBlockHashesTree(Bytes.wrap(new byte[SHA_256_HASH_SIZE]))
                     .startOfBlockStateRootHash(Bytes.EMPTY)
                     .build())
             .build();

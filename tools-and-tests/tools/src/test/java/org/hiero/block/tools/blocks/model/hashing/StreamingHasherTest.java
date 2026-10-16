@@ -4,19 +4,25 @@ package org.hiero.block.tools.blocks.model.hashing;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.LEAF_PREFIX;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.TWO_CHILDREN_NODE_PREFIX;
+import static org.hiero.block.tools.utils.Sha256.SHA_256_HASH_SIZE;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
-import org.hiero.block.tools.utils.Sha384;
+import org.hiero.block.tools.utils.Sha256;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -26,7 +32,7 @@ import org.junit.jupiter.api.io.TempDir;
  *
  * <p>These tests verify:
  * <ul>
- *   <li>Correct Merkle tree root hash computation using SHA-384 per design doc</li>
+ *   <li>Correct Merkle tree root hash computation using SHA-256 per design doc</li>
  *   <li>Streaming algorithm behavior matching design doc pseudocode</li>
  *   <li>Proper leaf counting and intermediate state management</li>
  *   <li>State persistence (save/load) functionality</li>
@@ -64,7 +70,7 @@ class StreamingHasherTest {
     @Test
     @DisplayName("Manual tree computation for 7 leaves should match StreamingHasher result")
     void sampleTreeTest() {
-        MessageDigest d = Sha384.sha384Digest();
+        MessageDigest d = Sha256.sha256Digest();
         List<byte[]> leaves = new ArrayList<>();
         for (int i = 0; i < 7; i++) {
             leaves.add(("leaf_" + i).getBytes(StandardCharsets.UTF_8));
@@ -108,8 +114,8 @@ class StreamingHasherTest {
         assertArrayEquals(
                 EMPTY_TREE_HASH,
                 rootHash,
-                "Empty tree root hash should equal EMPTY_TREE_HASH (sha384Hash(new byte[]{0x00}))");
-        assertEquals(48, rootHash.length, "Empty tree hash should be 48 bytes (SHA-384)");
+                "Empty tree root hash should equal EMPTY_TREE_HASH (sha256Hash(new byte[]{0x00}))");
+        assertEquals(SHA_256_HASH_SIZE, rootHash.length, "Empty tree hash should be 32 bytes (SHA-256)");
     }
 
     /**
@@ -156,10 +162,10 @@ class StreamingHasherTest {
     // ========== Single Leaf Tests ==========
 
     /**
-     * Verifies that a single leaf produces a valid SHA-384 hash (48 bytes) as the root.
+     * Verifies that a single leaf produces a valid SHA-256 hash (32 bytes) as the root.
      */
     @Test
-    @DisplayName("Single leaf should produce valid 48-byte SHA-384 root hash")
+    @DisplayName("Single leaf should produce valid 32-byte SHA-256 root hash")
     void testSingleLeaf() {
         StreamingHasher hasher = new StreamingHasher();
         byte[] data = "single leaf".getBytes(StandardCharsets.UTF_8);
@@ -169,7 +175,7 @@ class StreamingHasherTest {
 
         byte[] root = hasher.computeRootHash();
         assertNotNull(root, "Root hash should not be null");
-        assertEquals(48, root.length, "SHA-384 root hash should be 48 bytes");
+        assertEquals(SHA_256_HASH_SIZE, root.length, "SHA-256 root hash should be 32 bytes");
     }
 
     /**
@@ -292,6 +298,30 @@ class StreamingHasherTest {
         assertEquals(originalLeafCount, loaded.leafCount(), "Loaded hasher should have same leaf count as original");
         assertArrayEquals(
                 originalRoot, loaded.computeRootHash(), "Loaded hasher should produce same root hash as original");
+    }
+
+    /**
+     * Verifies that a state file written with 48-byte SHA-384 hashes by an older CLI version is rejected instead of
+     * being parsed as garbage 32-byte hashes, and that the current state is left untouched.
+     */
+    @Test
+    @DisplayName("Loading a legacy SHA-384 state file should fail")
+    void testLoadLegacySha384StateFails() throws Exception {
+        Path legacyFile = tempDir.resolve("legacy_streaming_hasher.bin");
+        byte[] legacyHash = new byte[48];
+        Arrays.fill(legacyHash, (byte) 0x11);
+        try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(legacyFile))) {
+            out.writeLong(3);
+            out.writeInt(2);
+            out.write(legacyHash);
+            out.write(legacyHash);
+        }
+
+        StreamingHasher hasher = new StreamingHasher();
+        hasher.addLeaf("leaf".getBytes(StandardCharsets.UTF_8));
+        IOException ex = assertThrows(IOException.class, () -> hasher.load(legacyFile));
+        assertTrue(ex.getMessage().contains("SHA-384"));
+        assertEquals(1, hasher.leafCount(), "Failed load must not replace the current state");
     }
 
     /**
@@ -425,7 +455,7 @@ class StreamingHasherTest {
 
         byte[] root = hasher.computeRootHash();
         assertNotNull(root, "Root hash should not be null for empty leaf");
-        assertEquals(48, root.length, "Root hash should be 48 bytes (SHA-384) for empty leaf");
+        assertEquals(SHA_256_HASH_SIZE, root.length, "Root hash should be 32 bytes (SHA-256) for empty leaf");
     }
 
     /**
@@ -443,7 +473,7 @@ class StreamingHasherTest {
 
         byte[] root = hasher.computeRootHash();
         assertNotNull(root, "Root hash should not be null for large leaf");
-        assertEquals(48, root.length, "Root hash should be 48 bytes (SHA-384) for large leaf");
+        assertEquals(SHA_256_HASH_SIZE, root.length, "Root hash should be 32 bytes (SHA-256) for large leaf");
     }
 
     /**
@@ -555,7 +585,7 @@ class StreamingHasherTest {
         // Verify root hash is computed correctly
         byte[] root = hasher.computeRootHash();
         assertNotNull(root, "Root hash should not be null");
-        assertEquals(48, root.length, "Root hash should be 48 bytes (SHA-384)");
+        assertEquals(SHA_256_HASH_SIZE, root.length, "Root hash should be 32 bytes (SHA-256)");
     }
 
     /**
@@ -587,7 +617,7 @@ class StreamingHasherTest {
             int leavesToAdd = checkpoint - startCount;
 
             for (int i = 0; i < leavesToAdd; i++) {
-                byte[] randomHash = new byte[48];
+                byte[] randomHash = new byte[SHA_256_HASH_SIZE];
                 Arrays.fill(randomHash, (byte) (i & 0xFF));
                 hasher.addNodeByHash(randomHash);
             }
@@ -628,7 +658,7 @@ class StreamingHasherTest {
     @Test
     @DisplayName("Root computation should fold right-to-left as specified in design doc")
     void testRightToLeftFolding() {
-        MessageDigest d = Sha384.sha384Digest();
+        MessageDigest d = Sha256.sha256Digest();
 
         // Create a 5-leaf tree to demonstrate folding
         byte[][] leafData = new byte[5][];
