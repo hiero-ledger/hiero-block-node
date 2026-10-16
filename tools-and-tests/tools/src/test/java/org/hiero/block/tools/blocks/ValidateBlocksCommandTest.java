@@ -8,6 +8,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.protobuf.CodedOutputStream;
+import com.google.protobuf.WireFormat;
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -591,5 +593,42 @@ class ValidateBlocksCommandTest {
         assertFalse(
                 Files.exists(tempDir.resolve("tss-bootstrap-roster.json")),
                 "tss-bootstrap-roster.json should not be written without a LedgerIdPublication transaction");
+    }
+
+    // ── Duplicate protobuf fields ──
+
+    @Test
+    void duplicateBlockHeaderField_detectedUnlessSkipped() throws Exception {
+        List<Block> blocks = TestBlockFactory.createValidChain(5);
+        writeBlocks(blocks);
+        writeAddressBook();
+
+        // Re-encode the last block with block_header written twice in its first item. The copies are identical and
+        // PBJ keeps the last one, so every other validation sees the original block.
+        Block last = blocks.getLast();
+        List<BlockItem> items = last.items();
+        byte[] headerItem = BlockItem.PROTOBUF.toBytes(items.getFirst()).toByteArray();
+        ByteArrayOutputStream encoded = new ByteArrayOutputStream();
+        CodedOutputStream coded = CodedOutputStream.newInstance(encoded);
+        coded.writeTag(1, WireFormat.WIRETYPE_LENGTH_DELIMITED);
+        coded.writeUInt32NoTag(headerItem.length * 2);
+        coded.writeRawBytes(headerItem);
+        coded.writeRawBytes(headerItem);
+        coded.writeRawBytes(Block.PROTOBUF
+                .toBytes(new Block(items.subList(1, items.size())))
+                .toByteArray());
+        coded.flush();
+        long lastNumber = items.getFirst().blockHeaderOrThrow().number();
+        Files.write(tempDir.resolve(lastNumber + ".blk"), encoded.toByteArray());
+
+        Object[] result = runValidate("--no-resume");
+        String output = (String) result[1];
+        assertTrue((int) result[0] != 0, "Should fail. Output:\n" + output);
+        assertTrue(output.contains("Duplicate Fields"), "Should name the validation. Output:\n" + output);
+        assertTrue(output.contains("block_header"), "Should name the field. Output:\n" + output);
+
+        result = runValidate("--no-resume", "--skip-duplicate-fields");
+        output = (String) result[1];
+        assertEquals(0, (int) result[0], "Should pass when skipped. Output:\n" + output);
     }
 }

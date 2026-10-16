@@ -18,6 +18,7 @@ mainModuleInfo {
     requires("com.hedera.pbj.runtime")
     requires("org.hiero.block.node.base")
     requires("org.hiero.block.protobuf.pbj")
+    requires("org.hiero.block.protobuf.protoc")
     requires("com.fasterxml.jackson.databind")
     requires("com.github.luben.zstd_jni")
     requires("com.google.api.gax")
@@ -26,6 +27,7 @@ mainModuleInfo {
     requires("com.google.cloud.storage")
     requires("com.google.common.jimfs")
     requires("com.google.gson")
+    requires("com.google.protobuf")
     requires("info.picocli")
     requires("io.helidon.common")
     requires("io.helidon.common.socket")
@@ -53,6 +55,10 @@ testModuleInfo {
 }
 
 pbj { generateTestClasses = false }
+
+// This module's own .proto files import nothing, so PBJ must not scan the .proto files packaged
+// in dependency jars. The protoc API jar ships partial sources whose imports cannot be resolved.
+tasks.generatePbjSource { classpath.setFrom() }
 
 tasks.test { maxParallelForks = Runtime.getRuntime().availableProcessors() }
 
