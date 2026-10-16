@@ -18,7 +18,7 @@ who need to know which component versions are required to run together.
 
 Mirror Node versions are tracked from BN 0.41.0 onwards. For version combinations not listed
 here, check the [Block Node releases page](https://github.com/hiero-ledger/hiero-block-node/releases)
-or contact your Hashgraph point of contact.
+or open an issue on the [hiero-block-node repository](https://github.com/hiero-ledger/hiero-block-node/issues).
 
 ---
 
