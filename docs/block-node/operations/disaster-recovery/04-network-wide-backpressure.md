@@ -186,8 +186,3 @@ After the incident is closed: archive CN and BN logs, run a post-mortem within 4
 | No available standby BN              | Pre-stage at least one warm standby BN                                   |
 | State snapshot was stale             | Increase BN snapshot frequency; define RPO                               |
 
----
-
-*Playbook version: 1.0 DRAFT*
-*Source defaults: CN v0.77.2 / BN v0.44.2 (Oct 2026)*
-*Closes: [#3786](https://github.com/hiero-ledger/hiero-block-node/issues/3786)*
