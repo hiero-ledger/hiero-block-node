@@ -4,6 +4,7 @@ package org.hiero.block.node.stream.publisher.fixtures;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hedera.pbj.runtime.grpc.Pipeline;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -61,6 +62,8 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     private final NavigableSet<Long> endOfBlocksReceived = new ConcurrentSkipListSet<>();
     private final NavigableSet<Long> blocksEndedMidBlock = new ConcurrentSkipListSet<>();
     private final ConcurrentMap<Long, Deque<BlockItemSetUnparsed>> queueByBlockMap = new ConcurrentSkipListMap<>();
+    private volatile long latestAckedBlock = -1L;
+    private volatile Bytes latestAckedBlockRootHash = Bytes.EMPTY;
 
     public TestStreamPublisherManager(
             final TestBlockMessagingFacility testBlockMessagingFacility,
@@ -204,11 +207,22 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     public void handlePersisted(final PersistedNotification notification) {
         final long newLastPersistedBlock = notification.blockNumber();
         if (newLastPersistedBlock > latestBlockNumber) {
-            publisherHandlers.forEach(h -> h.sendAcknowledgement(newLastPersistedBlock));
+            publisherHandlers.forEach(h -> h.sendAcknowledgement(newLastPersistedBlock, notification.blockRootHash()));
         } else {
             throw new IllegalStateException(
                     PERSISTED_NOTIFICATION_ILLEGAL_STATE_MESSAGE.formatted(latestBlockNumber, newLastPersistedBlock));
         }
+    }
+
+    @Override
+    public Bytes getLatestAckedBlockRootHash(final long blockNumber) {
+        return blockNumber == latestAckedBlock ? latestAckedBlockRootHash : Bytes.EMPTY;
+    }
+
+    /// Fixture method. Sets the root hash retained for the latest acknowledged block.
+    public void setLatestAckedBlockRootHash(final long blockNumber, final Bytes rootHash) {
+        latestAckedBlock = blockNumber;
+        latestAckedBlockRootHash = Objects.requireNonNull(rootHash);
     }
 
     /// Fixture method to get the number of calls to closeBlock for a handler.

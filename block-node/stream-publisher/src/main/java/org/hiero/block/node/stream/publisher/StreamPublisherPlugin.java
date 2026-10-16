@@ -20,6 +20,7 @@ import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.LongGauge;
+import org.hiero.metrics.ObservableGauge;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
 
@@ -103,6 +104,10 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
             .addCategory(METRICS_CATEGORY);
     public static final MetricKey<LongCounter> METRIC_PUBLISHER_DISCONNECTED_OVERSIZE =
             MetricKey.of("publisher_disconnected_oversize", LongCounter.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<ObservableGauge> METRIC_PUBLISHER_ACTIVE_HANDLERS =
+            MetricKey.of("publisher_active_handlers", ObservableGauge.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<ObservableGauge> METRIC_PUBLISHER_PASSIVE_HANDLERS =
+            MetricKey.of("publisher_passive_handlers", ObservableGauge.class).addCategory(METRICS_CATEGORY);
 
     /// The logger for this class.
     private static final System.Logger LOGGER = System.getLogger(StreamPublisherPlugin.class.getName());

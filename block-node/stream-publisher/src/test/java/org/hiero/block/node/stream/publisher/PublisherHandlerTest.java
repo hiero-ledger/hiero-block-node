@@ -2248,7 +2248,7 @@ class PublisherHandlerTest {
         /// [PublishStreamResponse] response containing the same block number
         /// and increment the `blockAcknowledgementsSent` metric by one.
         /// Verification strategy: Begin from a clean state, invoke
-        /// [PublisherHandler#sendAcknowledgement(long)], then
+        /// [PublisherHandler#sendAcknowledgement(long, Bytes)], then
         /// assert that a single ACK response with the expected block number was produced and metrics updated
         /// accordingly.
         @Nested
@@ -2268,7 +2268,7 @@ class PublisherHandlerTest {
 
                 // Act
                 final long blockNumber = 123L;
-                toTest.sendAcknowledgement(blockNumber);
+                toTest.sendAcknowledgement(blockNumber, Bytes.EMPTY);
 
                 // Assert: single ACK with the same block number
                 assertThat(repliesPipeline.getOnNextCalls())
@@ -2304,8 +2304,8 @@ class PublisherHandlerTest {
                 // Act: two acknowledgements
                 final long b0 = 1L;
                 final long b1 = 2L;
-                toTest.sendAcknowledgement(b0);
-                toTest.sendAcknowledgement(b1);
+                toTest.sendAcknowledgement(b0, Bytes.EMPTY);
+                toTest.sendAcknowledgement(b1, Bytes.EMPTY);
 
                 // Assert: two ACKs in order with correct block numbers
                 assertThat(repliesPipeline.getOnNextCalls()).hasSize(2);
@@ -2350,7 +2350,7 @@ class PublisherHandlerTest {
                     public void clientEndStreamReceived() {}
                 };
                 final PublisherHandler handler = new PublisherHandler(2L, throwingPipeline, metrics, manager, null);
-                handler.sendAcknowledgement(1L);
+                handler.sendAcknowledgement(1L, Bytes.EMPTY);
                 assertThat(metrics.sendResponseFailed().get()).isEqualTo(1);
             }
         }

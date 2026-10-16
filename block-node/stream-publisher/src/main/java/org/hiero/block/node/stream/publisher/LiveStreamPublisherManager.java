@@ -20,6 +20,7 @@ import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_STALL_TIMEOUTS_SENT;
 
 import com.hedera.pbj.runtime.grpc.Pipeline;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import java.util.ArrayList;
@@ -151,6 +152,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private final ConcurrentSkipListMap<Long, Long> activeResendBlocks;
     /// Flow state per handler ID; created in addHandler, removed in removeHandler.
     private final ConcurrentSkipListMap<Long, HandlerFlowState> handlerFlowState;
+    /// The latest acknowledged block together with its root hash, replaced as one value so a
+    /// reader never pairs a hash with a different block number.
+    private final AtomicReference<AckedBlock> latestAckedBlock;
     /// Maps block number to the ID of the handler that currently holds ACCEPT for that block.
     /// An entry is added when a handler wins ACCEPT via registerQueueForBlock().
     /// An entry is removed when endOfBlock() is called for that block, when blockIsEnding()
@@ -192,6 +196,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         activeResendBlocks = new ConcurrentSkipListMap<>();
         activeStreamHandlerByBlock = new ConcurrentSkipListMap<>();
         handlerFlowState = new ConcurrentSkipListMap<>();
+        latestAckedBlock = new AtomicReference<>(AckedBlock.NONE);
         initializeBlockNumbers(storedBlocks);
         scheduleFlowControlRefresh();
         resetIsActive.compareAndSet(true, false);
@@ -259,6 +264,12 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         metrics.currentPublisherCount().set(handlers.size());
         sendPublisherStatusUpdate(UpdateType.PUBLISHER_DISCONNECTED, handlers);
         LOGGER.log(DEBUG, "Removed handler {0}", handlerId);
+    }
+
+    @Override
+    public Bytes getLatestAckedBlockRootHash(final long blockNumber) {
+        final AckedBlock acked = latestAckedBlock.get();
+        return acked.blockNumber() == blockNumber ? acked.rootHash() : Bytes.EMPTY;
     }
 
     @Override
@@ -586,11 +597,16 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                     // acknowledged isn't greater than previous acknowledgement(s).
                     if (blockToAcknowledge >= 0 && blockToAcknowledge > lastPersistedBlockNumber.get()) {
                         // Update internal manager state before sending acknowledgement
+                        // The hash belongs to the notified block, which is not necessarily the block
+                        // acknowledged when a known gap clamps the acknowledgement.
+                        final Bytes rootHash =
+                                blockToAcknowledge == blockNumber ? notification.blockRootHash() : Bytes.EMPTY;
+                        latestAckedBlock.set(new AckedBlock(blockToAcknowledge, rootHash));
                         lastPersistedBlockNumber.set(blockToAcknowledge);
                         handlers.values().parallelStream().unordered().forEach(handler -> {
                             // _Important_, we only need the last persisted block number
                             // all previous blocks are implicitly acknowledged.
-                            handler.sendAcknowledgement(lastPersistedBlockNumber.get());
+                            handler.sendAcknowledgement(blockToAcknowledge, rootHash);
                         });
                         metrics.latestBlockNumberAcknowledged.set(blockToAcknowledge);
                     }
@@ -1463,6 +1479,14 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                     new BlockItems(items, currentBlockNumber, items.getFirst().hasBlockHeader(), endOfBLock);
             publisherManager.serverContext.blockMessaging().sendBlockItems(toSend);
         }
+    }
+
+    /// A block number paired with the root hash it was acknowledged with.
+    ///
+    /// @param blockNumber the acknowledged block number
+    /// @param rootHash the root hash of that block, or [Bytes#EMPTY] when unknown
+    private record AckedBlock(long blockNumber, Bytes rootHash) {
+        static final AckedBlock NONE = new AckedBlock(-1L, Bytes.EMPTY);
     }
 
     /// Metrics for tracking publisher handler activity:

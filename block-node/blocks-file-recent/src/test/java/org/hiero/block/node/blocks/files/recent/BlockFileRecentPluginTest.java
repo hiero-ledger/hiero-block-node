@@ -213,6 +213,24 @@ class BlockFileRecentPluginTest {
         }
 
         /**
+         * Test that the persisted notification carries the root hash of the verified block.
+         */
+        @Test
+        @DisplayName("Test persisted notification carries the verified block root hash")
+        void testPersistedNotificationCarriesBlockRootHash() {
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
+            final Bytes blockHash = Bytes.wrap(new byte[] {1, 2, 3, 4});
+
+            blockMessaging.sendBlockVerification(new VerificationNotification(
+                    true, null, block.number(), blockHash, block.blockUnparsed(), BlockSource.PUBLISHER));
+
+            assertThat(blockMessaging.getSentPersistedNotifications())
+                    .singleElement()
+                    .returns(true, PersistedNotification::succeeded)
+                    .returns(blockHash, PersistedNotification::blockRootHash);
+        }
+
+        /**
          * Test that the plugin does not store a block if verification has
          * failed.
          */

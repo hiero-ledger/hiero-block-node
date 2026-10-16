@@ -46,8 +46,8 @@ public class VerificationHandlingHistoricalBlockFacility implements HistoricalBl
             blockStorage.put(notification.blockNumber(), BlockUtils.toBlock(notification.block()));
             availableBlocks.add(notification.blockNumber());
             context.blockMessaging()
-                    .sendBlockPersisted(
-                            new PersistedNotification(notification.blockNumber(), true, 2_000, notification.source()));
+                    .sendBlockPersisted(new PersistedNotification(
+                            notification.blockNumber(), true, 2_000, notification.source(), notification.blockHash()));
         }
     }
 

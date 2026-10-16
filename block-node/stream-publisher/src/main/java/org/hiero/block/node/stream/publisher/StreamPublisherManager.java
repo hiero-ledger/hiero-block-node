@@ -2,6 +2,7 @@
 package org.hiero.block.node.stream.publisher;
 
 import com.hedera.pbj.runtime.grpc.Pipeline;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import java.util.Deque;
@@ -100,6 +101,14 @@ public interface StreamPublisherManager extends BlockNotificationHandler {
     /// Get the current configuration of the server.
     /// @return The server configuration data.
     ServerConfig serverConfiguration();
+
+    /// Return the root hash retained for the most recently acknowledged block, or [Bytes#EMPTY]
+    /// when the retained hash is for a different block or no hash is known. Callers pass the block
+    /// number they are about to acknowledge, so a hash is never paired with another block.
+    ///
+    /// @param blockNumber the block number the hash must belong to
+    /// @return the root hash of `blockNumber` if it is the latest acknowledged block, else [Bytes#EMPTY]
+    Bytes getLatestAckedBlockRootHash(final long blockNumber);
 
     /// The action to take within the PublisherHandler for a block.
     enum BlockAction {

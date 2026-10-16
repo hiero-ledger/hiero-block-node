@@ -21,6 +21,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Function;
 import org.hiero.block.api.BlockRange;
+import org.hiero.block.api.PublishStreamRequest.AcknowledgeOnly;
 import org.hiero.block.api.PublishStreamRequest.EndStream;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
@@ -3815,6 +3816,130 @@ class LiveStreamPublisherManagerTest {
                         .as("handler 1 must not be shut down after a legit, timely resend")
                         .isZero();
             }
+        }
+    }
+
+    /// Tests for how the [LiveStreamPublisherManager] acknowledges persisted blocks to handlers, including
+    /// the retained root hash of the latest acknowledged block and passive handlers still receiving acks.
+    @Nested
+    @DisplayName("Acknowledgement Root Hash Tests")
+    class AcknowledgementRootHashTests {
+        private LiveStreamPublisherManager toTest;
+
+        @BeforeEach
+        void setup() {
+            toTest = new LiveStreamPublisherManager(generateContext(), generateManagerMetrics(), List.of());
+        }
+
+        @Test
+        @DisplayName("No root hash is retained before anything is acknowledged")
+        void noHashBeforeFirstAck() {
+            assertThat(toTest.getLatestAckedBlockRootHash(-1L)).isEqualTo(Bytes.EMPTY);
+            assertThat(toTest.getLatestAckedBlockRootHash(0L)).isEqualTo(Bytes.EMPTY);
+        }
+
+        @Test
+        @DisplayName("The root hash on a PersistedNotification reaches the Acknowledgement and is retained")
+        void persistedHashReachesAckAndIsRetained() {
+            final TestResponsePipeline<PublishStreamResponse> replies = new TestResponsePipeline<>();
+            toTest.addHandler(replies, generateHandlerMetrics(), null);
+            final Bytes hash = Bytes.wrap(new byte[] {9, 8, 7});
+
+            toTest.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.PUBLISHER, hash));
+
+            assertThat(replies.getOnNextCalls()).hasSize(1);
+            assertThat(replies.getOnNextCalls().get(0).acknowledgement().blockNumber())
+                    .isEqualTo(0L);
+            assertThat(replies.getOnNextCalls().get(0).acknowledgement().blockRootHash())
+                    .isEqualTo(hash);
+            assertThat(toTest.getLatestAckedBlockRootHash(0L)).isEqualTo(hash);
+        }
+
+        @Test
+        @DisplayName("The retained root hash is only returned for the latest acknowledged block")
+        void retainedHashIsForLatestBlockOnly() {
+            toTest.addHandler(new TestResponsePipeline<>(), generateHandlerMetrics(), null);
+            final Bytes first = Bytes.wrap(new byte[] {1});
+            final Bytes second = Bytes.wrap(new byte[] {2});
+
+            toTest.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.PUBLISHER, first));
+            toTest.handlePersisted(new PersistedNotification(1L, true, 0, BlockSource.PUBLISHER, second));
+
+            assertThat(toTest.getLatestBlockNumber()).isEqualTo(1L);
+            assertThat(toTest.getLatestAckedBlockRootHash(1L)).isEqualTo(second);
+            assertThat(toTest.getLatestAckedBlockRootHash(0L)).isEqualTo(Bytes.EMPTY);
+        }
+
+        @Test
+        @DisplayName("A notification that does not advance the acknowledgement does not replace the retained hash")
+        void staleNotificationKeepsRetainedHash() {
+            toTest.addHandler(new TestResponsePipeline<>(), generateHandlerMetrics(), null);
+            final Bytes first = Bytes.wrap(new byte[] {1});
+            toTest.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.PUBLISHER, first));
+
+            toTest.handlePersisted(
+                    new PersistedNotification(0L, true, 0, BlockSource.PUBLISHER, Bytes.wrap(new byte[] {5})));
+
+            assertThat(toTest.getLatestAckedBlockRootHash(0L)).isEqualTo(first);
+        }
+
+        @Test
+        @DisplayName("A notification without a root hash acknowledges with an empty hash")
+        void notificationWithoutHashAcksWithEmptyHash() {
+            final TestResponsePipeline<PublishStreamResponse> replies = new TestResponsePipeline<>();
+            toTest.addHandler(replies, generateHandlerMetrics(), null);
+
+            toTest.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.PUBLISHER));
+
+            assertThat(replies.getOnNextCalls().get(0).acknowledgement().blockRootHash())
+                    .isEqualTo(Bytes.EMPTY);
+            assertThat(toTest.getLatestAckedBlockRootHash(0L)).isEqualTo(Bytes.EMPTY);
+        }
+
+        @Test
+        @DisplayName("An AcknowledgeOnly for an acknowledged block gets the retained hash of the latest block")
+        void acknowledgeOnlyGetsRetainedHash() {
+            final TestResponsePipeline<PublishStreamResponse> replies = new TestResponsePipeline<>();
+            final PublisherHandler handler = toTest.addHandler(replies, generateHandlerMetrics(), null);
+            final Bytes hash = Bytes.wrap(new byte[] {4, 5, 6});
+            toTest.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.PUBLISHER, hash));
+            final int acksBefore = replies.getOnNextCalls().size();
+
+            handler.onNext(PublishStreamRequestUnparsed.newBuilder()
+                    .acknowledgeOnly(
+                            AcknowledgeOnly.newBuilder().blockNumber(0L).build())
+                    .build());
+
+            assertThat(replies.getOnNextCalls()).hasSize(acksBefore + 1);
+            final var ack = replies.getOnNextCalls().getLast().acknowledgement();
+            assertThat(ack.blockNumber()).isEqualTo(0L);
+            assertThat(ack.blockRootHash()).isEqualTo(hash);
+        }
+
+        @Test
+        @DisplayName("Passive handler receives Acknowledgement on next handlePersisted broadcast")
+        void passiveHandlerStillGetsAcksOnPersistedBroadcast() {
+            final PublisherHandler.MetricsHolder handlerMetrics = generateHandlerMetrics();
+            final TestResponsePipeline<PublishStreamResponse> aReplies = new TestResponsePipeline<>();
+            final PublisherHandler handlerA = toTest.addHandler(aReplies, handlerMetrics, null);
+            final TestResponsePipeline<PublishStreamResponse> bReplies = new TestResponsePipeline<>();
+            toTest.addHandler(bReplies, handlerMetrics, null);
+
+            handlerA.onNext(PublishStreamRequestUnparsed.newBuilder()
+                    .acknowledgeOnly(
+                            AcknowledgeOnly.newBuilder().blockNumber(50L).build())
+                    .build());
+            assertThat(aReplies.getOnNextCalls()).isEmpty();
+            assertThat(handlerMetrics.passiveHandlers().get()).isEqualTo(1L);
+            assertThat(handlerMetrics.activeHandlers().get()).isEqualTo(1L);
+
+            toTest.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.PUBLISHER));
+
+            assertThat(bReplies.getOnNextCalls()).hasSize(1);
+            assertThat(aReplies.getOnNextCalls()).hasSize(1);
+            assertThat(aReplies.getOnNextCalls().get(0).response().kind()).isEqualTo(ResponseOneOfType.ACKNOWLEDGEMENT);
+            assertThat(aReplies.getOnNextCalls().get(0).acknowledgement().blockNumber())
+                    .isEqualTo(0L);
         }
     }
 

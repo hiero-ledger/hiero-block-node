@@ -93,10 +93,17 @@ message PublishStreamRequest {
          * to acknowledge.
          * <p>
          * This value SHALL be set to a block number that the Publisher
-         * believes the Block-Node already holds. The Block-Node SHALL
-         * respond with an `Acknowledge` for the named block if the block
-         * is at or before the current latest-acknowledged block, and
-         * SHALL NOT respond with `SKIP` or `DUPLICATE`.
+         * believes the Block-Node already holds.<br/>
+         * When `block_number` is at or before the Block-Node's current
+         * latest-acknowledged block, the Block-Node SHALL respond with an
+         * immediate `Acknowledge` for its latest-acknowledged block, which
+         * implicitly acknowledges `block_number`.<br/>
+         * When `block_number` is greater than the current latest-acknowledged
+         * block, the Block-Node SHALL NOT send an immediate response; the
+         * Publisher receives the regular `Acknowledge` the next time a block
+         * is verified and persisted.<br/>
+         * In either case the Block-Node SHALL NOT respond with `SKIP` or
+         * `DUPLICATE`.
          */
         uint64 block_number = 1;
     }
@@ -293,8 +300,7 @@ message PublishStreamResponse {
          * 0</code>) as "no hash provided", and SHALL NOT reject the
          * acknowledgement on that basis.<br/>
          * Hash width is determined by the block's declared
-         * <code>BlockHashAlgorithm</code> (today <code>SHA2_384</code>, 48
-         * bytes).
+         * <code>BlockHashAlgorithm</code> (<code>SHA2_256</code>, 32 bytes).
          */
         bytes block_root_hash = 2;
     }
