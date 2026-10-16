@@ -575,7 +575,7 @@ The Block Node public API protos live in `protobuf-sources/src/main/proto/block-
 | `block_stream_subscribe_service.proto` | `BlockStreamSubscribeService.subscribeBlockStream` — MN / Tier 2 consumption                                    |
 | `block_access_service.proto`           | `BlockAccessService.getBlock` — random-access single-block retrieval                                            |
 | `node_service.proto`                   | `BlockNodeService.serverStatus` / `serverStatusDetail` — metadata and health                                    |
-| `state_service.proto`                  | `StateService.stateSnapshot` — *(defined; not yet implemented)*                                                 |
+| `state_service.proto`                  | `StateService.getBinaryKV`/`getBinarySingleton`/`getBinaryQueue` — *(defined; not yet implemented)*             |
 | `proof_service.proto`                  | `ProofService` — block content and state proofs *(not yet implemented)*                                         |
 | `reconnect_service.proto`              | `ReconnectService.reconnect()` — provides state + block data to lagging Consensus Nodes *(not yet implemented)* |
 | `network-data.proto`                   | Shared network endpoint message types: `NetworkData`, `NetworkConnection`                                       |
