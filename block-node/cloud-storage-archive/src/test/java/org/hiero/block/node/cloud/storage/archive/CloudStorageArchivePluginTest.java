@@ -41,7 +41,6 @@ import java.util.logging.Logger;
 import java.util.stream.Stream;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
-import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
@@ -1136,8 +1135,7 @@ class CloudStorageArchivePluginTest {
                     TestBlockBuilder.generateBlocksInRange(gs + 5, gs + 5).getFirst());
             assertThat(plugin.tempUploadFutures).containsOnlyKeys((long) gs);
             assertThat(plugin.tempGroupActiveQueues).doesNotContainKey((long) gs);
-            assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_DUPLICATE_BLOCKS_DISCARDED))
-                    .isEqualTo(1L);
+            assertThat(plugin.metricsHolder().duplicateBlocksDiscarded().get()).isEqualTo(1L);
         }
 
         /// Verifies that a genuine in-group duplicate -- a block already drained to the active
@@ -1155,8 +1153,7 @@ class CloudStorageArchivePluginTest {
             // active group.
             sendVerification(TestBlockBuilder.generateBlocksInRange(5, 5).getFirst());
 
-            assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_DUPLICATE_BLOCKS_DISCARDED))
-                    .isEqualTo(1L);
+            assertThat(plugin.metricsHolder().duplicateBlocksDiscarded().get()).isEqualTo(1L);
             assertThat(plugin.tempGroupActiveQueues).isEmpty();
         }
     }
@@ -1350,8 +1347,7 @@ class CloudStorageArchivePluginTest {
 
             assertThat(plugin.tempUploadFutures).isEmpty();
             assertThat(plugin.consolidationFutures).isEmpty();
-            assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_FAILED_TASKS))
-                    .isZero();
+            assertThat(plugin.metricsHolder().failedTasks().get()).isZero();
         }
 
         private void sendVerification(TestBlock block) {
@@ -1641,8 +1637,7 @@ class CloudStorageArchivePluginTest {
             // Blocks 0–3 arrived as retrograde (blockNumber < nextBlockToQueue=4) and were
             // silently discarded before reaching currentGroupPending.
             assertThat(plugin.currentGroupPending).isEmpty();
-            assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_DUPLICATE_BLOCKS_DISCARDED))
-                    .isEqualTo(4L);
+            assertThat(plugin.metricsHolder().duplicateBlocksDiscarded().get()).isEqualTo(4L);
         }
 
         private final List<LongRange> capturedRanges = new ArrayList<>();
@@ -1919,14 +1914,13 @@ class CloudStorageArchivePluginTest {
             assertThat(plugin.tempUploadFutures.get(segmentFirstBlock).isDone()).isFalse();
 
             final long duplicatesBefore =
-                    getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_DUPLICATE_BLOCKS_DISCARDED);
+                    plugin.metricsHolder().duplicateBlocksDiscarded().get();
 
             // Redeliver block 6 — already durable in the old (pre-crash) part, below nextBlockNumber=9.
             sendVerification(TestBlockBuilder.generateBlocksInRange(6, 6).getFirst());
 
             // Discarded as a duplicate — not queued to the resumed task, not double-counted.
-            assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_DUPLICATE_BLOCKS_DISCARDED))
-                    .isEqualTo(duplicatesBefore + 1);
+            assertThat(plugin.metricsHolder().duplicateBlocksDiscarded().get()).isEqualTo(duplicatesBefore + 1);
             assertThat(plugin.tempUploadFutures.get(segmentFirstBlock).isDone()).isFalse();
         }
 
@@ -2191,8 +2185,7 @@ class CloudStorageArchivePluginTest {
             assertThat(plugin.currentUploadFuture).isNull();
             assertThat(plugin.currentGroupPending).isEmpty();
             assertThat(plugin.blocksStash).containsKeys(5L, 6L, 7L, 8L, 9L, 10L);
-            assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_FAILED_TASKS))
-                    .isEqualTo(1L);
+            assertThat(plugin.metricsHolder().failedTasks().get()).isEqualTo(1L);
 
             // Drive the recovery task - empty bucket results in a fresh start.
             executor.executeSerially();
@@ -2327,8 +2320,7 @@ class CloudStorageArchivePluginTest {
             assertThat(plugin.currentUploadFuture).isNull();
             assertThat(plugin.currentGroupPending).isEmpty();
             assertThat(plugin.blocksStash).containsKeys(5L, 6L, 7L, 8L, 9L, 10L);
-            assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_FAILED_TASKS))
-                    .isEqualTo(1L);
+            assertThat(plugin.metricsHolder().failedTasks().get()).isEqualTo(1L);
             assertThat(logHandler.thrownExceptions())
                     .anySatisfy(
                             t -> assertThat(t).isInstanceOf(IOException.class).hasMessage("simulated S3 failure"));
@@ -2382,8 +2374,7 @@ class CloudStorageArchivePluginTest {
             assertThat(plugin.currentUploadFuture).isNull();
             // Block 20 was stashed because recovery is now active.
             assertThat(plugin.blocksStash).containsKey(20L);
-            assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_FAILED_TASKS))
-                    .isEqualTo(1L);
+            assertThat(plugin.metricsHolder().failedTasks().get()).isEqualTo(1L);
             assertThat(logHandler.thrownExceptions())
                     .anySatisfy(t ->
                             assertThat(t).isInstanceOf(IOException.class).hasMessage("simulated temp upload failure"));
@@ -2442,8 +2433,7 @@ class CloudStorageArchivePluginTest {
             sendVerification(TestBlockBuilder.generateBlocksInRange(51, 51).getFirst());
 
             assertThat(plugin.tempUploadFutures).doesNotContainKey(segmentFirstBlock);
-            assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_FAILED_TASKS))
-                    .isEqualTo(1L);
+            assertThat(plugin.metricsHolder().failedTasks().get()).isEqualTo(1L);
         }
 
         /// Verifies that [triggerMidRunRecovery] clears [gapBuffer] and moves its entries to
@@ -2544,8 +2534,7 @@ class CloudStorageArchivePluginTest {
             assertThat(plugin.currentGroupPending).isEmpty();
             assertThat(plugin.gapBuffer).isEmpty();
             assertThat(plugin.blocksStash).containsKeys(2L, 3L, 4L, 5L, 6L, 7L);
-            assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_FAILED_TASKS))
-                    .isEqualTo(1L);
+            assertThat(plugin.metricsHolder().failedTasks().get()).isEqualTo(1L);
 
             // Drive recovery -- empty bucket results in a fresh start.
             executor.executeSerially();
@@ -2627,10 +2616,8 @@ class CloudStorageArchivePluginTest {
             // Trigger checkCompletedUpload() for the just-finished task.
             sendVerification(
                     TestBlockBuilder.generateBlocksInRange(groupSize, groupSize).getFirst());
-            assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_SUCCESSFUL_TASKS))
-                    .isEqualTo(1L);
-            assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_FAILED_TASKS))
-                    .isZero();
+            assertThat(plugin.metricsHolder().successfulTasks().get()).isEqualTo(1L);
+            assertThat(plugin.metricsHolder().failedTasks().get()).isZero();
         }
 
         /// Verifies that two consecutive successful upload tasks increment
@@ -2649,10 +2636,8 @@ class CloudStorageArchivePluginTest {
             // Trigger checkCompletedUpload() for the second completed task.
             sendVerification(TestBlockBuilder.generateBlocksInRange(groupSize * 2, groupSize * 2)
                     .getFirst());
-            assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_SUCCESSFUL_TASKS))
-                    .isEqualTo(2L);
-            assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_FAILED_TASKS))
-                    .isZero();
+            assertThat(plugin.metricsHolder().successfulTasks().get()).isEqualTo(2L);
+            assertThat(plugin.metricsHolder().failedTasks().get()).isZero();
         }
 
         /// Verifies that a failed [StartupRecoveryTask] (due to invalid S3 credentials) causes
@@ -2665,7 +2650,6 @@ class CloudStorageArchivePluginTest {
         @Test
         @DisplayName("Failed recovery task increments failedTasks and leaves successfulTasks at zero")
         void testFailedRecoveryIncrementsFailedTasks() {
-            final TestMetricsExporter exporter = new TestMetricsExporter();
             final ConfigurationBuilder builder =
                     ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
             Map.of(
@@ -2680,7 +2664,7 @@ class CloudStorageArchivePluginTest {
             final TestBlockMessagingFacility failingMessaging = new TestBlockMessagingFacility();
             final BlockNodeContext failingContext = new BlockNodeContext(
                     builder.build(),
-                    MetricRegistry.builder().setMetricsExporter(exporter).build(),
+                    MetricRegistry.builder().build(),
                     new TestHealthFacility(),
                     failingMessaging,
                     new SimpleInMemoryHistoricalBlockFacility(),
@@ -2701,10 +2685,8 @@ class CloudStorageArchivePluginTest {
             final TestBlock block = TestBlockBuilder.generateBlocksInRange(0, 0).getFirst();
             failingMessaging.sendBlockVerification(new VerificationNotification(
                     true, null, block.number(), Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
-            assertThat(exporter.getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_FAILED_TASKS.name()))
-                    .isEqualTo(1L);
-            assertThat(exporter.getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_SUCCESSFUL_TASKS.name()))
-                    .isZero();
+            assertThat(failingPlugin.metricsHolder().failedTasks().get()).isEqualTo(1L);
+            assertThat(failingPlugin.metricsHolder().successfulTasks().get()).isZero();
             assertThat(logHandler.thrownExceptions()).anySatisfy(t -> {
                 assertThat(t).isInstanceOf(S3ResponseException.class);
                 assertThat(((S3ResponseException) t).getResponseStatusCode()).isEqualTo(403);

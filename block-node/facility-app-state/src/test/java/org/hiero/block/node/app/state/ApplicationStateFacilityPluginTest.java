@@ -42,7 +42,6 @@ import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.api.RosterEntry;
 import org.hiero.block.api.TssData;
 import org.hiero.block.api.TssRoster;
-import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
@@ -137,7 +136,6 @@ class ApplicationStateFacilityPluginTest {
         final ApplicationStateFacilityPlugin plugin = new ApplicationStateFacilityPlugin();
         final TestBlockMessagingFacility messaging;
         final TestHistoricalBlockFacility historical = new TestHistoricalBlockFacility();
-        final TestMetricsExporter metricsExporter = new TestMetricsExporter();
         final TestThreadPoolManager<?, ?> threadPoolManager = new TestThreadPoolManager<>(
                 Executors.newSingleThreadExecutor(), Executors.newSingleThreadScheduledExecutor());
         final Configuration configuration;
@@ -174,7 +172,7 @@ class ApplicationStateFacilityPluginTest {
             config = configuration.getConfigData(ApplicationStateConfig.class);
             context = new BlockNodeContext(
                     configuration,
-                    MetricRegistry.builder().setMetricsExporter(metricsExporter).build(),
+                    MetricRegistry.builder().build(),
                     new TestHealthFacility(),
                     messaging,
                     historical,
@@ -324,17 +322,12 @@ class ApplicationStateFacilityPluginTest {
         f.historical.available.add(5, 9);
         f.init();
 
-        assertThat(f.metricsExporter.getMetricValue(
-                        ApplicationStateFacilityPlugin.METRIC_APP_HISTORICAL_OLDEST_BLOCK.name()))
-                .isEqualTo(5);
-        assertThat(f.metricsExporter.getMetricValue(
-                        ApplicationStateFacilityPlugin.METRIC_APP_HISTORICAL_NEWEST_BLOCK.name()))
-                .isEqualTo(9);
+        assertThat(f.context.historicalBlockProvider().availableBlocks().min()).isEqualTo(5);
+        assertThat(f.context.historicalBlockProvider().availableBlocks().max()).isEqualTo(9);
 
         f.historical.available.add(10, 20);
-        assertThat(f.metricsExporter.getMetricValue(
-                        ApplicationStateFacilityPlugin.METRIC_APP_HISTORICAL_NEWEST_BLOCK.name()))
-                .isEqualTo(20);
+
+        assertThat(f.context.historicalBlockProvider().availableBlocks().max()).isEqualTo(20);
     }
 
     @Test

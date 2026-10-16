@@ -23,7 +23,6 @@ import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.api.TssData;
-import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.ApplicationStateFacility;
@@ -41,6 +40,7 @@ import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.block.node.spi.module.SemanticVersionUtility;
+import org.hiero.metrics.core.Metric;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.AfterEach;
@@ -71,8 +71,6 @@ public abstract class PluginTestBase<
     protected final TestThreadPoolManager<E, S> testThreadPoolManager;
     /** The metrics provider for the test. */
     private MetricRegistry metricsRegistry;
-    /** The metrics exporter for the test, used to read metric values. */
-    private final TestMetricsExporter testMetricsExporter = new TestMetricsExporter();
     /** The block node context, for access to core facilities. */
     protected BlockNodeContext blockNodeContext;
     /** The test block messaging facility, for mocking out the messaging service. */
@@ -209,8 +207,7 @@ public abstract class PluginTestBase<
         }
         final Configuration configuration = configurationBuilder.build();
         // create metrics
-        metricsRegistry =
-                MetricRegistry.builder().setMetricsExporter(testMetricsExporter).build();
+        metricsRegistry = MetricRegistry.builder().build();
         // mock health facility
         final HealthFacility healthFacility = new TestHealthFacility();
 
@@ -269,28 +266,15 @@ public abstract class PluginTestBase<
     }
 
     /**
-     * Returns the current value of a metric by its fully-qualified name.
+     * Get a metric from the metrics registry.
      *
-     * <p>The name must match the form used at registration, i.e.
-     * {@code METRICS_CATEGORY + ":" + metricShortName} when {@link MetricKey#addCategory} is used.
-     *
-     * @param metricName the fully-qualified metric name
-     * @return the current long value of the metric
-     * @throws IllegalArgumentException if no metric with the given name exists in the registry
+     * @param metricKey the key of the metric to get
+     * @param <M> the type of the metric
+     * @return the metric
      */
-    protected long getMetricValue(@NonNull final String metricName) {
-        return testMetricsExporter.getMetricValue(metricName);
-    }
-
-    /**
-     * Returns the current value of a metric by its MetricKey.
-     *
-     * @param metricKey the MetricKey identifying the metric
-     * @return the current long value of the metric
-     * @throws IllegalArgumentException if no metric with the given name exists in the registry
-     */
-    protected long getMetricValue(@NonNull final MetricKey<?> metricKey) {
-        return testMetricsExporter.getMetricValue(metricKey.name());
+    @NonNull
+    protected <M extends Metric> M getMetric(MetricKey<M> metricKey) {
+        return metricsRegistry.getMetric(metricKey);
     }
 
     /**

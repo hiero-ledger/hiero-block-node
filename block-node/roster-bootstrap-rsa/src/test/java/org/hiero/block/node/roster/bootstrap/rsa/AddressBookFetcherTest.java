@@ -19,7 +19,6 @@ import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.internal.BlockNodeSource;
 import org.hiero.block.internal.BlockNodeSourceConfig;
-import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.base.client.BlockNodeClient;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,13 +30,10 @@ import org.junit.jupiter.api.Test;
 class AddressBookFetcherTest {
 
     private static RsaRosterBootstrapPlugin.MetricsHolder metricsHolder;
-    private static TestMetricsExporter testMetricsExporter;
 
     @BeforeEach
     void initMetrics() {
-        testMetricsExporter = new TestMetricsExporter();
-        final MetricRegistry metricRegistry =
-                MetricRegistry.builder().setMetricsExporter(testMetricsExporter).build();
+        final MetricRegistry metricRegistry = MetricRegistry.builder().build();
         metricsHolder = RsaRosterBootstrapPlugin.MetricsHolder.create(metricRegistry);
     }
 
@@ -180,7 +176,7 @@ class AddressBookFetcherTest {
 
             fetcher.getRangedNodeAddressBookHistory();
 
-            assertEquals(1, testMetricsExporter.getMetricValue(RsaRosterBootstrapPlugin.METRIC_PEER_REQUESTS.name()));
+            assertEquals(1, metricsHolder.peerRequests().get());
         }
 
         @Test
@@ -205,7 +201,7 @@ class AddressBookFetcherTest {
                     };
 
             assertNull(fetcher.getRangedNodeAddressBookHistory());
-            assertEquals(1, testMetricsExporter.getMetricValue(RsaRosterBootstrapPlugin.METRIC_PEER_ERRORS.name()));
+            assertEquals(1, metricsHolder.peerErrors().get());
             // Client must be evicted so a fresh one is created on next call
             assertTrue(fetcher.nodeClientMap.isEmpty());
         }

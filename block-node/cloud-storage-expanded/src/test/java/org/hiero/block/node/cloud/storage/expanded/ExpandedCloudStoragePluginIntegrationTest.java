@@ -335,17 +335,17 @@ class ExpandedCloudStoragePluginIntegrationTest
 
         assertEquals(
                 1L,
-                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOADS),
+                plugin.metricsHolder().uploadsTotal().get(),
                 "cloud_expanded_total_uploads must be 1 after one successful upload");
         assertEquals(
                 0L,
-                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOAD_FAILURES),
+                plugin.metricsHolder().uploadFailuresTotal().get(),
                 "cloud_expanded_total_upload_failures must be 0 after a successful upload");
         assertTrue(
-                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOADED_BYTES) > 0L,
+                plugin.metricsHolder().uploadBytesTotal().get() > 0L,
                 "cloud_expanded_total_upload_bytes must be positive after a successful upload");
         assertTrue(
-                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_UPLOAD_LATENCY_NS) > 0L,
+                plugin.metricsHolder().uploadLatencyNs().get() > 0L,
                 "cloud_expanded_upload_latency_ns must be positive after a successful upload");
     }
 

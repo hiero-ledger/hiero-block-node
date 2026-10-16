@@ -28,13 +28,11 @@ import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.internal.BlockNodeSource;
 import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.internal.BlockUnparsed;
-import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.logging.TestLogHandler;
 import org.hiero.block.node.base.client.BlockNodeClient;
 import org.hiero.block.node.base.client.BlockStreamSubscribeUnparsedClient;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
-import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -48,7 +46,6 @@ import org.junit.jupiter.api.Timeout;
 class BackfillFetcherTest {
 
     private static BackfillPlugin.MetricsHolder metricsHolder;
-    private static TestMetricsExporter testMetricsExporter;
 
     private static BlockNodeSourceConfig node(String host, int port, int priority) {
         return BlockNodeSourceConfig.newBuilder()
@@ -99,10 +96,7 @@ class BackfillFetcherTest {
 
     private static BackfillPlugin.MetricsHolder createTestMetricsHolder() {
         if (metricsHolder == null) {
-            testMetricsExporter = new TestMetricsExporter();
-            final MetricRegistry metricRegistry = MetricRegistry.builder()
-                    .setMetricsExporter(testMetricsExporter)
-                    .build();
+            final MetricRegistry metricRegistry = MetricRegistry.builder().build();
             metricsHolder = BackfillPlugin.MetricsHolder.createMetrics(metricRegistry, new AtomicLong());
         }
         return metricsHolder;
@@ -177,13 +171,13 @@ class BackfillFetcherTest {
             final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
             final BackfillPlugin.MetricsHolder metrics = createTestMetricsHolder();
 
-            long retriesBefore = getMetricValue(BackfillPlugin.METRIC_BACKFILL_RETRIES);
+            long retriesBefore = metrics.backfillRetries().get();
             BlockNodeClient successClient = mockClientReturning(List.of(createTestBlock(0L), createTestBlock(1L)));
             BackfillFetcher fetcher = createFetcherWithClient(nodeConfig, 3, metrics, successClient);
             assertEquals(
                     2,
                     fetcher.fetchBlocksFromNode(nodeConfig, new LongRange(0, 1)).size());
-            assertEquals(retriesBefore, getMetricValue(BackfillPlugin.METRIC_BACKFILL_RETRIES));
+            assertEquals(retriesBefore, metrics.backfillRetries().get());
         }
 
         @Test
@@ -206,12 +200,12 @@ class BackfillFetcherTest {
             final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
             final BackfillPlugin.MetricsHolder metrics = createTestMetricsHolder();
 
-            long retriesBefore = getMetricValue(BackfillPlugin.METRIC_BACKFILL_RETRIES);
+            long retriesBefore = metrics.backfillRetries().get();
             BlockNodeClient failingClient = mockClientThrowing(new RuntimeException("fail"));
             BackfillFetcher fetcher = createFetcherWithClient(nodeConfig, 2, metrics, failingClient);
             assertTrue(
                     fetcher.fetchBlocksFromNode(nodeConfig, new LongRange(0, 1)).isEmpty());
-            assertEquals(retriesBefore + 1, getMetricValue(BackfillPlugin.METRIC_BACKFILL_RETRIES));
+            assertEquals(retriesBefore + 1, metrics.backfillRetries().get());
         }
 
         private BlockNodeClient mockClientReturning(List<BlockUnparsed> blocks) throws Exception {
@@ -842,9 +836,5 @@ class BackfillFetcherTest {
                 return client;
             }
         };
-    }
-
-    private static long getMetricValue(MetricKey<?> metricKey) {
-        return testMetricsExporter.getMetricValue(metricKey.name());
     }
 }
