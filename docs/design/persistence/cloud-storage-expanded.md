@@ -198,9 +198,12 @@ the S3 client (blank endpoint URL, bad credentials, unreachable endpoint), `s3Cl
 `null` and all `handleVerification` calls are no-ops for the duration of the process
 (`completionService` is always created regardless).
 
-When `retryEnabled` is `true`, `start()` also schedules `retryStagedBlocks()` on a dedicated
-single-thread scheduled executor (`ThreadPoolManager.createSingleThreadScheduledExecutor`) at
-`retryIntervalSeconds` intervals. `stop()` shuts this scheduler down, waits for in-flight uploads
+`start()` creates a dedicated single-thread scheduled executor
+(`ThreadPoolManager.createSingleThreadScheduledExecutor`) and schedules the drain tick
+(`drainTick()`) on it every `DRAIN_INTERVAL_MS` (100 ms); see [Drain tick](#drain-tick). When
+`retryEnabled` is `true`, `start()` also schedules the retry tick (`retryTick()`, which runs
+`retryStagedBlocks()`) on the same executor at `retryIntervalSeconds` intervals. Both ticks catch
+any `RuntimeException`, since one escaping a periodic task cancels all its later runs. `stop()` shuts this scheduler down, waits for in-flight uploads
 to drain, then flushes any block still left in the `RetryBuffer` as a terminal
 `PersistedNotification(succeeded=false)` — since nothing persists across a restart, a block left
 buffered here would otherwise never receive any notification at all.
@@ -221,10 +224,10 @@ file storage.
 2. **Guard**: `notification.success() == false` → skip (log TRACE).
 3. **Guard**: `notification.blockNumber() < 0` → skip (log INFO).
 4. **Guard**: `notification.block() == null` → skip (log INFO).
-5. **Drain**: poll `CompletionService` for any previously completed upload tasks; publish a
-   `PersistedNotification` for each result (success or failure).
-6. Build object key using `buildBlockObjectKey(blockNumber)`.
-7. Submit `SingleBlockStoreTask` to the `CompletionService`.
+5. Build object key using `buildBlockObjectKey(blockNumber)`.
+6. Submit `SingleBlockStoreTask` to the `CompletionService`.
+
+`handleVerification` does not publish results; the [drain tick](#drain-tick) does.
 
 Inside `SingleBlockStoreTask.call()`:
 - Record `uploadStartNs = System.nanoTime()`.
@@ -232,10 +235,30 @@ Inside `SingleBlockStoreTask.call()`:
 - Upload via `S3UploadClient.uploadFile()` directly.
 - Return `UploadResult(blockNumber, status, bytesUploaded, blockSource, uploadDurationNs)`.
 
+### Drain tick
+
+`drainTick()` runs `drainCompletedTasks()` on the scheduler every `DRAIN_INTERVAL_MS` (100 ms).
+Each run polls `CompletionService` for all upload tasks completed so far, stages their results in
+`pendingPublish`, and publishes a `PersistedNotification` for each staged result (success or
+failure) in ascending block-number order. It then processes any completed retry attempts.
+
+- **No wait for the next block:** a block is reported as persisted at most one tick after its
+  upload completes, even if no further `VerificationNotification` arrives. A backfill chunk or
+  the last block before a pause in the live stream would otherwise never be reported, since
+  backfill waits for each chunk to persist before sending the next.
+- **Single drainer:** the scheduler thread is the only thread that drains while the plugin runs,
+  so two drains never interleave. Order is ascending within each drain; across drains it is not
+  enforced. A block that completes in an earlier drain is published before a lower-numbered block
+  that completes in a later one.
+- **Tick stays alive:** an exception escaping a `scheduleWithFixedDelay` task cancels every later
+  run, so `drainTick()` catches any `RuntimeException` and logs WARNING.
+
 ### Shutdown drain (`stop`)
 
-`stop()` unregisters from block notifications, then shuts down the virtual-thread executor
-and waits up to `uploadTimeoutSeconds` for in-flight uploads to complete:
+`stop()` unregisters from block notifications, shuts down the scheduler and waits up to
+`uploadTimeoutSeconds` for a running tick to finish so it doesn't race the final sweep below,
+then shuts down the virtual-thread executor and waits up to `uploadTimeoutSeconds` for in-flight
+uploads to complete:
 
 - `virtualThreadExecutor.shutdown()` — stops accepting new tasks (none expected since
   notification handling was unregistered above).
@@ -258,15 +281,17 @@ block number.
 `uploadFailuresTotal` and logs WARNING. No `PersistedNotification` is sent for this case.
 
 **`publishResult(result)`** — called per staged result in ascending block-number order:
-1. On success: publishes `PersistedNotification(blockNumber, true, 0, blockSource)`; increments
-`uploadsTotal` and `uploadBytesTotal` by `bytesUploaded`.
+Metrics and the pending-retry gauge are updated before the notification is sent, so a consumer
+reacting to the notification sees them already updated.
+1. On success: increments `uploadsTotal` and `uploadBytesTotal` by `bytesUploaded`; then
+publishes `PersistedNotification(blockNumber, true, 0, blockSource)`.
 2. On failure **with** `stagedForRetry == true`: publishes **no** notification yet — logs INFO and
 updates the `cloud_expanded_pending_retry_blocks` gauge. The deferred `succeeded=false` fires
 later, only once retries are exhausted (see [Background retry](#background-retry) below).
 3. On failure **without** `stagedForRetry` (compression error, or retry disabled/staging
-rejected): publishes `PersistedNotification(blockNumber, false, 0, blockSource)` immediately;
-increments `uploadFailuresTotal`, logs INFO.
-4. Always increments `uploadLatencyNs` by `uploadDurationNs`.
+rejected): increments `uploadFailuresTotal`; then publishes
+`PersistedNotification(blockNumber, false, 0, blockSource)` immediately; logs INFO.
+4. Always increments `uploadLatencyNs` by `uploadDurationNs`, first, before any of the above.
 
 ### Background retry
 
@@ -352,6 +377,7 @@ marked **UNHEALTHY** and surfaced appropriately rather than silently degrading.
 sequenceDiagram
     participant MF as MessagingFacility
     participant ECS as ExpandedCloudStoragePlugin
+    participant Sched as Scheduler
     participant CS as CompletionService
     participant Task as SingleBlockStoreTask
     participant S3 as S3UploadClient
@@ -361,7 +387,6 @@ sequenceDiagram
     MF->>ECS: handleVerification(VerificationNotification)
     ECS->>ECS: check s3Client != null
     ECS->>ECS: check success() && blockNumber >= 0 && block != null
-    ECS->>CS: drain completed tasks → publish PersistedNotifications
     ECS->>CS: submit(SingleBlockStoreTask)
     CS->>Task: call()
     Task->>Task: serialize + compress block to ZSTD
@@ -372,6 +397,9 @@ sequenceDiagram
     Bucky-->>S3: (success)
     S3-->>Task: (success)
     Task-->>CS: UploadResult(blockNumber, SUCCESS, bytesUploaded, blockSource, durationNs)
+    Sched->>ECS: drainTick() (every 100 ms)
+    ECS->>CS: poll completed tasks
+    ECS->>MF: sendBlockPersisted(PersistedNotification), ascending within the drain
 ```
 
 ### Class relationships
@@ -402,15 +430,17 @@ classDiagram
         -metricsHolder: MetricsHolder
         -threadPoolManager: ThreadPoolManager
         -retryBuffer: RetryBuffer
-        -retryScheduler: ScheduledExecutorService
+        -scheduler: ScheduledExecutorService
         -retryFutureBlockNumbers: Map~Future, Long~
         +init(context, serviceBuilder)
         +start()
         +stop()
         +handleVerification(notification)
         +buildBlockObjectKey(blockNumber) String
-        ~drainCompletedTasks()
-        ~retryStagedBlocks()
+        -drainCompletedTasks()
+        -drainTick()
+        ~retryTick()
+        -retryStagedBlocks()
         -processCompletedFuture(future)
         -publishResult(result)
         -executeRetry(entry)
@@ -573,7 +603,7 @@ crash the node.
 14. **Deferred notification on buffered failure**: with retry enabled (default), a failed upload
     buffers the compressed bytes in memory and sends **no** `PersistedNotification` yet; the
     `cloud_expanded_pending_retry_blocks` gauge reflects the buffered block.
-15. **Retry recovers a transient failure**: driving `retryStagedBlocks()` after a block that
+15. **Retry recovers a transient failure**: driving `retryTick()` after a block that
     failed once now succeeds → publishes `PersistedNotification(succeeded=true)`, clears
     the buffer, increments `cloud_expanded_retry_success_total`.
 16. **Retry exhaustion**: with `retryMaxAgeSeconds=1`, a retry tick after the block has been
@@ -586,3 +616,10 @@ crash the node.
 19. **stop() flushes pending retries**: any block still in the `RetryBuffer` when `stop()` is
     called is reported as `PersistedNotification(succeeded=false)` before the buffer is
     discarded — since nothing persists across a restart, this is the only chance to report it.
+20. **Evicted block reported as failure**: with `retryMaxPendingBlocks=1`, a second buffered
+    failure evicts the first, which is reported as `PersistedNotification(succeeded=false)` and
+    counted in `cloud_expanded_retry_exhausted_total`.
+21. **Drain tick survives an exception**: a `RuntimeException` from one send does not stop later
+    blocks from being published.
+22. **stop() bounds a hung tick**: with `uploadTimeoutSeconds=1`, `stop()` returns even while a
+    tick is stuck in a send.

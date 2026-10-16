@@ -351,15 +351,11 @@ class ExpandedCloudStoragePluginIntegrationTest
 
     // ---- Private helpers ----------------------------------------------------
 
-    /// Drives the plugin's drain loop and polls until at least {@code expectedCount}
-    /// {@link PersistedNotification}s have been dispatched, or the 30-second timeout elapses.
-    ///
-    /// Uses the package-private {@link ExpandedCloudStoragePlugin#drainCompletedTasks()} so
-    /// tests do not need a second {@code handleVerification} call to flush upload results.
+    /// Polls until at least {@code expectedCount} {@link PersistedNotification}s have been
+    /// dispatched by the plugin's drain tick, or the 30-second timeout elapses.
     private void awaitNotifications(final int expectedCount) throws InterruptedException {
         final long deadline = System.currentTimeMillis() + 30_000L;
         while (System.currentTimeMillis() < deadline) {
-            plugin.drainCompletedTasks();
             if (blockMessaging.getSentPersistedNotifications().size() >= expectedCount) return;
             Thread.sleep(50);
         }

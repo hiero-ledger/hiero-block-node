@@ -13,17 +13,20 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -116,15 +119,11 @@ class ExpandedCloudStoragePluginTest
                 BlockSource.UNKNOWN);
     }
 
-    /// Drives the plugin's drain loop and polls until at least `expectedCount`
-    /// {@link PersistedNotification}s have been dispatched, or the 5-second timeout
-    /// elapses. Uses the package-private
-    /// {@link ExpandedCloudStoragePlugin#drainCompletedTasks()} so tests do not need a
-    /// second `handleVerification` call to flush results.
+    /// Polls until at least `expectedCount` {@link PersistedNotification}s have been dispatched
+    /// by the plugin's drain tick, or the 5-second timeout elapses.
     private void awaitNotifications(final int expectedCount) throws InterruptedException {
         final long deadline = System.currentTimeMillis() + 5_000L;
         while (System.currentTimeMillis() < deadline) {
-            plugin.drainCompletedTasks();
             if (blockMessaging.getSentPersistedNotifications().size() >= expectedCount) return;
             Thread.sleep(10);
         }
@@ -137,10 +136,20 @@ class ExpandedCloudStoragePluginTest
     private void awaitPendingRetryCount(final int expectedCount) throws InterruptedException {
         final long deadline = System.currentTimeMillis() + 5_000L;
         while (System.currentTimeMillis() < deadline) {
-            plugin.drainCompletedTasks();
             if (getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_PENDING_RETRY_BLOCKS)
                     >= expectedCount) return;
             Thread.sleep(10);
+        }
+    }
+
+    /// Runs one retry tick on the plugin's scheduler thread instead of the test thread. The drain
+    /// tick runs on that same thread, so this keeps the plugin's single-thread assumption for
+    /// retry state (see `retryFutureBlockNumbers`) instead of racing the drain tick.
+    private void runRetryTick() throws InterruptedException {
+        try {
+            testThreadPoolManager.scheduledExecutor().submit(plugin::retryTick).get(5, TimeUnit.SECONDS);
+        } catch (final ExecutionException | TimeoutException e) {
+            throw new AssertionError("Retry tick did not complete", e);
         }
     }
 
@@ -683,43 +692,51 @@ class ExpandedCloudStoragePluginTest
     }
 
     @Test
-    @DisplayName("RejectedExecutionException from an already-stopped messaging facility is caught during publish")
-    void rejectedExecutionExceptionDuringPublishIsCaught() throws InterruptedException {
+    @DisplayName("RejectedExecutionException from an already-stopped messaging facility is caught while stop() "
+            + "flushes the retry buffer")
+    void rejectedExecutionExceptionDuringShutdownFlushIsCaught() throws InterruptedException {
         // Simulates BlockNodeApp shutdown ordering: the messaging facility's own stop() runs
-        // before this plugin's, so a late-completing upload's attempt to publish can find the
-        // messaging facility's executor already terminated.
+        // before this plugin's, so stop() flushing still-buffered blocks as failures finds the
+        // messaging facility's executor already terminated. Nothing else guards this path, so
+        // without the catch the first rejection would escape stop() and skip the second block.
+        final AtomicInteger sendAttempts = new AtomicInteger();
         blockMessaging = new TestBlockMessagingFacility() {
             @Override
             public void sendBlockPersisted(final PersistedNotification notification) {
+                sendAttempts.incrementAndGet();
                 throw new RejectedExecutionException("Simulated: messaging facility already stopped");
             }
         };
-        final CapturingS3Client capturing = new CapturingS3Client();
+        final S3UploadClient alwaysFailingClient = new S3UploadClient() {
+            @Override
+            public void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType)
+                    throws UploadException {
+                throw new UploadException("Simulated S3 failure", null);
+            }
+
+            @Override
+            public void close() {}
+        };
         start(
-                new ExpandedCloudStoragePlugin(capturing),
+                new ExpandedCloudStoragePlugin(alwaysFailingClient),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
                         "cloud.storage.expanded.endpointUrl", "http://fake:9000",
                         "cloud.storage.expanded.bucketName", "test-bucket",
                         "cloud.storage.expanded.regionName", "us-east-1"));
 
-        plugin.handleVerification(verifiedNotification(99L, testBlock(99).blockUnparsed()));
+        plugin.handleVerification(verifiedNotification(98L, testBlock(98L).blockUnparsed()));
+        plugin.handleVerification(verifiedNotification(99L, testBlock(99L).blockUnparsed()));
+        awaitPendingRetryCount(2);
+        assertEquals(0, sendAttempts.get(), "staged-for-retry blocks must not be notified before stop()");
 
-        final long deadline = System.currentTimeMillis() + 5_000L;
-        while (System.currentTimeMillis() < deadline && capturing.uploads.isEmpty()) {
-            plugin.drainCompletedTasks();
-            Thread.sleep(10);
-        }
-        // One more drain to process the now-completed upload result.
-        plugin.drainCompletedTasks();
+        plugin.stop();
 
-        assertTrue(
-                blockMessaging.getSentPersistedNotifications().isEmpty(),
-                "Notification delivery was rejected, so nothing should be recorded as sent");
-        assertEquals(
-                1L,
-                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOADS),
-                "uploadsTotal must still be incremented even though notification delivery failed");
+        assertEquals(2, sendAttempts.get(), "stop() must attempt a notification for both buffered blocks");
     }
 
     @Test
@@ -728,8 +745,8 @@ class ExpandedCloudStoragePluginTest
     void notificationsPublishedInAscendingBlockOrder() throws InterruptedException {
         // Two-latch barrier: hold each upload INSIDE uploadFile until both tasks are
         // simultaneously in-flight. This prevents block 7's task from completing before
-        // block 2 is submitted — if block 7 finishes first, handleVerification(2)'s
-        // internal drainCompletedTasks() would publish block 7 ahead of block 2.
+        // block 2 is submitted — if block 7 finishes first, the plugin's drain tick
+        // would publish block 7 ahead of block 2.
         final CountDownLatch uploadsStarted = new CountDownLatch(2);
         final CountDownLatch releaseUploads = new CountDownLatch(1);
         final S3UploadClient barrierClient = new S3UploadClient() {
@@ -767,15 +784,14 @@ class ExpandedCloudStoragePluginTest
         plugin.handleVerification(verifiedNotification(2L, testBlock(2).blockUnparsed()));
 
         // Wait until BOTH uploads are blocked inside uploadFile. At this point neither
-        // task has completed, so the drainCompletedTasks() inside handleVerification(2)
-        // found nothing to publish — the ordering property is now testable.
+        // task has completed, so the drain tick has nothing to publish — the ordering
+        // property is now testable.
         assertTrue(uploadsStarted.await(5, TimeUnit.SECONDS), "Both uploads must start within 5s");
 
         // Release both uploads simultaneously. Both tasks complete (build UploadResult,
-        // queue future) within nanoseconds of each other. awaitNotifications polls with
-        // drainCompletedTasks() until both PersistedNotifications arrive; since both
-        // futures land in the CompletionService at nearly the same moment, a single drain
-        // pass will typically see both and publish them in ascending block-number order.
+        // queue future) within nanoseconds of each other. Since both futures land in the
+        // CompletionService at nearly the same moment, a single drain tick will typically
+        // see both and publish them in ascending block-number order.
         releaseUploads.countDown();
         awaitNotifications(2);
 
@@ -789,6 +805,37 @@ class ExpandedCloudStoragePluginTest
                 7L,
                 notifications.get(1).blockNumber(),
                 "Block 7 must be published second even though it was submitted first");
+    }
+
+    @Test
+    @DisplayName("Every block is reported as persisted without waiting for a later VerificationNotification")
+    void lastBlocksPublishedWithoutFurtherVerification() throws InterruptedException {
+        final CapturingS3Client capturing = new CapturingS3Client();
+        start(
+                new ExpandedCloudStoragePlugin(capturing),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1"));
+
+        // Like a backfill chunk: all verifications arrive before any upload finishes, then nothing
+        // more arrives. No test-side drain either, so only the plugin's own tick can publish.
+        for (long blockNumber = 0; blockNumber < 5; blockNumber++) {
+            plugin.handleVerification(
+                    verifiedNotification(blockNumber, testBlock(blockNumber).blockUnparsed()));
+        }
+        awaitNotifications(5);
+
+        final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+        assertEquals(5, notifications.size(), "All 5 blocks must produce PersistedNotifications");
+        final Set<Long> published = new HashSet<>();
+        for (final PersistedNotification notification : notifications) {
+            assertTrue(notification.succeeded());
+            published.add(notification.blockNumber());
+        }
+        assertEquals(Set.of(0L, 1L, 2L, 3L, 4L), published);
     }
 
     @Test
@@ -1000,7 +1047,7 @@ class ExpandedCloudStoragePluginTest
         assertTrue(blockMessaging.getSentPersistedNotifications().isEmpty());
 
         // Drive the retry tick manually instead of waiting for the real scheduler interval.
-        plugin.retryStagedBlocks();
+        runRetryTick();
         awaitNotifications(1);
 
         final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
@@ -1045,7 +1092,7 @@ class ExpandedCloudStoragePluginTest
 
         // Buffered longer than retryMaxAgeSeconds=1, so the next tick must exhaust it immediately.
         Thread.sleep(1_100);
-        plugin.retryStagedBlocks();
+        runRetryTick();
         awaitNotifications(1);
 
         final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
@@ -1097,7 +1144,7 @@ class ExpandedCloudStoragePluginTest
 
         // Buffered longer than retryMaxAgeSeconds=1, so the Error on this attempt must exhaust it.
         Thread.sleep(1_100);
-        plugin.retryStagedBlocks();
+        runRetryTick();
         awaitNotifications(1);
 
         final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
@@ -1197,8 +1244,7 @@ class ExpandedCloudStoragePluginTest
                 "gauge must reflect the cleared buffered entry");
 
         // The retry scheduler must find nothing left to retry for this block.
-        plugin.retryStagedBlocks();
-        plugin.drainCompletedTasks();
+        runRetryTick();
         assertEquals(
                 1,
                 blockMessaging.getSentPersistedNotifications().size(),
@@ -1206,11 +1252,9 @@ class ExpandedCloudStoragePluginTest
     }
 
     @Test
-    @DisplayName("RejectedExecutionException from an already-stopped messaging facility is caught during a "
-            + "successful retry")
-    void rejectedExecutionExceptionDuringRetrySuccessIsCaught() throws InterruptedException {
-        final AtomicInteger attempt = new AtomicInteger();
-        final S3UploadClient flakyClient = new S3UploadClient() {
+    @DisplayName("A block evicted from a full retry buffer is reported as PersistedNotification(succeeded=false)")
+    void evictedBlockReportedAsFailure() throws InterruptedException {
+        final S3UploadClient alwaysFailingClient = new S3UploadClient() {
             @Override
             public void uploadFile(
                     final String objectKey,
@@ -1218,99 +1262,121 @@ class ExpandedCloudStoragePluginTest
                     final Iterator<byte[]> contentIterable,
                     final String contentType)
                     throws UploadException {
-                if (attempt.getAndIncrement() == 0) {
-                    throw new UploadException("Simulated transient S3 failure", null);
-                }
+                throw new UploadException("Simulated S3 failure", null);
             }
 
             @Override
             public void close() {}
         };
-        blockMessaging = new TestBlockMessagingFacility() {
-            @Override
-            public void sendBlockPersisted(final PersistedNotification notification) {
-                throw new RejectedExecutionException("Simulated: messaging facility already stopped");
-            }
-        };
         start(
-                new ExpandedCloudStoragePlugin(flakyClient),
-                new SimpleInMemoryHistoricalBlockFacility(),
-                Map.of(
-                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
-                        "cloud.storage.expanded.bucketName", "test-bucket",
-                        "cloud.storage.expanded.regionName", "us-east-1"));
-
-        plugin.handleVerification(verifiedNotification(11L, testBlock(11L).blockUnparsed()));
-        awaitPendingRetryCount(1);
-
-        plugin.retryStagedBlocks();
-        final long deadline = System.currentTimeMillis() + 5_000L;
-        while (System.currentTimeMillis() < deadline
-                && getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_PENDING_RETRY_BLOCKS) > 0) {
-            plugin.drainCompletedTasks();
-            Thread.sleep(10);
-        }
-
-        assertTrue(
-                blockMessaging.getSentPersistedNotifications().isEmpty(),
-                "notification delivery was rejected, so nothing should be recorded as sent");
-        assertEquals(
-                1L,
-                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_RETRY_SUCCESS_TOTAL),
-                "retrySuccessTotal must still be incremented even though notification delivery failed");
-    }
-
-    @Test
-    @DisplayName("RejectedExecutionException from an already-stopped messaging facility is caught when retries "
-            + "are exhausted")
-    void rejectedExecutionExceptionDuringRetryExhaustionIsCaught() throws InterruptedException {
-        final S3UploadClient throwingClient = new S3UploadClient() {
-            @Override
-            public void uploadFile(
-                    final String objectKey,
-                    final String storageClass,
-                    final Iterator<byte[]> contentIterable,
-                    final String contentType)
-                    throws UploadException {
-                throw new UploadException("Simulated persistent S3 failure", null);
-            }
-
-            @Override
-            public void close() {}
-        };
-        blockMessaging = new TestBlockMessagingFacility() {
-            @Override
-            public void sendBlockPersisted(final PersistedNotification notification) {
-                throw new RejectedExecutionException("Simulated: messaging facility already stopped");
-            }
-        };
-        start(
-                new ExpandedCloudStoragePlugin(throwingClient),
+                new ExpandedCloudStoragePlugin(alwaysFailingClient),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
                         "cloud.storage.expanded.endpointUrl", "http://fake:9000",
                         "cloud.storage.expanded.bucketName", "test-bucket",
                         "cloud.storage.expanded.regionName", "us-east-1",
-                        "cloud.storage.expanded.retryMaxAgeSeconds", "1"));
+                        "cloud.storage.expanded.retryMaxPendingBlocks", "1"));
 
-        plugin.handleVerification(verifiedNotification(12L, testBlock(12L).blockUnparsed()));
+        plugin.handleVerification(verifiedNotification(10L, testBlock(10L).blockUnparsed()));
         awaitPendingRetryCount(1);
+        assertTrue(blockMessaging.getSentPersistedNotifications().isEmpty());
 
-        Thread.sleep(1_100);
-        plugin.retryStagedBlocks();
+        // The buffer holds one block, so staging block 11 evicts block 10.
+        plugin.handleVerification(verifiedNotification(11L, testBlock(11L).blockUnparsed()));
+        awaitNotifications(1);
+
+        final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+        assertEquals(1, notifications.size(), "only the evicted block must be reported");
+        assertEquals(10L, notifications.getFirst().blockNumber());
+        assertFalse(notifications.getFirst().succeeded(), "an evicted block must be reported as failed");
+        assertEquals(
+                1L, getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_RETRY_EXHAUSTED_TOTAL));
+        assertEquals(1L, getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_PENDING_RETRY_BLOCKS));
+    }
+
+    @Test
+    @DisplayName("A RuntimeException from one send does not stop the drain tick from publishing later blocks")
+    void drainTickSurvivesExceptionFromSend() throws InterruptedException {
+        final AtomicInteger sendAttempts = new AtomicInteger();
+        blockMessaging = new TestBlockMessagingFacility() {
+            @Override
+            public void sendBlockPersisted(final PersistedNotification notification) {
+                if (sendAttempts.getAndIncrement() == 0) {
+                    throw new IllegalStateException("Simulated send failure");
+                }
+                super.sendBlockPersisted(notification);
+            }
+        };
+        start(
+                new ExpandedCloudStoragePlugin(new CapturingS3Client()),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1"));
+
+        plugin.handleVerification(verifiedNotification(1L, testBlock(1L).blockUnparsed()));
         final long deadline = System.currentTimeMillis() + 5_000L;
-        while (System.currentTimeMillis() < deadline
-                && getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_PENDING_RETRY_BLOCKS) > 0) {
-            plugin.drainCompletedTasks();
+        while (sendAttempts.get() == 0 && System.currentTimeMillis() < deadline) {
             Thread.sleep(10);
         }
+        assertEquals(1, sendAttempts.get(), "the first send must have been attempted and thrown");
 
-        assertTrue(
-                blockMessaging.getSentPersistedNotifications().isEmpty(),
-                "notification delivery was rejected, so nothing should be recorded as sent");
+        plugin.handleVerification(verifiedNotification(2L, testBlock(2L).blockUnparsed()));
+        awaitNotifications(1);
+
+        final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+        assertEquals(1, notifications.size(), "a later tick must still publish block 2");
+        assertEquals(2L, notifications.getFirst().blockNumber());
+        assertTrue(notifications.getFirst().succeeded());
+    }
+
+    @Test
+    @DisplayName("stop() returns after uploadTimeoutSeconds even while a tick is stuck in a send")
+    void stopReturnsWhenTickHangs() throws InterruptedException {
+        final CountDownLatch sendEntered = new CountDownLatch(1);
+        final CountDownLatch releaseSend = new CountDownLatch(1);
+        blockMessaging = new TestBlockMessagingFacility() {
+            @Override
+            public void sendBlockPersisted(final PersistedNotification notification) {
+                sendEntered.countDown();
+                try {
+                    releaseSend.await(10, TimeUnit.SECONDS);
+                } catch (final InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                super.sendBlockPersisted(notification);
+            }
+        };
+        start(
+                new ExpandedCloudStoragePlugin(new CapturingS3Client()),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1",
+                        "cloud.storage.expanded.uploadTimeoutSeconds", "1"));
+
+        try {
+            plugin.handleVerification(verifiedNotification(1L, testBlock(1L).blockUnparsed()));
+            assertTrue(sendEntered.await(5, TimeUnit.SECONDS), "the drain tick must enter the send");
+
+            final long startNanos = System.nanoTime();
+            plugin.stop();
+            final Duration elapsed = Duration.ofNanos(System.nanoTime() - startNanos);
+            assertTrue(
+                    elapsed.compareTo(Duration.ofSeconds(5)) < 0,
+                    "stop() must give up on the hung tick after uploadTimeoutSeconds, took " + elapsed);
+        } finally {
+            releaseSend.countDown();
+        }
+
+        // Once released, the stuck tick still delivers its notification.
+        awaitNotifications(1);
+        assertEquals(1, blockMessaging.getSentPersistedNotifications().size());
         assertEquals(
-                1L,
-                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_RETRY_EXHAUSTED_TOTAL),
-                "retryExhaustedTotal must still be incremented even though notification delivery failed");
+                1L, blockMessaging.getSentPersistedNotifications().getFirst().blockNumber());
     }
 }
