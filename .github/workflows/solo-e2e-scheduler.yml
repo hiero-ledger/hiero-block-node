@@ -39,6 +39,18 @@ on:
         description: "Consensus Node version (use 'rc' for latest RC)"
         type: string
         default: ""
+      consensus-node-ref:
+        description: "Consensus Node git ref (branch, tag or SHA) built from source when the CN version is a -SNAPSHOT (default: main)"
+        type: string
+        default: "main"
+      consensus-node-nova-wraps:
+        description: "Whether the CN is on the Nova WRAPS TSS library ('auto' decides from the CN version, or from the source of a CN built from source)"
+        type: choice
+        default: "auto"
+        options:
+          - auto
+          - "true"
+          - "false"
       mirror-node-version:
         description: "Mirror Node version (use 'rc' for latest RC)"
         type: string
@@ -97,6 +109,8 @@ jobs:
       matrix: ${{ steps.config.outputs.matrix }}
       bn-version: ${{ steps.config.outputs.bn_version }}
       cn-version: ${{ steps.config.outputs.cn_version }}
+      cn-ref: ${{ steps.config.outputs.cn_ref }}
+      cn-nova-wraps: ${{ steps.config.outputs.cn_nova_wraps }}
       mn-version: ${{ steps.config.outputs.mn_version }}
       solo-version: ${{ steps.config.outputs.solo_version }}
       relay-version: ${{ steps.config.outputs.relay_version }}
@@ -122,6 +136,7 @@ jobs:
         with:
           sparse-checkout: |
             tools-and-tests/scripts/solo-e2e-test/scripts/resolve-versions.sh
+            tools-and-tests/scripts/solo-e2e-test/scripts/lib/semver.sh
             tools-and-tests/scripts/solo-e2e-test/scripts/wait-for-bn-artifacts.sh
           sparse-checkout-cone-mode: false
 
@@ -162,8 +177,8 @@ jobs:
             daily)
               # Quick validation - single topology smoke test + backfill test
               MATRIX='[
-                {"topology":"single","tests":"smoke-test,tss-signature-transition,wrb-cli-hash-validation,wrb-cli-wrapping-validation"},
-                {"topology":"2cn-2bn-backfill","tests":"tss-signature-transition,full-history-backfill"},
+                {"topology":"single","tests":"smoke-test,tss-block-proofs,wrb-cli-hash-validation,wrb-cli-wrapping-validation"},
+                {"topology":"2cn-2bn-backfill","tests":"tss-block-proofs,full-history-backfill"},
                 {"topology":"single-wrb-rsa","tests":"smoke-test,rsa-roster-verification"},
                 {"topology":"wrb-differential-test","tests":"wrb-differential-test"}
               ]'
@@ -171,14 +186,14 @@ jobs:
             weekend|rc)
               # Full matrix - explicit valid combinations per topology
               MATRIX='[
-                {"topology":"single","tests":"smoke-test,basic-load,high-load,node-restart-resilience,tss-signature-transition,wrb-cli-hash-validation,wrb-cli-wrapping-validation"},
-                {"topology":"paired-3","tests":"smoke-test,basic-load,high-load,tss-signature-transition"},
-                {"topology":"3cn-1bn","tests":"smoke-test,tss-signature-transition"},
-                {"topology":"fan-out-3cn-2bn","tests":"smoke-test,tss-signature-transition"},
-                {"topology":"2cn-2bn-backfill","tests":"tss-signature-transition,full-history-backfill"},
+                {"topology":"single","tests":"smoke-test,basic-load,high-load,node-restart-resilience,tss-block-proofs,wrb-cli-hash-validation,wrb-cli-wrapping-validation"},
+                {"topology":"paired-3","tests":"smoke-test,basic-load,high-load,tss-block-proofs"},
+                {"topology":"3cn-1bn","tests":"smoke-test,tss-block-proofs"},
+                {"topology":"fan-out-3cn-2bn","tests":"smoke-test,tss-block-proofs"},
+                {"topology":"2cn-2bn-backfill","tests":"tss-block-proofs,full-history-backfill"},
                 {"topology":"2cn-2bn-archive","tests":"archive-backfill"},
                 {"topology":"2cn-3bn-plugin-profiles","tests":"plugin-profiles"},
-                {"topology":"7cn-3bn-distributed","tests":"smoke-test,tss-signature-transition"},
+                {"topology":"7cn-3bn-distributed","tests":"smoke-test,tss-block-proofs"},
                 {"topology":"single-wrb-rsa","tests":"smoke-test,rsa-roster-verification"},
                 {"topology":"3cn-2bn-wrb-rsa","tests":"smoke-test,rsa-roster-verification"},
                 {"topology":"wrb-differential-test","tests":"wrb-differential-test"}
@@ -234,6 +249,13 @@ jobs:
             MN_VERSION="${MN_VERSION:-v0.162.0-rc1}"
           fi
 
+          # Consensus Node source ref and Nova WRAPS TSS library override: scheduled runs carry no
+          # inputs, so they keep building CN main and deciding the library automatically.
+          CN_REF="${{ inputs.consensus-node-ref }}"
+          CN_REF="${CN_REF:-main}"
+          CN_NOVA_WRAPS="${{ inputs.consensus-node-nova-wraps }}"
+          CN_NOVA_WRAPS="${CN_NOVA_WRAPS:-auto}"
+
           # Solo CLI version: use input if provided, otherwise default to latest stable
           if [[ -n "${{ inputs.solo-version }}" ]]; then
             SOLO_VERSION="${{ inputs.solo-version }}"
@@ -271,6 +293,8 @@ jobs:
 
           echo "bn_version=${BN_VERSION}" >> "$GITHUB_OUTPUT"
           echo "cn_version=${CN_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "cn_ref=${CN_REF}" >> "$GITHUB_OUTPUT"
+          echo "cn_nova_wraps=${CN_NOVA_WRAPS}" >> "$GITHUB_OUTPUT"
           echo "mn_version=${MN_VERSION}" >> "$GITHUB_OUTPUT"
           echo "solo_version=${SOLO_VERSION}" >> "$GITHUB_OUTPUT"
           echo "relay_version=${RELAY_VERSION}" >> "$GITHUB_OUTPUT"
@@ -290,6 +314,8 @@ jobs:
             echo "| Deployments | ${MATRIX_COUNT} |"
             echo "| BN Version | ${BN_VERSION} |"
             echo "| CN Version | ${CN_VERSION} |"
+            echo "| CN Source Ref (-SNAPSHOT only) | ${CN_REF} |"
+            echo "| CN Nova WRAPS | ${CN_NOVA_WRAPS} |"
             echo "| MN Version | ${MN_VERSION} |"
             echo "| Solo Version | ${SOLO_VERSION} |"
             echo "| Relay Version | ${RELAY_VERSION} |"
@@ -378,6 +404,8 @@ jobs:
       test-definition: ${{ matrix.tests }}
       block-node-version: ${{ needs.configure.outputs.bn-version }}
       consensus-node-version: ${{ needs.configure.outputs.cn-version }}
+      consensus-node-ref: ${{ needs.configure.outputs.cn-ref }}
+      consensus-node-nova-wraps: ${{ needs.configure.outputs.cn-nova-wraps }}
       mirror-node-version: ${{ needs.configure.outputs.mn-version }}
       solo-version: ${{ needs.configure.outputs.solo-version }}
       relay-version: ${{ needs.configure.outputs.relay-version }}

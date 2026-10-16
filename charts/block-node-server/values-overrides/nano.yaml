@@ -19,6 +19,10 @@ blockNode:
     SERVER_SOCKET_SEND_BUFFER_SIZE_BYTES: "131072"
     MESSAGING_BLOCK_ITEM_QUEUE_SIZE: "128"
     MESSAGING_BLOCK_NOTIFICATION_QUEUE_SIZE: "16"
+    # The TSS library verifies block proofs on several native threads; without a cap each grows its own
+    # glibc malloc arena, which adds 60 to 130 MB of native memory. Two arenas keep the node within the
+    # nano envelope (MemoryRegressionTests guards this).
+    MALLOC_ARENA_MAX: "2"
     BACKFILL_FETCH_BATCH_SIZE: "5"
   persistence:
     archive:

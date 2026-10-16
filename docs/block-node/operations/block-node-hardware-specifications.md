@@ -186,7 +186,13 @@ ships with the following defaults:
 | `blockNode.config.JAVA_OPTS` (heap flags) | `-Xms10G -Xmx10G -XX:MaxMetaspaceSize=512m` |
 
 Set the JVM heap (`-Xmx`) to between 75-90% of the container memory limit, leaving the
-remainder for JVM non-heap overhead (metaspace, code cache, native threads). For testnet
+remainder for JVM non-heap overhead (metaspace, code cache, native threads). The TSS library
+that verifies TSS block proofs adds little to that: the Block Node uses its verifier build,
+which leaves out the parameters needed only to construct proofs (the full library loads about
+200 MB of them off heap). Measured on a laptop, a JVM that only verifies TSS block proofs peaks
+around 140 MB resident memory with a 256 MB heap limit. At start the library extracts its native
+libraries (a few MB) into the directory named by the `java.io.tmpdir` system property (`/tmp` by
+default), which must be writable and allow executing mapped files. For testnet
 workloads, a memory limit matching the [recommended VM sizing](#recommended-vm-sizing) above
 (32 GB) is a reasonable starting point:
 

@@ -234,6 +234,7 @@ cp .env.example .env
 | `SOLO_GIT_REF`           | (empty)                  | Branch/tag/SHA when `SOLO_SOURCE=git`                                |
 | `CN_VERSION`             | `main`                   | Consensus Node version (requires `CN_LOCAL_BUILD_PATH`)              |
 | `CN_LOCAL_BUILD_PATH`    | (empty)                  | Built CN `hedera-node/data` dir; required when `CN_VERSION=main`     |
+| `CN_NOVA_WRAPS`          | (empty)                  | `true`/`false`: CN on the Nova WRAPS TSS library; empty: by version  |
 | `MN_VERSION`             | `latest`                 | Mirror Node version                                                  |
 | `BN_VERSION`             | `latest`                 | Block Node version                                                   |
 | `RELAY_VERSION`          | `latest`                 | Relay version                                                        |
@@ -268,7 +269,8 @@ if it is unset. Pin a released tag (`v0.79.0-alpha.1`, `v0.78.0-rc.2`) if you wa
 and don't need the new hashing.
 
 CI does the same thing automatically. When the resolved CN version ends in `-SNAPSHOT`,
-`solo-e2e-test.yml` checks out `hiero-ledger/hiero-consensus-node` at `main`, runs
+`solo-e2e-test.yml` checks out `hiero-ledger/hiero-consensus-node` at the `consensus-node-ref`
+input (default `main`; a CN pull request branch for an interop run), runs
 `./gradlew assemble`, and passes the result as `--cn-local-build-path`. Released tags skip
 the build entirely and fetch the published zip as before, so only SNAPSHOT runs pay the
 build cost.
@@ -301,6 +303,38 @@ longer has to match a published build; Solo explicitly tolerates the mismatch fo
 > **Named CI tags don't work.** Tags like `sdpt-pass-00380` on the CN repo are git-only markers: no
 > build zip is published for them, and Solo's `Templates.prepareReleasePrefix` rejects any tag that
 > isn't dotted semver. Use a real pre-release tag (`v0.79.0-alpha.1`, `v0.78.0-rc.2`) or a local build.
+
+### Consensus Nodes on the Nova WRAPS TSS library
+
+Consensus Nodes that adopt the Nova WRAPS TSS library (hiero-consensus-node#27506, expected in CN
+0.80.0) sign every block, block 0 included, with a single block proof layout, need no WRAPS
+proving key, and no longer define the `tss.wrapsEnabled` and `tss.wrapsProvingKey*` properties.
+WRAPS proving key staging (the ~2 GB `wraps-v1.0.0` tarball handed to Solo with
+`--wraps true --wraps-key-path`, which reaches the CN as `TSS_LIB_WRAPS_ARTIFACTS_PATH` and
+`data/keys/wraps.tar.gz`) and those properties therefore apply only to CNs older than that
+library. The deploy and CN upgrade scripts decide per CN with `cn_needs_wraps_proving_key` in
+`scripts/lib/cn-application-properties.sh`:
+
+- `CN_NOVA_WRAPS=true`: the CN is on the Nova WRAPS library; no proving key is staged and no
+  `tss.wraps*` property is written.
+- `CN_NOVA_WRAPS=false`: the CN predates it; proving key and properties as before.
+- unset (the default): decided by comparing the CN version with `CN_NOVA_WRAPS_MIN_VERSION`
+  (default `0.80.0`, a placeholder until the CN release carrying the library is cut). A
+  pre-release sorts below its release, so `0.80.0-rc.1` counts as older unless
+  `CN_NOVA_WRAPS_MIN_VERSION` is lowered to it.
+
+A CN built from source reports its branch's `version.txt` (CN `main` still reads
+`0.79.0-SNAPSHOT`), which says nothing about the library it carries, so set `CN_NOVA_WRAPS` for a
+local build. In CI, `solo-e2e-test.yml` reads it from the checked-out CN source instead (the
+Nova WRAPS library removed the proving key properties from the CN's `TssConfig`), unless the
+`consensus-node-nova-wraps` input is `true` or `false`. To run against a CN pull request, start
+`solo-e2e-test.yml` with `consensus-node-version: main` and `consensus-node-ref` set to the
+pull request branch.
+
+The `tss-block-proofs` test reads the era from the block proofs and needs no setting.
+`resolve-versions.sh` pairs the eras: a CN from 0.80.0 needs a Block Node from 0.46.0 and a
+Mirror Node from 0.166.0, and a Block Node from 0.46.0 raises the CN to 0.80.0 (all placeholders
+until those releases exist).
 
 ### Command-Line Overrides
 
@@ -581,7 +615,7 @@ Deployment order stays the standard **BN -> CN -> MN** (so Solo wires the Block 
 stream sources on the Consensus Nodes). The `roster-bootstrap-rsa` plugin polls the Mirror Node
 indefinitely until it is reachable, so the Block Node tolerates the Mirror Node starting later.
 
-These topologies do not run the `tss-signature-transition` test; they run `rsa-roster-verification`
+These topologies do not run the `tss-block-proofs` test; they run `rsa-roster-verification`
 instead.
 
 ## CI Integration
@@ -590,23 +624,25 @@ The CI workflow (`.github/workflows/solo-e2e-test.yml`) uses the same scripts as
 
 ### Workflow Inputs
 
-|           Input            |         Default          |                     Description                     |
-|----------------------------|--------------------------|-----------------------------------------------------|
-| `topology`                 | `single`                 | Network topology to deploy                          |
-| `block-node-version`       | `latest`                 | BN version (`latest`, `main`, `rc` or specific tag) |
-| `consensus-node-version`   | `latest`                 | CN version (`latest`, `rc` or specific tag)         |
-| `mirror-node-version`      | `latest`                 | MN version (`latest`, `rc` or specific tag)         |
-| `relay-version`            | `latest`                 | Relay version (`latest` or specific tag)            |
-| `tck-version`              | `latest`                 | TCK-SDK version (`latest` or specific tag)          |
-| `solo-version`             | `0.91.0`                 | Solo CLI version                                    |
-| `tss-enabled`              | `true`                   | Enable TSS on consensus nodes                       |
-| `nlg-enabled`              | `false`                  | Enable NLG load generation                          |
-| `nlg-test-type`            | `CryptoTransferLoadTest` | NLG test class                                      |
-| `nlg-args`                 | `-c 5 -a 10 -tt 300`     | NLG arguments (combined `-c`, `-a`, `-tt`)          |
-| `nlg-max-tps`              | (empty)                  | Optional TPS rate limit                             |
-| `mirror-node-pinger-tps`   | `5`                      | Mirror Node pinger TPS (0 to disable)               |
-| `test-definition`          | `none`                   | Test definitions (comma-separated)                  |
-| `run-tck-regression-tests` | `false`                  | Run TCK-SDK regression tests                        |
+|            Input            |         Default          |                        Description                         |
+|-----------------------------|--------------------------|------------------------------------------------------------|
+| `topology`                  | `single`                 | Network topology to deploy                                 |
+| `block-node-version`        | `latest`                 | BN version (`latest`, `main`, `rc` or specific tag)        |
+| `consensus-node-version`    | `latest`                 | CN version (`latest`, `rc` or specific tag)                |
+| `consensus-node-ref`        | `main`                   | CN git ref built from source for a `-SNAPSHOT` CN          |
+| `consensus-node-nova-wraps` | `auto`                   | CN on the Nova WRAPS TSS library (`auto`, `true`, `false`) |
+| `mirror-node-version`       | `latest`                 | MN version (`latest`, `rc` or specific tag)                |
+| `relay-version`             | `latest`                 | Relay version (`latest` or specific tag)                   |
+| `tck-version`               | `latest`                 | TCK-SDK version (`latest` or specific tag)                 |
+| `solo-version`              | `0.91.0`                 | Solo CLI version                                           |
+| `tss-enabled`               | `true`                   | Enable TSS on consensus nodes                              |
+| `nlg-enabled`               | `false`                  | Enable NLG load generation                                 |
+| `nlg-test-type`             | `CryptoTransferLoadTest` | NLG test class                                             |
+| `nlg-args`                  | `-c 5 -a 10 -tt 300`     | NLG arguments (combined `-c`, `-a`, `-tt`)                 |
+| `nlg-max-tps`               | (empty)                  | Optional TPS rate limit                                    |
+| `mirror-node-pinger-tps`    | `5`                      | Mirror Node pinger TPS (0 to disable)                      |
+| `test-definition`           | `none`                   | Test definitions (comma-separated)                         |
+| `run-tck-regression-tests`  | `false`                  | Run TCK-SDK regression tests                               |
 
 ### Script Flow
 
@@ -715,7 +751,7 @@ task test:validate TEST_FILE=tests/basic-load.yaml
 | `tests/archive-backfill.yaml`             | RFH cloud-only loop, archiving with node replacement                                      |
 | `tests/plugin-profiles.yaml`              | lfh / minimal / all plugin profiles                                                       |
 | `tests/rsa-roster-verification.yaml`      | Blocks verified via the RSA roster (WRB topologies)                                       |
-| `tests/tss-signature-transition.yaml`     | Verify TSS signature transition from Schnorr to WRAPS                                     |
+| `tests/tss-block-proofs.yaml`             | TSS block proofs match one TSS library era (Schnorr then WRAPS, or the Nova layout)       |
 | `tests/wrb-core-validation.yaml`          | WRB core validation - wrapping and serving without Mirror Nodes                           |
 | `tests/wrb-cli-wrapping-validation.yaml`  | Validate WRB CLI wrapping produces blocks identical to CN                                 |
 | `tests/wrb-cli-hash-validation.yaml`      | Validate WRB CLI block hashing matches Consensus Node hashing                             |
@@ -785,6 +821,7 @@ assertions:                      # Validations to run after all events
 | `no-errors`                | Verify no verification errors                                    | `target`, `max_verify_failed`                              |
 | `blocks-increasing`        | Verify blocks are actively flowing                               | `wait_seconds`, `max_attempts`                             |
 | `rsa-roster-verification`  | Verify blocks accepted via the RSA roster (WRB), no RSA failures | `min_rsa_success`                                          |
+| `tss-block-proofs`         | TSS block proofs match one TSS library era (see below)           | `max_block` (default 1000)                                 |
 | `metric-threshold`         | Compare any BN Prometheus metric                                 | `metric`, `comparator`, `value`, `samples`, `wait_seconds` |
 | `block-rate-floor`         | Assert Δblocks/Δtime ≥ floor                                     | `min_rate_per_sec`, `window_seconds`                       |
 | `backfill-triggered`       | Assert backfill log marker observed                              | `grep` (default `"backfill"`), `since_seconds`             |
@@ -797,6 +834,8 @@ assertions:                      # Validations to run after all events
 **Note:** `archive-files-exist` with `min_increase: N` asserts "at least N more objects than the recorded baseline" instead of an absolute count. The baseline is written only by an earlier `archive-files-exist` **event** carrying `record_baseline: true`; with no baseline recorded the assertion fails rather than falling back to an absolute count. `archive-contiguous` derives the object-key segment width from the archive grouping level in `scripts/lib/cloud-storage-overlay.sh`, so it takes no `pad` argument.
 
 **Note:** `no-errors` is strict by default: any `verify_failed`, `verify_errors`, or `stream_errors` fails it. `max_verify_failed: N` raises the tolerance for `verify_failed` **only** -- the other two counters stay at zero. Use it when asserting during TSS warm-up, which takes ~100 blocks to stabilise after a fresh network start (see `tests/plugin-profiles.yaml`). Keep the budget warm-up-sized so a node failing every block still fails the assertion.
+
+**Note:** `tss-block-proofs` reads the TSS library era from the block proofs themselves (the block signature size), so it works with Consensus Nodes on either library. A CN older than the Nova WRAPS TSS library signs with Schnorr first (2920 bytes) and switches to WRAPS (3432 bytes) once its TSS keys settle; the assertion passes once that transition is found and narrowed to the exact block. A CN on the Nova WRAPS library signs every block, block 0 included, with one 13712 byte layout; the assertion passes once 3 sampled blocks (`MONITOR_MIN_NOVA_SAMPLES`, sampled 50 blocks apart) all carry it. A chain mixing the two layouts, or a signature of any other size, fails at once; blocks without a TSS signature (block state proofs, signed record file proofs) are skipped. `task check:signature` runs the same check by hand.
 
 **Note:** The `blocks-increasing` assertion verifies a Block Node is actively receiving blocks. It measures baseline, waits `wait_seconds` (default: 60), verifies increase, retrying up to `max_attempts` (default: 3) times.
 
@@ -867,7 +906,7 @@ CHAOS_ENABLED=true task chaos:install
 
 `task chaos:install` is idempotent - re-running upgrades in place rather than failing.
 
-> **TSS is on by default** (the supported mode). Solo CLI's `--wraps` flag requires CN ≥ v0.74.0-0; `CN_VERSION=latest` is min-enforced by `resolve-versions.sh` to a TSS-capable tag (currently `0.75.0-rc.4`), so `--wraps` deploys cleanly and TSS signatures verify under latency (confirmed: Schnorr→WRAPS transition). Only set `TSS_ENABLED=false` if you pin a `CN_VERSION` below the floor.
+> **TSS is on by default** (the supported mode). Solo CLI's `--wraps` flag requires CN >= v0.74.0-0 and is only passed to CNs older than the Nova WRAPS TSS library (see `CN_NOVA_WRAPS`); `CN_VERSION=latest` is min-enforced by `resolve-versions.sh` to a TSS-capable tag (currently `0.75.0-rc.4`), so `--wraps` deploys cleanly and TSS signatures verify under latency (confirmed by the `tss-block-proofs` check). Only set `TSS_ENABLED=false` if you pin a `CN_VERSION` below the floor.
 
 ### Running a latency test
 

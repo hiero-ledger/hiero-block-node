@@ -4,6 +4,7 @@ package org.hiero.block.node.app.fixtures.plugintest;
 import static java.util.concurrent.locks.LockSupport.parkNanos;
 
 import java.lang.System.Logger.Level;
+import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
@@ -100,7 +101,21 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
      * @return the list of sent block verification notifications
      */
     public List<VerificationNotification> getSentVerificationNotifications(final long awaitNotifications) {
-        final long deadline = System.nanoTime() + NOTIFICATION_AWAIT_TIMEOUT;
+        return getSentVerificationNotifications(awaitNotifications, Duration.ofNanos(NOTIFICATION_AWAIT_TIMEOUT));
+    }
+
+    /**
+     * Get all block verification notifications sent to the block messaging facility.
+     * Await for at least a given number of notifications to arrive, for at most the given time.
+     * Meant for blocks whose verification is slow, such as a chain of TSS signed blocks.
+     *
+     * @param awaitNotifications the number of notifications to wait for
+     * @param timeout the longest time to wait
+     * @return the list of sent block verification notifications
+     */
+    public List<VerificationNotification> getSentVerificationNotifications(
+            final long awaitNotifications, final Duration timeout) {
+        final long deadline = System.nanoTime() + timeout.toNanos();
         while (sentVerificationNotifications.size() < awaitNotifications && System.nanoTime() < deadline) {
             parkNanos(1_000_000L);
         }

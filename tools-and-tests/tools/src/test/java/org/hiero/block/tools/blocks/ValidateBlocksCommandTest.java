@@ -572,7 +572,8 @@ class ValidateBlocksCommandTest {
 
         TssData parsed = standardParse(TssData.PROTOBUF, Bytes.wrap(Files.readAllBytes(binPath)));
         assertEquals(ledgerId, parsed.ledgerId());
-        assertEquals(wrapsVerificationKey, parsed.wrapsVerificationKey());
+        assertEquals(
+                Bytes.EMPTY, parsed.wrapsVerificationKey(), "the publication key is no longer carried into TssData");
     }
 
     @Test

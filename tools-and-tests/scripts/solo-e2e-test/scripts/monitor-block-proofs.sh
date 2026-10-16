@@ -1,14 +1,29 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 #
-# Finds the Schnorr → WRAPS signature transition in block proofs.
+# Checks the TSS block proofs a Block Node serves, for Consensus Nodes on either TSS
+# library era.
 #
-# Scans blocks every 50, waits if the network hasn't produced them yet,
-# and binary-searches for the exact transition block once WRAPS is detected.
+# Scans blocks every STEP, waits if the network hasn't produced them yet, and classifies
+# each signed TSS block proof by the size of its signature
+# (TssSignedBlockProof.block_signature):
 #
-# Proof sizes (TssSignedBlockProof.block_signature):
-#   Schnorr: ~2,920 bytes (pre-settled TSS)
-#   WRAPS:   ~3,432 bytes (post-settled TSS)
+#   NOVA     13,712 bytes            Nova WRAPS library: one layout on every signed block,
+#                                    block 0 included
+#   SCHNORR  2,920 to 2,929 bytes    older library, before the TSS keys settle
+#   WRAPS    3,430 to 3,439 bytes    older library, after the TSS keys settle
+#   UNKNOWN  any other size
+#
+# Blocks without a TSS signature (block state proofs, signed record file proofs) are
+# skipped. The first signed proof sampled decides the era:
+#
+#   older library  passes once the Schnorr then WRAPS transition is found; the exact
+#                  transition block is then narrowed with a binary search.
+#   Nova library   passes once MONITOR_MIN_NOVA_SAMPLES sampled blocks all carry the Nova
+#                  layout; there is no transition to wait for.
+#
+# A mix of the Nova layout and an older one, or a signature of any other size, fails at
+# once. Reaching max-block before either pass condition holds fails too.
 #
 # Usage:
 #   ./monitor-block-proofs.sh <proto-path> [grpc-endpoint] [max-block] [port-forward-cmd]
@@ -16,7 +31,7 @@
 # Arguments:
 #   proto-path        Path to extracted protobuf files (required)
 #   grpc-endpoint     Block Node gRPC endpoint (default: localhost:40840)
-#   max-block         Stop and fail if this block is reached without WRAPS.
+#   max-block         Stop and fail if this block is reached before the check is conclusive.
 #                     Blocks are produced every ~2s; the script waits patiently
 #                     for each block to become available. Also enforces a hard
 #                     wall-clock timeout of max_block*2 seconds. (default: 0 = no limit)
@@ -24,12 +39,20 @@
 #                     When provided, a connection error triggers this command and retries
 #                     instead of failing immediately (max 3 restarts).
 #
+# Environment:
+#   MONITOR_BLOCK_STEP        Scan stride in blocks (default: 50)
+#   MONITOR_MIN_NOVA_SAMPLES  Sampled blocks that must carry the Nova layout before the
+#                             Nova era passes (default: 3)
+#
 # Exit codes:
-#   0  WRAPS transition found (including a hard-timeout hit after WRAPS was observed:
-#      the transition is real, only its exact block number went unnarrowed)
-#   1  max-block reached without WRAPS, or error
+#   0  older library: Schnorr then WRAPS transition found (including a hard-timeout hit
+#      after WRAPS was observed: the transition is real, only its exact block number went
+#      unnarrowed); Nova library: MONITOR_MIN_NOVA_SAMPLES sampled blocks carry the Nova layout
+#   1  max-block reached before the check was conclusive, or error
 #   2  connection error with no port-forward-cmd provided
-#   3  hard wall-clock timeout (max_block*2) hit before WRAPS was ever observed
+#   3  hard wall-clock timeout (max_block*2) hit before the check was conclusive
+#   4  unexpected layout: the Nova layout mixed with an older one, or a signature of an
+#      unknown size
 
 set -euo pipefail
 
@@ -38,9 +61,15 @@ BN_ENDPOINT="${2:-localhost:40840}"
 MAX_BLOCK="${3:-0}"
 PORT_FORWARD_CMD="${4:-}"
 
+# Signature size of a TSS block proof made by the Nova WRAPS library.
+NOVA_SIGNATURE_BYTES=13712
+
 # Scan stride. Env-overridable so the unit suite can pair a tiny max_block with a
 # stride small enough to enter the scan loop at all; production always uses 50.
 STEP="${MONITOR_BLOCK_STEP:-50}"
+# Nova-layout samples needed before the Nova era passes. Several samples spread STEP
+# blocks apart show the layout holds along the chain, not just on one block.
+MIN_NOVA_SAMPLES="${MONITOR_MIN_NOVA_SAMPLES:-3}"
 # Max gRPC message size to accept. Normal blocks are ~40KB; the TSS genesis
 # block can be ~100MB. Downloading 100MB through kubectl port-forward crashes
 # the SPDY tunnel. A 10MB limit rejects oversized blocks early (via RST_STREAM)
@@ -56,6 +85,15 @@ MAX_MSG_SIZE=10000000
 # exceeded", which the CONNECTION_ERROR pattern below already handles.
 MAX_CALL_SECONDS=60
 
+if [[ ! "${STEP}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "ERROR: MONITOR_BLOCK_STEP must be a positive integer, got '${STEP}'" >&2
+  exit 1
+fi
+if [[ ! "${MIN_NOVA_SAMPLES}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "ERROR: MONITOR_MIN_NOVA_SAMPLES must be a positive integer, got '${MIN_NOVA_SAMPLES}'" >&2
+  exit 1
+fi
+
 # Hard timeout: max_block * 2s (block production interval).
 # If max_block=1000, timeout=2000s (~33 min). 0 means no timeout.
 if [[ "$MAX_BLOCK" -gt 0 ]]; then
@@ -65,9 +103,20 @@ else
 fi
 START_TIME=$(date +%s)
 
+# Era state, only ever changed in the main shell (record_layout). Empty until the first
+# signed TSS proof is classified, then PRE_NOVA or NOVA.
+ERA=""
+# Nova-layout samples seen so far, and their block numbers (space separated).
+NOVA_COUNT=0
+NOVA_BLOCKS=""
 # Set once WRAPS is observed. Everything after that only sharpens the reported
 # block number, so a deadline hit with this set is imprecision, not a failure.
 WRAPS_SEEN_BLOCK=""
+# Results of find_schnorr_lower_bound and binary_search_transition. Globals rather than
+# command substitutions so that record_layout runs in the main shell and its exit ends
+# the script.
+LOWER_BOUND=0
+TRANSITION_BLOCK=0
 
 # Without a trap the TERM from check_hard_timeout exits 143, indistinguishable
 # from any other abnormal death. 3 names the self-imposed deadline.
@@ -79,22 +128,45 @@ function on_hard_timeout {
 }
 trap on_hard_timeout TERM
 
+# One line describing how far the era check got, for the not-conclusive summaries.
+function print_era_progress {
+  case "${ERA}" in
+    NOVA)
+      echo "  Era: Nova, ${NOVA_COUNT} of ${MIN_NOVA_SAMPLES} required samples seen (blocks:${NOVA_BLOCKS})"
+      ;;
+    PRE_NOVA)
+      if [[ -n "${WRAPS_SEEN_BLOCK}" ]]; then
+        echo "  Era: pre-Nova, WRAPS first sampled at block ${WRAPS_SEEN_BLOCK}"
+      else
+        echo "  Era: pre-Nova, no WRAPS block sampled yet"
+      fi
+      ;;
+    *)
+      echo "  Era: undetermined, no signed TSS block proof sampled yet"
+      ;;
+  esac
+}
+
 # Checked from get_sig_type_safe (every gRPC call site: scan loop, binary
-# search, lower-bound search, print_result) rather than only between scan
+# search, lower-bound search, print_transition_result) rather than only between scan
 # iterations, so post-detection work can't run unbounded past the deadline.
 function check_hard_timeout {
   [[ "$HARD_TIMEOUT" -gt 0 ]] || return 0
   local elapsed=$(( $(date +%s) - START_TIME ))
   if [[ "$elapsed" -ge "$HARD_TIMEOUT" ]]; then
-    echo "" >&2
-    echo "=== Signature Transition ===" >&2
-    if [[ -n "${WRAPS_SEEN_BLOCK}" ]]; then
-      echo "  First WRAPS block: ${WRAPS_SEEN_BLOCK}" >&2
-      echo "  (upper bound only: exact transition block not narrowed, ${HARD_TIMEOUT}s deadline hit during binary search)" >&2
-    else
-      echo "  Status: WRAPS NOT DETECTED" >&2
-      echo "  Hard timeout: ${HARD_TIMEOUT}s elapsed (max_block=${MAX_BLOCK} * 2s)" >&2
-    fi
+    {
+      echo ""
+      echo "=== TSS Block Proofs ==="
+      if [[ -n "${WRAPS_SEEN_BLOCK}" ]]; then
+        echo "  Era: pre-Nova (Schnorr then WRAPS)"
+        echo "  First WRAPS block: ${WRAPS_SEEN_BLOCK}"
+        echo "  (upper bound only: exact transition block not narrowed, ${HARD_TIMEOUT}s deadline hit during binary search)"
+      else
+        echo "  Status: NOT CONCLUSIVE"
+        print_era_progress
+        echo "  Hard timeout: ${HARD_TIMEOUT}s elapsed (max_block=${MAX_BLOCK} * 2s)"
+      fi
+    } >&2
     # set -e doesn't reliably cross nested $(...) layers; signal the top-level script.
     # The exit below lets the enclosing $(...) finish so the parent can run its trap.
     kill -TERM "$$"
@@ -112,7 +184,11 @@ if [[ ! -d "${PROTO_DIR}" ]]; then
 fi
 
 # Returns "<TYPE> <sig_bytes> <block_size>"
-# e.g. "SCHNORR 2920 95432", "WRAPS 3432 94521320", "NOT_AVAILABLE 0 0"
+# e.g. "NOVA 13712 95432", "SCHNORR 2920 95432", "WRAPS 3432 94521320",
+#      "STATE_PROOF 0 41230", "UNKNOWN 4000 95432", "NOT_AVAILABLE 0 0"
+# TYPE is NOVA, SCHNORR, WRAPS or UNKNOWN for a signed TSS proof; STATE_PROOF,
+# RECORD_FILE or NONE for a block without a TSS signature; NOT_AVAILABLE or
+# CONNECTION_ERROR when the block could not be read.
 # block_size is the approximate binary protobuf size (sum of base64-decoded fields)
 function get_sig_type {
   local block_number="$1"
@@ -129,13 +205,13 @@ function get_sig_type {
     return
   fi
 
-  # Connection errors (port-forward down, refused, timeout) — fail fast
+  # Connection errors (port-forward down, refused, timeout): fail fast
   if echo "${raw}" | grep -qiE "connection refused|failed to dial|context deadline|transport:"; then
     echo "CONNECTION_ERROR 0 0"
     return
   fi
 
-  # Oversized block — grpcurl rejected it before downloading (port-forward survives)
+  # Oversized block: grpcurl rejected it before downloading (port-forward survives)
   if echo "${raw}" | grep -qiE "received message larger than max"; then
     echo "NOT_AVAILABLE 0 0"
     return
@@ -163,29 +239,38 @@ for match in b64_pattern.finditer(raw_text):
         pass
 # Add ~10% for protobuf field tags, varints, and non-binary fields
 binary_size = int(binary_size * 1.1)
+proof_kind = 'NONE'
 sig_bytes = 0
 for item in d.get('block',{}).get('items',[]):
     if 'blockProof' in item:
         bp = item['blockProof']
         sbp = bp.get('signedBlockProof',{})
         if sbp and sbp.get('blockSignature'):
+            proof_kind = 'SIGNED'
             sig_bytes = len(base64.b64decode(sbp['blockSignature']))
-        elif bp.get('previousBlockRootHash'):
-            sig_bytes = len(base64.b64decode(bp['previousBlockRootHash']))
+        elif bp.get('blockStateProof'):
+            proof_kind = 'STATE_PROOF'
+        elif bp.get('signedRecordFileProof'):
+            proof_kind = 'RECORD_FILE'
         break
-print(f'{sig_bytes} {binary_size}')
-" 2>/dev/null) || parsed="0 0"
+print(f'{proof_kind} {sig_bytes} {binary_size}')
+" 2>/dev/null) || parsed="NONE 0 0"
 
-  local sig_bytes block_size
-  sig_bytes="${parsed%% *}"
-  block_size="${parsed##* }"
+  local proof_kind sig_bytes block_size
+  read -r proof_kind sig_bytes block_size <<< "${parsed}"
 
   local sig_type
-  case "${sig_bytes}" in
-    292[0-9]) sig_type="SCHNORR" ;;
-    343[0-9]) sig_type="WRAPS" ;;
-    *)        sig_type="UNKNOWN" ;;
-  esac
+  if [[ "${proof_kind}" == "SIGNED" ]]; then
+    case "${sig_bytes}" in
+      "${NOVA_SIGNATURE_BYTES}") sig_type="NOVA" ;;
+      292[0-9])                 sig_type="SCHNORR" ;;
+      343[0-9])                 sig_type="WRAPS" ;;
+      *)                        sig_type="UNKNOWN" ;;
+    esac
+  else
+    # STATE_PROOF, RECORD_FILE or NONE: no TSS signature to classify on this block
+    sig_type="${proof_kind}"
+  fi
 
   echo "${sig_type} ${sig_bytes} ${block_size}"
 }
@@ -222,6 +307,48 @@ function get_sig_type_safe {
   echo "${result}"
 }
 
+# Prints the unexpected-layout summary and ends the script with exit 4.
+function fail_layout {
+  local detail="$1"
+  echo ""
+  echo "=== TSS Block Proofs ==="
+  echo "  Status: UNEXPECTED LAYOUT"
+  echo "  Detail: ${detail}"
+  print_era_progress
+  exit 4
+}
+
+# record_layout <block> <type> <sig_bytes>
+# Applies the era rules to one classified block. Must run in the main shell, never inside
+# a command substitution, so that fail_layout's exit ends the script.
+function record_layout {
+  local block_number="$1"
+  local sig_type="$2"
+  local sig_bytes="$3"
+  case "${sig_type}" in
+    NOVA)
+      if [[ "${ERA}" == "PRE_NOVA" ]]; then
+        fail_layout "block ${block_number} carries the Nova layout (${sig_bytes} bytes) after older layouts were seen"
+      else
+        ERA="NOVA"
+      fi
+      ;;
+    SCHNORR|WRAPS)
+      if [[ "${ERA}" == "NOVA" ]]; then
+        fail_layout "block ${block_number} carries the older ${sig_type} layout (${sig_bytes} bytes) after the Nova layout was seen"
+      else
+        ERA="PRE_NOVA"
+      fi
+      ;;
+    UNKNOWN)
+      fail_layout "block ${block_number} carries a ${sig_bytes} byte TSS signature, which matches no known layout"
+      ;;
+    *)
+      # STATE_PROOF, RECORD_FILE, NONE, NOT_AVAILABLE or CONNECTION_ERROR: nothing to classify
+      ;;
+  esac
+}
+
 function format_size {
   local bytes="$1"
   if [[ "$bytes" -ge 1048576 ]]; then
@@ -233,69 +360,86 @@ function format_size {
   fi
 }
 
+function format_block_line {
+  local block_number="$1"
+  local result="$2"
+  local sig_type sig_bytes block_size
+  read -r sig_type sig_bytes block_size <<< "${result}"
+
+  case "${sig_type}" in
+    NOT_AVAILABLE|CONNECTION_ERROR|"")
+      echo "  Block ${block_number}: NOT_AVAILABLE (BN unable to serve it, likely the oversized WRAPS genesis block)"
+      ;;
+    STATE_PROOF|RECORD_FILE|NONE)
+      echo "  Block ${block_number}: ${sig_type} (no TSS signature, block: $(format_size "${block_size}")), skipped"
+      ;;
+    *)
+      echo "  Block ${block_number}: ${sig_type} (sig: ${sig_bytes} bytes, block: $(format_size "${block_size}"))"
+      ;;
+  esac
+}
+
+# Steps back from the first sampled WRAPS block, 100 blocks at a time, to a block that
+# still carries Schnorr. Sets LOWER_BOUND (0 when none is found).
+function find_schnorr_lower_bound {
+  local wraps_block="$1"
+  local low=$(( wraps_block > 100 ? wraps_block - 100 : 0 ))
+  local result sig_type sig_bytes block_size
+
+  LOWER_BOUND=0
+  while [[ $low -gt 0 ]]; do
+    result=$(get_sig_type_safe "$low")
+    read -r sig_type sig_bytes block_size <<< "${result}"
+    record_layout "$low" "${sig_type}" "${sig_bytes}"
+    if [[ "${sig_type}" == "SCHNORR" ]]; then
+      LOWER_BOUND=$low
+      return
+    fi
+    low=$(( low > 100 ? low - 100 : 0 ))
+  done
+}
+
+# Narrows the first WRAPS block between a Schnorr (or 0) lower bound and a WRAPS upper
+# bound. Sets TRANSITION_BLOCK.
 function binary_search_transition {
   local low="$1"
   local high="$2"
+  local mid result sig_type sig_bytes block_size
 
   while [[ $((high - low)) -gt 1 ]]; do
-    local mid=$(( (low + high) / 2 ))
-    local result
+    mid=$(( (low + high) / 2 ))
     result=$(get_sig_type_safe "$mid")
-    local sig_type="${result%% *}"
+    read -r sig_type sig_bytes block_size <<< "${result}"
+    record_layout "$mid" "${sig_type}" "${sig_bytes}"
     if [[ "$sig_type" == "SCHNORR" ]]; then
       low=$mid
     else
-      # WRAPS, UNKNOWN, or NOT_AVAILABLE — treat conservatively as potential WRAPS
+      # WRAPS, NOT_AVAILABLE or no TSS signature: treat conservatively as potential WRAPS
       # (the ~99MB genesis WRAPS block may fail to fetch on resource-constrained CI)
       high=$mid
     fi
   done
 
-  echo "$high"
+  TRANSITION_BLOCK=$high
 }
 
-function find_schnorr_lower_bound {
-  local wraps_block="$1"
-  local low=$(( wraps_block > 100 ? wraps_block - 100 : 0 ))
-
-  while [[ $low -gt 0 ]]; do
-    local result
-    result=$(get_sig_type_safe "$low")
-    if [[ "${result%% *}" == "SCHNORR" ]]; then
-      echo "$low"
-      return
-    fi
-    low=$(( low > 100 ? low - 100 : 0 ))
-  done
-
-  echo "$low"
-}
-
-function format_block_line {
-  local block_number="$1"
-  local result="$2"
-  local sig_type="${result%% *}"
-
-  if [[ "$sig_type" == "NOT_AVAILABLE" || "$sig_type" == "UNKNOWN" || "$sig_type" == "CONNECTION_ERROR" ]]; then
-    echo "  Block ${block_number}: NOT_AVAILABLE (BN unable to serve — likely oversized WRAPS genesis block)"
-  else
-    local sig_bytes block_size
-    sig_bytes=$(echo "$result" | awk '{print $2}')
-    block_size=$(echo "$result" | awk '{print $3}')
-    echo "  Block ${block_number}: ${sig_type} (sig: ${sig_bytes} bytes, block: $(format_size "$block_size"))"
-  fi
-}
-
-function print_result {
+function print_transition_result {
   local transition_block="$1"
+  local pre_result post_result next_result sig_type sig_bytes block_size
 
-  local pre_result post_result next_result
   pre_result=$(get_sig_type_safe "$((transition_block - 1))")
+  read -r sig_type sig_bytes block_size <<< "${pre_result}"
+  record_layout "$((transition_block - 1))" "${sig_type}" "${sig_bytes}"
   post_result=$(get_sig_type_safe "$transition_block")
+  read -r sig_type sig_bytes block_size <<< "${post_result}"
+  record_layout "$transition_block" "${sig_type}" "${sig_bytes}"
   next_result=$(get_sig_type_safe "$((transition_block + 1))")
+  read -r sig_type sig_bytes block_size <<< "${next_result}"
+  record_layout "$((transition_block + 1))" "${sig_type}" "${sig_bytes}"
 
   echo ""
-  echo "=== Signature Transition ==="
+  echo "=== TSS Block Proofs ==="
+  echo "  Era: pre-Nova (Schnorr then WRAPS)"
   echo "  First WRAPS block: ${transition_block}"
   echo "  Last Schnorr block: $((transition_block - 1))"
   format_block_line "$((transition_block - 1))" "$pre_result"
@@ -303,25 +447,37 @@ function print_result {
   format_block_line "$((transition_block + 1))" "$next_result"
 }
 
+function print_nova_result {
+  local last_result="$1"
+  local last_block="$2"
+
+  echo ""
+  echo "=== TSS Block Proofs ==="
+  echo "  Era: Nova (one block proof layout on every signed block)"
+  echo "  Nova blocks sampled:${NOVA_BLOCKS}"
+  format_block_line "${last_block}" "${last_result}"
+}
+
 # Main: scan every STEP blocks
-echo "Scanning for WRAPS signature (every ${STEP} blocks)..."
+echo "Scanning TSS block proofs (every ${STEP} blocks, ${MIN_NOVA_SAMPLES} Nova samples needed for the Nova era)..."
 block=0
+waiting_for=0
+wait_count=0
 while true; do
   block=$(( block + STEP ))
 
   # Enforce max-block limit
   if [[ "$MAX_BLOCK" -gt 0 && "$block" -gt "$MAX_BLOCK" ]]; then
     echo ""
-    echo "=== Signature Transition ==="
-    echo "  Status: WRAPS NOT DETECTED"
+    echo "=== TSS Block Proofs ==="
+    echo "  Status: NOT CONCLUSIVE"
+    print_era_progress
     echo "  Max block limit: ${MAX_BLOCK}"
     exit 1
   fi
 
   result=$(get_sig_type_safe "$block")
-  sig_type="${result%% *}"
-  sig_bytes=$(echo "$result" | awk '{print $2}')
-  block_size=$(echo "$result" | awk '{print $3}')
+  read -r sig_type sig_bytes block_size <<< "${result}"
 
   # get_sig_type_safe handles port-forward recovery when PORT_FORWARD_CMD is set.
   # If it still returns CONNECTION_ERROR, there's nothing more we can do.
@@ -332,7 +488,7 @@ while true; do
   fi
 
   if [[ "$sig_type" == "NOT_AVAILABLE" ]]; then
-    if [[ "${waiting_for:-0}" -ne "$block" ]]; then
+    if [[ "${waiting_for}" -ne "$block" ]]; then
       waiting_for=$block
       wait_count=0
       printf "  Block %d: waiting" "$block"
@@ -340,27 +496,36 @@ while true; do
     (( wait_count++ )) || true
     printf "."
     sleep 5
-    # Block production is every ~2s. Wait patiently — the block will be produced.
+    # Block production is every ~2s. Wait patiently, the block will be produced.
     # max_block and the hard wall-clock timeout are what bound the wait.
     block=$(( block - STEP ))
     continue
   fi
 
   # End the waiting dots line if we were waiting
-  if [[ "${waiting_for:-0}" -gt 0 ]]; then
+  if [[ "${waiting_for}" -gt 0 ]]; then
     printf " (available after %ds)\n" $((wait_count * 5))
     waiting_for=0
   fi
 
-  echo "  Block ${block}: ${sig_type} (sig: ${sig_bytes} bytes, block: $(format_size "$block_size"))"
+  format_block_line "$block" "$result"
+  record_layout "$block" "$sig_type" "$sig_bytes"
 
-  if [[ "$sig_type" == "WRAPS" ]]; then
+  if [[ "$sig_type" == "NOVA" ]]; then
+    NOVA_COUNT=$(( NOVA_COUNT + 1 ))
+    NOVA_BLOCKS="${NOVA_BLOCKS} ${block}"
+    if [[ "${NOVA_COUNT}" -ge "${MIN_NOVA_SAMPLES}" ]]; then
+      print_nova_result "$result" "$block"
+      exit 0
+    fi
+  elif [[ "$sig_type" == "WRAPS" ]]; then
     # Record it before narrowing: from here on the assertion is already satisfied.
     WRAPS_SEEN_BLOCK=$block
     echo "  WRAPS detected, binary searching for exact transition..."
-    low=$(find_schnorr_lower_bound "$block")
-    transition=$(binary_search_transition "$low" "$block")
-    print_result "$transition"
+    find_schnorr_lower_bound "$block"
+    binary_search_transition "$LOWER_BOUND" "$block"
+    print_transition_result "$TRANSITION_BLOCK"
     exit 0
   fi
+  # SCHNORR or a block without a TSS signature: keep scanning
 done

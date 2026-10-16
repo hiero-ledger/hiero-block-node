@@ -13,7 +13,7 @@ import org.hiero.block.node.base.Loggable;
  * Node-wide configuration includes settings useful to _all_ or nearly all
  * plugins. Examples include the earliest block number managed by this node.
  *
- * @param tssBootstrapFilePath path where application state, like TSS data (ledger ID, address book, WRAPS VK),
+ * @param tssBootstrapFilePath path where application state, like TSS data (ledger ID and roster),
  *     are persisted across restarts as a serialized {@code TssData}.
  * @param rsaBootstrapFilePath path to the RSA roster bootstrap file (JSON-encoded {@code NodeAddressBook}) or
  *     the block-number-keyed RSA address book history file (JSON-encoded {@code RangedAddressBookHistory}).

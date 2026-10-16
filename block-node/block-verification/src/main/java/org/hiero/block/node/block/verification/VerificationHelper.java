@@ -48,6 +48,11 @@ public final class VerificationHelper {
 
     /// Helper to extract, map, and build [TssData] from [LedgerIdPublicationTransactionBody].
     ///
+    /// Only the ledger id and the node contributions (as the informational roster) are
+    /// carried over. The publication's `history_proof_verification_key` is no longer set
+    /// by consensus nodes and no longer used by the TSS library, which embeds what it
+    /// verifies against, so the `wraps_verification_key` of the result stays empty.
+    ///
     /// @param publication the publication body to extract from, must not be null
     /// @param blockNumber the block number the extracted data is valid from
     /// @return a new [TssData] built from the publication
@@ -55,7 +60,6 @@ public final class VerificationHelper {
     public static TssData extractTssData(final LedgerIdPublicationTransactionBody publication, final long blockNumber) {
         final Builder builder = TssData.newBuilder();
         builder.ledgerId(publication.ledgerId());
-        builder.wrapsVerificationKey(publication.historyProofVerificationKey());
         builder.currentRoster(extractContributions(publication.nodeContributions()));
         builder.validFromBlock(blockNumber);
         return builder.build();

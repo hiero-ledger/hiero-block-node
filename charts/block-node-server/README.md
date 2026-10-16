@@ -142,7 +142,7 @@ The Block Node uses a plugin architecture where functionality is loaded dynamica
 | `cloud-storage-archive`  | Archives blocks to S3-compatible cloud storage (grouped files)    |
 | `cloud-storage-expanded` | Uploads each verified block individually to S3-compatible storage |
 | `roster-bootstrap-rsa`   | Bootstraps the network roster from Mirror Node RSA address book   |
-| `roster-bootstrap-tss`   | Bootstraps the network roster using TSS signature verification    |
+| `roster-bootstrap-tss`   | Fetches TSS data (ledger ID, roster) from peer Block Nodes        |
 
 #### Pre-defined Profiles
 
@@ -386,6 +386,15 @@ blockNode:
     http: 40840     # binds the http container port to the host
     metrics: 16007  # binds the metrics container port to the host
 ```
+
+### Read-only Root Filesystem
+
+The chart leaves `securityContext` empty. If you set `readOnlyRootFilesystem: true`, keep the directory named by the
+`java.io.tmpdir` system property (`/tmp` by default) writable and executable: the TSS library of the
+`block-verification` plugin extracts its native libraries (a few MB) there at start, and the Block Node shuts down when
+it cannot load them. The chart does not mount a volume at `/tmp`, so add a writable `emptyDir` there (not mounted
+`noexec`), or point `-Djava.io.tmpdir=<dir>` in `blockNode.config.JAVA_OPTS` at a writable directory that allows
+execution.
 
 ## Post-Installation
 

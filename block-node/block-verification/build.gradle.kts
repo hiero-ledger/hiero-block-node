@@ -22,6 +22,29 @@ mainModuleInfo {
     runtimeOnly("io.helidon.logging.jul")
 }
 
+// The TSS library is resolved through its 'verifier' variant (gradle/modules.properties),
+// which leaves out the parameters only needed to construct proofs. A POM cannot express
+// that Gradle capability, but the Helm chart resolves plugin jars with Maven from this
+// POM (the resolve-plugins init container), so the variant's classifier is written into
+// the POM to make Maven download the same jar Gradle selects.
+publishing.publications.withType<MavenPublication>().configureEach {
+    pom.withXml {
+        val dependencies = asElement().getElementsByTagName("dependency")
+        for (index in 0 until dependencies.length) {
+            val dependency = dependencies.item(index) as org.w3c.dom.Element
+            val artifactId = dependency.getElementsByTagName("artifactId").item(0)?.textContent
+            if (
+                artifactId == "hedera-cryptography-wraps" &&
+                    dependency.getElementsByTagName("classifier").length == 0
+            ) {
+                val classifier = dependency.ownerDocument.createElement("classifier")
+                classifier.textContent = "verifier"
+                dependency.appendChild(classifier)
+            }
+        }
+    }
+}
+
 testModuleInfo {
     requires("org.hiero.block.node.app.test.fixtures")
     requires("org.hiero.block.node.block.verification.test.fixtures")

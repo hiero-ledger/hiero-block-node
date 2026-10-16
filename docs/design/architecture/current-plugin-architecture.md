@@ -117,7 +117,7 @@ Any plugin may subscribe to notifications via `registerBlockNotificationHandler(
 
 |           Notification           |                           Meaning                           |
 |----------------------------------|-------------------------------------------------------------|
-| `TssDataNotification`            | TSS data (ledger ID, roster, WRAPS VK) changed.             |
+| `TssDataNotification`            | TSS data (ledger ID, informational roster) changed.         |
 | `AddressBookHistoryNotification` | The block-number-keyed RSA address book history changed.    |
 | `StoredBlocksNotification`       | The stored block ranges changed.                            |
 | `AvailableBlocksNotification`    | The union of the providers' available block ranges changed. |

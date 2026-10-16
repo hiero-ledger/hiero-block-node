@@ -211,22 +211,28 @@ message BlockRange {
 
 /**
  * TSS information<br/>
- * `TssData` contains the Ledger Id, wraps validation key, and TssRoster information
- *  It is returned by the serverStatusDetail service
+ * `TssData` contains the Ledger Id, the block it is valid from, and informational
+ * TssRoster information.
+ * It is returned by the serverStatusDetail service.
  *
- * All fields in this message SHALL be filled in, or none.
+ * The `ledger_id` and `valid_from_block` fields SHALL be filled in, or none.
  */
 message TssData {
     /**
-     * The ledger id
+     * The ledger id.<br/>
+     * The only input, besides a block signature, needed to verify a TSS block proof.
      */
     bytes ledger_id = 1;
     /**
-     * The wraps verification key
+     * The wraps verification key.<br/>
+     * No longer used: the TSS library embeds what it verifies against.
+     * Producers SHOULD leave this field empty and consumers SHALL ignore it.
      */
     bytes wraps_verification_key = 2;
     /**
-     * The current TSS roster
+     * The current TSS roster.<br/>
+     * Informational only, it is not needed to verify a TSS block proof.
+     * This field MAY be unset.
      */
     TssRoster current_roster = 3;
     /**

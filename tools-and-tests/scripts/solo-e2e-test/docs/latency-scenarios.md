@@ -88,7 +88,7 @@ The 0.3 blocks/s baseline floor is intentionally conservative. On the `paired-3`
 
 **Expected behavior:** Consensus rounds take longer, but the network still produces blocks. BNs continue receiving blocks at roughly the same cadence — typically 0.4–0.5 blocks/s after the chaos clears.
 
-**Assertions:** `node-healthy`, `block-available`, `blocks-increasing`, `block-rate-floor` ≥ 0.3 blocks/s, `metric-threshold blocknode_publisher_stream_errors_total == 0` (exemplifies the generic metric primitive), and `signature-transition` (Schnorr→WRAPS, proving TSS is active under latency).
+**Assertions:** `node-healthy`, `block-available`, `blocks-increasing`, `block-rate-floor` >= 0.3 blocks/s, `metric-threshold blocknode_publisher_stream_errors_total == 0` (exemplifies the generic metric primitive), and `tss-block-proofs` (the Schnorr then WRAPS transition of the older TSS library, or the Nova layout on every sampled block, proving TSS is active under latency).
 
 ### `tests/latency-bn-to-bn.yaml`
 
@@ -143,7 +143,7 @@ The 0.3 blocks/s baseline floor is intentionally conservative. On the `paired-3`
 ## Pre-requisites
 
 - **Topology:** `paired-3` (3 CN + 3 BN) — the latency dimensions need multiple nodes per type.
-- **TSS:** on by default (the supported mode) — confirmed working under latency (the `tss-signature-transition` check sees a real Schnorr→WRAPS transition during a chaos run). `--wraps` requires CN ≥ v0.74.0-0; `CN_VERSION=latest` is min-enforced by `resolve-versions.sh` to a TSS-capable tag (currently `0.75.0-rc.4`), so it deploys cleanly. Only set `TSS_ENABLED=false` if you pin a CN below the floor.
+- **TSS:** on by default (the supported mode), confirmed working under latency (the `tss-block-proofs` check sees a real Schnorr then WRAPS transition during a chaos run with a Consensus Node on the older TSS library). `--wraps` requires CN >= v0.74.0-0 and is only passed to a CN older than the Nova WRAPS TSS library (see `CN_NOVA_WRAPS` in the README); `CN_VERSION=latest` is min-enforced by `resolve-versions.sh` to a TSS-capable tag (currently `0.75.0-rc.4`), so it deploys cleanly. Only set `TSS_ENABLED=false` if you pin a CN below the floor.
 - **Chaos Mesh:** installed in the cluster (`CHAOS_ENABLED=true task chaos:install` locally; the CI workflow installs it automatically when a `chaos`/`latency` test is selected).
 
 ## Known limitations

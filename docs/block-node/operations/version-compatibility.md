@@ -10,15 +10,51 @@ who need to know which component versions are required to run together.
 
 ## Version compatibility table
 
-|   Block Node    | Consensus Node | Mirror Node |
-|-----------------|----------------|-------------|
-| 0.41.0+         | 0.77.0+        | 0.162.0+    |
-| 0.38.x - 0.40.x | 0.76.x         | -           |
-| 0.36.x - 0.37.x | 0.75.x         | -           |
+|   Block Node    |   Consensus Node    |     Mirror Node      |
+|-----------------|---------------------|----------------------|
+| 0.46.0+         | 0.80.0+ (tentative) | 0.166.0+ (tentative) |
+| 0.41.x - 0.45.x | 0.77.x - 0.79.x     | 0.162.x - 0.165.x    |
+| 0.38.x - 0.40.x | 0.76.x              | -                    |
+| 0.36.x - 0.37.x | 0.75.x              | -                    |
 
-Mirror Node versions are tracked from BN 0.41.0 onwards. For version combinations not listed
-here, check the [Block Node releases page](https://github.com/hiero-ledger/hiero-block-node/releases)
+Mirror Node versions are tracked from BN 0.41.0 onwards. The 0.46.0 row is tentative until those
+releases exist; see the [compatibility fence at BN 0.46.0](#compatibility-fence-at-bn-0460--cn-0800--mn-01660).
+For version combinations not listed here, check the
+[Block Node releases page](https://github.com/hiero-ledger/hiero-block-node/releases)
 or contact your Hashgraph point of contact.
+
+---
+
+## Compatibility fence at BN 0.46.0 / CN 0.80.0 / MN 0.166.0
+
+> **Tentative:** these versions are planned and may change until the releases exist.
+
+BN 0.46.0 moves block proof verification to hiero-cryptography 3.21.0, the TSS library release
+that the Consensus Node adopts with
+[hiero-consensus-node PR 27506](https://github.com/hiero-ledger/hiero-consensus-node/pull/27506)
+(it uses 3.20.1, which is wire compatible with 3.21.0) and the Mirror Node with
+[hiero-mirror-node PR 14399](https://github.com/hiero-ledger/hiero-mirror-node/pull/14399). The
+library changes the TSS block signature and the ledger ID of every TSS network, so this is a hard
+compatibility break for TSS block proofs:
+
+- BN 0.46.0+ cannot verify TSS block proofs produced by a CN on an earlier TSS library (every CN
+  release up to 0.79 and 0.80.0-alpha uses hiero-cryptography 3.15.0 or older), and a BN older
+  than 0.46.0 cannot verify TSS block proofs produced by CN 0.80.0+.
+- An MN older than 0.166.0 cannot verify TSS block proofs produced by CN 0.80.0+.
+- Wrapped Record Blocks (RSA block proofs) are not affected.
+
+No public network (previewnet, testnet, mainnet) produces TSS signed blocks yet. Solo, CI and other
+test environments that run with TSS enabled must upgrade BN, CN and MN together and reset the
+Block Node's TSS data at the same time as their Consensus Nodes:
+
+- Without that reset, the BN keeps the old ledger ID from its TSS bootstrap file and every new TSS
+  block fails verification with `BAD_BLOCK_PROOF`. The node starts normally; each failing block
+  logs a WARNING `The TSS library 3.21.0 rejected the block signature or the ledger id of the TSS data valid from block <N>`.
+- A BN that already stored TSS signed blocks from before the change must also reset its block
+  store: those blocks do not verify on BN 0.46.0+.
+
+See [Resetting TSS data across a TSS library change](./resetting-and-upgrading-the-block-node.md#resetting-tss-data-across-a-tss-library-change)
+for the procedure.
 
 ---
 

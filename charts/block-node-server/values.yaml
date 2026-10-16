@@ -33,6 +33,8 @@ securityContext: {}
   #   drop:
   #   - ALL
   # readOnlyRootFilesystem: true
+  #   With a read-only root filesystem, mount a writable emptyDir at /tmp (not noexec): the TSS
+  #   library extracts its native libraries (a few MB) into java.io.tmpdir at start.
   # runAsNonRoot: true
 # runAsUser: 1000
 

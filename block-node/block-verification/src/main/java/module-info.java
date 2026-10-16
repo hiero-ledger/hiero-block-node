@@ -12,6 +12,7 @@ module org.hiero.block.node.block.verification {
     requires transitive com.swirlds.config.api;
     requires transitive org.hiero.block.node.spi;
     requires transitive org.hiero.block.protobuf.pbj;
+    requires com.hedera.cryptography.hints;
     requires com.hedera.cryptography.wraps;
     requires com.hedera.pbj.runtime;
     requires org.hiero.block.common;

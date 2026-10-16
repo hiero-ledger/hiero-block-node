@@ -14,21 +14,27 @@ import org.hiero.block.signing.TssBlockSigner;
 
 /**
  * Command-line entry point that materializes a length-N chain of harness-signed blocks as
- * {@code <n>.blk.gz} files on disk — used by the E2E lifecycle workflow to obtain valid
+ * {@code <n>.blk.gz} files on disk, used by the E2E lifecycle workflow to obtain valid
  * TSS-signed blocks without a committed fixture set.
  *
  * <p>Usage: {@code java ... GenerateHarnessBlocksMain <outputDir> <count> [algorithm]}, where the
  * optional algorithm is a {@link HashAlgorithm} constant name and defaults to
  * {@link TestBlockBuilder#BLOCK_HASH_ALGORITHM}. Every emitted header declares the algorithm the
- * chain is hashed with; {@code SHA2_384} produces blocks a release from before the move to
- * SHA-256 verifies.
+ * chain is hashed with. The blocks carry the TSS block proofs of the TSS library this build uses,
+ * so a release on an earlier TSS library cannot verify them whatever the algorithm; the E2E
+ * lifecycle workflow keeps committed chains for such releases.
  *
  * <p>Emits {@code <outputDir>/0.blk.gz}..{@code <outputDir>/<count-1>.blk.gz}. Block 0 carries
  * a {@code LedgerIdPublicationTransactionBody} so the receiving Block Node self-provisions its
- * TSS state on the first push, matching the behaviour of the previously-committed
- * {@code CN_11_12_TSS_WRAPS/*.blk.gz} fixtures.
+ * TSS state on the first push, matching the behaviour of a consensus node's genesis block. The
+ * signer's TSS data is also written as {@code <outputDir>/tss-bootstrap-roster.json}, the file a
+ * Block Node reads from {@code app.state.tssBootstrapFilePath}, for workflows that provision a
+ * node holding TSS data of another network (the reset step of the E2E lifecycle workflow).
  */
 public final class GenerateHarnessBlocksMain {
+
+    /** File name of the emitted TSS bootstrap file. */
+    public static final String BOOTSTRAP_FILE_NAME = "tss-bootstrap-roster.json";
 
     private GenerateHarnessBlocksMain() {}
 
@@ -47,7 +53,7 @@ public final class GenerateHarnessBlocksMain {
         }
         Files.createDirectories(outputDir);
 
-        final TssBlockSigner signer = TssBlockSigner.createDeterministic();
+        final TssBlockSigner signer = TssBlockSigner.create();
         final HarnessChainBuilder builder = HarnessChainBuilder.create(signer, algorithm);
         for (long n = 0; n < count; n++) {
             final HarnessChainBuilder.Signed signed = n == 0 ? builder.genesisWithPublication() : builder.next(n);
@@ -58,5 +64,8 @@ public final class GenerateHarnessBlocksMain {
             }
             System.out.println("Wrote " + file + " (" + bytes.length() + " bytes)");
         }
+        final Path bootstrapFile = outputDir.resolve(BOOTSTRAP_FILE_NAME);
+        signer.verificationMaterial().writeTssBootstrapFile(bootstrapFile);
+        System.out.println("Wrote " + bootstrapFile);
     }
 }

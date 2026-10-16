@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 #
-# WRB Distribution E2E (#3125 slice 6 — step 11) — assert that a Block Node's
-# serverStatusDetail reports populated TSS data (ledger id, WRAPS verification
-# key, and a non-empty TSS roster) after cn-upgrade-tss.sh cuts the network
-# over to a TSS/WRAPS-native CN version.
+# WRB Distribution E2E (#3125 slice 6, step 11): assert that a Block Node's
+# serverStatusDetail reports populated TSS data (a non-empty ledger id) after
+# cn-upgrade-tss.sh cuts the network over to a TSS/WRAPS-native CN version.
+# The WRAPS verification key and the TSS roster are reported but not required:
+# the Nova WRAPS TSS library leaves the key empty, and the roster is informational.
 #
 # BN1 (Tier-0) gets TssData directly: detect-tss-enablement.sh detects the
 # CN's post-upgrade LedgerIdPublication transaction and writes
@@ -96,13 +97,14 @@ fetch_bn_status_detail_raw() {
         org.hiero.block.api.BlockNodeService/serverStatusDetail
 }
 
+# TssData is usable once it carries a non-empty ledger id. The WRAPS verification key
+# is left empty by the Nova WRAPS TSS library and the roster is informational, so
+# neither is required; classify_attempt still reports both.
 has_tss_data() {
     local resp="$1"
     [[ -n "${resp}" ]] || return 1
     echo "${resp}" | jq -e '
-        (.tssData.ledgerId // "") != "" and
-        (.tssData.wrapsVerificationKey // "") != "" and
-        ((.tssData.currentRoster.rosterEntries // []) | length > 0)
+        (.tssData.ledgerId // "") != ""
     ' >/dev/null 2>&1
 }
 
@@ -115,10 +117,14 @@ classify_attempt() {
         echo "UNREACHABLE (grpcurl: $(echo "${err}" | tr '\n' ' ' | head -c 200))"
         return
     fi
-    local range_count tss_present
+    local range_count tss_present tss_details
     range_count=$(echo "${resp}" | jq -r '(.availableRanges // []) | length' 2>/dev/null || echo "?")
     if has_tss_data "${resp}"; then
-        echo "OK (availableRanges=${range_count} entries, tssData populated)"
+        tss_details=$(echo "${resp}" | jq -r '
+            "rosterEntries=\((.tssData.currentRoster.rosterEntries // []) | length), "
+            + "wrapsVerificationKey=\(if (.tssData.wrapsVerificationKey // "") == "" then "empty" else "set" end)"
+        ' 2>/dev/null || echo "?")
+        echo "OK (availableRanges=${range_count} entries, tssData populated: ${tss_details})"
     else
         tss_present=$(echo "${resp}" | jq -r 'if .tssData == null then "null" else "present-but-incomplete" end' 2>/dev/null || echo "?")
         echo "reachable, tssData=${tss_present}, availableRanges=${range_count} entries"

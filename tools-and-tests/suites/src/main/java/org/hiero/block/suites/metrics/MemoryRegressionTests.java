@@ -24,9 +24,16 @@ import org.testcontainers.containers.GenericContainer;
 /// - `SERVER_SOCKET_RECEIVE_BUFFER_SIZE_BYTES=131072` (128 KB, vs kernel autotune in the production default)
 /// - `JAVA_OPTS` with `-Xmx24m -XX:MaxDirectMemorySize=8m -XX:MaxMetaspaceSize=32m`
 /// - Reduced messaging queue sizes
+/// - `MALLOC_ARENA_MAX=2`, which caps the native memory arenas of the TSS library's verification threads
 ///
 /// If anyone removes or raises the socket buffer override from nano.yaml, or increases the JVM
 /// heap, the test will fail because a 128 MB container limit is no longer achievable.
+///
+/// The streamed blocks carry TSS block proofs, and the verification plugin loads the TSS library's
+/// native code and embedded verification key at start. Measured peak RSS of this test: 148 MB with
+/// hiero-cryptography 3.13.0; with the verifier variant of 3.21.0, 205 to 277 MB without the arena cap
+/// (the library verifies on several native threads, each growing its own malloc arena) and 145 MB with
+/// it. Removing `MALLOC_ARENA_MAX` from nano.yaml therefore also fails this test.
 ///
 @DisplayName("Memory Regression Tests")
 public class MemoryRegressionTests extends BaseSuite {
@@ -39,7 +46,8 @@ public class MemoryRegressionTests extends BaseSuite {
 
     /// RSS threshold (KB) for the nano profile. Set to 200 MB to accommodate Linux RSS overhead
     /// above the 128 MB container limit while still catching regressions (e.g. an explicit 8 MB
-    /// socket buffer instead of nano's 128 KB pins adds ~640 MB).
+    /// socket buffer instead of nano's 128 KB pins adds ~640 MB, and dropping the malloc arena cap
+    /// adds 60 to 130 MB with TSS block proofs).
     private static final long NANO_RSS_THRESHOLD_KB = 204_800L; // 200 MB
 
     /// Environment variable overrides mirroring `values-overrides/nano.yaml`.
@@ -54,7 +62,9 @@ public class MemoryRegressionTests extends BaseSuite {
             "MESSAGING_BLOCK_ITEM_QUEUE_SIZE",
             "128",
             "MESSAGING_BLOCK_NOTIFICATION_QUEUE_SIZE",
-            "16");
+            "16",
+            "MALLOC_ARENA_MAX",
+            "2");
 
     private Future<?> simulatorFuture;
 
@@ -71,7 +81,7 @@ public class MemoryRegressionTests extends BaseSuite {
 
     @Test
     @DisplayName("Nano profile RSS stays under 200 MB (issue #3026 regression guard)")
-    void nanoProfileStaysUnder150MbRss() throws IOException, InterruptedException {
+    void nanoProfileStaysUnder200MbRss() throws IOException, InterruptedException {
         BlockNodeContainerConfig nanoConfig = new BlockNodeContainerConfig(NANO_PORT, NANO_METRICS_PORT, "", NANO_ENV);
         GenericContainer<?> nanoContainer = createContainer(nanoConfig);
         nanoContainer.start();

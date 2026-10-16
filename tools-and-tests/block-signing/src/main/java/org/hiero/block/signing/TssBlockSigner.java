@@ -8,7 +8,6 @@ import com.hedera.cryptography.wraps.Proof;
 import com.hedera.cryptography.wraps.SchnorrKeys;
 import com.hedera.cryptography.wraps.WRAPSLibraryBridge;
 import com.hedera.cryptography.wraps.WRAPSLibraryBridge.SigningProtocolPhase;
-import com.hedera.cryptography.wraps.WRAPSVerificationKey;
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.TssSignedBlockProof;
 import com.hedera.hapi.node.transaction.SignedTransaction;
@@ -16,7 +15,6 @@ import com.hedera.hapi.node.transaction.TransactionBody;
 import com.hedera.hapi.node.tss.LedgerIdNodeContribution;
 import com.hedera.hapi.node.tss.LedgerIdPublicationTransactionBody;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -28,25 +26,27 @@ import org.hiero.block.api.RosterEntry;
 import org.hiero.block.api.TssData;
 import org.hiero.block.api.TssRoster;
 
-/// Produces TSS/hinTS threshold [BlockProof]s that the block-verification `TSSVerifier` accepts, in
-/// either of the two address-book-proof forms the verifier understands:
+/// Produces TSS/hinTS threshold [BlockProof]s that the block-verification `TSSVerifier` accepts.
 ///
-///   - **Genesis Schnorr-aggregate** (192-byte `abProof`) — the pre-settlement path a genesis
-///     consensus node emits. Requires no WRAPS SNARK proving artifacts; built live in [#create] /
-///     [#createDeterministic].
-///   - **Settled WRAPS proof** (704-byte compressed `abProof`) — the post-settlement path. The proof
-///     is a SNARK that takes ~13 minutes to construct and needs the ~2 GB proving artifacts, so it is
-///     pre-computed once by [#generateGenesisWrapsProof] and committed as a resource; [#createDeterministicSettled]
-///     loads it. Verifying it needs no artifacts.
+/// A block signature is composed by `TSS.composeSignature` from the hinTS verification key, the hinTS
+/// aggregate signature over the block root hash, and the WRAPS that places the hinTS verification key
+/// in the chain of trust of the ledger id. The WRAPS is the same for every block the signer produces.
+/// Constructing it runs a SNARK prover, so it is computed once, offline, for a fixed roster by
+/// [#generateGenesisWrapsProof] and committed as a resource that [#create] loads. Construction needs
+/// the full TSS library jar; verifying, and everything else this signer does, works with the verifier
+/// variant the build resolves by default.
 ///
 /// The signer uses a single-node roster (hinTS universe `n = 2`, the smallest valid power of two,
-/// since the maximum number of parties is `n - 1`). All per-era key material — the hinTS CRS, BLS
-/// secret, aggregation/verification keys, and the ledger id — is generated once at construction.
-/// [#signBlockProof] then only BLS-signs the block root hash and aggregates it, which is cheap; the
-/// `abProof` (192 or 704) is fixed for the signer's lifetime.
+/// since the maximum number of parties is `n - 1`). All per-era key material, the hinTS CRS, BLS
+/// secret, aggregation and verification keys, Schnorr keys and the ledger id, derives from a fixed
+/// seed, so every instance in a JVM shares one roster: several simulator publishers sign
+/// identically, a node can self-provision from any of them, and duplicate blocks are byte-identical
+/// (and so detectable).
 ///
-/// The paired [#verificationMaterial] is a [TssData] whose roster, ledger id, and WRAPS verification
-/// key match what the verifier needs.
+/// The ledger id is `WRAPSLibraryBridge.computeNetworkID(roster, hintsVerificationKey)` over the
+/// genesis roster, which is what a consensus node publishes in
+/// `LedgerIdPublicationTransactionBody.ledger_id`. The paired [#verificationMaterial] is a [TssData]
+/// carrying that ledger id and the roster.
 public final class TssBlockSigner implements BlockSigner {
 
     /// hinTS universe size (power of two). Max parties = N - 1, so N = 2 supports the single node.
@@ -55,54 +55,61 @@ public final class TssBlockSigner implements BlockSigner {
     private static final long NODE_ID = 0L;
     private static final long WEIGHT = 1L;
 
-    /// Fixed seed for the deterministic factories; any constant works since these are test-only keys.
+    /// Fixed seed for the deterministic key ceremony; any constant works since these are test-only keys.
     private static final byte[] DETERMINISTIC_SEED = "hiero-block-signing-test-seed".getBytes();
     private static final int[] PARTIES = {0};
     private static final long[] WEIGHTS = {WEIGHT};
     private static final long[] NODE_IDS = {NODE_ID};
 
-    /// Length of a compressed WRAPS proof (the settled-path `abProof`).
-    private static final int COMPRESSED_WRAPS_PROOF_LENGTH = 704;
-
-    /// Classpath resource holding the pre-computed genesis WRAPS proof for the deterministic roster.
+    /// Classpath resource holding the pre-computed genesis WRAPS for the deterministic roster.
     private static final String WRAPS_PROOF_RESOURCE = "/org/hiero/block/signing/genesis-wraps-proof.bin";
+
+    /// How to regenerate the committed genesis WRAPS resource, appended to every failure about it.
+    private static final String REGENERATE_WRAPS_HINT = "regenerate it with"
+            + " `GENERATE_WRAPS_PROOF=true ./gradlew :block-signing:test --tests '*WrapsProofGeneratorTest*'`,"
+            + " which rewrites tools-and-tests/block-signing/src/main/resources" + WRAPS_PROOF_RESOURCE
+            + ", and commit the result";
+
+    /// Failure message of [#create] when the committed genesis WRAPS does not verify.
+    static final String COMMITTED_WRAPS_DOES_NOT_VERIFY = "The committed genesis WRAPS does not verify for the"
+            + " signer's roster with the TSS library on the class path, so no signature of TssBlockSigner would"
+            + " verify. This usually follows a TSS library upgrade that changed the WRAPS format; "
+            + REGENERATE_WRAPS_HINT + ".";
 
     private static final HintsLibraryBridge HINTS = HintsLibraryBridge.getInstance();
     private static final WRAPSLibraryBridge WRAPS = WRAPSLibraryBridge.getInstance();
 
-    /// Serializes access to the JVM-wide hinTS/WRAPS native singletons above. They are shared by every
-    /// signer instance and are not thread-safe, so the key ceremony (which resets the native cache) and
-    /// signing must never overlap across instances in one JVM — the multi-publisher suites run several
-    /// signers on separate threads in a single JVM.
+    /// Serializes the signing side of the JVM-wide hinTS/WRAPS native singletons above. The hinTS library
+    /// caches the signing context of the most recent ceremony natively until `resetCache()`, so the key
+    /// ceremony (which resets that cache) and signing must never overlap across instances in one JVM; the
+    /// multi-publisher suites run several signers on separate threads in a single JVM. Verification does
+    /// not use that cache and needs no lock.
     private static final ReentrantLock NATIVE_LOCK = new ReentrantLock();
+
+    /// Set once [#create] has checked that the committed genesis WRAPS verifies; the resource and the roster
+    /// are the same for every instance, so the check runs once per JVM. Read and written only under
+    /// [#NATIVE_LOCK].
+    private static boolean committedWrapsVerified = false;
 
     private final byte[] crs;
     private final byte[] hintsVerificationKey;
     private final byte[] aggregationKey;
     private final byte[] blsSecretKey;
-    private final byte[] addressBookProof;
+    private final byte[] wrapsProof;
     private final byte[] ledgerId;
     private final byte[] schnorrPublicKey;
     private final VerificationMaterial verificationMaterial;
 
-    private TssBlockSigner(
-            final byte[] crs,
-            final byte[] hintsVerificationKey,
-            final byte[] aggregationKey,
-            final byte[] blsSecretKey,
-            final byte[] addressBookProof,
-            final byte[] ledgerId,
-            final byte[] schnorrPublicKey) {
-        this.crs = crs;
-        this.hintsVerificationKey = hintsVerificationKey;
-        this.aggregationKey = aggregationKey;
-        this.blsSecretKey = blsSecretKey;
-        this.addressBookProof = addressBookProof;
-        this.ledgerId = ledgerId;
-        this.schnorrPublicKey = schnorrPublicKey;
+    private TssBlockSigner(final Era era, final byte[] wrapsProof) {
+        this.crs = era.crs();
+        this.hintsVerificationKey = era.hintsVerificationKey();
+        this.aggregationKey = era.aggregationKey();
+        this.blsSecretKey = era.blsSecretKey();
+        this.wrapsProof = wrapsProof;
+        this.ledgerId = era.ledgerId();
+        this.schnorrPublicKey = era.schnorr().publicKey();
         this.verificationMaterial = VerificationMaterial.ofTss(TssData.newBuilder()
                 .ledgerId(Bytes.wrap(ledgerId))
-                .wrapsVerificationKey(Bytes.wrap(WRAPSVerificationKey.getDefaultKey()))
                 .currentRoster(TssRoster.newBuilder()
                         .rosterEntries(List.of(RosterEntry.newBuilder()
                                 .nodeId(NODE_ID)
@@ -114,112 +121,86 @@ public final class TssBlockSigner implements BlockSigner {
                 .build());
     }
 
-    /// Runs the full one-time key ceremony with fresh random key material and returns a ready-to-use
-    /// signer.
+    /// Runs the deterministic key ceremony and returns a signer whose WRAPS is the committed
+    /// resource generated by [#generateGenesisWrapsProof] over the same roster.
     ///
     /// The hinTS native library keeps singleton state cached from the most recent ceremony, so the
-    /// cache is reset first. As a result only one [TssBlockSigner] should be actively signing at a
-    /// time in a given JVM; creating a second signer invalidates the first.
-    @NonNull
+    /// cache is reset first. Every instance derives the same key material, so creating another
+    /// instance never invalidates an existing one.
+    ///
+    /// The first call in a JVM also checks that the committed WRAPS verifies with the TSS library on the
+    /// class path, so a resource left stale by a library upgrade fails here, with the command that
+    /// regenerates it, instead of as unexplained verification failures of every signed block.
+    ///
+    /// @return a signer for the deterministic roster
+    /// @throws IllegalStateException if the committed WRAPS is missing, empty, or does not verify
     public static TssBlockSigner create() {
-        return create(new SecureRandom());
-    }
-
-    /// Runs the ceremony with a fixed seed, producing the SAME roster and keys every time.
-    ///
-    /// Use this when several signer instances must agree on one roster within a single JVM — e.g.
-    /// multiple simulator publishers streaming to one Block Node: they all sign with the same keys,
-    /// the node self-provisions from any one of them, and duplicate blocks are byte-identical (and so
-    /// detectable). Because every instance derives the same key material, the shared native cache is
-    /// never invalidated between them.
-    @NonNull
-    public static TssBlockSigner createDeterministic() {
-        return create(deterministicRandom());
-    }
-
-    /// Like [#createDeterministic] but with the SETTLED-path `abProof`: a pre-computed 704-byte
-    /// compressed WRAPS proof loaded from a committed resource. Use this to exercise the post-genesis
-    /// WRAPS verification path in tests without the slow SNARK proving or the ~2 GB artifacts at run
-    /// time (verifying a WRAPS proof needs no artifacts).
-    ///
-    /// The committed proof is generated by [#generateGenesisWrapsProof] over the SAME deterministic
-    /// roster this factory builds, so its ledger id and hinTS key match.
-    @NonNull
-    public static TssBlockSigner createDeterministicSettled() {
         NATIVE_LOCK.lock();
         try {
-            final Era era = buildEra(deterministicRandom());
-            return fromEra(era, loadCommittedWrapsProof());
+            final TssBlockSigner signer =
+                    new TssBlockSigner(buildEra(deterministicRandom()), loadCommittedWrapsProof());
+            final TssBlockSigner result;
+            if (committedWrapsVerified) {
+                result = signer;
+            } else if (signer.committedWrapsVerifies()) {
+                committedWrapsVerified = true;
+                result = signer;
+            } else {
+                throw new IllegalStateException(COMMITTED_WRAPS_DOES_NOT_VERIFY);
+            }
+            return result;
         } finally {
             NATIVE_LOCK.unlock();
         }
     }
 
-    private static TssBlockSigner create(final SecureRandom random) {
-        NATIVE_LOCK.lock();
-        try {
-            final Era era = buildEra(random);
-            // Genesis address-book proof: a 192-byte Schnorr aggregate over the rotation message
-            // `ledgerId || hashArray(hintsVerificationKey)`, which is exactly what TSS.verifyTSS rebuilds.
-            final byte[] rotationMessage =
-                    concat(era.ledgerId(), require("hashArray", WRAPS.hashArray(era.hintsVerificationKey())));
-            final byte[] addressBookProof = aggregateSchnorr(
-                    era.schnorr(), new byte[][] {era.schnorr().publicKey()}, rotationMessage, random32(random));
-            return fromEra(era, addressBookProof);
-        } finally {
-            NATIVE_LOCK.unlock();
-        }
-    }
-
-    /// Constructs the 704-byte compressed genesis WRAPS proof for the deterministic roster.
+    /// Constructs the compressed genesis WRAPS for the deterministic roster.
     ///
-    /// This is the slow, artifact-dependent step: it loads the ~2 GB proving key and runs a SNARK
-    /// (~13 minutes). It is meant to be run offline, once, to (re)generate the committed resource —
-    /// not at test run time. Requires `TSS_LIB_WRAPS_ARTIFACTS_PATH` to point at the WRAPS proving
-    /// artifacts (`isProofSupported()`).
-    @NonNull
+    /// This is the slow step: it runs the SNARK prover over the public parameters that only the full TSS
+    /// library jar embeds (about ten seconds on a laptop). It is meant to be run offline, once, to
+    /// (re)generate the committed resource, not at test run time; with the verifier variant of the
+    /// library on the class path the prover is unavailable and this method fails.
+    ///
+    /// The WRAPS is a genesis one: previous and next address book are both this roster, there is no
+    /// previous proof, and the aggregate Schnorr signature is over the ledger id itself. The result is
+    /// verified against that ledger id and the hinTS verification key before it is returned.
+    ///
+    /// @return the compressed genesis WRAPS
+    /// @throws IllegalStateException if the library cannot construct a WRAPS, or the result does not verify
     public static byte[] generateGenesisWrapsProof() {
-        if (!WRAPSLibraryBridge.isProofSupported()) {
-            throw new IllegalStateException(
-                    "WRAPS proving artifacts unavailable; set TSS_LIB_WRAPS_ARTIFACTS_PATH to a directory containing"
-                            + " decider_pp.bin/decider_vp.bin/nova_pp.bin/nova_vp.bin");
-        }
         NATIVE_LOCK.lock();
         try {
             final SecureRandom random = deterministicRandom();
             final Era era = buildEra(random);
             final byte[][] schnorrPublicKeys = {era.schnorr().publicKey()};
-            // The WRAPS proof's aggregate signature is over formatRotationMessage(roster, hintsVK).
-            final byte[] wrapsMessage = require(
-                    "formatRotationMessage",
-                    WRAPS.formatRotationMessage(schnorrPublicKeys, WEIGHTS, NODE_IDS, era.hintsVerificationKey()));
             final byte[] aggregateSignature =
-                    aggregateSchnorr(era.schnorr(), schnorrPublicKeys, wrapsMessage, random32(random));
-            // Genesis proof: prev == next == this roster, real hinTS VK, no previous proof.
-            final Proof proof = require(
-                    "constructWrapsProof",
-                    WRAPS.constructWrapsProof(
-                            era.ledgerId(),
-                            schnorrPublicKeys,
-                            WEIGHTS,
-                            NODE_IDS,
-                            schnorrPublicKeys,
-                            WEIGHTS,
-                            NODE_IDS,
-                            null,
-                            era.hintsVerificationKey(),
-                            aggregateSignature));
-            final byte[] compressed = proof.compressed();
-            if (compressed.length != COMPRESSED_WRAPS_PROOF_LENGTH) {
-                throw new IllegalStateException("unexpected compressed WRAPS proof length " + compressed.length);
+                    aggregateSchnorr(era.schnorr(), schnorrPublicKeys, era.ledgerId(), random32(random));
+            final Proof proof = WRAPS.constructWrapsProof(
+                    era.addressBookHash(),
+                    schnorrPublicKeys,
+                    WEIGHTS,
+                    NODE_IDS,
+                    schnorrPublicKeys,
+                    WEIGHTS,
+                    NODE_IDS,
+                    null,
+                    era.hintsVerificationKey(),
+                    aggregateSignature);
+            final byte[] result;
+            if (proof == null || proof.compressed() == null) {
+                throw new IllegalStateException("the TSS library could not construct a WRAPS; construction needs the"
+                        + " full hedera-cryptography-wraps jar, not its verifier variant");
+            } else if (!WRAPS.verifyCompressedProof(proof.compressed(), era.ledgerId(), era.hintsVerificationKey())) {
+                throw new IllegalStateException("freshly constructed genesis WRAPS does not verify");
+            } else {
+                result = proof.compressed();
             }
-            return compressed;
+            return result;
         } finally {
             NATIVE_LOCK.unlock();
         }
     }
 
-    @NonNull
     private static SecureRandom deterministicRandom() {
         try {
             final SecureRandom random = SecureRandom.getInstance("SHA1PRNG");
@@ -230,16 +211,18 @@ public final class TssBlockSigner implements BlockSigner {
         }
     }
 
-    /// Runs the one-time key ceremony (roster, hinTS CRS, keys) shared by every factory. Callers hold
-    /// [#NATIVE_LOCK]; the `HINTS.resetCache()` here would corrupt an in-flight sign on the shared
-    /// native singleton otherwise.
+    /// Runs the one-time key ceremony (roster, hinTS CRS, keys, ledger id). Callers hold [#NATIVE_LOCK];
+    /// the `HINTS.resetCache()` here would corrupt an in-flight sign on the shared native singleton
+    /// otherwise. The order of the random draws is part of the determinism: [#create] and
+    /// [#generateGenesisWrapsProof] must derive the same era.
     private static Era buildEra(final SecureRandom random) {
         HINTS.resetCache();
 
-        // Schnorr roster + ledger id (Poseidon hash of the address book).
+        // Schnorr roster and its address book hash (the genesis address book the WRAPS starts from).
         final SchnorrKeys schnorr = require("generateSchnorrKeys", WRAPS.generateSchnorrKeys(random32(random)));
         final byte[][] schnorrPublicKeys = {schnorr.publicKey()};
-        final byte[] ledgerId = require("hashAddressBook", WRAPS.hashAddressBook(schnorrPublicKeys, WEIGHTS, NODE_IDS));
+        final byte[] addressBookHash =
+                require("hashAddressBook", WRAPS.hashAddressBook(schnorrPublicKeys, WEIGHTS, NODE_IDS));
 
         // hinTS CRS ceremony: init -> at least one contribution -> prune to the universe size.
         byte[] crs = require("initCRS", HINTS.initCRS((short) N));
@@ -252,49 +235,48 @@ public final class TssBlockSigner implements BlockSigner {
         final byte[][] hintsPublicKeys = {hintsPublicKey};
         final AggregationAndVerificationKeys keys =
                 require("preprocess", HINTS.preprocess(crs, PARTIES, hintsPublicKeys, WEIGHTS, N));
-        return new Era(crs, keys.verificationKey(), keys.aggregationKey(), blsSecretKey, ledgerId, schnorr);
-    }
 
-    private static TssBlockSigner fromEra(final Era era, final byte[] addressBookProof) {
-        return new TssBlockSigner(
-                era.crs(),
-                era.hintsVerificationKey(),
-                era.aggregationKey(),
-                era.blsSecretKey(),
-                addressBookProof,
-                era.ledgerId(),
-                era.schnorr().publicKey());
+        // The ledger id of a network with this genesis roster and hinTS verification key.
+        final byte[] ledgerId = require(
+                "computeNetworkID",
+                WRAPS.computeNetworkID(schnorrPublicKeys, WEIGHTS, NODE_IDS, keys.verificationKey()));
+        return new Era(
+                crs, keys.verificationKey(), keys.aggregationKey(), blsSecretKey, addressBookHash, ledgerId, schnorr);
     }
 
     private static byte[] loadCommittedWrapsProof() {
         try (final InputStream in = TssBlockSigner.class.getResourceAsStream(WRAPS_PROOF_RESOURCE)) {
+            final byte[] result;
             if (in == null) {
-                throw new IllegalStateException("missing committed WRAPS proof resource " + WRAPS_PROOF_RESOURCE
-                        + "; regenerate it with generateGenesisWrapsProof()");
+                throw new IllegalStateException(
+                        "missing committed WRAPS resource " + WRAPS_PROOF_RESOURCE + "; " + REGENERATE_WRAPS_HINT);
+            } else {
+                final byte[] proof = in.readAllBytes();
+                if (proof.length == 0) {
+                    throw new IllegalStateException(
+                            "committed WRAPS resource " + WRAPS_PROOF_RESOURCE + " is empty; " + REGENERATE_WRAPS_HINT);
+                } else {
+                    result = proof;
+                }
             }
-            final byte[] proof = in.readAllBytes();
-            if (proof.length != COMPRESSED_WRAPS_PROOF_LENGTH) {
-                throw new IllegalStateException("committed WRAPS proof has length " + proof.length + ", expected "
-                        + COMPRESSED_WRAPS_PROOF_LENGTH);
-            }
-            return proof;
+            return result;
         } catch (final IOException fatal) {
-            throw new UncheckedIOException("failed to read committed WRAPS proof", fatal);
+            throw new UncheckedIOException("failed to read the committed WRAPS", fatal);
         }
     }
 
-    /// One-time deterministic key material shared by the genesis and settled factories.
+    /// One-time deterministic key material of the roster.
     private record Era(
             byte[] crs,
             byte[] hintsVerificationKey,
             byte[] aggregationKey,
             byte[] blsSecretKey,
+            byte[] addressBookHash,
             byte[] ledgerId,
             SchnorrKeys schnorr) {}
 
     @Override
-    @NonNull
-    public BlockProof signBlockProof(final long blockNumber, @NonNull final Bytes blockRootHash) {
+    public BlockProof signBlockProof(final long blockNumber, final Bytes blockRootHash) {
         final byte[] message = blockRootHash.toByteArray();
         final byte[] tssSignature;
         NATIVE_LOCK.lock();
@@ -304,7 +286,7 @@ public final class TssBlockSigner implements BlockSigner {
                     "aggregateSignatures",
                     HINTS.aggregateSignatures(
                             crs, aggregationKey, hintsVerificationKey, PARTIES, new byte[][] {partialSignature}));
-            tssSignature = TSS.composeSignature(hintsVerificationKey, hintsSignature, addressBookProof);
+            tssSignature = TSS.composeSignature(hintsVerificationKey, hintsSignature, wrapsProof);
         } finally {
             NATIVE_LOCK.unlock();
         }
@@ -317,24 +299,32 @@ public final class TssBlockSigner implements BlockSigner {
     }
 
     @Override
-    @NonNull
     public VerificationMaterial verificationMaterial() {
         return verificationMaterial;
     }
 
-    /// Builds the serialized `SignedTransaction` bytes carrying this signer's roster as a
+    /// Reports whether the committed genesis WRAPS, which this signer puts into every signature, verifies
+    /// for the signer's ledger id and hinTS verification key with the TSS library on the class path. A
+    /// WRAPS that does not verify makes every signature of this signer fail verification; [#create]
+    /// checks this once per JVM, the signer's own tests on every run.
+    ///
+    /// @return `true` if the committed WRAPS verifies, `false` otherwise
+    boolean committedWrapsVerifies() {
+        return WRAPS.verifyCompressedProof(wrapsProof, ledgerId, hintsVerificationKey);
+    }
+
+    /// Builds the serialized `SignedTransaction` bytes carrying this signer's ledger id and roster as a
     /// `LedgerIdPublicationTransactionBody`.
     ///
     /// Placing this as a signed-transaction item inside block 0 lets a verifier self-provision its
     /// `TssData` from the block stream itself (see `BlockHasher.findLedgerIdPublication`), so no
-    /// out-of-band bootstrap file is needed for a producer that streams from genesis. The returned
-    /// bytes are the value of the block item's signed-transaction field, portable across PBJ and
-    /// protoc consumers.
-    @NonNull
+    /// out-of-band bootstrap file is needed for a producer that streams from genesis. Like a consensus
+    /// node, the publication carries no history proof verification key: the TSS library embeds what it
+    /// verifies a WRAPS with. The returned bytes are the value of the block item's
+    /// signed-transaction field, portable across PBJ and protoc consumers.
     public Bytes genesisLedgerIdSignedTransaction() {
         final LedgerIdPublicationTransactionBody publication = LedgerIdPublicationTransactionBody.newBuilder()
                 .ledgerId(Bytes.wrap(ledgerId))
-                .historyProofVerificationKey(Bytes.wrap(WRAPSVerificationKey.getDefaultKey()))
                 .nodeContributions(List.of(LedgerIdNodeContribution.newBuilder()
                         .nodeId(NODE_ID)
                         .weight(WEIGHT)
@@ -349,9 +339,9 @@ public final class TssBlockSigner implements BlockSigner {
         return SignedTransaction.PROTOBUF.toBytes(signedTransaction);
     }
 
-    /// Runs the 4-phase threshold-Schnorr protocol for the single signer and returns the 192-byte
-    /// aggregate signature over `message`. R1 takes an empty roster; R2/R3/Aggregate take the full
-    /// roster plus the prior rounds' messages.
+    /// Runs the 4-phase threshold-Schnorr protocol for the single signer and returns the aggregate
+    /// signature over `message`. R1 takes an empty roster; R2/R3/Aggregate take the full roster plus
+    /// the prior rounds' messages. Only the genesis proof construction needs it.
     private static byte[] aggregateSchnorr(
             final SchnorrKeys schnorr, final byte[][] schnorrPublicKeys, final byte[] message, final byte[] entropy) {
         final boolean[] signers = {true};
@@ -426,17 +416,11 @@ public final class TssBlockSigner implements BlockSigner {
         return bytes;
     }
 
-    private static byte[] concat(final byte[] left, final byte[] right) {
-        final byte[] result = new byte[left.length + right.length];
-        System.arraycopy(left, 0, result, 0, left.length);
-        System.arraycopy(right, 0, result, left.length, right.length);
-        return result;
-    }
-
     private static <T> T require(final String operation, final T result) {
         if (result == null) {
             throw new IllegalStateException("TSS native call '" + operation + "' returned null (invalid input)");
+        } else {
+            return result;
         }
-        return result;
     }
 }

@@ -65,7 +65,7 @@ grants less than configured. On high-latency links, raise the `tcp_rmem` / `tcp_
 
 | ENV Variable                                 | Description                                                                                                                                                                                                                                                                                                                            |                                Default                                |
 |:---------------------------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------|
-| APP_STATE_TSS_BOOTSTRAP_FILE_PATH            | Path where [TSS](./glossary.md#tss-hints) data (ledger ID, current roster, [WRAPS](./glossary.md#wraps) VK) is persisted across restarts.                                                                                                                                                                                              | /opt/hiero/block-node/application-state/tss-bootstrap-roster.json     |
+| APP_STATE_TSS_BOOTSTRAP_FILE_PATH            | Path where [TSS](./glossary.md#tss-hints) data (ledger ID and the informational current Roster) is persisted across restarts.                                                                                                                                                                                                          | /opt/hiero/block-node/application-state/tss-bootstrap-roster.json     |
 | APP_STATE_RSA_BOOTSTRAP_FILE_PATH            | Path where the single current RSA node address book is persisted across restarts. Used by single-book deployments that have not yet migrated to the address book history file.                                                                                                                                                         | /opt/hiero/block-node/application-state/rsa-bootstrap-roster.json     |
 | APP_STATE_RSA_ADDRESS_BOOK_HISTORY_FILE_PATH | Path to the block-number-keyed RSA address book history file (JSON-encoded `RangedAddressBookHistory`). When present, this file takes precedence over `APP_STATE_RSA_BOOTSTRAP_FILE_PATH` and enables verification of historical [WRBs](./glossary.md#wrb-wrapped-record-block) against the address book that was in effect per block. | /opt/hiero/block-node/application-state/rsa-address-book-history.json |
 | APP_STATE_BLOCK_RANGES_FILE_PATH             | Path where the set of available and stored block ranges is persisted. Written every 1,000 blocks received.                                                                                                                                                                                                                             | /opt/hiero/block-node/application-state/block-ranges.json             |
@@ -338,6 +338,11 @@ for the JSON schema.
 > be imposed for the `PUBLISHER` source. In that scenario, it is possible that gaps can happen, because sources,
 > other than `PUBLISHER`, can supply a valid block, much higher than last verified. This concern is understood and
 > accepted.
+>
+> _NOTE_ the TSS library that verifies TSS block proofs has no configuration. At start it extracts its native libraries
+> (a few MB) into the directory named by the `java.io.tmpdir` system property (`/tmp` by default), which must be
+> writable and allow executing mapped files; the Block Node shuts down when the library cannot load. See
+> [TSS Block Proof Verification](../design/tss-block-proof-verification.md#start-up-warm-up).
 
 ### Verification Plugin Configuration (DEPRECATED)
 
@@ -346,7 +351,7 @@ for the JSON schema.
 | VERIFICATION_ALL_BLOCKS_HASHER_ENABLED              | Enable the all-blocks hasher to compute and verify a rolling root hash.        |                                                                   false |
 | VERIFICATION_ALL_BLOCKS_HASHER_FILE_PATH            | Path to the persisted root hash file for all previous blocks.                  | /opt/hiero/block-node/application-state/rootHashOfAllPreviousBlocks.bin |
 | VERIFICATION_ALL_BLOCKS_HASHER_PERSISTENCE_INTERVAL | How often (in blocks) the hasher persists its state to disk.                   |                                                                      10 |
-| VERIFICATION_TSS_PARAMETERS_FILE_PATH               | Path to the persisted TSS parameters file (ledger ID, address book, WRAPS VK). |              /opt/hiero/block-node/application-state/tss-parameters.bin |
+| VERIFICATION_TSS_PARAMETERS_FILE_PATH               | Not read: the TSS data is kept at `APP_STATE_TSS_BOOTSTRAP_FILE_PATH` instead. |              /opt/hiero/block-node/application-state/tss-parameters.bin |
 | VERIFICATION_DUMP_ENABLED                           | Write failing block bytes and metadata to disk for post-incident diagnostics.  |                                                                   false |
 | VERIFICATION_DUMP_DIRECTORY_PATH                    | Directory where bad-block dump files are written.                              |                                /opt/hiero/block-node/verification/dumps |
 | VERIFICATION_DUMP_RETENTION_DAYS                    | Number of days to retain dump files before the daily purge removes them.       |                                                                       7 |

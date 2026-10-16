@@ -476,17 +476,16 @@ java -jar tools.jar blocks wrap -i compressedDays -o wrappedBlocks \
 
 ##### tss-enablement.bin
 
-**Purpose**: Binary [TSS](../glossary.md#tss-hints) (Threshold Signature Scheme) parameters file for Block Node verification plugins.
+**Purpose**: Binary [TSS](../glossary.md#tss-hints) (Threshold Signature Scheme) data file, kept for archival next to its JSON copy `tss-bootstrap-roster.json`.
 
-**Contents**:
-- Raw protobuf binary of the most recent `LedgerIdPublication` transaction
-- TSS public key material
+**Contents**: the Block Node's `TssData` in protobuf format, built from the most recent `LedgerIdPublication` transaction:
 - Ledger ID
-- Signature share thresholds
+- Informational Roster (node IDs, weights and keys)
+- Block number the data is valid from
 
 **When created**: Automatically written when the first `LedgerIdPublication` transaction is encountered during wrapping or validation.
 
-**Consumed by**: Block Node's `VerificationServicePlugin` for TSS-based block proof verification.
+**Consumed by**: archival only. The Block Node reads the JSON copy, `tss-bootstrap-roster.json`, from `app.state.tssBootstrapFilePath`.
 
 **Management**:
 
@@ -642,20 +641,24 @@ During validation, the CLI automatically detects and extracts TSS (Threshold Sig
 
 ```json
 {
-  "ledger_id": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
-  "wraps_verification_key": "a1b2c3d4e5f6a7b8c9d0...",
-  "current_roster": {
-    "roster_entries": [
+  "ledgerId": "AAECAwQFBgcICQoLDA0ODw==",
+  "currentRoster": {
+    "rosterEntries": [
       {
-        "node_id": 0,
-        "weight": 1000,
-        "schnorr_public_key": "0a1b2c3d4e5f6a7b8c9d0e1f..."
+        "nodeId": "3",
+        "weight": "1000",
+        "schnorrPublicKey": "ChscLT4/..."
       }
     ]
   },
-  "valid_from_block": 42
+  "validFromBlock": "42"
 }
 ```
+
+Field names are camelCase, bytes are base64 and 64-bit numbers are strings (the Block Node's JSON
+format); the values above are placeholders. The Roster is informational. The file has no
+`wrapsVerificationKey`, since the TSS library embeds what it verifies against; files written by
+earlier releases may still contain one, which the Block Node ignores.
 
 **Usage**:
 - The JSON file can be directly consumed by the Block Node's `ApplicationStateConfig`

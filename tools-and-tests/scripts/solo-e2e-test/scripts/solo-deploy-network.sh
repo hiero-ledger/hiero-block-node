@@ -25,6 +25,12 @@
 #   --tss-enabled true|false   Enable TSS on consensus nodes (default: true)
 #   --enable-metrics           Enable observability stack (Prometheus+Grafana) on last block node
 #   --help                     Show this help message
+#
+# Environment:
+#   CN_NOVA_WRAPS              'true' or 'false' when the CN is known to be on, or to predate, the
+#                              Nova WRAPS TSS library; unset decides from --cn-version against
+#                              CN_NOVA_WRAPS_MIN_VERSION (see lib/cn-application-properties.sh).
+#                              Decides WRAPS proving key staging and the tss.wraps* properties.
 
 set -o pipefail
 set +e
@@ -682,12 +688,14 @@ function deploy_block_nodes {
 }
 
 
-# WRAPS v1.0.0 proving keys: the tarball + its extracted .bin files are cached once and handed to
+# WRAPS v1.0.0 proving keys, only for a CN older than the Nova WRAPS TSS library (see
+# cn_needs_wraps_proving_key in lib/cn-application-properties.sh; a Nova CN needs no proving key
+# and gets none of this): the tarball + its extracted .bin files are cached once and handed to
 # Solo via --wraps-key-path on every deploy (no ~2 GB re-download). Solo stages both into each CN
 # pod: the extracted .bin files (TSS_LIB_WRAPS_ARTIFACTS_PATH, used by CN v0.75.x) and the tarball
 # at data/keys/wraps.tar.gz (tss.wrapsProvingKeyPath, used by CN >= v0.76 at genesis). Keeping the
 # tarball is what lets CN >= v0.76 load the proving key at genesis instead of racing a runtime
-# download — see project-patterns.md (WRAPS on solo-e2e). CN >= v0.76 only verifies and extracts
+# download, see project-patterns.md (WRAPS on solo-e2e). CN >= v0.76 only verifies and extracts
 # the tarball when tss.wrapsProvingKeyDownloadEnabled=true (set in cn-application-properties.sh).
 WRAPS_DOWNLOAD_URL="https://builds.hedera.com/tss/hiero/wraps/v1.0/wraps-v1.0.0.tar.gz"
 WRAPS_KEYS_DIR="${HOME}/.solo/cache/wraps-v1.0.0-keys"
@@ -773,7 +781,7 @@ function deploy_consensus_nodes {
   local overlay_dir="${SCRIPT_DIR}/../out"
   mkdir -p "${overlay_dir}"
   local cn_app_properties="${overlay_dir}/cn-application.properties"
-  generate_cn_application_properties "${cn_app_properties}"
+  generate_cn_application_properties "${cn_app_properties}" "${CN_VERSION}"
 
   start_task "Generating consensus keys for ${NODE_ALIASES}"
   solo keys consensus generate \
@@ -788,10 +796,16 @@ function deploy_consensus_nodes {
   # download flag is on in cn-application.properties, but the staged tarball's hash matches, so the
   # CN installs it without downloading. --tss is kept so Solo still patches
   # block-nodes.json with the TSS message-size limits the large WRAPS genesis block needs.
+  # A CN on the Nova WRAPS TSS library (cn_needs_wraps_proving_key) needs no proving key, so
+  # nothing WRAPS related is passed for it; --tss alone covers it.
   local wraps_key_args=""
   if [[ "${TSS_ENABLED}" == "true" ]]; then
-    ensure_wraps_keys_cached "${WRAPS_KEYS_DIR}"
-    wraps_key_args="--wraps true --wraps-key-path ${WRAPS_KEYS_DIR}"
+    if cn_needs_wraps_proving_key "${CN_VERSION}"; then
+      ensure_wraps_keys_cached "${WRAPS_KEYS_DIR}"
+      wraps_key_args="--wraps true --wraps-key-path ${WRAPS_KEYS_DIR}"
+    else
+      log_line "CN %s is on the Nova WRAPS TSS library, no WRAPS proving key is staged" "${CN_VERSION:-default}"
+    fi
   fi
 
   start_task "Deploying consensus network"

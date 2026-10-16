@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#
+# Fake grpcurl for the real monitor-block-proofs.sh: a chain from a Consensus Node on the
+# older TSS library. Blocks below 23 carry a Schnorr signature (2920 bytes), block 23 and
+# later a WRAPS signature (3432 bytes), so the monitor must find the transition at 23.
+set -euo pipefail
+FIXTURES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# The monitor passes -d {"block_number": N}; pick N out of the arguments.
+block=$(printf "%s\n" "$@" | sed -n 's/.*"block_number": *\([0-9][0-9]*\).*/\1/p')
+if [[ "${block}" -lt 23 ]]; then
+  "${FIXTURES_DIR}/fake-block-json.sh" signed 2920
+else
+  "${FIXTURES_DIR}/fake-block-json.sh" signed 3432
+fi

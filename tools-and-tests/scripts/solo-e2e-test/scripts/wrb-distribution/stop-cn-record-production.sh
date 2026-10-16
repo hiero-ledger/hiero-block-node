@@ -24,8 +24,17 @@
 #   DEPLOYMENT         (default "deployment-solo")
 #   NODE_ALIASES       (default "node1,node2,node3")
 #   READY_TIMEOUT      (default 300)
+#   CN_UPGRADE_VERSION (optional; the CN version the nodes run, decides whether the
+#                       WRAPS proving key must be staged on restart, see
+#                       cn_needs_wraps_proving_key in lib/cn-application-properties.sh;
+#                       unset keeps staging it unless CN_NOVA_WRAPS=true)
+#   CN_NOVA_WRAPS      (optional; see cn_needs_wraps_proving_key)
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/cn-application-properties.sh
+source "${SCRIPT_DIR}/../lib/cn-application-properties.sh"
 
 : "${NAMESPACE:=solo-network}"
 : "${CLUSTER_REFERENCE:=kind-solo-cluster}"
@@ -40,10 +49,10 @@ CONFIG_PATH="/opt/hgcapp/services-hedera/HapiApp2.0/data/config/application.prop
 
 # Same WRAPS v1.0.0 cache as cn-upgrade-tss.sh / solo-deploy-network.sh's
 # ensure_wraps_keys_cached. `solo consensus node start` on a TSS-enabled,
-# post-v0.76-upgrade network needs --wraps-key-path on every start (not just
-# at genesis) — omitting it here caused CN logs to show "WrapsProvingKeyVerification
-# - Failed to extract WRAPS proving key archive data/keys/wraps.tar.gz"
-# immediately after this script's restart in CI.
+# post-v0.76-upgrade network older than the Nova WRAPS TSS library needs
+# --wraps-key-path on every start (not just at genesis): omitting it here caused CN
+# logs to show "WrapsProvingKeyVerification - Failed to extract WRAPS proving key
+# archive data/keys/wraps.tar.gz" immediately after this script's restart in CI.
 WRAPS_DOWNLOAD_URL="https://builds.hedera.com/tss/hiero/wraps/v1.0/wraps-v1.0.0.tar.gz"
 WRAPS_KEYS_DIR="${HOME}/.solo/cache/wraps-v1.0.0-keys"
 WRAPS_KEY_FILES="decider_pp.bin decider_vp.bin nova_pp.bin nova_vp.bin"
@@ -69,7 +78,15 @@ ensure_wraps_keys_cached() {
     done
 }
 
-ensure_wraps_keys_cached
+# A CN on the Nova WRAPS TSS library needs no proving key; older CNs still need it on
+# every start.
+WRAPS_KEY_ARGS=()
+if cn_needs_wraps_proving_key "${CN_UPGRADE_VERSION:-}"; then
+    ensure_wraps_keys_cached
+    WRAPS_KEY_ARGS=(--wraps-key-path "${WRAPS_KEYS_DIR}")
+else
+    log "CN ${CN_UPGRADE_VERSION:-(version not set)} is on the Nova WRAPS TSS library, no WRAPS proving key is staged"
+fi
 
 IFS=',' read -ra aliases <<< "${NODE_ALIASES}"
 
@@ -93,7 +110,7 @@ log "Starting consensus nodes back up..."
 solo consensus node start \
     --deployment "${DEPLOYMENT}" \
     --node-aliases "${NODE_ALIASES}" \
-    --wraps-key-path "${WRAPS_KEYS_DIR}" \
+    ${WRAPS_KEY_ARGS[@]+"${WRAPS_KEY_ARGS[@]}"} \
     -q \
     || fail "solo consensus node start failed"
 

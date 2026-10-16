@@ -19,9 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
-import org.hiero.block.api.RosterEntry;
 import org.hiero.block.api.TssData;
-import org.hiero.block.api.TssRoster;
 import org.hiero.block.node.spi.BlockNodeContext;
 
 /// Provider for verification data.
@@ -111,56 +109,50 @@ public final class VerificationDataProvider {
         }
     }
 
-    /// Update the TSS data if the given data is new and valid from a later block
-    /// than the current data. On a successful update, the TSS library address book
-    /// and the WRAPS verification key are set before the new data is published.
+    /// Update the TSS data if the given data differs from the current data and is
+    /// valid from a later block than the current data. Nothing is installed into
+    /// the TSS library: the ledger id is handed to it on every verification, and the
+    /// roster is kept for information only, so data without a roster is accepted.
     ///
     /// @param updatedTssData the new TSS data, must not be null
     /// @param sendUpdateToAppState if `true`, a successful update is also forwarded
     ///     to the application state facility
     private void updateTssData(final TssData updatedTssData, final boolean sendUpdateToAppState) {
         final TssData localCurrentTss = currentTssData.get();
-        // Only update if we see new TSS data
-        if (!updatedTssData.equals(localCurrentTss)) {
-            LOGGER.log(INFO, "Updating TSS data from application state");
-            if (localCurrentTss == null || updatedTssData.validFromBlock() > localCurrentTss.validFromBlock()) {
-                final TssRoster roster = updatedTssData.currentRoster();
-                if (roster != null) {
-                    final List<RosterEntry> contributions = roster.rosterEntries();
-                    if (contributions != null && !contributions.isEmpty()) {
-                        final int nodeCount = contributions.size();
-                        byte[][] publicKeys = new byte[nodeCount][];
-                        long[] nodeIds = new long[nodeCount];
-                        long[] weights = new long[nodeCount];
-                        for (int i = 0; i < nodeCount; i++) {
-                            final RosterEntry contribution = contributions.get(i);
-                            publicKeys[i] = contribution.schnorrPublicKey().toByteArray();
-                            nodeIds[i] = contribution.nodeId();
-                            weights[i] = contribution.weight();
-                        }
-                        // NativeVerificationLibrary serializes these native calls against verifies; the
-                        // address book and WRAPS key mutate the shared native state that verifyTSS reads.
-                        NativeVerificationLibrary.updateVerificationKeys(
-                                publicKeys,
-                                weights,
-                                nodeIds,
-                                updatedTssData.wrapsVerificationKey().toByteArray());
-                        if (currentTssData.compareAndSet(localCurrentTss, updatedTssData)) {
-                            if (sendUpdateToAppState) {
-                                context.applicationStateFacility().updateTssData(currentTssData.get());
-                            }
-                            LOGGER.log(INFO, "Successfully updated TSS data");
-                        } else {
-                            LOGGER.log(WARNING, "Failed to CAS TSS data from application state");
-                        }
-                    } else {
-                        LOGGER.log(INFO, "No contributions in TSS data roster found");
-                    }
-                } else {
-                    LOGGER.log(INFO, "No roster in TSS data found");
-                }
+        if (updatedTssData.equals(localCurrentTss)) {
+            LOGGER.log(DEBUG, "TSS data update carries the current TSS data, nothing to update");
+        } else if (localCurrentTss != null && updatedTssData.validFromBlock() <= localCurrentTss.validFromBlock()) {
+            LOGGER.log(
+                    DEBUG,
+                    "Ignoring TSS data valid from block {0}, the current TSS data is valid from block {1}",
+                    updatedTssData.validFromBlock(),
+                    localCurrentTss.validFromBlock());
+        } else if (currentTssData.compareAndSet(localCurrentTss, updatedTssData)) {
+            if (sendUpdateToAppState) {
+                context.applicationStateFacility().updateTssData(currentTssData.get());
             }
+            LOGGER.log(
+                    INFO,
+                    "Updated TSS data, valid from block {0}, roster entries {1}",
+                    updatedTssData.validFromBlock(),
+                    rosterSize(updatedTssData));
+        } else {
+            LOGGER.log(WARNING, "Failed to CAS TSS data from application state");
         }
+    }
+
+    /// Returns the number of entries in the informational roster of the given TSS data.
+    ///
+    /// @param tssData the TSS data to inspect
+    /// @return the number of roster entries, `0` when the data carries no roster
+    private static int rosterSize(final TssData tssData) {
+        final int size;
+        if (tssData.hasCurrentRoster()) {
+            size = tssData.currentRosterOrThrow().rosterEntries().size();
+        } else {
+            size = 0;
+        }
+        return size;
     }
 
     /// Builds an immutable `node_id → PublicKey` map from the given address book,

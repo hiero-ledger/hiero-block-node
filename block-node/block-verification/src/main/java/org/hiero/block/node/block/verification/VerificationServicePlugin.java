@@ -2,6 +2,7 @@
 package org.hiero.block.node.block.verification;
 
 import static java.lang.System.Logger.Level.DEBUG;
+import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 
@@ -15,6 +16,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.internal.BlockItemUnparsed;
@@ -121,16 +123,33 @@ public final class VerificationServicePlugin
     /// {@inheritDoc}
     /// ---
     /// Start the plugin.
-    /// Register the plugin in messaging. Determine a starting point for the
-    /// last verified block, that is the same as the latest persisted block.
+    /// Load the TSS library first, so the first TSS block does not pay for it and a
+    /// library that cannot verify in this environment is noticed at start. Such a
+    /// node cannot recover without a restart and would otherwise answer every valid
+    /// TSS block proof with a failure that blames the publisher, so it shuts down.
+    /// Otherwise register the plugin in messaging and determine a starting point for
+    /// the last verified block, that is the same as the latest persisted block.
     @Override
     public void start() {
-        verificationDataProvider.safeUpdateTssData(
-                context.applicationStateFacility().tssData(), false);
-        updateLastVerifiedBlock(context.applicationStateFacility().storedBlocks());
-        this.context.blockMessaging().registerBlockNotificationHandler(this, true, name());
-        this.context.blockMessaging().registerBlockItemHandler(this, true, name());
-        badBlockDumper.start(context.threadPoolManager());
+        final long warmUpStartNanos = System.nanoTime();
+        if (NativeVerificationLibrary.warmUp()) {
+            LOGGER.log(
+                    INFO,
+                    "TSS library {0} ready to verify block proofs, loaded in {1} ms",
+                    NativeVerificationLibrary.libraryVersion(),
+                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - warmUpStartNanos));
+            verificationDataProvider.safeUpdateTssData(
+                    context.applicationStateFacility().tssData(), false);
+            updateLastVerifiedBlock(context.applicationStateFacility().storedBlocks());
+            this.context.blockMessaging().registerBlockNotificationHandler(this, true, name());
+            this.context.blockMessaging().registerBlockItemHandler(this, true, name());
+            badBlockDumper.start(context.threadPoolManager());
+        } else {
+            final String reason = "The TSS library %s cannot verify block proofs in this process"
+                    .formatted(NativeVerificationLibrary.libraryVersion());
+            LOGGER.log(ERROR, "{0}, shutting down", reason);
+            context.serverHealth().shutdown(name(), reason);
+        }
     }
 
     /// {@inheritDoc}

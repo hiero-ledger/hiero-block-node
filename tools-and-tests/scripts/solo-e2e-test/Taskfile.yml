@@ -18,6 +18,8 @@
 #   TOPOLOGY      - Network topology (default: single)
 #   CLUSTER_NAME  - Kind cluster name (default: solo-cluster)
 #   CN_VERSION    - Consensus Node version (default: latest)
+#   CN_NOVA_WRAPS - 'true'/'false' when the CN is on / predates the Nova WRAPS TSS library
+#                   (default: decided from CN_VERSION, see scripts/lib/cn-application-properties.sh)
 #   MN_VERSION    - Mirror Node version (default: latest)
 #   BN_VERSION    - Block Node version (default: latest)
 #   BN_CHART_DIR  - Local charts/ dir to install the Block Node chart from, instead of Solo's
@@ -279,7 +281,7 @@ tasks:
         echo "$STATUS" | grep -E "(firstAvailableBlock|lastAvailableBlock)" || echo "$STATUS"
 
   check:signature:
-    desc: "Find Schnorr→WRAPS signature transition on Block Node 1"
+    desc: "Check the TSS block proofs on Block Node 1 (Schnorr then WRAPS transition, or the Nova layout)"
     deps: [proto:extract]
     cmds:
       - '"{{.SCRIPTS_DIR}}/monitor-block-proofs.sh" "{{.PROTO_PATH}}" "localhost:40840"'
