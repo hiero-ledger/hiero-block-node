@@ -35,7 +35,7 @@ exist when the node was built. This works for every category that already has a
 place in the block's hash tree, and it needs no code change.
 
 This document is a companion to the
-[Block Verification](./block-verification.md) design, since forward compatibility
+[Block Verification](block-verification.md) design, since forward compatibility
 is a property of the hashing step described there.
 
 > **Note on the source of truth.** The numbering rule is defined by the block

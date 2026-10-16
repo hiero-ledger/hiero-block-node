@@ -98,7 +98,7 @@ mainModuleInfo {
 }
 
 // Authoritative list of block node plugins. When adding a new plugin, add it here
-// and in testModuleInfo below. See docs/block-node/architecture/plugins.md for details.
+// and in testModuleInfo below. See docs/block-node/development/architecture/plugins.md for details.
 
 val blockNodePlugins: Configuration by configurations.creating {
     // Other projects (e.g. suites) can depend on this configuration's artifacts

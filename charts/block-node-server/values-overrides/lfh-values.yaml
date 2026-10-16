@@ -2,7 +2,7 @@
 
 # This is an override values example for the block-node-server chart to deploy a Tier 1 BN
 # This is intended for production purposes that adhere to the BN specificiaiton in
-# https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/block-node/operations/block-node-hardware-specifications.md
+# https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/block-node/deploy/block-node-hardware-specifications.md
 
 blockNode:
     config:
