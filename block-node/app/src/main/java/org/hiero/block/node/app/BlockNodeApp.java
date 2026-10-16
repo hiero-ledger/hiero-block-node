@@ -52,13 +52,6 @@ import org.hiero.metrics.core.Label;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
 
-// @todo(3321) This class uses runtime exceptions (such as
-//     illegal state exception) as flow control in many methods. We need to
-//     rework the logic flow to remove all of those cases and move exception
-//     handling up to where it can be resolved rather than just logging
-//     warnings and continuing as though nothing failed or using the exception
-//     to choose logic branches or replace return values.
-
 /// Main class for the block node server
 public class BlockNodeApp implements HealthFacility {
     /// The logger for this class.  This must be static because there are tests that
