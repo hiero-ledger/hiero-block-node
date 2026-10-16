@@ -127,23 +127,23 @@ The Block Node uses a plugin architecture where functionality is loaded dynamica
 
 #### Available Plugins
 
-|          Plugin          |                                 Description                                  |
-|--------------------------|------------------------------------------------------------------------------|
-| `facility-app-state`     | Application state facility: TSS data, address books, block ranges (required) |
-| `facility-messaging`     | Core messaging facility for inter-plugin communication (required)            |
-| `health`                 | Health check endpoints (`/healthz/livez`, `/healthz/readyz`)                 |
-| `server-status`          | Server status API and metrics                                                |
-| `block-access-service`   | gRPC API for block queries                                                   |
-| `stream-publisher`       | Publishes blocks to downstream subscribers                                   |
-| `stream-subscriber`      | Subscribes to upstream block streams                                         |
-| `block-verification`     | Cryptographic verification of blocks                                         |
-| `blocks-file-recent`     | Local storage for recent/live blocks                                         |
-| `blocks-file-historic`   | Local storage for historical blocks                                          |
-| `backfill`               | Fetches missing historical blocks from other nodes                           |
-| `cloud-storage-archive`  | Archives blocks to S3-compatible cloud storage (grouped files)               |
-| `cloud-storage-expanded` | Uploads each verified block individually to S3-compatible storage            |
-| `roster-bootstrap-rsa`   | Bootstraps the network roster from Mirror Node RSA address book              |
-| `roster-bootstrap-tss`   | Bootstraps the network roster using TSS signature verification               |
+|          Plugin          |                                           Description                                           |
+|--------------------------|-------------------------------------------------------------------------------------------------|
+| `facility-app-state`     | Application state facility: TSS data, address books, block ranges (required)                    |
+| `facility-messaging`     | Core messaging facility for inter-plugin communication (required)                               |
+| `health`                 | Health check endpoints (`/healthz/livez`, `/healthz/readyz`)                                    |
+| `server-status`          | Server status API and metrics                                                                   |
+| `block-access-service`   | gRPC API for block queries                                                                      |
+| `stream-publisher`       | Publishes blocks to downstream subscribers                                                      |
+| `stream-subscriber`      | Subscribes to upstream block streams                                                            |
+| `block-verification`     | Cryptographic verification of blocks                                                            |
+| `blocks-file-recent`     | Local storage for recent/live blocks                                                            |
+| `blocks-file-historic`   | Local storage for historical blocks                                                             |
+| `backfill`               | Fetches missing historical blocks from other nodes                                              |
+| `cloud-storage-archive`  | Archives blocks to S3-compatible storage, grouped into tar files                                |
+| `cloud-storage-expanded` | Uploads blocks to S3-compatible storage, one object per block                                   |
+| `roster-bootstrap-rsa`   | Loads the RSA address-book history at startup, fetching it from a peer or Mirror Node if absent |
+| `roster-bootstrap-tss`   | Obtains the latest TSS data (ledger ID, WRAPS verification key) and publishes it to the node    |
 
 #### Pre-defined Profiles
 
@@ -156,21 +156,21 @@ Installs the solo-dev docker image that contains all the plugins.
 ##### plugin-profile-all.yaml
 
 Full functionality for development and testing.
-* `facility-app-state`
-* `facility-messaging`
+* `backfill`
 * `block-access-service`
-* `health`
-* `server-status`
-* `stream-publisher`
-* `stream-subscriber`
 * `block-verification`
 * `blocks-file-historic`
 * `blocks-file-recent`
-* `backfill`
 * `cloud-storage-archive`
 * `cloud-storage-expanded`
+* `facility-app-state`
+* `facility-messaging`
+* `health`
 * `roster-bootstrap-rsa`
 * `roster-bootstrap-tss`
+* `server-status`
+* `stream-publisher`
+* `stream-subscriber`
 
 ##### plugin-profile-minimal.yaml
 
@@ -184,37 +184,40 @@ Minimal functional node for development and testing.
 ##### plugin-profile-lfh.yaml
 
 Local File History - stores all blocks on local persistent volumes (same as default).
-* `facility-app-state`
-* `facility-messaging`
+* `backfill`
 * `block-access-service`
-* `health`
-* `server-status`
-* `stream-publisher`
-* `stream-subscriber`
 * `block-verification`
 * `blocks-file-historic`
 * `blocks-file-recent`
-* `backfill`
-* `roster-bootstrap-rsa`
-* `roster-bootstrap-tss`
-
-##### plugin-profile-rfh.yaml
-
-Remote File History - archives blocks to S3-compatible cloud storage.
 * `facility-app-state`
 * `facility-messaging`
 * `health`
+* `roster-bootstrap-rsa`
+* `roster-bootstrap-tss`
 * `server-status`
+* `stream-publisher`
+* `stream-subscriber`
+
+##### plugin-profile-rfh.yaml
+
+Remote File History - stores blocks in S3-compatible storage. No local block-storage plugins,
+and no `block-access-service`, `stream-publisher` or `stream-subscriber`.
+* `backfill`
 * `block-verification`
 * `cloud-storage-archive`
 * `cloud-storage-expanded`
+* `facility-app-state`
+* `facility-messaging`
+* `health`
 * `roster-bootstrap-rsa`
 * `roster-bootstrap-tss`
-* `backfill`
+* `server-status`
 
 ##### plugin-profile-cloud.yaml
 
-Cloud storage only - archives blocks to cloud storage without local block storage. Blocks arrive via backfill; no live stream from a Consensus Node.
+Cloud storage archiving only. No local block-storage plugins, and no
+`stream-publisher`/`stream-subscriber`: such a node takes no live stream from a Consensus Node
+and serves no downstream client, so blocks arrive solely via backfill.
 * `facility-app-state`
 * `facility-messaging`
 * `health`
