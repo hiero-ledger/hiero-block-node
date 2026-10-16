@@ -456,7 +456,7 @@ Edit `plugins.names` in your Helm values (comma-separated plugin identifiers), t
 
 ```yaml
 plugins:
-  # Example: Tier 2 — stream-publisher removed
+  # Example: Tier 2 - stream-publisher removed
   names: "backfill,block-access-service,blocks-file-recent,blocks-file-historic,facility-app-state,facility-messaging,health,roster-bootstrap-rsa,roster-bootstrap-tss,server-status,stream-subscriber,block-verification"
 ```
 
