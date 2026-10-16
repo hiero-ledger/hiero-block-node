@@ -70,6 +70,38 @@ class StateManagementCatchUpTest {
     }
 
     @Test
+    void gapRecoverySweepDrainsWholeBacklogInOnePassNotOnePerRetry(@TempDir final Path tmp) throws Exception {
+        final InMemoryHistoricalBlockFacility historic = new InMemoryHistoricalBlockFacility();
+        // historicCatchUpBatchSize=2 (set by startPlugin) so this also proves the sweep keeps
+        // looping across multiple batches within a single call, not just within one batch.
+        final StateManagementPlugin plugin = startPlugin(tmp, historic);
+        final Bytes genesisHash = plugin.stagedStateRootHash();
+        historic.put(0L, buildBlock(0L, 0L, genesisHash));
+        plugin.catchUpFromHistoricalBlocks();
+        assertThat(plugin.isApplyHalted()).isFalse();
+
+        // Simulate a backlog that landed only in historical storage (e.g. backfill filled it in
+        // after the pendingBlocksMax cap dropped these live blocks during a slow catch-up) —
+        // none of these are staged in pendingBlocks. Before the gap-recovery fix, only the single
+        // next block (1) would ever be re-fetched per retry; this asserts the whole backlog is
+        // picked up in one sweep instead.
+        final Bytes stagedAfter0 = plugin.stagedStateRootHash();
+        for (long blockNumber = 1L; blockNumber <= 10L; blockNumber++) {
+            historic.put(blockNumber, buildBlock(blockNumber, blockNumber, stagedAfter0));
+        }
+
+        // This is exactly what `retryGap` invokes on a gap-retry firing — call it directly
+        // rather than waiting on the real `GAP_RETRY_DELAY_SECONDS` timer.
+        plugin.sweepHistoricalBlocks();
+
+        assertThat(plugin.metadata().blockNumber())
+                .as("one sweep call should drain the entire available backlog, not just block 1")
+                .isEqualTo(9L); // lag-1: applying through block 10 exposes up to block 9
+        assertThat(plugin.isApplyHalted()).isFalse();
+        plugin.stop();
+    }
+
+    @Test
     void noHistoricalFacilityIsHandledGracefully(@TempDir final Path tmp) throws Exception {
         final StateManagementPlugin plugin = startPlugin(tmp, null);
         assertThat(StateManagementPluginTestSupport.awaitReady(plugin, 5_000L)).isTrue();
