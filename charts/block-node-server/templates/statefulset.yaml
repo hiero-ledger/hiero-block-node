@@ -38,6 +38,10 @@ spec:
       {{- else if .Values.dnsPolicy }}
       dnsPolicy: {{ .Values.dnsPolicy }}
       {{- end }}
+      {{- $claims := dict }}
+      {{- range $key := list "logging" "archive" "live" "applicationState" "plugins" }}
+      {{- $_ := set $claims $key (include "hiero-block-node.persistence.claimName" (dict "root" $ "key" $key)) }}
+      {{- end }}
       volumes:
         - name: logging-config
           configMap:
@@ -47,32 +51,14 @@ spec:
           configMap:
             name: {{ include "hiero-block-node.fullname" . }}-block-node-sources
         {{- end }}
-        {{- if .Values.blockNode.persistence.logging.existingClaim }}
-        - name: {{ default "logging-storage" .Values.blockNode.persistence.logging.volumeName }}
+        {{- range $key := list "logging" "archive" "live" "applicationState" "plugins" }}
+        {{- with index $claims $key }}
+        - name: {{ include "hiero-block-node.persistence.volumeName" (dict "root" $ "key" $key) }}
           persistentVolumeClaim:
-            claimName: {{ .Values.blockNode.persistence.logging.existingClaim }}
+            claimName: {{ . }}
         {{- end }}
-        {{- if .Values.blockNode.persistence.archive.existingClaim }}
-        - name: {{ default "archive-storage" .Values.blockNode.persistence.archive.volumeName }}
-          persistentVolumeClaim:
-            claimName: {{ .Values.blockNode.persistence.archive.existingClaim }}
         {{- end }}
-        {{- if .Values.blockNode.persistence.live.existingClaim }}
-        - name: {{ default "live-storage" .Values.blockNode.persistence.live.volumeName }}
-          persistentVolumeClaim:
-            claimName: {{ .Values.blockNode.persistence.live.existingClaim }}
-        {{- end }}
-        {{- if .Values.blockNode.persistence.applicationState.existingClaim }}
-        - name: {{ default "application-state-storage" .Values.blockNode.persistence.applicationState.volumeName }}
-          persistentVolumeClaim:
-            claimName: {{ .Values.blockNode.persistence.applicationState.existingClaim }}
-        {{- end }}
-        {{- if .Values.blockNode.persistence.plugins.existingClaim }}
-        - name: {{ default "plugins-storage" .Values.blockNode.persistence.plugins.volumeName }}
-          persistentVolumeClaim:
-            claimName: {{ .Values.blockNode.persistence.plugins.existingClaim }}
-        {{- end }}
-      {{- if or .Values.blockNode.initContainers .Values.plugins.names .Values.blockNode.persistence.plugins.existingClaim }}
+      {{- if or .Values.blockNode.initContainers .Values.plugins.names $claims.plugins }}
       initContainers:
         {{- with .Values.blockNode.initContainers }}
         {{- toYaml . | nindent 8 }}
@@ -247,7 +233,7 @@ spec:
             mountPath: {{ .Values.blockNode.backfill.path }}
             readOnly: true
           {{- end }}
-          {{- if or .Values.plugins.names .Values.blockNode.persistence.plugins.existingClaim }}
+          {{- if or .Values.plugins.names $claims.plugins }}
           - name: {{ default "plugins-storage" .Values.blockNode.persistence.plugins.volumeName }}
             mountPath: /opt/hiero/block-node/app-{{ include "hiero-block-node.appVersion" . }}/plugins
             readOnly: true
@@ -288,7 +274,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
   volumeClaimTemplates:
-    {{- if not .Values.blockNode.persistence.logging.existingClaim }}
+    {{- if not $claims.logging }}
     - metadata:
         name: {{ default "logging-storage" .Values.blockNode.persistence.logging.volumeName }}
       spec:
@@ -301,7 +287,7 @@ spec:
         storageClassName: {{ .Values.blockNode.persistence.logging.storageClass }}
         {{- end }}
     {{- end }}
-    {{- if not .Values.blockNode.persistence.archive.existingClaim }}
+    {{- if not $claims.archive }}
     - metadata:
         name: {{ default "archive-storage" .Values.blockNode.persistence.archive.volumeName }}
       spec:
@@ -314,7 +300,7 @@ spec:
         storageClassName: {{ .Values.blockNode.persistence.archive.storageClass }}
         {{- end }}
     {{- end }}
-    {{- if not .Values.blockNode.persistence.live.existingClaim }}
+    {{- if not $claims.live }}
     - metadata:
         name: {{ default "live-storage" .Values.blockNode.persistence.live.volumeName }}
       spec:
@@ -327,7 +313,7 @@ spec:
         storageClassName: {{ .Values.blockNode.persistence.live.storageClass }}
         {{- end }}
     {{- end }}
-    {{- if not .Values.blockNode.persistence.applicationState.existingClaim }}
+    {{- if not $claims.applicationState }}
     - metadata:
         name: {{ default "application-state-storage" .Values.blockNode.persistence.applicationState.volumeName }}
       spec:
@@ -340,7 +326,7 @@ spec:
         storageClassName: {{ .Values.blockNode.persistence.applicationState.storageClass }}
         {{- end }}
     {{- end }}
-    {{- if and .Values.plugins.names (not .Values.blockNode.persistence.plugins.existingClaim) }}
+    {{- if and .Values.plugins.names (not $claims.plugins) }}
     - metadata:
         name: {{ default "plugins-storage" .Values.blockNode.persistence.plugins.volumeName }}
       spec:

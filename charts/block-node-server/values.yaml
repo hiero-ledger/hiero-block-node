@@ -225,6 +225,20 @@ blockNode:
       # storageClass: "your-storage-class"
       # Optionally specify an existing PVC name instead of creating via volumeClaimTemplate
       # existingClaim: "my-archive-pvc"
+      # Optionally have the chart create a PV and bound PVC (same options on every volume).
+      # Mutually exclusive with existingClaim.
+      # pv:
+      #   path: /mnt/fast-storage/block-node/archive
+      #   type: hostPath  # hostPath | local (local requires nodeAffinity)
+      #   hostPathType: DirectoryOrCreate
+      #   nodeAffinity: {}
+      #   storageClassName: ""
+      #   reclaimPolicy: Retain
+      #   mountOptions: []
+      #   accessModes: [ReadWriteOnce]
+      #   volumeMode: Filesystem
+      #   name: ""
+      #   claimName: ""
     logging:
       # name of the volume within the statefulset
       volumeName: "logging-storage"

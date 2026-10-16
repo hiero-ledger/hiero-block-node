@@ -393,6 +393,22 @@ blockNode:
     metrics: 16007  # binds the metrics container port to the host
 ```
 
+### Use Pre-Provisioned Host Storage (hostPath / local)
+
+Set `pv.path` on a volume (`archive`, `live`, `logging`, `applicationState` or `plugins`) to have the chart render a `PersistentVolume` and a bound `PersistentVolumeClaim` instead of a `volumeClaimTemplate`:
+
+```yaml
+blockNode:
+  persistence:
+    live:
+      size: 6Ti
+      pv:
+        type: hostPath  # hostPath | local (local requires nodeAffinity)
+        path: /mnt/fast-storage/block-node/live
+```
+
+See `values.yaml` for all `pv` options.
+
 ## Post-Installation
 
 Follow the `NOTES` instructions after installing the chart to perform `port-forward` to the Hiero Block Node and be able to use it.
