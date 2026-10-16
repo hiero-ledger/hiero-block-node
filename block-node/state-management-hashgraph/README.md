@@ -50,18 +50,18 @@ types the consensus node uses.
    `stateMetadata.json` exists under `snapshotRecentPath`, the plugin
    loads it via `lifecycleManager.loadSnapshot(...)` and seeds the lag-1
    bookkeeping so the restored state is already exposed on boot. Falls
-   back to genesis if the metadata is missing or its snapshot can't be
-   loaded.
+   back to genesis only when there is no persisted metadata at all; if
+   metadata names a block but its snapshot is missing, unreadable, or its
+   hash doesn't match, the plugin halts instead (see Failure modes).
 
 ## Storage encoding
 
-All values written to `BinaryState` are PBJ-encoded carriers from
-`com.hedera.hapi.block.stream.output`:
+All values written to `BinaryState` are the raw payload of the oneof-selected field of each
+`com.hedera.hapi.block.stream.output` wrapper, the same bytes the consensus node stores:
 
-- Singletons store the bytes of `SingletonUpdateChange`.
-- KV entries use `MapChangeKey` bytes as the key and `MapChangeValue`
-  bytes as the value.
-- Queues store the bytes of each `QueuePushChange`.
+- Singletons store the payload of `SingletonUpdateChange`.
+- KV entries use the payload of `MapChangeKey` as the key and of `MapChangeValue` as the value.
+- Queues store the payload of each `QueuePushChange`.
 
 ## Configuration
 
@@ -73,9 +73,9 @@ jar is on the classpath; opt-in lives in the deployment manifest.
 
 ## Failure modes
 
-- **State unreadable at startup.** A corrupt snapshot directory (I/O
-  failure) is logged at `WARNING` and the plugin continues with the
-  eagerly-created genesis state; it does not refuse to start.
+- **State unreadable at startup.** If persisted metadata names a block and its
+  snapshot is missing or unreadable (I/O failure), the plugin logs at `ERROR`
+  and halts (`applyHalted=true`) rather than silently starting from genesis.
 - **Snapshot hash mismatch at startup.** When a loaded snapshot's root
   hash doesn't match the persisted metadata's `stateRootHash`, the
   plugin treats it the same as a block-apply hash mismatch: halts
@@ -88,10 +88,11 @@ jar is on the classpath; opt-in lives in the deployment manifest.
 - **Malformed `state_changes` item.** Raises `IllegalStateException` from
   the applier; the plugin logs and does **not** advance metadata.
 - **Concurrent gap.** A block arriving out of order parks in the pending
-  map until its predecessor lands. The apply loop retries from
-  `historicalBlockProvider` on a delay until the gap fills; `pendingBlocks`
-  is capped (`pendingBlocksMax`) so a long-lived gap can't grow it
-  unboundedly.
+  map until its predecessor lands. A gap retry sweeps everything
+  `historicalBlockProvider` currently has from the next expected block
+  onward (not just the one missing block), on a delay, until the gap
+  fills; `pendingBlocks` is capped (`pendingBlocksMax`) so a long-lived
+  gap can't grow it unboundedly.
 
 ## Limitations
 
