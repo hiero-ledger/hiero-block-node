@@ -26,8 +26,6 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.health.HealthFacility;
-import org.hiero.consensus.config.PathsConfig;
-import org.hiero.consensus.metrics.noop.NoOpMetrics;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -78,7 +76,6 @@ class StateManagementPluginLifecycleTest {
                 .withConfigDataType(StateManagementConfig.class)
                 .withConfigDataType(MerkleDbConfig.class)
                 .withConfigDataType(VirtualMapConfig.class)
-                .withConfigDataType(PathsConfig.class)
                 .withValue("state.management.metadataPath", metadataPath.toString())
                 .withValue("state.management.snapshotRecentPath", recentRoot.toString())
                 .build();
@@ -113,10 +110,9 @@ class StateManagementPluginLifecycleTest {
         final var seedConfig = ConfigurationBuilder.create()
                 .withConfigDataType(MerkleDbConfig.class)
                 .withConfigDataType(VirtualMapConfig.class)
-                .withConfigDataType(PathsConfig.class)
                 .build();
         final var seedManager = new VirtualMapStateLifecycleManager(
-                new NoOpMetrics(), Time.getCurrent(), seedConfig, new FileSystemManager(recentRoot));
+                new NoOpSwirldsMetrics(), Time.getCurrent(), seedConfig, new FileSystemManager(recentRoot));
         seedManager.copyMutableState();
         seedManager.getMutableState().updateSingleton(1, Bytes.fromHex("c0ffee"));
         seedManager.copyMutableState();
@@ -157,10 +153,9 @@ class StateManagementPluginLifecycleTest {
         final var seedConfig = ConfigurationBuilder.create()
                 .withConfigDataType(MerkleDbConfig.class)
                 .withConfigDataType(VirtualMapConfig.class)
-                .withConfigDataType(PathsConfig.class)
                 .build();
         final var seedManager = new VirtualMapStateLifecycleManager(
-                new NoOpMetrics(), Time.getCurrent(), seedConfig, new FileSystemManager(recentRoot));
+                new NoOpSwirldsMetrics(), Time.getCurrent(), seedConfig, new FileSystemManager(recentRoot));
         seedManager.copyMutableState();
         seedManager.getMutableState().updateSingleton(1, Bytes.fromHex("c0ffee"));
         seedManager.copyMutableState();
@@ -180,7 +175,6 @@ class StateManagementPluginLifecycleTest {
                 .withConfigDataType(StateManagementConfig.class)
                 .withConfigDataType(MerkleDbConfig.class)
                 .withConfigDataType(VirtualMapConfig.class)
-                .withConfigDataType(PathsConfig.class)
                 .withValue("state.management.metadataPath", metadataPath.toString())
                 .withValue("state.management.snapshotRecentPath", recentRoot.toString())
                 .build();
@@ -300,7 +294,6 @@ class StateManagementPluginLifecycleTest {
                 .withConfigDataType(StateManagementConfig.class)
                 .withConfigDataType(MerkleDbConfig.class)
                 .withConfigDataType(VirtualMapConfig.class)
-                .withConfigDataType(PathsConfig.class)
                 .withValue(
                         "state.management.metadataPath", tmp.resolve("md.json").toString())
                 .withValue(
@@ -371,7 +364,6 @@ class StateManagementPluginLifecycleTest {
                 .withConfigDataType(StateManagementConfig.class)
                 .withConfigDataType(MerkleDbConfig.class)
                 .withConfigDataType(VirtualMapConfig.class)
-                .withConfigDataType(PathsConfig.class)
                 .withValue(
                         "state.management.metadataPath", tmp.resolve("md.json").toString())
                 .withValue(
@@ -438,7 +430,6 @@ class StateManagementPluginLifecycleTest {
                 .withConfigDataType(StateManagementConfig.class)
                 .withConfigDataType(MerkleDbConfig.class)
                 .withConfigDataType(VirtualMapConfig.class)
-                .withConfigDataType(PathsConfig.class)
                 .withValue(
                         "state.management.metadataPath", tmp.resolve("md.json").toString())
                 .withValue("state.management.snapshotRecentPath", badRecent.toString())
@@ -490,7 +481,6 @@ class StateManagementPluginLifecycleTest {
                 .withConfigDataType(StateManagementConfig.class)
                 .withConfigDataType(MerkleDbConfig.class)
                 .withConfigDataType(VirtualMapConfig.class)
-                .withConfigDataType(PathsConfig.class)
                 .withValue("state.management.metadataPath", metadataPath.toString())
                 .withValue("state.management.snapshotRecentPath", recentRoot.toString())
                 .build();

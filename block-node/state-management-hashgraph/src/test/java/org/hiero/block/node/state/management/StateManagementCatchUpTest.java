@@ -26,7 +26,6 @@ import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
-import org.hiero.consensus.config.PathsConfig;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -243,7 +242,6 @@ class StateManagementCatchUpTest {
                 .withConfigDataType(StateManagementConfig.class)
                 .withConfigDataType(MerkleDbConfig.class)
                 .withConfigDataType(VirtualMapConfig.class)
-                .withConfigDataType(PathsConfig.class)
                 .withValue(
                         "state.management.metadataPath", tmp.resolve("md.json").toString())
                 .withValue(
