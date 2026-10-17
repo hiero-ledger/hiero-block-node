@@ -8,7 +8,7 @@ import java.util.Set;
 /// Registers this module's configuration data types for auto-discovery.
 ///
 /// Also declares the swirlds-state-library config records (`MerkleDbConfig`,
-/// `VirtualMapConfig`, `PathsConfig`) that `VirtualMapStateLifecycleManager` requires but the
+/// `VirtualMapConfig`) that `VirtualMapStateLifecycleManager` requires but the
 /// swirlds jars don't self-register — this plugin owns only `StateManagementConfig`.
 ///
 /// These records are global, not per-plugin: there is exactly one instance of each for the
@@ -30,7 +30,6 @@ public class StateManagementConfigExtension implements ConfigurationExtension {
         return Set.of(
                 StateManagementConfig.class,
                 com.swirlds.merkledb.config.MerkleDbConfig.class,
-                com.swirlds.virtualmap.config.VirtualMapConfig.class,
-                org.hiero.consensus.config.PathsConfig.class);
+                com.swirlds.virtualmap.config.VirtualMapConfig.class);
     }
 }

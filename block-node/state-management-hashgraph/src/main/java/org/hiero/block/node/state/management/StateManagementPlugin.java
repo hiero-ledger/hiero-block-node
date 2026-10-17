@@ -38,7 +38,6 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
-import org.hiero.consensus.metrics.noop.NoOpMetrics;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.ObservableGauge;
 import org.hiero.metrics.core.MetricKey;
@@ -191,7 +190,10 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             // here if the configured state directory is not writable.
             final Path fsmRoot = Path.of(config.snapshotRecentPath());
             this.lifecycleManager = new VirtualMapStateLifecycleManager(
-                    new NoOpMetrics(), Time.getCurrent(), context.configuration(), new FileSystemManager(fsmRoot));
+                    new NoOpSwirldsMetrics(),
+                    Time.getCurrent(),
+                    context.configuration(),
+                    new FileSystemManager(fsmRoot));
         } catch (final RuntimeException e) {
             // Non-fatal: this plugin stays inert (lifecycleManager == null, start() no-ops) but
             // the rest of the Block Node — block streaming included — is unaffected.
