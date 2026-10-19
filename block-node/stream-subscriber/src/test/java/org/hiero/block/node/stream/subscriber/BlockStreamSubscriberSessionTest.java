@@ -1417,7 +1417,7 @@ class BlockStreamSubscriberSessionTest {
                     .endBlockNumber(0L)
                     .build();
             final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
-                    SessionContext.create(clientId, request, chunkingContext),
+                    SessionContext.create(clientId, request, chunkingContext, TEST_BLOCK_READ_BULKHEAD),
                     chunkingPipeline,
                     chunkingContext,
                     sessionReadyLatch);
@@ -1553,7 +1553,7 @@ class BlockStreamSubscriberSessionTest {
                     .endBlockNumber(-1L)
                     .build();
             final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
-                    SessionContext.create(clientId, liveRequest, blockNodeContext),
+                    SessionContext.create(clientId, liveRequest, blockNodeContext, TEST_BLOCK_READ_BULKHEAD),
                     responsePipeline,
                     blockNodeContext,
                     sessionReadyLatch);
@@ -1588,7 +1588,7 @@ class BlockStreamSubscriberSessionTest {
                     .endBlockNumber(-1L)
                     .build();
             final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
-                    SessionContext.create(clientId, liveRequest, blockNodeContext),
+                    SessionContext.create(clientId, liveRequest, blockNodeContext, TEST_BLOCK_READ_BULKHEAD),
                     responsePipeline,
                     blockNodeContext,
                     sessionReadyLatch);
