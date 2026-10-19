@@ -47,9 +47,6 @@ import org.hiero.metrics.core.MetricRegistry;
 /// the Block Node by replaying verified block-stream state changes onto a
 /// `VirtualMapStateLifecycleManager`-managed state.
 ///
-/// This slice covers lifecycle, the apply pipeline, and snapshot restore on startup.
-/// Snapshot creation and the gRPC query surface land in follow-up PRs.
-///
 /// See `docs/design/state/live-state.md` for the full design.
 public final class StateManagementPlugin implements BlockNodePlugin, BlockNotificationHandler {
 
@@ -85,10 +82,9 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     static final MetricKey<LongCounter> METRIC_HASH_MISMATCH_TOTAL =
             MetricKey.of("state_hash_mismatch_total", LongCounter.class).addCategory(METRICS_CATEGORY);
 
-    /// `blocknode:state_block_lag` — blocks between the latest block
-    /// `historicalBlockProvider` has on hand and the currently attested block. `0` once caught
-    /// up; a persistently growing value flags a stall worth alerting on (independent of
-    /// `state_apply_halted`, since a stall can also be a slow/stuck apply path).
+    /// `blocknode:state_block_lag` — blocks between the latest available block and the
+    /// currently attested one. `0` once caught up; a persistent value signals a stall,
+    /// independent of `state_apply_halted`.
     static final MetricKey<ObservableGauge> METRIC_BLOCK_LAG =
             MetricKey.of("state_block_lag", ObservableGauge.class).addCategory(METRICS_CATEGORY);
 
@@ -98,11 +94,10 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     private StateMetadataStore metadataStore;
     private StateChangeApplier applier;
 
-    /// State (1) and its metadata, published as one unit so a reader can never pair a new state
-    /// with stale metadata (or vice versa) — see `publishAttested`. `state` is `null` until the
-    /// first attestation. Does not yet give readers their own reservation on `state`; no query
-    /// path exists in this PR to need one, but the gRPC query API PR must add one before reading
-    /// `state` from any thread other than the apply worker.
+    /// State (1) and its metadata, published as one unit so a reader never pairs a new state
+    /// with stale metadata — see `publishAttested`. `state` is `null` until first attestation.
+    /// No reservation on `state` for readers yet; a future query API must add one before
+    /// reading `state` off the apply-worker thread.
     private record AttestedSnapshot(
             @Nullable VirtualMapState state, @NonNull StateMetadata metadata) {}
 
@@ -139,10 +134,9 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
 
     private static final long GAP_RETRY_DELAY_SECONDS = 5L;
 
-    /// Wake-up channel for the apply worker. `handleVerification` stages the block in
-    /// `pendingBlocks` (the ordered gap buffer `applyPending` drains) and offers the block
-    /// number here so the worker wakes immediately instead of waiting for a timer. Unbounded so
-    /// the messaging dispatch thread never blocks handing off.
+    /// Wake-up channel for the apply worker: `handleVerification` stages the block in
+    /// `pendingBlocks` and offers its number here so the worker wakes immediately instead of
+    /// waiting for a timer. Unbounded so the messaging dispatch thread never blocks handing off.
     private final BlockingQueue<Long> arrivals = new LinkedBlockingQueue<>();
 
     /// Serialises `applyPending` so the apply worker and direct (test-driven) callers never
@@ -150,10 +144,9 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     private final ReentrantLock applyLock = new ReentrantLock();
 
     /// Block number of the most recent block whose state_changes have been applied to the
-    /// mutable state. Distinct from `metadata.blockNumber` because of the lag-1 commit:
-    /// `metadata.blockNumber` is the most recently *attested* (visible to readers) block;
-    /// `lastAppliedBlock` is the staging block whose changes live in the mutable copy and will
-    /// be committed when the next block's footer confirms them. `-1` until the first apply.
+    /// mutable state. Distinct from `metadata.blockNumber`: that's the most recently *attested*
+    /// (reader-visible) block, this is the staging block committed once the next block's footer
+    /// confirms it (the lag-1 commit). `-1` until the first apply.
     private volatile long lastAppliedBlock = -1L;
 
     /// Round number of `lastAppliedBlock`, mirrored for the same lag-1 reason.
@@ -165,10 +158,8 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     // (2) HASHING — `hashingImmutable`; sealed by copyMutableState, awaiting
     //     attestation by the next block's footer.
     // (1) ATTESTED — `attested.state()`; the network-confirmed, query-serving copy.
-    // A state is hashed exactly once, never while mutable (3). VirtualMap.getHash() caches, so
-    // hashing costs the same either way — the only choice is *when* to pay it. Hashing starts
-    // in the background right after seal (hashingFuture), overlapping with the next block's
-    // apply, instead of blocking the apply path behind a synchronous hash.
+    // A state is hashed exactly once, never while mutable (3); hashing starts in the
+    // background right after seal (hashingFuture) — see `startBackgroundHash`.
 
     /// **State (2) — sealed, awaiting attestation.** `null` until the first apply.
     private volatile VirtualMapState hashingImmutable;
@@ -185,9 +176,8 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         this.metadataStore = new StateMetadataStore(Path.of(config.metadataPath()));
         this.applier = new StateChangeApplier();
         try {
-            // Anchor FileSystemManager at the configured recent-snapshot path so the lifecycle
-            // manager's scratchpad lives next to the snapshots. First filesystem touch — fails
-            // here if the configured state directory is not writable.
+            // Anchor FileSystemManager at the configured snapshot path so the scratchpad lives
+            // next to snapshots; first filesystem touch, fails here if the dir isn't writable.
             final Path fsmRoot = Path.of(config.snapshotRecentPath());
             this.lifecycleManager = new VirtualMapStateLifecycleManager(
                     new NoOpSwirldsMetrics(),
@@ -195,8 +185,8 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                     context.configuration(),
                     new FileSystemManager(fsmRoot));
         } catch (final RuntimeException e) {
-            // Non-fatal: this plugin stays inert (lifecycleManager == null, start() no-ops) but
-            // the rest of the Block Node — block streaming included — is unaffected.
+            // Non-fatal: plugin stays inert (lifecycleManager == null, start() no-ops);
+            // the rest of the Block Node is unaffected.
             LOGGER.log(
                     System.Logger.Level.WARNING,
                     "Failed to prepare state directory {0}.",
@@ -301,9 +291,8 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         }
         if (pendingBlocks.size() >= config.pendingBlocksMax()
                 && !pendingBlocks.containsKey(notification.blockNumber())) {
-            // Over the cap: drop rather than buffer unboundedly. Whatever gap is holding up
-            // apply will eventually be filled by backfill (see scheduleGapRetry), at which
-            // point this block number is re-fetched from historicalBlockProvider anyway.
+            // Over the cap: drop rather than buffer unboundedly — backfill (scheduleGapRetry)
+            // will eventually re-fetch this block from history anyway.
             LOGGER.log(
                     System.Logger.Level.WARNING,
                     "pendingBlocks at cap ({0}); dropping live block {1}",
@@ -360,13 +349,10 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
 
     // ── Internals ───────────────────────────────────────────────────────────
 
-    /// Load persisted metadata and, if present, the matching recent snapshot from disk,
-    /// seeding the lag-1 bookkeeping so the loaded (already-attested) state is exposed on boot.
-    /// A fresh node (no persisted metadata at all) falls back to genesis. A node whose
-    /// `stateMetadata.json` names a real block but whose snapshot can't be loaded for it
-    /// (missing, unreadable, or hash mismatch) halts instead: persisted metadata is the
-    /// operator's recorded intent, and silently restarting from genesis would discard that
-    /// and surface only later as a confusing hash mismatch on some unrelated block.
+    /// Load persisted metadata and, if present, the matching recent snapshot from disk, seeding
+    /// the lag-1 bookkeeping so the loaded state is exposed on boot. A fresh node falls back to
+    /// genesis; a node whose metadata names a block but can't load its snapshot halts instead,
+    /// since silently restarting from genesis would discard the operator's recorded intent.
     private void loadPersistedState() {
         StateMetadata loadedMetadata;
         boolean metadataPersisted;
@@ -418,14 +404,13 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             applyHalted.set(true);
         }
         if (!snapshotLoaded) {
-            // No operator intent to honor (metadata was never persisted) — genesis is the only
-            // sensible starting point. If metadata *was* persisted, applyHalted is already set
-            // above and this plugin won't apply or serve anything regardless of this value.
+            // No operator intent to honor (metadata never persisted) — genesis is the only
+            // sensible start. If metadata was persisted, applyHalted is already set above
+            // and this plugin won't apply or serve anything regardless of this value.
             loadedMetadata = StateMetadata.DEFAULT;
         } else {
-            // Trust the loaded snapshot represents post-(metadata.blockNumber), an
-            // attested/committed block when snapshotted. Seed the lag-1 bookkeeping so it is
-            // already the exposed state on boot and the next block validates against it.
+            // Trust the snapshot represents post-(metadata.blockNumber); seed lag-1 bookkeeping
+            // so it's the exposed state on boot and the next block validates against it.
             lastAppliedBlock = loadedMetadata.blockNumber();
             lastAppliedRound = loadedMetadata.roundNumber();
         }
@@ -441,19 +426,17 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             startBackgroundHash(loaded);
         } else if (!applyHalted.get()) {
             // True genesis: seed state 2 with the sealed empty VirtualMap so block 0 validates
-            // through the same path as every other block, no special-casing needed. Skipped if
-            // we just halted on a corrupt snapshot above, so hashingImmutable stays null rather
-            // than surfacing a hash we've declared untrustworthy.
+            // through the same path as every other block. Skipped if we just halted above, so
+            // hashingImmutable stays null rather than surfacing an untrustworthy hash.
             hashingImmutable = lifecycleManager.getLatestImmutableState();
             startBackgroundHash(hashingImmutable);
         }
     }
 
-    /// Drain the pending-blocks queue in strict block-number order, applying each contiguous
-    /// next block via `applyBlockStateChanges`. Stops on the first gap, when stopping, or when
-    /// apply is halted. A failed block stays in `pendingBlocks` for post-mortem inspection, not
-    /// retry — a halt is terminal, since the mutable state may already be partially mutated;
-    /// recovery is a restart from the last snapshot.
+    /// Drain the pending-blocks queue in strict block-number order via `applyBlockStateChanges`.
+    /// Stops on the first gap, when stopping, or when apply halts. A halt is terminal (the
+    /// mutable state may be partially mutated; recovery is a restart from the last snapshot),
+    /// so a failed block stays queued for inspection rather than retried.
     void applyPending() {
         applyLock.lock();
         try {
@@ -495,10 +478,8 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     }
 
     /// Body of the apply worker thread. Runs historical catch-up once, then blocks on
-    /// `arrivals` and applies each newly-arrived verified block immediately via
-    /// `applyPending`. `arrivals.take()` parks the thread with zero CPU until
-    /// `handleVerification` offers a block number; a burst of arrivals is coalesced into a
-    /// single drain. Exits cleanly on interrupt/stop.
+    /// `arrivals`, applying each newly-arrived block via `applyPending`. A burst of arrivals
+    /// is coalesced into a single drain. Exits cleanly on interrupt/stop.
     private void runApplyWorker() {
         // One-shot catch-up first (it manages its own failures and flips readiness in a
         // finally, so it never throws out here).
@@ -529,12 +510,9 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         }
     }
 
-    /// Bring the live state up to the latest block the Block-Node has on hand by reading
-    /// blocks from `HistoricalBlockFacility` and feeding them through the same `applyPending`
-    /// loop that handles verification-delivered blocks.
-    ///
-    /// Runs on the apply-worker thread. When complete (or if there is nothing to catch up to)
-    /// sets `stateIsCaughtUp`.
+    /// Bring the live state up to the latest block on hand, reading from `HistoricalBlockFacility`
+    /// through the same `applyPending` loop that handles verification-delivered blocks. Runs on
+    /// the apply-worker thread; sets `stateIsCaughtUp` when complete (or nothing to catch up to).
     void catchUpFromHistoricalBlocks() {
         try {
             sweepHistoricalBlocks();
@@ -551,19 +529,13 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         }
     }
 
-    /// Walk forward from the next expected block (same lag-1-aware formula `applyPending` uses:
-    /// `max(lastAppliedBlock, metadata.blockNumber()) + 1`) to whatever `historicalBlockProvider`
-    /// currently has, applying in `historicCatchUpBatchSize` batches via `applyPending`. Shared by
-    /// the one-shot startup catch-up (`catchUpFromHistoricalBlocks`) and by gap recovery while
-    /// live (`retryGap`), so a gap that has grown deep — for example a backlog that built up past
-    /// `pendingBlocksMax` during a slow catch-up — converges in one sweep instead of trickling in
-    /// one block per `GAP_RETRY_DELAY_SECONDS`.
+    /// Walk forward from the next expected block to whatever `historicalBlockProvider` currently
+    /// has, applying in `historicCatchUpBatchSize` batches via `applyPending`. Shared by startup
+    /// catch-up and live gap recovery (`retryGap`), so a deep gap converges in one sweep instead
+    /// of trickling in one block per `GAP_RETRY_DELAY_SECONDS`.
     ///
-    /// Runs on whichever thread calls it: the apply-worker thread for startup catch-up, or the
-    /// background scheduler thread for gap recovery. Safe either way — `applyPending` serialises
-    /// state mutation via `applyLock` regardless of caller. Package-private (not `private`) so
-    /// tests can drive gap recovery directly rather than waiting on the real
-    /// `GAP_RETRY_DELAY_SECONDS` timer, same as `applyPending`/`catchUpFromHistoricalBlocks`.
+    /// Thread-safe regardless of caller (`applyPending` serialises via `applyLock`).
+    /// Package-private so tests can drive gap recovery directly.
     void sweepHistoricalBlocks() {
         final HistoricalBlockFacility historic = context == null ? null : context.historicalBlockProvider();
         if (historic == null) {
@@ -597,10 +569,9 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         }
     }
 
-    /// A gap in `pendingBlocks` is expected, not an error: backfill fills it eventually. Log a
-    /// warning and retry after a delay rather than waiting forever on a live notification that
-    /// may never arrive for this exact block number. Coalesced — only one retry is ever in
-    /// flight.
+    /// A gap in `pendingBlocks` is expected, not an error — backfill fills it eventually. Retries
+    /// after a delay rather than waiting forever on a notification that may never arrive for
+    /// this exact block number. Coalesced: only one retry is ever in flight.
     ///
     /// @param expectedNext the missing block number to retry
     private void scheduleGapRetry(final long expectedNext) {
@@ -615,15 +586,12 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         backgroundExecutor.schedule(() -> retryGap(expectedNext), GAP_RETRY_DELAY_SECONDS, TimeUnit.SECONDS);
     }
 
-    /// Re-run the historical sweep after a gap: pulls everything `historicalBlockProvider`
-    /// currently has from the next expected block onward, not just the single block that was
-    /// missing when the gap was first detected — a block arriving mid-delay, or several blocks
-    /// having accumulated past `pendingBlocksMax` during a slow catch-up, are both picked up in
-    /// one pass. Wakes the apply worker either way so `applyPending` re-evaluates (and
-    /// reschedules another retry if a block is still genuinely missing from history).
+    /// Re-run the historical sweep after a gap, pulling everything available from the next
+    /// expected block onward (not just the block that was missing), so blocks that arrived
+    /// mid-delay are also picked up in one pass. Wakes the apply worker either way.
     ///
-    /// @param expectedNext the block number that was missing when this retry was scheduled (for
-    ///     logging only — the sweep recomputes the live starting point itself)
+    /// @param expectedNext the block number that was missing when this retry was scheduled
+    ///     (logging only — the sweep recomputes the live starting point itself)
     private void retryGap(final long expectedNext) {
         gapRetryScheduled.set(false);
         if (!stopping.get() && !applyHalted.get()) {
@@ -693,9 +661,8 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             applyHalted.set(true);
             return false;
         }
-        // Join the hash of state 2 (post-(lastAppliedBlock)), started in the background right
-        // after it was sealed. hashingImmutable is seeded at boot (genesis or loaded snapshot),
-        // so this is never null by the time a block reaches apply.
+        // Join state 2's hash, started in the background after it was sealed; hashingImmutable
+        // is seeded at boot, so this is never null here.
         final Bytes attestedHash = currentStagedHash();
         if (!validateStartHash(startHash, attestedHash)) {
             hashMismatchTotal.incrementAndGet();
@@ -713,10 +680,9 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             return false;
         }
 
-        // N's footer just attested state 2 (post-(lastAppliedBlock)). Promote it from HASHING
-        // → ATTESTED now — lag-1: readers only ever see attested state. (Skipped at genesis,
-        // and when the last applied block is already the exposed one, e.g. after a snapshot
-        // reload.)
+        // N's footer just attested state 2. Promote HASHING → ATTESTED now (lag-1: readers
+        // only see attested state). Skipped at genesis and when the last applied block is
+        // already exposed, e.g. after a snapshot reload.
         final StateMetadata currentMetadata = attested.metadata();
         if (lastAppliedBlock >= 0L && (attested.state() == null || lastAppliedBlock != currentMetadata.blockNumber())) {
             publishAttested(
@@ -761,12 +727,11 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         return attestedHash.equals(startHash);
     }
 
-    /// Publish `newState` and `newMetadata` as one atomic unit — a single volatile write to
-    /// `attested` — so a reader can never pair a new state with stale metadata or vice versa.
-    /// Also manages reference counts so the state survives the next `copyMutableState()` (which
-    /// releases the lifecycle manager's own reference to the superseded version): `reserve()`s
-    /// the new state's root and `release()`s the previously-held one — without this the held
-    /// immutable is destroyed and reads/snapshots throw `ReferenceCountException`.
+    /// Publish `newState` and `newMetadata` as one atomic unit (a single volatile write to
+    /// `attested`) so a reader never pairs a new state with stale metadata. Also `reserve()`s
+    /// the new state's root and `release()`s the previous one, since `copyMutableState()`
+    /// releases the lifecycle manager's own reference — without this the held immutable is
+    /// destroyed and reads/snapshots throw `ReferenceCountException`.
     ///
     /// @param newState the newly-attested state to publish to readers
     /// @param newMetadata the metadata describing `newState`

@@ -20,34 +20,15 @@ import org.hiero.block.internal.BlockUnparsed;
 /// Walks a verified block once, applying every `state_changes` mutation to a `BinaryState`
 /// and returning the per-block metadata (`blockNumber`, `roundNumber`, applied-change count).
 ///
-/// ## Storage encoding
-/// `BinaryState` (`VirtualMapStateImpl`) wraps whatever bytes it's given with its own
-/// `(stateId << 3 | WIRE_TYPE_DELIMITED)` tag — it expects the **raw inner entity payload**,
-/// not an already-tagged oneof wrapper message. `state_changes` items carry the wrapper
-/// (`MapChangeKey`/`MapChangeValue`/`SingletonUpdateChange`/`QueuePushChange`), so each one is
-/// walked at the protobuf wire level (mirroring CN's reference
-/// `BlockStreamRecoveryWorkflow.BinaryStateChangeApplier`) to extract just the first delimited
-/// field's payload — the oneof-selected value — rather than re-serializing the whole wrapper.
+/// `BinaryState` expects each entity's raw payload, not the `state_changes` oneof wrapper
+/// (`MapChangeKey`/`MapChangeValue`/`SingletonUpdateChange`/`QueuePushChange`) around it, so
+/// this walks the protobuf wire format directly to extract just the oneof-selected field,
+/// rather than re-encoding an already-parsed `StateChange` by hand (which would need a switch
+/// over every oneof variant and go stale as HAPI adds more).
 ///
-/// Token-relationship keys (`stateId == 9`, `MapChangeKey.token_relationship_key`, field 25) do
-/// **not** need the `TokenAssociation` → `EntityIDPair` field-reorder CN's older reference
-/// applier performs: that reorder targeted the now-reserved field 2 (`TokenAssociation`,
-/// token_id then account_id). The current proto (confirmed against this repo's pinned
-/// `state_changes.proto`/`basic_types.proto`, v0.76.1) carries this key as
-/// `AccountTokenAssociation` instead — introduced upstream specifically to fix this mismatch —
-/// with the same field order and types as `EntityIDPair` (account_id=1, token_id=2), so the
-/// extracted payload is already state-storage-compatible with no remap.
-///
-/// PBJ's generated oneof accessors hand back a decoded Java object for whichever variant is
-/// set, not that variant's raw bytes — extracting "just the payload" from an already-parsed
-/// `StateChange` would mean re-encoding by hand through a switch over every oneof variant,
-/// which silently goes stale as HAPI adds new ones. Walking the wire format directly needs no
-/// such switch.
-///
-/// ## Why no separate `inspectBlock`
-/// The plugin needs `BlockFooter.startOfBlockStateRootHash` before applying, to validate the
-/// incoming block against our live state. `extractStartOfBlockStateRootHash` gets it without
-/// a full walk by scanning from the end until it finds the footer, with no position assumed.
+/// Token-relationship keys (`stateId == 9`, field 25) need no field-reorder despite CN's older
+/// reference applier performing one: the current proto carries this key as
+/// `AccountTokenAssociation`, already in `EntityIDPair` order (account_id=1, token_id=2).
 final class StateChangeApplier {
 
     private static final System.Logger LOGGER = System.getLogger(StateChangeApplier.class.getName());
@@ -60,9 +41,7 @@ final class StateChangeApplier {
     record ApplyResult(long blockNumber, long roundNumber, int appliedChanges) {}
 
     /// The raw bytes of a single oneof-selected field, plus the field number it was tagged
-    /// with. The field number is unused today but must survive the extraction step: CN's
-    /// `state-changes-diffing` branch selects a schema by this same field number to support
-    /// partial `state_changes` updates, and this is the one place that number is available.
+    /// with. The field number is unused today but kept for future partial-update support.
     ///
     /// @param fieldNumber the protobuf field number the payload was tagged with
     /// @param bytes the raw bytes of that field's value

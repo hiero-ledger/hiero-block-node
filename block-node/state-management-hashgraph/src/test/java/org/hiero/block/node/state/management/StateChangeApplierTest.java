@@ -91,10 +91,8 @@ class StateChangeApplierTest {
 
     @Test
     void tokenRelationshipKeyNeedsNoFieldReorder() {
-        // The current MapChangeKey.token_relationship_key (field 25, AccountTokenAssociation)
-        // already matches EntityIDPair's field order/types — unlike CN's older reference
-        // applier's TokenAssociation remap (which targeted the now-reserved field 2). This
-        // guards against that changing again upstream without us noticing.
+        // Guards against AccountTokenAssociation's field order drifting from EntityIDPair's
+        // again upstream — no remap needed today, unlike CN's older reference applier.
         final InMemoryBinaryState state = new InMemoryBinaryState();
         final StateChangeApplier applier = new StateChangeApplier();
 

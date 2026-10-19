@@ -79,11 +79,8 @@ class StateManagementCatchUpTest {
         plugin.catchUpFromHistoricalBlocks();
         assertThat(plugin.isApplyHalted()).isFalse();
 
-        // Simulate a backlog that landed only in historical storage (e.g. backfill filled it in
-        // after the pendingBlocksMax cap dropped these live blocks during a slow catch-up) —
-        // none of these are staged in pendingBlocks. Before the gap-recovery fix, only the single
-        // next block (1) would ever be re-fetched per retry; this asserts the whole backlog is
-        // picked up in one sweep instead.
+        // Simulate a backlog that landed only in historical storage, none staged in pendingBlocks.
+        // Asserts the whole backlog is picked up in one sweep, not just the next block.
         final Bytes stagedAfter0 = plugin.stagedStateRootHash();
         for (long blockNumber = 1L; blockNumber <= 10L; blockNumber++) {
             historic.put(blockNumber, buildBlock(blockNumber, blockNumber, stagedAfter0));

@@ -103,12 +103,9 @@ jar is on the classpath; opt-in lives in the deployment manifest.
   halted until restart and there is no automatic rewind/replay.
 - Catch-up is sequential and synchronous within batches; very large
   catch-up windows block `ready=true` proportionally.
-- The plugin declares three swirlds-library config records
-  (`MerkleDbConfig`, `VirtualMapConfig`, `PathsConfig`) alongside its own
-  `StateManagementConfig` in `StateManagementConfigExtension`, since the
-  swirlds jars don't self-register them. Cosmetic only — a future plugin
-  that also needs `VirtualMapStateLifecycleManager` can safely declare the
-  same three types without any registration conflict.
+- The plugin also declares `MerkleDbConfig`/`VirtualMapConfig` in
+  `StateManagementConfigExtension`, since the swirlds jars don't
+  self-register them — see that class's javadoc for details.
 
 ## Roadmap
 

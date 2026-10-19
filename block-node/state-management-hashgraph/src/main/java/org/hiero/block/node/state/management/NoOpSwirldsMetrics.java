@@ -22,14 +22,8 @@ import org.hiero.consensus.metrics.RunningAverageMetric;
 import org.hiero.consensus.metrics.SpeedometerMetric;
 import org.hiero.consensus.metrics.StatEntry;
 
-/// Minimal stand-in for swirlds' own `NoOpMetrics`, which PR hiero-ledger/hiero-consensus-node#26683
-/// moved into `consensus-fakes`, a module explicitly scoped to tools/tests only — not safe to pull
-/// into production code. Pulling in `consensus-fakes` from here (production code) would also mean
-/// depending on a module whose own stated purpose excludes that use, so this hand-rolls the same
-/// no-op contract instead of adding the dependency. Every metric type `PlatformMetricsFactory`
-/// can produce is implemented (`VirtualMap`'s own internal statistics registration already touches
-/// several of them beyond the `RunningAverageMetric` this plugin's own `StateMetrics` uses), each
-/// simply storing whatever value it was last given and discarding it on `reset()`.
+/// No-op `Metrics` for `VirtualMapStateLifecycleManager`. Implements every `PlatformMetricsFactory`
+/// type since `VirtualMap`'s internal statistics use more than just `RunningAverageMetric`.
 final class NoOpSwirldsMetrics implements Metrics {
 
     @Override
@@ -154,8 +148,7 @@ final class NoOpSwirldsMetrics implements Metrics {
         }
     };
 
-    /// Shared getters every no-op metric needs, pulled straight from the `MetricConfig` it was
-    /// created from.
+    /// Shared no-op getters backed by the `MetricConfig`.
     private abstract static class AbstractNoOpMetric implements Metric {
         private final MetricConfig<?, ?> config;
 

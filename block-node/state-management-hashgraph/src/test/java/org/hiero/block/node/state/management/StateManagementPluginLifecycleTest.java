@@ -32,8 +32,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 /// Exercises the `StateManagementPlugin` lifecycle end-to-end against an in-tree fixture (no
 /// real VirtualMap-backed state). Covers startup, the lag-1 apply pipeline, apply-halt behavior,
-/// and snapshot restore. Snapshot creation and gRPC query are not yet implemented; see follow-up
-/// PRs.
+/// and snapshot restore.
 class StateManagementPluginLifecycleTest {
 
     @Test
@@ -59,10 +58,8 @@ class StateManagementPluginLifecycleTest {
             throws Exception {
         final Path metadataPath = tmp.resolve("stateMetadata.json");
         final Path recentRoot = tmp.resolve("recent");
-        // Persist metadata pointing at block 5 but never create its recent/5 snapshot dir.
-        // Persisted metadata is the operator's recorded intent; silently resetting to genesis
-        // would discard it and surface only later as a confusing hash mismatch on some
-        // unrelated block, so the plugin halts instead (inert, but running).
+        // Persist metadata pointing at block 5 but never create its recent/5 snapshot dir —
+        // the plugin should halt rather than silently fall back to genesis.
         new StateMetadataStore(metadataPath)
                 .save(StateMetadata.newBuilder()
                         .blockNumber(5L)
@@ -285,10 +282,8 @@ class StateManagementPluginLifecycleTest {
 
     @Test
     void pendingBlocksStopsGrowingOnceApplyHalted(@TempDir final Path tmp) throws Exception {
-        // handleVerification must stop staging new blocks once apply is halted, since
-        // applyPending() never drains pendingBlocks again until a restart — otherwise every
-        // subsequent verified block accumulates in memory without bound. Reads the real
-        // state_pending_blocks gauge via the established TestMetricsExporter pattern.
+        // handleVerification must stop staging new blocks once apply halts, since applyPending()
+        // never drains pendingBlocks again until a restart.
         final TestMetricsExporter metricsExporter = new TestMetricsExporter();
         final var configuration = ConfigurationBuilder.create()
                 .withConfigDataType(StateManagementConfig.class)
@@ -416,12 +411,9 @@ class StateManagementPluginLifecycleTest {
 
     @Test
     void unwritableStateDirStaysInertWithoutThrowing(@TempDir final Path tmp) throws Exception {
-        // Make the configured recent-snapshot path impossible to create: its parent is a
-        // regular file, so directory creation fails (mirrors a non-writable /opt/hiero in a
-        // real deployment). init() must log and leave the plugin inert rather than throw or
-        // shut down the Block Node — a storage failure in this one plugin shouldn't stop
-        // block streaming, and an unchecked exception out of init() would abort BlockNodeApp
-        // construction and take down every other plugin.
+        // Make the configured recent-snapshot path impossible to create (parent is a regular
+        // file). init() must log and leave the plugin inert rather than throw — an exception
+        // here would abort BlockNodeApp construction and take down every other plugin.
         final Path blocker = tmp.resolve("blocker");
         Files.writeString(blocker, "not a directory");
         final Path badRecent = blocker.resolve("state/recent");

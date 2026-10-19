@@ -5,10 +5,8 @@ description = "Hiero Block Node State Management Hashgraph Plugin (beta)"
 
 tasks.withType<JavaCompile>().configureEach { options.compilerArgs.add("-Xlint:-exports") }
 
-// Only this module pulls in swirlds-state-impl/consensus-model/consensus-roster, whose
-// published module-infos require com.hedera.node.hapi; we substitute our own protobuf-pbj so
-// the package namespaces don't collide. Scoped here rather than globally in settings.gradle.kts
-// since no other module needs it.
+// swirlds-state-impl/consensus-model/consensus-roster require com.hedera.node.hapi; exclude it
+// so our own protobuf-pbj's packages don't collide. Scoped here since no other module needs it.
 configurations.all { exclude(group = "com.hedera.hashgraph", module = "hapi") }
 
 // Workaround (hiero-gradle-conventions 0.7.10): the palantir `spotlessJava` formatter and the
