@@ -6,21 +6,25 @@ its fields.
 
 Layout (all big-endian):
     blockNumber                8 bytes  (long)
-    blockHash                  48 bytes (SHA-384)
-    consensusTimestampHash     48 bytes (SHA-384 leaf hash of the block's first consensus timestamp)
-    outputItemsTreeRootHash    48 bytes (streaming merkle root of all output items)
+    blockHash                  32 bytes (SHA-256)
+    consensusTimestampHash     32 bytes (SHA-256 leaf hash of the block's first consensus timestamp)
+    outputItemsTreeRootHash    32 bytes (streaming merkle root of all output items)
     leafCount                  8 bytes  (long)
     hashCount                  4 bytes  (int)
-    hashes                     48 * hashCount bytes (streaming hasher's open-root state)
+    hashes                     32 * hashCount bytes (streaming hasher's open-root state)
 
 Usage:
     extractJumpstartData.py /path/to/jumpstart.bin
 """
 
 import argparse
+import os
 import struct
 import sys
 from dataclasses import dataclass
+
+HASH_SIZE = 32  # SHA-256
+FIXED_FIELDS_SIZE = 8 + 3 * HASH_SIZE + 8 + 4  # blockNumber, 3 hashes, leafCount, hashCount
 
 
 @dataclass
@@ -45,12 +49,18 @@ def parse_args():
 
 def read_jumpstart(binary_file):
     block_number = struct.unpack('>q', binary_file.read(8))[0]
-    block_hash = binary_file.read(48).hex()
-    consensus_timestamp_hash = binary_file.read(48).hex()
-    output_items_tree_root_hash = binary_file.read(48).hex()
+    block_hash = binary_file.read(HASH_SIZE).hex()
+    consensus_timestamp_hash = binary_file.read(HASH_SIZE).hex()
+    output_items_tree_root_hash = binary_file.read(HASH_SIZE).hex()
     leaf_count = struct.unpack('>q', binary_file.read(8))[0]
     hash_count = struct.unpack('>i', binary_file.read(4))[0]
-    hashes = [binary_file.read(48).hex() for _ in range(hash_count)]
+    # A legacy SHA-384 file (48-byte hashes) never has the size a 32-byte layout expects
+    expected_size = FIXED_FIELDS_SIZE + hash_count * HASH_SIZE
+    actual_size = os.fstat(binary_file.fileno()).st_size
+    if hash_count < 0 or actual_size != expected_size:
+        raise ValueError('file is {} bytes but a hash count of {} needs {}. It is probably SHA-384 output '
+                         'from an older CLI version.'.format(actual_size, hash_count, expected_size))
+    hashes = [binary_file.read(HASH_SIZE).hex() for _ in range(hash_count)]
     return Jumpstart(block_number, block_hash, consensus_timestamp_hash,
                      output_items_tree_root_hash, leaf_count, hash_count, hashes)
 
@@ -76,6 +86,9 @@ def main():
         return 1
     try:
         jumpstart = read_jumpstart(binary_file)
+    except ValueError as err:
+        print("error: could not read '{}': {}".format(args.filename, err), file=sys.stderr)
+        return 1
     finally:
         binary_file.close()
     print_jumpstart(jumpstart)

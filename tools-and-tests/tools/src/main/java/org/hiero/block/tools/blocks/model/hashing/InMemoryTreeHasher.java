@@ -4,8 +4,8 @@ package org.hiero.block.tools.blocks.model.hashing;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashInternalNode;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashLeaf;
-import static org.hiero.block.tools.utils.Sha384.SHA_384_HASH_SIZE;
-import static org.hiero.block.tools.utils.Sha384.sha384Digest;
+import static org.hiero.block.tools.utils.Sha256.SHA_256_HASH_SIZE;
+import static org.hiero.block.tools.utils.Sha256.sha256Digest;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.BufferedInputStream;
@@ -91,7 +91,7 @@ public class InMemoryTreeHasher implements Hasher {
 
     /** Create a new InMemoryTreeHasher with an empty state. */
     public InMemoryTreeHasher() {
-        digest = sha384Digest();
+        digest = sha256Digest();
         levels = new ArrayList<>();
         levels.add(new ArrayList<>()); // Level 0 for leaves
         pendingSubtreeRoots = new ArrayList<>();
@@ -184,9 +184,9 @@ public class InMemoryTreeHasher implements Hasher {
      * <p>This does not modify the internal state, so more leaves can be added afterward.
      *
      * <p>For an empty tree (no leaves added), this method returns the predefined
-     * {@link HashingUtils#EMPTY_TREE_HASH} which is {@code sha384Hash(new byte[]{0x00})}.
+     * {@link HashingUtils#EMPTY_TREE_HASH} which is {@code sha256Hash(new byte[]{0x00})}.
      *
-     * @return the SHA-384 Merkle tree root hash, or {@link HashingUtils#EMPTY_TREE_HASH}
+     * @return the SHA-256 Merkle tree root hash, or {@link HashingUtils#EMPTY_TREE_HASH}
      *         if no leaves have been added
      */
     @Override
@@ -459,7 +459,7 @@ public class InMemoryTreeHasher implements Hasher {
                 int hashCount = din.readInt();
                 List<byte[]> level = new ArrayList<>(hashCount);
                 for (int i = 0; i < hashCount; i++) {
-                    byte[] hash = new byte[SHA_384_HASH_SIZE];
+                    byte[] hash = new byte[SHA_256_HASH_SIZE];
                     din.readFully(hash);
                     level.add(hash);
                 }

@@ -6,6 +6,9 @@ import struct
 import sys
 from pathlib import Path
 
+HASH_SIZE = 32  # SHA-256
+FIXED_FIELDS_SIZE = 8 + 3 * HASH_SIZE + 8 + 4  # block number, 3 hashes, leaf count, hash count
+
 def main():
     if len(sys.argv) != 2:
         print("Usage: validate_jumpstart_format.py <jumpstart_file>", file=sys.stderr)
@@ -17,14 +20,14 @@ def main():
         # Read block number (8 bytes, big-endian long)
         block_number = struct.unpack('>Q', f.read(8))[0]
 
-        # Read block hash (48 bytes - SHA-384)
-        block_hash = f.read(48).hex()
+        # Read block hash (32 bytes - SHA-256)
+        block_hash = f.read(HASH_SIZE).hex()
 
-        # Read consensus timestamp hash (48 bytes - SHA-384)
-        consensus_timestamp_hash = f.read(48).hex()
+        # Read consensus timestamp hash (32 bytes - SHA-256)
+        consensus_timestamp_hash = f.read(HASH_SIZE).hex()
 
-        # Read output items tree root hash (48 bytes - SHA-384)
-        output_items_tree_root_hash = f.read(48).hex()
+        # Read output items tree root hash (32 bytes - SHA-256)
+        output_items_tree_root_hash = f.read(HASH_SIZE).hex()
 
         # Read streaming hasher leaf count (8 bytes, big-endian long)
         leaf_count = struct.unpack('>Q', f.read(8))[0]
@@ -32,14 +35,22 @@ def main():
         # Read hash count (4 bytes, big-endian int)
         hash_count = struct.unpack('>I', f.read(4))[0]
 
-        # Read pending subtree hashes (48 bytes each)
+        # A legacy SHA-384 file (48-byte hashes) never has the size a 32-byte layout expects
+        expected_size = FIXED_FIELDS_SIZE + hash_count * HASH_SIZE
+        actual_size = jumpstart_file.stat().st_size
+        if actual_size != expected_size:
+            print(f"ERROR: {jumpstart_file} is {actual_size} bytes but a hash count of {hash_count} needs "
+                  f"{expected_size}. It is probably SHA-384 output from an older CLI version.", file=sys.stderr)
+            sys.exit(1)
+
+        # Read pending subtree hashes (32 bytes each)
         pending_hashes = []
         for i in range(hash_count):
-            hash_bytes = f.read(48)
-            if len(hash_bytes) == 48:
+            hash_bytes = f.read(HASH_SIZE)
+            if len(hash_bytes) == HASH_SIZE:
                 pending_hashes.append(hash_bytes.hex())
             else:
-                print(f"WARNING: Expected 48 bytes for hash {i}, got {len(hash_bytes)}", file=sys.stderr)
+                print(f"WARNING: Expected {HASH_SIZE} bytes for hash {i}, got {len(hash_bytes)}", file=sys.stderr)
                 break
 
         # Display results

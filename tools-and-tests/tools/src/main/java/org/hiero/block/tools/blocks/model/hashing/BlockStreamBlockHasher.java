@@ -17,7 +17,7 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.security.MessageDigest;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
-import org.hiero.block.tools.utils.Sha384;
+import org.hiero.block.tools.utils.Sha256;
 
 /**
  * Computes the root hash of a block following the Block Merkle Tree Design specification.
@@ -76,8 +76,8 @@ public class BlockStreamBlockHasher {
      * Result of a detailed block hash computation, containing the block root hash plus
      * intermediate hashes needed by the Consensus Node for WRB catch-up integrity checks.
      *
-     * @param blockHash the 48-byte SHA-384 block root hash
-     * @param consensusTimestampHash the SHA-384 leaf hash of the block's first consensus timestamp
+     * @param blockHash the 32-byte SHA-256 block root hash
+     * @param consensusTimestampHash the SHA-256 leaf hash of the block's first consensus timestamp
      * @param outputItemsTreeRootHash the streaming merkle root of all output items
      *        (BlockHeader, RecordFile, TransactionResult, TransactionOutput)
      */
@@ -91,7 +91,7 @@ public class BlockStreamBlockHasher {
      * wrap command). For validation hot paths, prefer the {@link BlockUnparsed} overload.
      *
      * @param block the fully-parsed block to hash
-     * @return the 48-byte SHA-384 block root hash
+     * @return the 32-byte SHA-256 block root hash
      */
     public static byte[] hashBlock(Block block) {
         return hashBlockDetailed(block).blockHash();
@@ -101,13 +101,13 @@ public class BlockStreamBlockHasher {
      * Computes the root hash of a block using {@link BlockUnparsed} with zero-copy hashing.
      *
      * <p>Uses {@link WritableMessageDigest} to feed protobuf-encoded block items directly into
-     * the SHA-384 digest, avoiding intermediate byte[] allocations for each item.
+     * the SHA-256 digest, avoiding intermediate byte[] allocations for each item.
      *
      * <p>Only the BlockHeader and BlockFooter are selectively parsed (for timestamps and
      * fixed-position hashes); all other items are hashed directly from their raw bytes.
      *
      * @param block the unparsed block to hash (must contain BlockHeader and BlockFooter)
-     * @return the 48-byte SHA-384 block root hash
+     * @return the 32-byte SHA-256 block root hash
      * @throws IllegalArgumentException if the block is missing the required header or footer
      */
     public static byte[] hashBlock(BlockUnparsed block) {
@@ -160,8 +160,8 @@ public class BlockStreamBlockHasher {
             StreamingHasher traceItems) {}
 
     private static BlockHashResult hashBlockInternal(BlockUnparsed block) throws Exception {
-        // create SHA-384 digest instance for all hashing
-        final MessageDigest digest = Sha384.sha384Digest();
+        // create SHA-256 digest instance for all hashing
+        final MessageDigest digest = Sha256.sha256Digest();
         // selectively parse block header from the first item's raw bytes
         final BlockItemUnparsed firstItem = block.blockItems().getFirst();
         if (!firstItem.hasBlockHeader()) {
@@ -217,18 +217,19 @@ public class BlockStreamBlockHasher {
     }
 
     /**
-     * Validates that a fixed-position mountain-top slot has exactly 48 bytes (SHA-384). Positions
+     * Validates that a fixed-position mountain-top slot has exactly 32 bytes (SHA-256). Positions
      * 0 and 1 (previousBlockHash, rootHashOfAllBlockHashesTree) are always present and must be a
      * full digest; short values would silently be padded by the streaming hasher's underlying
      * buffer, producing an incorrect root.
      * @param hash the hash bytes to validate
      * @param name the leaf name used in the error message
-     * @return the input hash, unchanged, if it is exactly 48 bytes
-     * @throws IllegalArgumentException if the input is not exactly 48 bytes
+     * @return the input hash, unchanged, if it is exactly 32 bytes
+     * @throws IllegalArgumentException if the input is not exactly 32 bytes
      */
     private static byte[] requireHashSize(final byte[] hash, final String name) {
-        if (hash.length != 48) {
-            throw new IllegalArgumentException(name + " must be exactly 48 bytes, got " + hash.length);
+        if (hash.length != Sha256.SHA_256_HASH_SIZE) {
+            throw new IllegalArgumentException(
+                    name + " must be exactly " + Sha256.SHA_256_HASH_SIZE + " bytes, got " + hash.length);
         }
         return hash;
     }
@@ -236,7 +237,7 @@ public class BlockStreamBlockHasher {
     /**
      * Classifies each block item into its corresponding streaming hasher subtree.
      *
-     * @param digest the SHA-384 digest to use for leaf hashing
+     * @param digest the SHA-256 digest to use for leaf hashing
      * @param block the unparsed block whose items are classified
      * @return the five populated streaming hashers
      */

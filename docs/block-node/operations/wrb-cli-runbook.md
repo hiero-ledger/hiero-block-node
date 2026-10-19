@@ -416,6 +416,10 @@ tail -f wrap.log
 
 **Resuming**: Wrapping automatically resumes from the last completed block.
 
+**Upgrading from a SHA-384 CLI (before 0.45.0)**: output directories written by an older CLI can't be resumed.
+`blocks wrap`, `days live-sequential`, `blocks repair-zips`, `blocks push` and `blocks bulk-load` refuse the headerless `blockStreamBlockHashes.bin`, and `blocks validate` refuses the old `jumpstart.bin`.
+Re-wrap from block 0 into a fresh directory. SHA-256 blocks can only be pushed to or bulk-loaded into a Block Node 0.45.0 or later.
+
 **Output Structure**:
 
 ```text
@@ -442,9 +446,9 @@ The wrapping process produces several auxiliary files in addition to the wrapped
 
 **Contents**:
 - Current block number
-- Block hash (SHA-384)
-- Consensus timestamp hash (SHA-384)
-- Output items tree root hash (SHA-384)
+- Block hash (SHA-256)
+- Consensus timestamp hash (SHA-256)
+- Output items tree root hash (SHA-256)
 - Streaming hasher state (for incremental hash verification)
 
 **When created**: Generated during `blocks wrap` and `days live-sequential` operations.
