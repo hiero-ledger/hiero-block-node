@@ -536,8 +536,17 @@ class ServiceBuilderImplTest {
                 .build();
         final ServerConfig serverConfig =
                 new ServerConfig(1_048_576, 32_768, 32_768, PUBLISHER_PORT, 0, 1_000, 1, 1, true, 1_024, 32);
+        final GlobalThrottleConfig globalThrottleConfig = new GlobalThrottleConfig(1000, 30, 5);
+        final MetricRegistry metricRegistry = MetricRegistry.builder()
+                .setMetricsExporter(new TestMetricsExporter())
+                .build();
         return new ServiceBuilderImpl(
-                serverConfig, http2Config, SocketOptions.builder().build());
+                serverConfig,
+                http2Config,
+                SocketOptions.builder().build(),
+                globalThrottleConfig,
+                metricRegistry,
+                mock(ThreadPoolManager.class));
     }
 
     private static long countHttp2Configs(final List<ProtocolConfig> protocols) {
