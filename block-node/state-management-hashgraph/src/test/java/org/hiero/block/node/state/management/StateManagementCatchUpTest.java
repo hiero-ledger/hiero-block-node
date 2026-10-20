@@ -141,6 +141,49 @@ class StateManagementCatchUpTest {
     }
 
     @Test
+    void sweepHistoricalBlocksStopsAtFirstStalledBatchInsteadOfBufferingPastIt(@TempDir final Path tmp)
+            throws Exception {
+        final InMemoryHistoricalBlockFacility historic = new InMemoryHistoricalBlockFacility();
+        // historicCatchUpBatchSize=2 (set by startPlugin) so block 1's hole falls in the first
+        // batch and blocks 3-5 are only reachable from later batches.
+        final StateManagementPlugin plugin = startPlugin(tmp, historic);
+        final Bytes genesisHash = plugin.stagedStateRootHash();
+        historic.put(0L, buildBlock(0L, 0L, genesisHash));
+        plugin.catchUpFromHistoricalBlocks();
+        assertThat(plugin.isApplyHalted()).isFalse();
+
+        // Block 1 is a hole: present nowhere. Blocks 2-5 land only in historical storage, past
+        // the hole — mirrors rockysingh's finding that later batches kept buffering blocks that
+        // can never be applied until the gap closes.
+        final Bytes stagedAfter0 = plugin.stagedStateRootHash();
+        historic.put(2L, buildBlock(2L, 2L, stagedAfter0));
+        historic.put(3L, buildBlock(3L, 3L, stagedAfter0));
+        historic.put(4L, buildBlock(4L, 4L, stagedAfter0));
+        historic.put(5L, buildBlock(5L, 5L, stagedAfter0));
+
+        plugin.sweepHistoricalBlocks();
+
+        assertThat(plugin.isApplyHalted()).isFalse();
+        assertThat(plugin.stagedStateRootHash())
+                .as("apply must stall at block 1, not skip past it")
+                .isEqualTo(stagedAfter0);
+        assertThat(plugin.pendingBlocksSize())
+                .as("sweep must stop at the first stalled batch, not keep buffering blocks 3-5 "
+                        + "from later batches it can never apply until block 1 resolves")
+                .isEqualTo(1); // only block 2, fetched in the same batch as the hole
+
+        // Filling the hole and sweeping again must drain the whole backlog in one pass, proving
+        // the early stop doesn't strand recovery once the gap closes.
+        historic.put(1L, buildBlock(1L, 1L, stagedAfter0));
+        plugin.sweepHistoricalBlocks();
+
+        assertThat(plugin.isApplyHalted()).isFalse();
+        assertThat(plugin.metadata().blockNumber()).isEqualTo(4L); // lag-1: applied through 5
+        assertThat(plugin.pendingBlocksSize()).isZero();
+        plugin.stop();
+    }
+
+    @Test
     void noHistoricalFacilityIsHandledGracefully(@TempDir final Path tmp) throws Exception {
         final StateManagementPlugin plugin = startPlugin(tmp, null);
         assertThat(StateManagementPluginTestSupport.awaitReady(plugin, 5_000L)).isTrue();

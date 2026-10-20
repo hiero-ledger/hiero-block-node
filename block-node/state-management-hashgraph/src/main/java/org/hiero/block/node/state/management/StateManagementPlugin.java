@@ -354,6 +354,13 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         return applyHalted.get();
     }
 
+    /// Number of blocks buffered awaiting apply.
+    ///
+    /// @return the current `pendingBlocks` size
+    int pendingBlocksSize() {
+        return pendingBlocks.size();
+    }
+
     // ── Internals ───────────────────────────────────────────────────────────
 
     /// Load persisted metadata and, if present, the matching recent snapshot from disk, seeding
