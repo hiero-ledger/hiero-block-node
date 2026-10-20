@@ -72,7 +72,7 @@ public class BlockStreamSubscribeUnparsedClient {
         }
 
         // Build per-request context
-        final RequestContext ctx = new RequestContext(startBlockNumber);
+        final RequestContext ctx = new RequestContext(startBlockNumber, endBlockNumber);
 
         // Create request
         final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
@@ -112,15 +112,29 @@ public class BlockStreamSubscribeUnparsedClient {
     private static final class RequestContext {
         final CountDownLatch done = new CountDownLatch(1);
         final List<BlockUnparsed> blocks = new ArrayList<>();
+        final long startBlock;
+        final long endBlock;
+        final long requestedCount;
         long expectedBlockNumber;
         List<BlockItemUnparsed> currentBlockItems = new ArrayList<>();
+        boolean blockStarted;
         Throwable error;
 
-        RequestContext(long startBlock) {
+        RequestContext(long startBlock, long endBlock) {
+            this.startBlock = startBlock;
+            this.endBlock = endBlock;
+            this.requestedCount = endBlock - startBlock + 1;
             this.expectedBlockNumber = startBlock;
         }
 
+        boolean isFinished() {
+            return done.getCount() == 0;
+        }
+
         void fail(Throwable t) {
+            if (isFinished()) {
+                return;
+            }
             this.error = t;
             done.countDown();
         }
@@ -178,12 +192,21 @@ public class BlockStreamSubscribeUnparsedClient {
 
         @Override
         public void onNext(SubscribeStreamResponseUnparsed resp) {
+            // Once the request has completed or failed, nothing more is buffered.
+            if (ctx.isFinished()) {
+                return;
+            }
             try {
                 if (resp.hasBlockItems()) {
                     final List<BlockItemUnparsed> frame = resp.blockItems().blockItems();
                     if (frame.getFirst().hasBlockHeader()) {
                         final long expected = ctx.expectedBlockNumber;
                         final long actual = extractBlockNumberFromBlockHeader(frame.getFirst());
+                        if (actual < ctx.startBlock || actual > ctx.endBlock) {
+                            ctx.fail(new IllegalStateException("Received block number " + actual
+                                    + " outside the requested range " + ctx.startBlock + " to " + ctx.endBlock));
+                            return;
+                        }
                         if (actual != expected) {
                             ctx.fail(new IllegalStateException(
                                     "Expected block number " + expected + " but received " + actual));
@@ -191,6 +214,10 @@ public class BlockStreamSubscribeUnparsedClient {
                         }
                         // Start a new block: reuse the buffer and populate it.
                         ctx.currentBlockItems.clear();
+                        ctx.blockStarted = true;
+                    } else if (!ctx.blockStarted) {
+                        ctx.fail(new IllegalStateException("Received block items before a block header"));
+                        return;
                     }
                     // Continuation: append everything to the buffer.
                     ctx.currentBlockItems.addAll(frame);
@@ -200,12 +227,20 @@ public class BlockStreamSubscribeUnparsedClient {
                         ctx.fail(new RuntimeException("Received error code: " + code));
                     }
                 } else if (resp.hasEndOfBlock()) {
+                    if (!ctx.blockStarted) {
+                        ctx.fail(new IllegalStateException("Received end of block without a block header"));
+                        return;
+                    }
                     // Snapshot the current items to avoid retaining the large buffer in the finished block.
                     final List<BlockItemUnparsed> snapshot = List.copyOf(ctx.currentBlockItems);
                     ctx.blocks.add(
                             BlockUnparsed.newBuilder().blockItems(snapshot).build());
                     ctx.currentBlockItems.clear();
+                    ctx.blockStarted = false;
                     ctx.expectedBlockNumber++;
+                    if (ctx.blocks.size() == ctx.requestedCount) {
+                        ctx.complete();
+                    }
                 } else {
                     ctx.fail(new RuntimeException("Received unexpected response without block items or code"));
                 }
