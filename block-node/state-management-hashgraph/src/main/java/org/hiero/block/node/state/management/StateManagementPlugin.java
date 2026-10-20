@@ -132,6 +132,13 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// Guards against piling up duplicate gap-retry tasks while one is already scheduled.
     private final AtomicBoolean gapRetryScheduled = new AtomicBoolean(false);
 
+    /// Set by `retryGap` (on `backgroundExecutor`), consumed by `runApplyWorker` (on
+    /// `StateManagement-apply`), which is where `sweepHistoricalBlocks` actually runs. Keeps the
+    /// sweep off `backgroundExecutor`: that thread also runs background state hashing
+    /// (`startBackgroundHash`), and a sweep applying several blocks in a row can queue a hash
+    /// task behind itself there, then block waiting on it — a self-deadlock.
+    private final AtomicBoolean gapSweepRequested = new AtomicBoolean(false);
+
     private static final long GAP_RETRY_DELAY_SECONDS = 5L;
 
     /// Wake-up channel for the apply worker: `handleVerification` stages the block in
@@ -492,6 +499,15 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                 Thread.currentThread().interrupt();
                 break;
             }
+            // A gap-retry request runs the sweep here, not on backgroundExecutor — see
+            // gapSweepRequested's javadoc.
+            if (gapSweepRequested.compareAndSet(true, false) && !applyHalted.get()) {
+                try {
+                    sweepHistoricalBlocks();
+                } catch (final RuntimeException e) {
+                    LOGGER.log(System.Logger.Level.WARNING, "Gap-recovery sweep failed", e);
+                }
+            }
             applyPending();
         }
     }
@@ -531,8 +547,10 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
 
     /// Walk forward from the next expected block to whatever `historicalBlockProvider` currently
     /// has, applying in `historicCatchUpBatchSize` batches via `applyPending`. Shared by startup
-    /// catch-up and live gap recovery (`retryGap`), so a deep gap converges in one sweep instead
-    /// of trickling in one block per `GAP_RETRY_DELAY_SECONDS`.
+    /// catch-up and live gap recovery, so a deep gap converges in one sweep instead of trickling
+    /// in one block per `GAP_RETRY_DELAY_SECONDS`. Gap recovery runs this from `runApplyWorker`
+    /// (via `gapSweepRequested`), never directly from `retryGap` on `backgroundExecutor` — see
+    /// `gapSweepRequested`'s javadoc for why.
     ///
     /// Thread-safe regardless of caller (`applyPending` serialises via `applyLock`).
     /// Package-private so tests can drive gap recovery directly.
@@ -586,25 +604,18 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         backgroundExecutor.schedule(() -> retryGap(expectedNext), GAP_RETRY_DELAY_SECONDS, TimeUnit.SECONDS);
     }
 
-    /// Re-run the historical sweep after a gap, pulling everything available from the next
-    /// expected block onward (not just the block that was missing), so blocks that arrived
-    /// mid-delay are also picked up in one pass. Wakes the apply worker either way.
+    /// Request a gap-recovery sweep and wake the apply worker. Runs on `backgroundExecutor`
+    /// (the gap-retry timer thread), so it only flags the request — `runApplyWorker` runs the
+    /// actual sweep, pulling everything available from the next expected block onward (not just
+    /// the block that was missing), so blocks that arrived mid-delay are also picked up in one
+    /// pass.
     ///
     /// @param expectedNext the block number that was missing when this retry was scheduled
-    ///     (logging only — the sweep recomputes the live starting point itself)
+    ///     (used only to wake the apply worker — the sweep recomputes the live starting point
+    ///     itself)
     private void retryGap(final long expectedNext) {
         gapRetryScheduled.set(false);
-        if (!stopping.get() && !applyHalted.get()) {
-            try {
-                sweepHistoricalBlocks();
-            } catch (final RuntimeException e) {
-                LOGGER.log(
-                        System.Logger.Level.WARNING,
-                        "Gap-recovery sweep failed starting from block {0}",
-                        expectedNext,
-                        e);
-            }
-        }
+        gapSweepRequested.set(true);
         arrivals.offer(expectedNext);
     }
 
