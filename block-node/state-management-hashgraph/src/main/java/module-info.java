@@ -25,6 +25,7 @@ module org.hiero.block.node.state.management {
     requires org.hiero.consensus.metrics;
     requires org.hiero.metrics;
     requires com.github.spotbugs.annotations;
+    requires java.logging;
 
     uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
 

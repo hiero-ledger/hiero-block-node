@@ -15,11 +15,13 @@ import com.swirlds.state.merkle.VirtualMapStateLifecycleManager;
 import com.swirlds.virtualmap.config.VirtualMapConfig;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.logging.Logger;
 import org.hiero.base.file.FileSystemManager;
 import org.hiero.block.api.StateMetadata;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.TestMetricsExporter;
+import org.hiero.block.node.app.fixtures.logging.TestLogHandler;
 import org.hiero.block.node.app.fixtures.plugintest.RecordingServiceBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -240,6 +242,36 @@ class StateManagementPluginLifecycleTest {
 
         assertThat(plugin.isApplyHalted()).isTrue();
         assertThat(plugin.hashMismatchTotal()).isEqualTo(1L);
+        plugin.stop();
+    }
+
+    @Test
+    void digestLengthMismatchLogsAlgorithmMismatchNotDivergence(@TempDir final Path tmp) throws Exception {
+        final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
+        final StateManagementPlugin plugin = startPlugin(tmp.resolve("md.json"), tmp.resolve("recent"), facility);
+
+        final TestLogHandler logHandler = new TestLogHandler();
+        final Logger julLogger = Logger.getLogger(StateManagementPlugin.class.getName());
+        julLogger.addHandler(logHandler);
+        try {
+            // A 32-byte (SHA-256-sized) start hash against this build's 48-byte (SHA-384)
+            // genesis hash: a digest algorithm mismatch, not state divergence — the log must
+            // say so rather than reading as corruption.
+            facility.sendBlockVerification(new VerificationNotification(
+                    true,
+                    null,
+                    0L,
+                    Bytes.fromHex("aabb"),
+                    buildBlock(0L, 0L, Bytes.fromHex("ab".repeat(32))),
+                    BlockSource.PUBLISHER));
+            plugin.applyPending();
+        } finally {
+            julLogger.removeHandler(logHandler);
+        }
+
+        assertThat(plugin.isApplyHalted()).isTrue();
+        assertThat(plugin.hashMismatchTotal()).isEqualTo(1L);
+        assertThat(logHandler.countContaining("digest algorithm mismatch")).isEqualTo(1);
         plugin.stop();
     }
 
