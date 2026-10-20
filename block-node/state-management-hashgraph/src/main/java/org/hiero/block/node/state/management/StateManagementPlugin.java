@@ -553,6 +553,10 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// `gapSweepRequested`'s javadoc for why.
     ///
     /// Thread-safe regardless of caller (`applyPending` serialises via `applyLock`).
+    /// Stops at the first batch `applyPending` doesn't fully clear (a hole in `availableBlocks`,
+    /// a fetch failure, or a hash-mismatch halt) instead of walking the cursor past it — otherwise
+    /// later batches keep fetching and buffering blocks into `pendingBlocks` that can never be
+    /// applied until the stalled block resolves.
     /// Package-private so tests can drive gap recovery directly.
     void sweepHistoricalBlocks() {
         final HistoricalBlockFacility historic = context == null ? null : context.historicalBlockProvider();
@@ -583,6 +587,9 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                 enqueueHistoricalBlock(historic, i);
             }
             applyPending();
+            if (lastAppliedBlock < batchEnd) {
+                break;
+            }
             cursor = batchEnd + 1L;
         }
     }
