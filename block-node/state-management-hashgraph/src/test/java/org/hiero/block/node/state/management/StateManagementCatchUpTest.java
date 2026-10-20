@@ -22,6 +22,8 @@ import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.plugintest.RecordingServiceBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
+import org.hiero.block.node.spi.blockmessaging.BlockSource;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
@@ -94,6 +96,47 @@ class StateManagementCatchUpTest {
                 .as("one sweep call should drain the entire available backlog, not just block 1")
                 .isEqualTo(9L); // lag-1: applying through block 10 exposes up to block 9
         assertThat(plugin.isApplyHalted()).isFalse();
+        plugin.stop();
+    }
+
+    @Test
+    void liveGapRecoveryDoesNotDeadlockOnBackgroundExecutor(@TempDir final Path tmp) throws Exception {
+        final InMemoryHistoricalBlockFacility historic = new InMemoryHistoricalBlockFacility();
+        final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
+        final StateManagementPlugin plugin = startPlugin(tmp, historic, facility);
+        final Bytes genesisHash = plugin.stagedStateRootHash();
+        historic.put(0L, buildBlock(0L, 0L, genesisHash));
+        plugin.catchUpFromHistoricalBlocks();
+        assertThat(plugin.isApplyHalted()).isFalse();
+
+        // Blocks 1 and 2 land only in historical storage, so recovering them makes
+        // sweepHistoricalBlocks apply two blocks back to back in one pass: block 1's apply
+        // queues its background hash, then block 2 needs to join that hash. That's the shape
+        // that deadlocked when the sweep ran on backgroundExecutor instead of the apply worker
+        // (see StateManagementPlugin's gapSweepRequested javadoc) — unlike
+        // gapRecoverySweepDrainsWholeBacklogInOnePassNotOnePerRetry, which calls
+        // sweepHistoricalBlocks() directly from the test thread and so can't see a
+        // wrong-thread deadlock.
+        final Bytes stagedAfter0 = plugin.stagedStateRootHash();
+        historic.put(1L, buildBlock(1L, 1L, stagedAfter0));
+        historic.put(2L, buildBlock(2L, 2L, stagedAfter0));
+
+        // Deliver block 3 live. Blocks 1-2 are missing from pendingBlocks, so only the real
+        // scheduleGapRetry/retryGap timer path recovers them — exercising the actual
+        // production threading, not a direct call.
+        facility.sendBlockVerification(new VerificationNotification(
+                true, null, 3L, Bytes.fromHex("aabb"), buildBlock(3L, 3L, stagedAfter0), BlockSource.PUBLISHER));
+
+        final long deadline = System.currentTimeMillis() + 8_000L;
+        while (plugin.metadata().blockNumber() < 2L && System.currentTimeMillis() < deadline) {
+            Thread.sleep(50L);
+        }
+
+        assertThat(plugin.isApplyHalted()).isFalse();
+        assertThat(plugin.metadata().blockNumber())
+                .as("gap recovery must apply blocks 1-2 (exposing up to 2 under lag-1) within one "
+                        + "GAP_RETRY_DELAY_SECONDS cycle, not hang")
+                .isEqualTo(2L);
         plugin.stop();
     }
 
@@ -234,7 +277,11 @@ class StateManagementCatchUpTest {
     }
 
     private static StateManagementPlugin startPlugin(final Path tmp, final HistoricalBlockFacility historic) {
-        final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
+        return startPlugin(tmp, historic, new TestBlockMessagingFacility());
+    }
+
+    private static StateManagementPlugin startPlugin(
+            final Path tmp, final HistoricalBlockFacility historic, final TestBlockMessagingFacility facility) {
         final var configuration = ConfigurationBuilder.create()
                 .withConfigDataType(StateManagementConfig.class)
                 .withConfigDataType(MerkleDbConfig.class)
