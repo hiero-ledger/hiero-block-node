@@ -9,12 +9,13 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -43,11 +44,11 @@ class BackfillPluginHelperTest {
         void computeChunkReturnsNullWhenStartOutsideAvailability() {
             final BackfillPlugin plugin = new BackfillPlugin();
             final BlockNodeSourceConfig source = node("localhost", 1);
-            final Map<BlockNodeSourceConfig, List<LongRange>> availability =
-                    Map.of(source, List.of(new LongRange(20, 30)));
+            final Map<BlockNodeSourceConfig, List<BlockRange>> availability =
+                    Map.of(source, List.of(BlockRanges.of(20, 30)));
 
             // Start is below the only available range, so no chunk should be produced.
-            LongRange result =
+            BlockRange result =
                     plugin.computeChunk(new NodeSelectionStrategy.NodeSelection(source, 10), availability, 50, 5);
 
             assertNull(result, "Should return null when start is not within any available range");
@@ -58,14 +59,14 @@ class BackfillPluginHelperTest {
         void computeChunkClampsToRangeAndGap() {
             final BackfillPlugin plugin = new BackfillPlugin();
             final BlockNodeSourceConfig source = node("localhost", 1);
-            final Map<BlockNodeSourceConfig, List<LongRange>> availability =
-                    Map.of(source, List.of(new LongRange(10, 15)));
+            final Map<BlockNodeSourceConfig, List<BlockRange>> availability =
+                    Map.of(source, List.of(BlockRanges.of(10, 15)));
 
             // Batch size would request past range end, and gapEnd is 12, so end should clamp at 12.
-            LongRange result =
+            BlockRange result =
                     plugin.computeChunk(new NodeSelectionStrategy.NodeSelection(source, 10), availability, 12, 10);
 
-            assertEquals(new LongRange(10, 12), result);
+            assertEquals(BlockRanges.of(10, 12), result);
         }
 
         @Test
@@ -73,14 +74,14 @@ class BackfillPluginHelperTest {
         void computeChunkReturnsFullBatch() {
             final BackfillPlugin plugin = new BackfillPlugin();
             final BlockNodeSourceConfig source = node("localhost", 1);
-            final Map<BlockNodeSourceConfig, List<LongRange>> availability =
-                    Map.of(source, List.of(new LongRange(0, 100)));
+            final Map<BlockNodeSourceConfig, List<BlockRange>> availability =
+                    Map.of(source, List.of(BlockRanges.of(0, 100)));
 
             // Request batch of 10 starting at 5, gap ends at 50, range goes to 100
-            LongRange result =
+            BlockRange result =
                     plugin.computeChunk(new NodeSelectionStrategy.NodeSelection(source, 5), availability, 50, 10);
 
-            assertEquals(new LongRange(5, 14), result, "Should return full batch size when possible");
+            assertEquals(BlockRanges.of(5, 14), result, "Should return full batch size when possible");
         }
 
         @Test
@@ -88,9 +89,9 @@ class BackfillPluginHelperTest {
         void computeChunkReturnsNullForEmptyAvailability() {
             final BackfillPlugin plugin = new BackfillPlugin();
             final BlockNodeSourceConfig source = node("localhost", 1);
-            final Map<BlockNodeSourceConfig, List<LongRange>> availability = Map.of(source, List.of());
+            final Map<BlockNodeSourceConfig, List<BlockRange>> availability = Map.of(source, List.of());
 
-            LongRange result =
+            BlockRange result =
                     plugin.computeChunk(new NodeSelectionStrategy.NodeSelection(source, 10), availability, 50, 5);
 
             assertNull(result, "Should return null when source has no available ranges");

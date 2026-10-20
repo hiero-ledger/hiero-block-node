@@ -16,11 +16,12 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 
 /**
  * Executes backfill tasks by planning availability, fetching blocks from peers,
@@ -94,29 +95,29 @@ final class BackfillRunner {
      * @param gapType the type of gap (HISTORICAL or LIVE_TAIL)
      * @return the last successfully backfilled block number, or {@code gap.start() - 1} if no blocks were backfilled
      */
-    private long backfillGap(LongRange gap, GapDetector.Type gapType) throws InterruptedException, ParseException {
+    private long backfillGap(BlockRange gap, GapDetector.Type gapType) throws InterruptedException, ParseException {
         final String startingBackfillGapMsg = "Starting backfillGap type=[{0}] range=[{1}]";
         logger.log(INFO, startingBackfillGapMsg, gapType, gap);
-        Map<BlockNodeSourceConfig, List<LongRange>> availability = planAvailabilityForGap(fetcher, gap);
-        long currentBlock = gap.start();
+        Map<BlockNodeSourceConfig, List<BlockRange>> availability = planAvailabilityForGap(fetcher, gap);
+        long currentBlock = gap.rangeStart();
         long batchSize = config.fetchBatchSize();
-        long lastSuccessfulBlock = gap.start() - 1;
+        long lastSuccessfulBlock = gap.rangeStart() - 1;
 
         backfillLoop:
-        while (currentBlock <= gap.end()) {
-            ChunkFetchResult result = fetchNextChunk(currentBlock, gap.end(), batchSize, availability);
+        while (currentBlock <= gap.rangeEnd()) {
+            ChunkFetchResult result = fetchNextChunk(currentBlock, gap.rangeEnd(), batchSize, availability);
             availability = result.availability();
 
             switch (result.outcome()) {
                 case EXHAUSTED -> {
                     final String backfillExhaustedMsg =
                             "Backfill exhausted for gap [{0}]->[{1}], last successful block=[{2}]";
-                    logger.log(INFO, backfillExhaustedMsg, gap.start(), gap.end(), lastSuccessfulBlock);
+                    logger.log(INFO, backfillExhaustedMsg, gap.rangeStart(), gap.rangeEnd(), lastSuccessfulBlock);
                     break backfillLoop;
                 }
                 case RETRY -> {
                     final String retryingBackfillMsg = "Retrying backfill for gap [{0}]->[{1}] at block [{2}]";
-                    logger.log(DEBUG, retryingBackfillMsg, gap.start(), gap.end(), currentBlock);
+                    logger.log(DEBUG, retryingBackfillMsg, gap.rangeStart(), gap.rangeEnd(), currentBlock);
                     continue;
                 }
                 case SUCCESS -> {
@@ -131,24 +132,24 @@ final class BackfillRunner {
                         break backfillLoop;
                     }
 
-                    lastSuccessfulBlock = result.chunk().end();
+                    lastSuccessfulBlock = result.chunk().rangeEnd();
                     Thread.sleep(Math.max(0, config.delayBetweenBatches()));
-                    currentBlock = result.chunk().end() + 1;
+                    currentBlock = result.chunk().rangeEnd() + 1;
                 }
                 // Should never happen due to enum coverage
                 default -> throw new IllegalStateException("Unexpected outcome: " + result.outcome());
             }
         }
 
-        if (lastSuccessfulBlock >= gap.end()) {
+        if (lastSuccessfulBlock >= gap.rangeEnd()) {
             final String successfullyCompletedMsg = "Successfully completed backfilling gap [{0}]->[{1}]";
-            logger.log(TRACE, successfullyCompletedMsg, gap.start(), gap.end());
-        } else if (lastSuccessfulBlock >= gap.start()) {
+            logger.log(TRACE, successfullyCompletedMsg, gap.rangeStart(), gap.rangeEnd());
+        } else if (lastSuccessfulBlock >= gap.rangeStart()) {
             final String partiallyBackfilledMsg = "Partially backfilled gap [{0}]->[{1}], completed up to block [{2}]";
-            logger.log(INFO, partiallyBackfilledMsg, gap.start(), gap.end(), lastSuccessfulBlock);
+            logger.log(INFO, partiallyBackfilledMsg, gap.rangeStart(), gap.rangeEnd(), lastSuccessfulBlock);
         } else {
             final String failedToBackfillMsg = "Failed to backfill any blocks for gap [{0}]->[{1}]";
-            logger.log(INFO, failedToBackfillMsg, gap.start(), gap.end());
+            logger.log(INFO, failedToBackfillMsg, gap.rangeStart(), gap.rangeEnd());
         }
         return lastSuccessfulBlock;
     }
@@ -174,8 +175,8 @@ final class BackfillRunner {
      * @param outcome the outcome indicating how the main loop should proceed
      */
     private record ChunkFetchResult(
-            Map<BlockNodeSourceConfig, List<LongRange>> availability,
-            LongRange chunk,
+            Map<BlockNodeSourceConfig, List<BlockRange>> availability,
+            BlockRange chunk,
             List<BlockUnparsed> blocks,
             FetchOutcome outcome) {}
 
@@ -196,7 +197,7 @@ final class BackfillRunner {
      * @return result containing fetched blocks and control flow signals
      */
     private ChunkFetchResult fetchNextChunk(
-            long currentBlock, long gapEnd, long batchSize, Map<BlockNodeSourceConfig, List<LongRange>> availability) {
+            long currentBlock, long gapEnd, long batchSize, Map<BlockNodeSourceConfig, List<BlockRange>> availability) {
 
         // Step 1: Select a node that can serve the requested block range
         Optional<NodeSelectionStrategy.NodeSelection> selection =
@@ -206,14 +207,14 @@ final class BackfillRunner {
             final String noAvailableNodesMsg = "No available nodes found for block [{0}]";
             logger.log(TRACE, noAvailableNodesMsg, currentBlock);
             metricsHolder.backfillFetchErrors().increment();
-            Map<BlockNodeSourceConfig, List<LongRange>> replanned = replanAvailability(currentBlock, gapEnd);
+            Map<BlockNodeSourceConfig, List<BlockRange>> replanned = replanAvailability(currentBlock, gapEnd);
             FetchOutcome outcome = replanned.isEmpty() ? FetchOutcome.EXHAUSTED : FetchOutcome.RETRY;
             return new ChunkFetchResult(replanned, null, List.of(), outcome);
         }
 
         // Step 2: Compute the chunk range based on node's available ranges and batch size
         NodeSelectionStrategy.NodeSelection nodeChoice = selection.get();
-        LongRange chunk = computeChunk(nodeChoice, availability, gapEnd, batchSize);
+        BlockRange chunk = computeChunk(nodeChoice, availability, gapEnd, batchSize);
 
         if (chunk == null) {
             availability.remove(nodeChoice.nodeConfig());
@@ -228,7 +229,7 @@ final class BackfillRunner {
             availability.remove(nodeChoice.nodeConfig());
             final String noBlocksFetchedMsg = "No blocks fetched for gap [{0}], skipping";
             logger.log(DEBUG, noBlocksFetchedMsg, chunk);
-            Map<BlockNodeSourceConfig, List<LongRange>> replanned = replanAvailability(currentBlock, gapEnd);
+            Map<BlockNodeSourceConfig, List<BlockRange>> replanned = replanAvailability(currentBlock, gapEnd);
             FetchOutcome outcome = replanned.isEmpty() ? FetchOutcome.EXHAUSTED : FetchOutcome.RETRY;
             return new ChunkFetchResult(replanned, null, List.of(), outcome);
         }
@@ -279,7 +280,7 @@ final class BackfillRunner {
      * @return {@code true} if every block in the chunk was confirmed persisted within the retry budget
      */
     private boolean sendChunkAndAwaitPersistenceWithRetries(
-            List<BlockUnparsed> blocks, List<Long> blockNumbers, LongRange chunk) {
+            List<BlockUnparsed> blocks, List<Long> blockNumbers, BlockRange chunk) {
         sendBlocksForPersistence(blocks, blockNumbers, chunk);
         List<Long> stillPending = blockNumbers;
         for (int attempt = 1; attempt <= config.maxRetries() && !stillPending.isEmpty(); attempt++) {
@@ -315,7 +316,7 @@ final class BackfillRunner {
      * @param blockNumbers pre-extracted block numbers (same order as blocks)
      * @param chunk the range being processed (for logging)
      */
-    private void sendBlocksForPersistence(List<BlockUnparsed> blocks, List<Long> blockNumbers, LongRange chunk) {
+    private void sendBlocksForPersistence(List<BlockUnparsed> blocks, List<Long> blockNumbers, BlockRange chunk) {
         for (int i = 0; i < blocks.size(); i++) {
             long blockNumber = blockNumbers.get(i);
             BlockUnparsed blockUnparsed = blocks.get(i);
@@ -341,7 +342,7 @@ final class BackfillRunner {
      * @param chunk the range being processed (for logging)
      * @return the subset of {@code blockNumbers} that did not confirm persistence within the timeout
      */
-    private List<Long> awaitBlocksPersistence(List<Long> blockNumbers, LongRange chunk) {
+    private List<Long> awaitBlocksPersistence(List<Long> blockNumbers, BlockRange chunk) {
         List<Long> stillPending = new ArrayList<>();
         for (long blockNumber : blockNumbers) {
             boolean persisted = persistenceAwaiter.awaitPersistence(blockNumber, config.perBlockProcessingTimeout());
@@ -361,8 +362,8 @@ final class BackfillRunner {
     /**
      * Initializes availability by querying all configured nodes for their block ranges.
      */
-    private Map<BlockNodeSourceConfig, List<LongRange>> planAvailabilityForGap(
-            BackfillFetcher backfillFetcher, LongRange gap) {
+    private Map<BlockNodeSourceConfig, List<BlockRange>> planAvailabilityForGap(
+            BackfillFetcher backfillFetcher, BlockRange gap) {
         return backfillFetcher.getAvailabilityForRange(gap);
     }
 
@@ -370,8 +371,8 @@ final class BackfillRunner {
      * Re-queries node availability for the remaining gap range.
      * Called when current availability becomes stale (e.g., after node failures).
      */
-    private Map<BlockNodeSourceConfig, List<LongRange>> replanAvailability(long startBlock, long gapEnd) {
-        LongRange remaining = new LongRange(startBlock, gapEnd);
+    private Map<BlockNodeSourceConfig, List<BlockRange>> replanAvailability(long startBlock, long gapEnd) {
+        BlockRange remaining = BlockRanges.of(startBlock, gapEnd);
         return planAvailabilityForGap(fetcher, remaining);
     }
 
@@ -391,19 +392,19 @@ final class BackfillRunner {
      * @param batchSize maximum blocks to include in the chunk
      * @return the chunk range, or null if no covering range found
      */
-    static LongRange computeChunk(
+    static BlockRange computeChunk(
             @NonNull NodeSelectionStrategy.NodeSelection selection,
-            @NonNull Map<BlockNodeSourceConfig, List<LongRange>> availability,
+            @NonNull Map<BlockNodeSourceConfig, List<BlockRange>> availability,
             long gapEnd,
             long batchSize) {
-        List<LongRange> ranges = availability.get(selection.nodeConfig());
+        List<BlockRange> ranges = availability.get(selection.nodeConfig());
         if (ranges == null) {
             return null;
         }
 
         long start = selection.startBlock();
-        LongRange coveringRange = ranges.stream()
-                .filter(range -> start >= range.start() && start <= range.end())
+        BlockRange coveringRange = ranges.stream()
+                .filter(range -> start >= range.rangeStart() && start <= range.rangeEnd())
                 .findFirst()
                 .orElse(null);
         if (coveringRange == null) {
@@ -414,8 +415,8 @@ final class BackfillRunner {
         // it publishes that data during its own hashing stage. Sending it in a chunk of its own means
         // blocks 1..N are not fetched until it has persisted, so they cannot race the bootstrap and fail
         // with MISSING_VERIFICATION_DATA. Costs one extra single-block fetch, once per node lifetime.
-        long chunkEnd = start == 0 ? 0 : Math.min(Math.min(start + batchSize - 1, coveringRange.end()), gapEnd);
-        return new LongRange(start, chunkEnd);
+        long chunkEnd = start == 0 ? 0 : Math.min(Math.min(start + batchSize - 1, coveringRange.rangeEnd()), gapEnd);
+        return BlockRanges.of(start, chunkEnd);
     }
 
     /**

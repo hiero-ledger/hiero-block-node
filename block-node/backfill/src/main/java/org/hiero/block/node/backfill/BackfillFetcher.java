@@ -23,7 +23,7 @@ import org.hiero.block.internal.BlockNodeSource;
 import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.client.BlockNodeClient;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 import org.hiero.metrics.LongCounter;
 
 /**
@@ -122,8 +122,8 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
      * @param latestStoredBlockNumber the highest block already known locally; only blocks beyond it are returned
      * @return the merged, ascending list of available peer ranges beyond the baseline; empty if none
      */
-    public List<LongRange> getNewAvailableRanges(long latestStoredBlockNumber) {
-        final List<LongRange> peerRanges = new ArrayList<>();
+    public List<BlockRange> getNewAvailableRanges(long latestStoredBlockNumber) {
+        final List<BlockRange> peerRanges = new ArrayList<>();
         final int totalNodes = blockNodeSource.nodes().size();
         int reachedNodeCount = 0;
 
@@ -140,10 +140,10 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
             }
 
             try {
-                for (final LongRange range : resolveAvailableRanges(currentNodeClient)) {
-                    if (range.end() > latestStoredBlockNumber) {
-                        final long start = Math.max(range.start(), latestStoredBlockNumber + 1);
-                        peerRanges.add(new LongRange(start, range.end()));
+                for (final BlockRange range : resolveAvailableRanges(currentNodeClient)) {
+                    if (range.rangeEnd() > latestStoredBlockNumber) {
+                        final long start = Math.max(range.rangeStart(), latestStoredBlockNumber + 1);
+                        peerRanges.add(BlockRanges.of(start, range.rangeEnd()));
                     }
                 }
                 reachedNodeCount++;
@@ -163,7 +163,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
             LOGGER.log(WARNING, allSourcesUnreachableMsg, totalNodes);
         }
 
-        final List<LongRange> mergedRanges = LongRange.mergeContiguousRanges(peerRanges);
+        final List<BlockRange> mergedRanges = BlockRanges.mergeContiguousRanges(peerRanges);
         final String determinedAvailableRangeMsg = "Determined available peer ranges beyond block [{0}]: [{1}]";
         LOGGER.log(DEBUG, determinedAvailableRangeMsg, latestStoredBlockNumber, mergedRanges);
         return mergedRanges;
@@ -178,16 +178,16 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
      * @param node the peer client to query
      * @return the peer's available ranges, sorted ascending; empty if the peer reports none
      */
-    protected List<LongRange> resolveAvailableRanges(BlockNodeClient node) {
+    protected List<BlockRange> resolveAvailableRanges(BlockNodeClient node) {
         final ServerStatusDetailResponse nodeStatus =
                 node.getBlockNodeServiceClient().serverStatusDetail(new ServerStatusRequest());
-        final List<LongRange> ranges =
+        final List<BlockRange> ranges =
                 new ArrayList<>(nodeStatus.availableRanges().size());
         for (final BlockRange range : nodeStatus.availableRanges()) {
             if (range.rangeStart() < 0 || range.rangeEnd() < range.rangeStart()) {
                 continue;
             }
-            ranges.add(new LongRange(range.rangeStart(), range.rangeEnd()));
+            ranges.add(BlockRanges.of(range.rangeStart(), range.rangeEnd()));
         }
         return ranges;
     }
@@ -232,8 +232,8 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
      * @param targetRange overall gap we are trying to backfill
      * @return map of node -> available range overlapping the target
      */
-    public Map<BlockNodeSourceConfig, List<LongRange>> getAvailabilityForRange(LongRange targetRange) {
-        Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
+    public Map<BlockNodeSourceConfig, List<BlockRange>> getAvailabilityForRange(BlockRange targetRange) {
+        Map<BlockNodeSourceConfig, List<BlockRange>> availability = new HashMap<>();
 
         for (BlockNodeSourceConfig node : blockNodeSource.nodes()) {
             if (isInBackoff(node)) {
@@ -245,7 +245,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
                 continue;
             }
 
-            List<LongRange> ranges;
+            List<BlockRange> ranges;
             try {
                 ranges = resolveAvailableRanges(currentNodeClient);
             } catch (RuntimeException e) {
@@ -255,12 +255,12 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
                 continue;
             }
 
-            List<LongRange> intersections = new ArrayList<>();
-            for (LongRange range : ranges) {
-                long intersectionStart = Math.max(targetRange.start(), range.start());
-                long intersectionEnd = Math.min(targetRange.end(), range.end());
+            List<BlockRange> intersections = new ArrayList<>();
+            for (BlockRange range : ranges) {
+                long intersectionStart = Math.max(targetRange.rangeStart(), range.rangeStart());
+                long intersectionEnd = Math.min(targetRange.rangeEnd(), range.rangeEnd());
                 if (intersectionStart <= intersectionEnd) {
-                    intersections.add(new LongRange(intersectionStart, intersectionEnd));
+                    intersections.add(BlockRanges.of(intersectionStart, intersectionEnd));
                 }
             }
 
@@ -268,7 +268,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
             // reporting real ranges, "I don't have those blocks" is a precise, truthful answer. Only omit
             // it from the availability map; unreachable/erroring peers are still penalised above.
             if (!intersections.isEmpty()) {
-                availability.put(node, LongRange.mergeContiguousRanges(intersections));
+                availability.put(node, BlockRanges.mergeContiguousRanges(intersections));
             }
         }
 
@@ -285,14 +285,14 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
      * @return optional NodeSelection describing which node to hit and what range to request
      */
     public Optional<NodeSelectionStrategy.NodeSelection> selectNextChunk(
-            long startBlock, long gapEnd, @NonNull Map<BlockNodeSourceConfig, List<LongRange>> availability) {
+            long startBlock, long gapEnd, @NonNull Map<BlockNodeSourceConfig, List<BlockRange>> availability) {
         return selectionStrategy.select(startBlock, gapEnd, availability);
     }
 
     /**
      * Fetch blocks for the provided range from the selected node using retries, without iterating other nodes.
      */
-    public List<BlockUnparsed> fetchBlocksFromNode(BlockNodeSourceConfig nodeConfig, LongRange blockRange) {
+    public List<BlockUnparsed> fetchBlocksFromNode(BlockNodeSourceConfig nodeConfig, BlockRange blockRange) {
         BlockNodeClient currentNodeClient = getNodeClient(nodeConfig);
 
         for (int attempt = 1; attempt <= maxRetries; attempt++) {
@@ -300,8 +300,8 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
                 long startNanos = System.nanoTime();
                 List<BlockUnparsed> batch = currentNodeClient
                         .getBlockstreamSubscribeUnparsedClient()
-                        .getBatchOfBlocks(blockRange.start(), blockRange.end());
-                if (batch.size() != blockRange.size()) {
+                        .getBatchOfBlocks(blockRange.rangeStart(), blockRange.rangeEnd());
+                if (batch.size() != BlockRanges.size(blockRange)) {
                     markFailure(nodeConfig);
                     return Collections.emptyList();
                 }
@@ -314,8 +314,8 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
                 LOGGER.log(
                         DEBUG,
                         failedToFetchBlocksMsg,
-                        blockRange.start(),
-                        blockRange.end(),
+                        blockRange.rangeStart(),
+                        blockRange.rangeEnd(),
                         nodeConfig.address(),
                         attempt,
                         maxRetries,
@@ -340,7 +340,12 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
 
         final String allAttemptsExhaustedMsg = "All {0} attempts exhausted for blocks [{1}->{2}] from node [{3}]";
         LOGGER.log(
-                DEBUG, allAttemptsExhaustedMsg, maxRetries, blockRange.start(), blockRange.end(), nodeConfig.address());
+                DEBUG,
+                allAttemptsExhaustedMsg,
+                maxRetries,
+                blockRange.rangeStart(),
+                blockRange.rangeEnd(),
+                nodeConfig.address());
         return Collections.emptyList();
     }
 

@@ -2,7 +2,7 @@
 package org.hiero.block.node.cloud.storage.archive;
 
 import java.util.List;
-import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
+import org.hiero.block.node.base.ranges.ConcurrentBlockRangeSet;
 
 /// The outcome of a [StartupRecoveryTask] run.
 ///
@@ -48,4 +48,4 @@ record RecoveryResult(
         List<TempArchiveEntry> tempArchives,
         List<TempArchiveResumeState> resumableTempArchives,
         long lastHandedOffBlock,
-        ConcurrentLongRangeSet completedRanges) {}
+        ConcurrentBlockRangeSet completedRanges) {}

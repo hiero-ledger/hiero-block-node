@@ -9,8 +9,9 @@ import java.util.List;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.stream.LongStream;
 import java.util.stream.Stream;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 
 /**
  * A simple implementation of {@link BlockRangeSet} that uses a {@link ConcurrentSkipListSet} to store the block numbers.
@@ -97,12 +98,12 @@ public class SimpleBlockRangeSet implements BlockRangeSet {
      * {@inheritDoc}
      */
     @Override
-    public Stream<LongRange> streamRanges() {
+    public Stream<BlockRange> streamRanges() {
         if (blockNumbers.isEmpty()) {
             return Stream.empty();
         }
 
-        List<LongRange> ranges = new ArrayList<>();
+        List<BlockRange> ranges = new ArrayList<>();
 
         Iterator<Long> it = blockNumbers.iterator();
         long start = it.next(); // first element
@@ -112,14 +113,14 @@ public class SimpleBlockRangeSet implements BlockRangeSet {
             long cur = it.next();
             if (cur != prev + 1) {
                 // break in continuity → close out the previous range
-                ranges.add(new LongRange(start, prev));
+                ranges.add(BlockRanges.of(start, prev));
                 start = cur;
             }
             prev = cur;
         }
 
         // finally, add the last open range [start … prev]
-        ranges.add(new LongRange(start, prev));
+        ranges.add(BlockRanges.of(start, prev));
 
         return ranges.stream();
     }

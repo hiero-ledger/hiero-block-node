@@ -11,9 +11,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.node.backfill.NodeSelectionStrategy.NodeSelection;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -50,7 +51,7 @@ class PriorityHealthBasedStrategyTest {
         @Test
         @DisplayName("should return empty when availability map is empty")
         void shouldReturnEmptyWhenNoAvailability() {
-            Map<BlockNodeSourceConfig, List<LongRange>> availability = Collections.emptyMap();
+            Map<BlockNodeSourceConfig, List<BlockRange>> availability = Collections.emptyMap();
 
             Optional<NodeSelection> result = strategy.select(0, 100, availability);
 
@@ -62,7 +63,7 @@ class PriorityHealthBasedStrategyTest {
         void shouldReturnEmptyWhenStartExceedsEnd() {
             BlockNodeSourceConfig node = createNode("localhost", 8080, 1);
             // Availability covers the requested range, but startBlock (200) > gapEnd (100)
-            Map<BlockNodeSourceConfig, List<LongRange>> availability = Map.of(node, List.of(new LongRange(0, 300)));
+            Map<BlockNodeSourceConfig, List<BlockRange>> availability = Map.of(node, List.of(BlockRanges.of(0, 300)));
 
             Optional<NodeSelection> result = strategy.select(200, 100, availability);
 
@@ -74,7 +75,7 @@ class PriorityHealthBasedStrategyTest {
         void shouldReturnEmptyWhenNoIntersection() {
             BlockNodeSourceConfig node = createNode("localhost", 8080, 1);
             // Available range is 200-300, but we need 0-100
-            Map<BlockNodeSourceConfig, List<LongRange>> availability = Map.of(node, List.of(new LongRange(200, 300)));
+            Map<BlockNodeSourceConfig, List<BlockRange>> availability = Map.of(node, List.of(BlockRanges.of(200, 300)));
 
             Optional<NodeSelection> result = strategy.select(0, 100, availability);
 
@@ -85,7 +86,7 @@ class PriorityHealthBasedStrategyTest {
         @DisplayName("should return empty when nodes have empty range lists")
         void shouldReturnEmptyWhenEmptyRangeLists() {
             BlockNodeSourceConfig node = createNode("localhost", 8080, 1);
-            Map<BlockNodeSourceConfig, List<LongRange>> availability = Map.of(node, Collections.emptyList());
+            Map<BlockNodeSourceConfig, List<BlockRange>> availability = Map.of(node, Collections.emptyList());
 
             Optional<NodeSelection> result = strategy.select(0, 100, availability);
 
@@ -101,7 +102,7 @@ class PriorityHealthBasedStrategyTest {
         @DisplayName("should select single available node")
         void shouldSelectSingleNode() {
             BlockNodeSourceConfig node = createNode("localhost", 8080, 1);
-            Map<BlockNodeSourceConfig, List<LongRange>> availability = Map.of(node, List.of(new LongRange(0, 100)));
+            Map<BlockNodeSourceConfig, List<BlockRange>> availability = Map.of(node, List.of(BlockRanges.of(0, 100)));
 
             Optional<NodeSelection> result = strategy.select(0, 100, availability);
 
@@ -115,7 +116,7 @@ class PriorityHealthBasedStrategyTest {
         void shouldAdjustStartToAvailableRange() {
             BlockNodeSourceConfig node = createNode("localhost", 8080, 1);
             // Available from block 50, but we need from 0
-            Map<BlockNodeSourceConfig, List<LongRange>> availability = Map.of(node, List.of(new LongRange(50, 100)));
+            Map<BlockNodeSourceConfig, List<BlockRange>> availability = Map.of(node, List.of(BlockRanges.of(50, 100)));
 
             Optional<NodeSelection> result = strategy.select(0, 100, availability);
 
@@ -128,7 +129,7 @@ class PriorityHealthBasedStrategyTest {
         void shouldReturnEmptyWhenNodeInBackoff() {
             BlockNodeSourceConfig node = createNode("localhost", 8080, 1);
             healthProvider.setInBackoff(node, true);
-            Map<BlockNodeSourceConfig, List<LongRange>> availability = Map.of(node, List.of(new LongRange(0, 100)));
+            Map<BlockNodeSourceConfig, List<BlockRange>> availability = Map.of(node, List.of(BlockRanges.of(0, 100)));
 
             Optional<NodeSelection> result = strategy.select(0, 100, availability);
 
@@ -145,9 +146,9 @@ class PriorityHealthBasedStrategyTest {
         void shouldSelectLowestPriorityNumber() {
             BlockNodeSourceConfig lowPriority = createNode("low", 8080, 10);
             BlockNodeSourceConfig highPriority = createNode("high", 8081, 1);
-            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
-            availability.put(lowPriority, List.of(new LongRange(0, 100)));
-            availability.put(highPriority, List.of(new LongRange(0, 100)));
+            Map<BlockNodeSourceConfig, List<BlockRange>> availability = new HashMap<>();
+            availability.put(lowPriority, List.of(BlockRanges.of(0, 100)));
+            availability.put(highPriority, List.of(BlockRanges.of(0, 100)));
 
             Optional<NodeSelection> result = strategy.select(0, 100, availability);
 
@@ -163,9 +164,9 @@ class PriorityHealthBasedStrategyTest {
             BlockNodeSourceConfig highPriority = createNode("high", 8080, 1);
             BlockNodeSourceConfig lowPriority = createNode("low", 8081, 10);
             healthProvider.setInBackoff(highPriority, true);
-            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
-            availability.put(highPriority, List.of(new LongRange(0, 100)));
-            availability.put(lowPriority, List.of(new LongRange(0, 100)));
+            Map<BlockNodeSourceConfig, List<BlockRange>> availability = new HashMap<>();
+            availability.put(highPriority, List.of(BlockRanges.of(0, 100)));
+            availability.put(lowPriority, List.of(BlockRanges.of(0, 100)));
 
             Optional<NodeSelection> result = strategy.select(0, 100, availability);
 
@@ -179,9 +180,9 @@ class PriorityHealthBasedStrategyTest {
             BlockNodeSourceConfig backoffNode = createNode("backoff", 8080, 1);
             BlockNodeSourceConfig availableNode = createNode("available", 8081, 1);
             healthProvider.setInBackoff(backoffNode, true);
-            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
-            availability.put(backoffNode, List.of(new LongRange(0, 100)));
-            availability.put(availableNode, List.of(new LongRange(0, 100)));
+            Map<BlockNodeSourceConfig, List<BlockRange>> availability = new HashMap<>();
+            availability.put(backoffNode, List.of(BlockRanges.of(0, 100)));
+            availability.put(availableNode, List.of(BlockRanges.of(0, 100)));
 
             Optional<NodeSelection> result = strategy.select(0, 100, availability);
 
@@ -203,10 +204,10 @@ class PriorityHealthBasedStrategyTest {
             BlockNodeSourceConfig healthy = createNode("healthy", 8081, 1);
             healthProvider.setHealthScore(unhealthy, 10.0); // Higher score = less healthy
             healthProvider.setHealthScore(healthy, 1.0); // Lower score = more healthy
-            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
+            Map<BlockNodeSourceConfig, List<BlockRange>> availability = new HashMap<>();
             // Insert unhealthy first to verify selection is by health, not insertion order
-            availability.put(unhealthy, List.of(new LongRange(0, 100)));
-            availability.put(healthy, List.of(new LongRange(0, 100)));
+            availability.put(unhealthy, List.of(BlockRanges.of(0, 100)));
+            availability.put(healthy, List.of(BlockRanges.of(0, 100)));
 
             Optional<NodeSelection> result = strategy.select(0, 100, availability);
 
@@ -225,11 +226,11 @@ class PriorityHealthBasedStrategyTest {
         void shouldPreferNodeWithEarlierBlocks() {
             BlockNodeSourceConfig laterNode = createNode("later", 8080, 1);
             BlockNodeSourceConfig earlierNode = createNode("earlier", 8081, 1);
-            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
+            Map<BlockNodeSourceConfig, List<BlockRange>> availability = new HashMap<>();
             // laterNode can only serve from block 50
-            availability.put(laterNode, List.of(new LongRange(50, 100)));
+            availability.put(laterNode, List.of(BlockRanges.of(50, 100)));
             // earlierNode can serve from block 10
-            availability.put(earlierNode, List.of(new LongRange(10, 100)));
+            availability.put(earlierNode, List.of(BlockRanges.of(10, 100)));
 
             Optional<NodeSelection> result = strategy.select(0, 100, availability);
 
@@ -250,9 +251,9 @@ class PriorityHealthBasedStrategyTest {
             BlockNodeSourceConfig node2 = createNode("node2", 8081, 1);
             healthProvider.setInBackoff(node1, true);
             healthProvider.setInBackoff(node2, true);
-            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
-            availability.put(node1, List.of(new LongRange(0, 100)));
-            availability.put(node2, List.of(new LongRange(0, 100)));
+            Map<BlockNodeSourceConfig, List<BlockRange>> availability = new HashMap<>();
+            availability.put(node1, List.of(BlockRanges.of(0, 100)));
+            availability.put(node2, List.of(BlockRanges.of(0, 100)));
 
             Optional<NodeSelection> result = strategy.select(0, 100, availability);
 

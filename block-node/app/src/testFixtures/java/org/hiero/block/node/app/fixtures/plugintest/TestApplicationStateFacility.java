@@ -15,7 +15,6 @@ import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.api.TssData;
 import org.hiero.block.node.spi.ApplicationStateFacility;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 /**
  * A configurable {@link ApplicationStateFacility} test fixture. The connection sets
@@ -119,7 +118,7 @@ public class TestApplicationStateFacility implements ApplicationStateFacility {
     }
 
     @Override
-    public void addStoredBlockRange(final LongRange blockRange) {}
+    public void addStoredBlockRange(final BlockRange blockRange) {}
 
     @Override
     public void updateAvailableBlocks() {}

@@ -5,10 +5,12 @@ import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.Arrays;
+import java.util.List;
 import java.util.stream.LongStream;
 import java.util.stream.Stream;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 
 /**
  * A class that combines multiple {@link BlockRangeSet} instances into a single set. The combining is done live via
@@ -49,7 +51,11 @@ public class CombinedBlockRangeSet implements BlockRangeSet {
      */
     @Override
     public boolean contains(long start, long end) {
-        return reduceRanges().contains(start, end);
+        if (start > end) {
+            return false;
+        }
+        // the merged ranges are coalesced, so a contiguous run must be inside one of them
+        return mergedRanges().stream().anyMatch(range -> BlockRanges.contains(range, start, end));
     }
 
     /**
@@ -93,21 +99,22 @@ public class CombinedBlockRangeSet implements BlockRangeSet {
      */
     @Override
     public LongStream stream() {
-        return reduceRanges().stream();
+        return mergedRanges().stream().flatMapToLong(BlockRanges::stream);
     }
 
     /**
      * {@inheritDoc}
      */
     @Override
-    public Stream<LongRange> streamRanges() {
-        return reduceRanges().streamRanges();
+    public Stream<BlockRange> streamRanges() {
+        return mergedRanges().stream();
     }
 
+    /// Merges the ranges of every set in one linear pass. Each set yields its ranges in ascending order.
     @NonNull
-    private ConcurrentLongRangeSet reduceRanges() {
-        return new ConcurrentLongRangeSet(Arrays.stream(blockRangeSets)
-                .flatMap(BlockRangeSet::streamRanges)
-                .toArray(LongRange[]::new));
+    private List<BlockRange> mergedRanges() {
+        return BlockRanges.merge(Arrays.stream(blockRangeSets)
+                .map(set -> set.streamRanges().toList())
+                .toList());
     }
 }

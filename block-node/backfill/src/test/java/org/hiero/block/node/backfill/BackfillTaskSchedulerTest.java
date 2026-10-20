@@ -16,7 +16,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -62,7 +62,7 @@ class BackfillTaskSchedulerTest {
     }
 
     private GapDetector.Gap createGap(long start, long end, GapDetector.Type type) {
-        return new GapDetector.Gap(new LongRange(start, end), type);
+        return new GapDetector.Gap(BlockRanges.of(start, end), type);
     }
 
     @Nested

@@ -11,7 +11,7 @@ import static org.mockito.Mockito.when;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -46,11 +46,11 @@ class BackfillPluginGapSchedulingTest {
     }
 
     private static GapDetector.Gap liveTailGap(final long start, final long end) {
-        return new GapDetector.Gap(new LongRange(start, end), GapDetector.Type.LIVE_TAIL);
+        return new GapDetector.Gap(BlockRanges.of(start, end), GapDetector.Type.LIVE_TAIL);
     }
 
     private static GapDetector.Gap historicalGap(final long start, final long end) {
-        return new GapDetector.Gap(new LongRange(start, end), GapDetector.Type.HISTORICAL);
+        return new GapDetector.Gap(BlockRanges.of(start, end), GapDetector.Type.HISTORICAL);
     }
 
     @Nested

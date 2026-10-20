@@ -7,7 +7,6 @@ import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.TssData;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 /**
  * Interface for the Application and block node plugins to exchange state information. The `ApplicationStateFacility`
@@ -46,7 +45,7 @@ public interface ApplicationStateFacility extends BlockNodePlugin {
      *
      * @param blockRange the contiguous range of block numbers being reported
      */
-    void addStoredBlockRange(LongRange blockRange);
+    void addStoredBlockRange(BlockRange blockRange);
 
     /**
      * Returns the {@link NodeAddressBook} for the supplied {@code blickNum }

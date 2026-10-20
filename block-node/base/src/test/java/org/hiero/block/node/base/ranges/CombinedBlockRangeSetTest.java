@@ -10,8 +10,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.stream.Stream;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -53,8 +54,8 @@ class CombinedBlockRangeSetTest {
     @Test
     @DisplayName("contains(start, end) returns true if any underlying set contains the range")
     void testContainsRange() {
-        final BlockRangeSet set1 = new ConcurrentLongRangeSet();
-        final BlockRangeSet set2 = new ConcurrentLongRangeSet(10L, 20L);
+        final BlockRangeSet set1 = new ConcurrentBlockRangeSet();
+        final BlockRangeSet set2 = new ConcurrentBlockRangeSet(10L, 20L);
         final CombinedBlockRangeSet combinedSet = new CombinedBlockRangeSet(set1, set2);
         assertTrue(combinedSet.contains(10L, 20L));
         assertFalse(combinedSet.contains(0L, 9L));
@@ -65,8 +66,8 @@ class CombinedBlockRangeSetTest {
     @Test
     @DisplayName("contains(start, end) returns true if range contained between multiple sets")
     void testContainsRangeMultipleSets() {
-        final BlockRangeSet set1 = new ConcurrentLongRangeSet(10L, 15L);
-        final BlockRangeSet set2 = new ConcurrentLongRangeSet(16L, 20L);
+        final BlockRangeSet set1 = new ConcurrentBlockRangeSet(10L, 15L);
+        final BlockRangeSet set2 = new ConcurrentBlockRangeSet(16L, 20L);
         final CombinedBlockRangeSet combinedSet = new CombinedBlockRangeSet(set1, set2);
         assertTrue(combinedSet.contains(10L, 20L));
         assertFalse(combinedSet.contains(0L, 9L));
@@ -77,8 +78,8 @@ class CombinedBlockRangeSetTest {
     @Test
     @DisplayName("contains(start, end) returns true if range contained between multiple sets that overlap")
     void testContainsRangeMultipleSetsOverlap() {
-        final BlockRangeSet set1 = new ConcurrentLongRangeSet(10L, 18L);
-        final BlockRangeSet set2 = new ConcurrentLongRangeSet(15L, 20L);
+        final BlockRangeSet set1 = new ConcurrentBlockRangeSet(10L, 18L);
+        final BlockRangeSet set2 = new ConcurrentBlockRangeSet(15L, 20L);
         final CombinedBlockRangeSet combinedSet = new CombinedBlockRangeSet(set1, set2);
         assertTrue(combinedSet.contains(10L, 20L));
         assertFalse(combinedSet.contains(0L, 9L));
@@ -136,8 +137,8 @@ class CombinedBlockRangeSetTest {
     void testStream() {
         final BlockRangeSet set1 = mock(BlockRangeSet.class);
         final BlockRangeSet set2 = mock(BlockRangeSet.class);
-        final LongRange range1 = new LongRange(1L, 3L);
-        final LongRange range2 = new LongRange(5L, 7L);
+        final BlockRange range1 = BlockRanges.of(1L, 3L);
+        final BlockRange range2 = BlockRanges.of(5L, 7L);
         when(set1.streamRanges()).thenReturn(Stream.of(range1));
         when(set2.streamRanges()).thenReturn(Stream.of(range2));
 
@@ -154,14 +155,14 @@ class CombinedBlockRangeSetTest {
     void testStreamRanges() {
         final BlockRangeSet set1 = mock(BlockRangeSet.class);
         final BlockRangeSet set2 = mock(BlockRangeSet.class);
-        final LongRange range1 = new LongRange(1L, 3L);
-        final LongRange range2 = new LongRange(10L, 20L);
+        final BlockRange range1 = BlockRanges.of(1L, 3L);
+        final BlockRange range2 = BlockRanges.of(10L, 20L);
         when(set1.streamRanges()).thenReturn(Stream.of(range1));
         when(set2.streamRanges()).thenReturn(Stream.of(range2));
 
         final CombinedBlockRangeSet combinedSet = new CombinedBlockRangeSet(set1, set2);
         assertArrayEquals(
-                new LongRange[] {range1, range2}, combinedSet.streamRanges().toArray());
+                new BlockRange[] {range1, range2}, combinedSet.streamRanges().toArray());
 
         verify(set1).streamRanges();
         verify(set2).streamRanges();
@@ -172,14 +173,14 @@ class CombinedBlockRangeSetTest {
     void testStreamRangesMerged() {
         final BlockRangeSet set1 = mock(BlockRangeSet.class);
         final BlockRangeSet set2 = mock(BlockRangeSet.class);
-        final LongRange range1 = new LongRange(1L, 3L);
-        final LongRange range2 = new LongRange(4L, 20L);
+        final BlockRange range1 = BlockRanges.of(1L, 3L);
+        final BlockRange range2 = BlockRanges.of(4L, 20L);
         when(set1.streamRanges()).thenReturn(Stream.of(range1));
         when(set2.streamRanges()).thenReturn(Stream.of(range2));
 
         final CombinedBlockRangeSet combinedSet = new CombinedBlockRangeSet(set1, set2);
         assertArrayEquals(
-                new LongRange[] {new LongRange(1L, 20L)},
+                new BlockRange[] {BlockRanges.of(1L, 20L)},
                 combinedSet.streamRanges().toArray());
 
         verify(set1).streamRanges();

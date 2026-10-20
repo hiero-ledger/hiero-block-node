@@ -47,7 +47,7 @@ import org.hiero.block.internal.BlockRangesState;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
-import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
+import org.hiero.block.node.base.ranges.ConcurrentBlockRangeSet;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
@@ -58,8 +58,8 @@ import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
+import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -73,7 +73,7 @@ import org.mockito.MockedStatic;
 class ApplicationStateFacilityPluginTest {
     /// A [HistoricalBlockFacility] whose available blocks the test controls directly.
     private static final class TestHistoricalBlockFacility implements HistoricalBlockFacility {
-        private final ConcurrentLongRangeSet available = new ConcurrentLongRangeSet();
+        private final ConcurrentBlockRangeSet available = new ConcurrentBlockRangeSet();
 
         @Override
         public BlockAccessor block(final long blockNumber) {
@@ -493,7 +493,7 @@ class ApplicationStateFacilityPluginTest {
 
         final TssData tssData = buildTssData(100, "040506");
         assertThatCode(() -> f.plugin.updateTssData(tssData)).doesNotThrowAnyException();
-        assertThatCode(() -> f.plugin.addStoredBlockRange(new LongRange(0, 9))).doesNotThrowAnyException();
+        assertThatCode(() -> f.plugin.addStoredBlockRange(BlockRanges.of(0, 9))).doesNotThrowAnyException();
 
         assertThat(f.plugin.tssData()).isEqualTo(tssData);
         assertThat(handler.tssDataNotifications).isEmpty();
@@ -960,8 +960,8 @@ class ApplicationStateFacilityPluginTest {
         f.register(handler);
         f.initAndStart();
 
-        f.plugin.addStoredBlockRange(new LongRange(0, 9));
-        f.plugin.addStoredBlockRange(new LongRange(10, 19));
+        f.plugin.addStoredBlockRange(BlockRanges.of(0, 9));
+        f.plugin.addStoredBlockRange(BlockRanges.of(10, 19));
         f.plugin.stop();
 
         assertThat(f.plugin.storedBlocks.contains(0, 19)).isTrue();
@@ -1003,11 +1003,11 @@ class ApplicationStateFacilityPluginTest {
         };
         f.messaging.registerApplicationStateNotificationHandler(probe, false, "race-probe");
 
-        final Thread threadA = new Thread(() -> f.plugin.addStoredBlockRange(new LongRange(100, 109)));
+        final Thread threadA = new Thread(() -> f.plugin.addStoredBlockRange(BlockRanges.of(100, 109)));
         threadA.start();
         assertThat(firstDispatchEntered.await(5, TimeUnit.SECONDS)).isTrue();
 
-        f.plugin.addStoredBlockRange(new LongRange(200, 209));
+        f.plugin.addStoredBlockRange(BlockRanges.of(200, 209));
         secondUpdateComplete.countDown();
         threadA.join(TimeUnit.SECONDS.toMillis(5));
         assertThat(bothDelivered.await(5, TimeUnit.SECONDS)).isTrue();
@@ -1056,11 +1056,7 @@ class ApplicationStateFacilityPluginTest {
         // flushes the dispatcher
         f.plugin.stop();
 
-        final List<BlockRange> live = f.historical
-                .available
-                .streamRanges()
-                .map(r -> new BlockRange(r.start(), r.end()))
-                .toList();
+        final List<BlockRange> live = f.historical.available.streamRanges().toList();
         assertThat(live).hasSize(threads * perThread);
         assertThat(f.plugin.blockRanges.get().available()).isEqualTo(live);
         assertThat(f.plugin.blockRanges.get().stored()).isEqualTo(live);
@@ -1125,9 +1121,9 @@ class ApplicationStateFacilityPluginTest {
     void blockRangesPersistenceRoundTrip() throws IOException {
         final Fixture first = newFixture();
         first.initAndStart();
-        first.plugin.addStoredBlockRange(new LongRange(0, 999));
-        first.plugin.addStoredBlockRange(new LongRange(1000, 1049));
-        first.plugin.addStoredBlockRange(new LongRange(1050, 1099));
+        first.plugin.addStoredBlockRange(BlockRanges.of(0, 999));
+        first.plugin.addStoredBlockRange(BlockRanges.of(1000, 1049));
+        first.plugin.addStoredBlockRange(BlockRanges.of(1050, 1099));
         first.plugin.stop();
 
         assertThat(first.config.blockRangesFilePath()).exists();
@@ -1138,7 +1134,7 @@ class ApplicationStateFacilityPluginTest {
         final Fixture second = newFixture();
         second.initAndStart();
 
-        assertThat(second.plugin.storedBlocks.streamRanges().toList()).containsExactly(new LongRange(0, 1099));
+        assertThat(second.plugin.storedBlocks.streamRanges().toList()).containsExactly(BlockRanges.of(0, 1099));
         second.plugin.stop();
     }
 
@@ -1229,7 +1225,7 @@ class ApplicationStateFacilityPluginTest {
     void blockRangesPersistedWhenBoundaryCrossed() throws Exception {
         final Fixture f = newFixture();
         f.initAndStart();
-        f.plugin.addStoredBlockRange(new LongRange(0, 1999));
+        f.plugin.addStoredBlockRange(BlockRanges.of(0, 1999));
 
         // the periodic check runs on the dispatcher; drive it directly rather than wait for the scan interval
         final Method persistIfDue = ApplicationStateFacilityPlugin.class.getDeclaredMethod("persistBlockRangesIfDue");
@@ -1245,7 +1241,7 @@ class ApplicationStateFacilityPluginTest {
     void persistBlockRangesFallsBackWhenAtomicMoveUnsupported() throws IOException {
         final Fixture first = newFixture();
         first.initAndStart();
-        first.plugin.addStoredBlockRange(new LongRange(0, 9));
+        first.plugin.addStoredBlockRange(BlockRanges.of(0, 9));
 
         try (MockedStatic<Files> filesMock = mockStatic(Files.class, CALLS_REAL_METHODS)) {
             filesMock
@@ -1265,7 +1261,7 @@ class ApplicationStateFacilityPluginTest {
         assertThat(hasTmpFile(first.config.blockRangesFilePath())).isFalse();
         final Fixture second = newFixture();
         second.initAndStart();
-        assertThat(second.plugin.storedBlocks.streamRanges().toList()).containsExactly(new LongRange(0, 9));
+        assertThat(second.plugin.storedBlocks.streamRanges().toList()).containsExactly(BlockRanges.of(0, 9));
         second.plugin.stop();
     }
 

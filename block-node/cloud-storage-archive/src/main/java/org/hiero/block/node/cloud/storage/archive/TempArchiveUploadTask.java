@@ -19,7 +19,7 @@ import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 
 /// Archives a streaming, open-ended segment of verified blocks into one temporary `.tmp` tar file
 /// on S3-compatible storage via a multipart upload.
@@ -225,7 +225,7 @@ class TempArchiveUploadTask implements Callable<TempArchiveEntry> {
                     true,
                     CloudStorageArchivePlugin.CLOUD_ARCHIVE_PERSISTENCE_NOTIFICATION_PRIORITY,
                     lastSource));
-            applicationStateFacility.addStoredBlockRange(new LongRange(firstBlock, lastBlock));
+            applicationStateFacility.addStoredBlockRange(BlockRanges.of(firstBlock, lastBlock));
             metricsHolder.blocksWritten().increment(lastBlock - firstBlock + 1);
             metricsHolder.storedBytes().increment(totalBytes);
             throw e;
@@ -237,7 +237,7 @@ class TempArchiveUploadTask implements Callable<TempArchiveEntry> {
                 true,
                 CloudStorageArchivePlugin.CLOUD_ARCHIVE_PERSISTENCE_NOTIFICATION_PRIORITY,
                 lastSource));
-        applicationStateFacility.addStoredBlockRange(new LongRange(firstBlock, lastBlock));
+        applicationStateFacility.addStoredBlockRange(BlockRanges.of(firstBlock, lastBlock));
         metricsHolder.blocksWritten().increment(lastBlock - firstBlock + 1);
         metricsHolder.storedBytes().increment(totalBytes);
 
