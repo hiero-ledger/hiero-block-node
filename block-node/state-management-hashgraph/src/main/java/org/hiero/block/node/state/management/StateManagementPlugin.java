@@ -668,15 +668,28 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             hashMismatchTotal.incrementAndGet();
             hashMismatchMetric.increment();
             applyHalted.set(true);
-            LOGGER.log(
-                    System.Logger.Level.ERROR,
-                    "State hash mismatch applying block {0}: footer.startOfBlockStateRootHash ({1}) diverges "
-                            + "from the last applied state's root hash ({2}, post-block {3}); plugin marked "
-                            + "apply-halted (state not exposed)",
-                    incomingBlock,
-                    startHash.toHex(),
-                    attestedHash.toHex(),
-                    lastAppliedBlock);
+            if (startHash.length() != attestedHash.length()) {
+                // Different lengths mean a digest algorithm mismatch (e.g. CN on SHA-256, this
+                // build still on SHA-384), not state divergence.
+                LOGGER.log(
+                        System.Logger.Level.ERROR,
+                        "State hash mismatch applying block {0}: footer hash is {1} bytes, this build computes "
+                                + "{2}-byte hashes — likely a digest algorithm mismatch, not divergence; "
+                                + "apply-halted",
+                        incomingBlock,
+                        startHash.length(),
+                        attestedHash.length());
+            } else {
+                LOGGER.log(
+                        System.Logger.Level.ERROR,
+                        "State hash mismatch applying block {0}: footer.startOfBlockStateRootHash ({1}) diverges "
+                                + "from the last applied state's root hash ({2}, post-block {3}); plugin marked "
+                                + "apply-halted (state not exposed)",
+                        incomingBlock,
+                        startHash.toHex(),
+                        attestedHash.toHex(),
+                        lastAppliedBlock);
+            }
             return false;
         }
 
