@@ -360,6 +360,7 @@ The opposite holds for IPv6: one client usually controls a whole /64, so it can 
 | SUBSCRIBER_MAX_PROTOBUF_MESSAGE_SIZE_BYTES         | Max protobuf message size (bytes) accepted when parsing a block to stream to a subscriber.             | 131072000 |
 | SUBSCRIBER_PORT                                    | Dedicated port for the subscriber gRPC service. When unset, the service shares `SERVER_PORT`.          |   (unset) |
 | SUBSCRIBER_COMPLETED_SESSION_REAP_INTERVAL_SECONDS | How often the background reaper drains completed subscriber sessions, independent of new traffic.      |         5 |
+| SUBSCRIBER_IDLE_SESSION_TIMEOUT_SECONDS            | Seconds a session may send nothing before it ends with `SUCCESS`, releasing dead clients. 0 disables.  |        60 |
 
 ### TSS Bootstrap Plugin Configuration
 

@@ -28,6 +28,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
+import java.util.function.LongSupplier;
 import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse;
@@ -126,6 +127,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     private boolean isClosed() {
         return interruptedStream.get() || Thread.currentThread().isInterrupted();
     }
+
     /** The latest block number seen in the live stream */
     private final AtomicLong latestLiveStreamBlock;
     /** The next block number to send to the client */
@@ -151,6 +153,14 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
      * list it maintains, and log the cause of that failure.
      */
     private Exception sessionFailedCause;
+    /** Source of monotonic time, in nanoseconds, used for the idle session limit. */
+    private final LongSupplier nanoTime;
+    /** The idle session limit in nanoseconds, or 0 if disabled. */
+    private final long idleTimeoutNanos;
+    /** When this session last sent anything to the client. Only accessed from this session's own thread. */
+    private long lastProgressNanos;
+    /** Whether this session was closed because it exceeded the idle session limit. */
+    private volatile boolean closedForIdle;
 
     /**
      * Constructor for the BlockStreamSubscriberSession class.
@@ -164,6 +174,24 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             @NonNull final Pipeline<? super SubscribeStreamResponseUnparsed> responsePipeline,
             @NonNull final BlockNodeContext context,
             @NonNull final CountDownLatch sessionReadyLatch) {
+        this(sessionContext, responsePipeline, context, sessionReadyLatch, System::nanoTime);
+    }
+
+    /**
+     * Constructor for the BlockStreamSubscriberSession class with an explicit time source.
+     *
+     * @param sessionContext The context for this session
+     * @param responsePipeline The pipeline to send responses to the client
+     * @param context The context for the block node
+     * @param sessionReadyLatch The latch released once this session is ready
+     * @param nanoTime The monotonic time source, in nanoseconds, for the idle session limit
+     */
+    BlockStreamSubscriberSession(
+            @NonNull final SessionContext sessionContext,
+            @NonNull final Pipeline<? super SubscribeStreamResponseUnparsed> responsePipeline,
+            @NonNull final BlockNodeContext context,
+            @NonNull final CountDownLatch sessionReadyLatch,
+            @NonNull final LongSupplier nanoTime) {
         this.responsePipeline = requireNonNull(responsePipeline);
         this.sessionReadyLatch = requireNonNull(sessionReadyLatch);
         this.blockNodeContext = requireNonNull(context);
@@ -173,6 +201,9 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         this.nextBlockToSend = new AtomicLong(INITIAL_STATE_SENTINEL);
         this.liveBlockQueue = new ArrayBlockingQueue<>(sessionContext.subscriberConfig.liveQueueSize());
         this.liveBlockHandler = new LiveBlockHandler(liveBlockQueue, latestLiveStreamBlock, sessionContext.handlerName);
+        this.nanoTime = requireNonNull(nanoTime);
+        this.idleTimeoutNanos = TimeUnit.SECONDS.toNanos(sessionContext.subscriberConfig.idleSessionTimeoutSeconds());
+        this.lastProgressNanos = nanoTime.getAsLong();
     }
 
     /**
@@ -577,11 +608,36 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     }
 
     private void awaitNewLiveEntries() {
+        if (closeIfIdle()) {
+            return;
+        }
         final long maximumDelay = (LIVE_POLL_UNITS.toNanos(MAX_LIVE_POLL_DELAY) / PARK_DELAY_TIME);
         for (long i = 0; i < maximumDelay && liveBlockQueue.isEmpty(); i++) {
             // Sleep for a bit to avoid excessive spin overhead.
             parkNanos(PARK_DELAY_TIME);
         }
+    }
+
+    /**
+     * Close this session with {@code SUCCESS} if nothing has been sent to the client for longer than
+     * {@link SubscriberConfig#idleSessionTimeoutSeconds()}. A client that disconnects while the session
+     * waits for blocks is never detected, because only a failed send reveals it, so this limit is what
+     * releases such sessions. Only called from this session's own worker thread.
+     *
+     * @return true if the session is closed, whether by this call or earlier
+     */
+    private boolean closeIfIdle() {
+        if (isClosed()) {
+            return true;
+        }
+        final long now = nanoTime.getAsLong();
+        if (idleTimeoutNanos > 0 && now - lastProgressNanos >= idleTimeoutNanos) {
+            LOGGER.log(DEBUG, "Closing idle session for client {0}", sessionContext.clientId);
+            closedForIdle = true;
+            close(Code.SUCCESS);
+            return true;
+        }
+        return false;
     }
 
     private boolean allRequestedBlocksSent() {
@@ -599,8 +655,9 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         // we'll spin in the caller thread in an extreme form of spin wait.
         if (liveBlockQueue.isEmpty()) {
             // Re-register the messaging handler if necessary.
-            // Use a CAS check to determine if we reregister
-            if (liveBlockHandler.canReregister()) {
+            // Use a CAS check to determine if we reregister. Never after close, which unregistered
+            // the handler; re-registering then would leave it running with no session to drain it.
+            if (!isClosed() && liveBlockHandler.canReregister()) {
                 blockNodeContext
                         .blockMessaging()
                         .registerNoBackpressureBlockItemHandler(liveBlockHandler, false, sessionContext.handlerName);
@@ -767,6 +824,16 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         return sessionContext.handlerName;
     }
 
+    /**
+     * Whether this session was closed because it exceeded the idle session limit.
+     * This is package scope so that the plugin can read it.
+     *
+     * @return true if this session was closed for being idle
+     */
+    boolean closedForIdle() {
+        return closedForIdle;
+    }
+
     // Visible for testing.
     long getNextBlockToSend() {
         return nextBlockToSend.longValue();
@@ -899,6 +966,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         final OneOf<ResponseOneOfType> responseOneOf = new OneOf<>(ResponseOneOfType.BLOCK_ITEMS, dataToSend);
         try {
             responsePipeline.onNext(new SubscribeStreamResponseUnparsed(responseOneOf));
+            lastProgressNanos = nanoTime.getAsLong();
             if (blockComplete) {
                 sendEndOfBlock(nextBlockToSend.get());
             }
