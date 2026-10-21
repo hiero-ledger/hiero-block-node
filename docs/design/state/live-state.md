@@ -155,7 +155,7 @@ message BinaryStateQueryResponse {
     SUCCESS          = 1;
     INVALID_REQUEST  = 2;
     NOT_FOUND        = 3;       // requested key/singleton/queue index absent from the attested state
-    NOT_READY        = 4;       // state still loading / catching up
+    NOT_READY        = 4;       // nothing attested yet (true genesis); never returned again after the first attestation
     NOT_AVAILABLE    = 5;       // block_number isn't the attested block (no historical retention)
   }
   Code              status          = 1;
@@ -264,8 +264,12 @@ Block-Node has on hand without waiting for verification notifications.
 6. In `finally`, set `ready=true` **only if not `applyHalted`** — ready means catch-up finished
    *without* halting, not merely "catch-up attempt finished." This lets a monitoring consumer
    tell "healthy and caught up" apart from "caught up once, then halted" from `ready` alone,
-   without also having to check `apply_halted`. A halt leaves the node `NOT_READY` permanently
-   (until a restart) and logs a warning.
+   without also having to check `apply_halted`. A halt logs a warning and leaves `state_ready`
+   at `0`/`state_apply_halted` at `1` permanently (until a restart) — these metrics (§9), not the
+   query-level `NOT_READY` status, are the observable signal for this: a node that has already
+   attested at least one block keeps answering queries `SUCCESS` from that attested state even
+   after a halt (§8), so `NOT_READY` itself is unaffected by `applyHalted` once anything has been
+   attested.
 
 ### 6.5 `applyPending()` (event-driven: runs when the apply worker is woken by a new block)
 

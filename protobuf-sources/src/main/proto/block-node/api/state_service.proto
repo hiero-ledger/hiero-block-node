@@ -110,8 +110,11 @@ message BinaryStateQueryResponse {
         NOT_FOUND = 3;
 
         /**
-         * The Block-Node has not finished loading or catching up its live
-         * state. The client SHOULD retry after a short backoff.
+         * No state has been attested yet (true genesis — nothing has been
+         * fully confirmed). The client SHOULD retry after a short backoff.
+         * Once any state has been attested, this Block-Node answers from it
+         * even while still catching up or halted — this code is never
+         * returned again after the first attestation.
          */
         NOT_READY = 4;
 
