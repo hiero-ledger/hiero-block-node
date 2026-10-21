@@ -14,7 +14,6 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedDeque;
-import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -22,6 +21,7 @@ import org.hiero.block.api.BlockRange;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.base.ParseHelper;
 import org.hiero.block.node.block.verification.metrics.MetricsHolder;
+import org.hiero.block.node.block.verification.session.ActiveSessionsBuffer;
 import org.hiero.block.node.block.verification.session.BlockSessionHandler;
 import org.hiero.block.node.block.verification.session.OrderAwareEvictionPolicy;
 import org.hiero.block.node.block.verification.session.SessionFailureType;
@@ -80,6 +80,8 @@ public final class VerificationServicePlugin
     private BlockSessionHandler sessionHandler;
     /// The executor used for sessions.
     private ExecutorService executor;
+    /// The outbox every notification of the plugin is sent through.
+    private VerificationOutbox outbox;
     /// Dumps failing block bytes to disk for diagnostics.
     private BadBlockDumper badBlockDumper;
 
@@ -92,7 +94,8 @@ public final class VerificationServicePlugin
     /// {@inheritDoc}
     /// ---
     /// Initialize the plugin.
-    /// Get config, initialize the executor, metrics and session handler.
+    /// Get config, initialize the executor, metrics, the outbox, the active sessions
+    /// buffer and the session handler.
     @Override
     public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
         this.context = context;
@@ -103,18 +106,22 @@ public final class VerificationServicePlugin
         this.metricsHolder = MetricsHolder.create(context.metricRegistry());
         this.verificationDataProvider = new VerificationDataProvider(context);
         this.badBlockDumper = new BadBlockDumper(verificationConfig, resolveHostname());
+        this.outbox = new VerificationOutbox(context.blockMessaging());
+        final ActiveSessionsBuffer activeSessions = new ActiveSessionsBuffer(
+                verificationConfig,
+                new OrderAwareEvictionPolicy(verificationConfig),
+                lastVerifiedBlock,
+                metricsHolder.sessionHandlerMetrics());
         this.sessionHandler = new BlockSessionHandler(
-                context,
                 metricsHolder,
                 verificationConfig,
                 verificationDataProvider,
                 lastVerifiedBlock,
                 recentlyVerifiedBlocks,
-                new ConcurrentSkipListMap<>(),
-                new ConcurrentSkipListMap<>(),
-                new OrderAwareEvictionPolicy(verificationConfig),
                 executor,
-                badBlockDumper);
+                badBlockDumper,
+                activeSessions,
+                outbox);
         context.blockMessaging().registerApplicationStateNotificationHandler(this, false, name());
     }
 
@@ -314,20 +321,9 @@ public final class VerificationServicePlugin
     /// @param sessionFailureType the failure type to report
     private void safeSendNotification(
             final long blockNumber, final BlockSource blockSource, final SessionFailureType sessionFailureType) {
-        try {
-            final VerificationNotification notification = new VerificationNotification(
-                    false,
-                    FailureInfo.standard(sessionFailureType.asFailureType()),
-                    blockNumber,
-                    null,
-                    null,
-                    blockSource);
-            context.blockMessaging().sendBlockVerification(notification);
-        } catch (final RuntimeException e) {
-            final String message = "Failed to send verification notification for block %d with source %s"
-                    .formatted(blockNumber, blockSource);
-            LOGGER.log(WARNING, message, e);
-        }
+        final VerificationNotification notification = new VerificationNotification(
+                false, FailureInfo.standard(sessionFailureType.asFailureType()), blockNumber, null, null, blockSource);
+        outbox.send(notification);
     }
 
     /// Validate the supplied items and hand them to the session handler. Items that

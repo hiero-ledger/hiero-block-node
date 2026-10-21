@@ -1,30 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.block.verification.session;
 
-import static java.lang.System.Logger.Level.INFO;
-
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedDeque;
-import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.node.block.verification.BadBlockDumper;
 import org.hiero.block.node.block.verification.VerificationConfig;
 import org.hiero.block.node.block.verification.VerificationDataProvider;
+import org.hiero.block.node.block.verification.VerificationOutbox;
 import org.hiero.block.node.block.verification.hasher.BlockHasher;
 import org.hiero.block.node.block.verification.metrics.MetricsHolder;
 import org.hiero.block.node.block.verification.verifier.BlockVerificationResult;
 import org.hiero.block.node.block.verification.verifier.BlockVerifier;
-import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 
 /// An implementation of the [BlockVerificationSession] interface.
 public final class CompletableVerificationSession implements BlockVerificationSession {
-    /// Logger for the session.
-    private static final System.Logger LOGGER = System.getLogger(CompletableVerificationSession.class.getName());
     /// The composite key of this session (block number and unique id).
     private final SessionKey sessionKey;
     /// The holder for all verification metrics, distributed to the stages.
@@ -41,8 +36,8 @@ public final class CompletableVerificationSession implements BlockVerificationSe
     /// with the result handling stage so it can discriminate between a
     /// cancelled complete block and an incomplete one.
     private final AtomicBoolean endOfBlockReceived;
-    /// The block node context, for access to core facilities.
-    private final BlockNodeContext context;
+    /// The outbox the result handling stage sends the session's notification through.
+    private final VerificationOutbox outbox;
     /// The last successfully verified block, shared across sessions.
     private final AtomicLong lastVerifiedBlock;
     /// The set of recently verified blocks, shared across sessions.
@@ -51,14 +46,15 @@ public final class CompletableVerificationSession implements BlockVerificationSe
     private final VerificationDataProvider verificationDataProvider;
     /// The deque through which the block's item batches are supplied to the hashing stage.
     private final ConcurrentLinkedDeque<BlockItems> blockItemsDeque;
-    /// The set this session adds its key to once its result has been handled.
-    private final ConcurrentSkipListSet<SessionKey> finishedSessions;
     /// The configuration for verification.
     private final VerificationConfig verificationConfig;
     /// Dumps failing block bytes to disk for diagnostics.
     private final BadBlockDumper badBlockDumper;
     /// The stage chain, saved just before the terminating stage so it can be cancelled.
     private volatile CompletableFuture<BlockVerificationResult> sessionCompletionChain;
+    /// The stage chain including the terminating result handling stage; done once the
+    /// result has been handled.
+    private volatile CompletableFuture<BlockVerificationResult> resultHandling;
 
     /// Constructor.
     ///
@@ -70,9 +66,8 @@ public final class CompletableVerificationSession implements BlockVerificationSe
     /// @param lastVerifiedBlock the last successfully verified block, must not be null
     /// @param recentlyVerifiedBlocks the set of recently verified blocks, must not be null
     /// @param executor the executor the stage chain runs on, must not be null
-    /// @param context the block node context, must not be null
+    /// @param outbox the outbox to send the session's notification through, must not be null
     /// @param verificationConfig the configuration for verification, must not be null
-    /// @param finishedSessions the set to add this session's key to when finished, must not be null
     /// @param badBlockDumper the bad block dumper for diagnostics, must not be null
     public CompletableVerificationSession(
             final long uniqueId,
@@ -83,16 +78,15 @@ public final class CompletableVerificationSession implements BlockVerificationSe
             final AtomicLong lastVerifiedBlock,
             final ConcurrentLinkedDeque<Long> recentlyVerifiedBlocks,
             final ExecutorService executor,
-            final BlockNodeContext context,
+            final VerificationOutbox outbox,
             final VerificationConfig verificationConfig,
-            final ConcurrentSkipListSet<SessionKey> finishedSessions,
             final BadBlockDumper badBlockDumper) {
         if (blockNumber < 0) {
             throw new IllegalArgumentException("Block number must be non-negative");
         }
         this.sessionKey = new SessionKey(blockNumber, uniqueId);
         this.blockNumber = blockNumber;
-        this.context = Objects.requireNonNull(context);
+        this.outbox = Objects.requireNonNull(outbox);
         this.lastVerifiedBlock = Objects.requireNonNull(lastVerifiedBlock);
         this.recentlyVerifiedBlocks = Objects.requireNonNull(recentlyVerifiedBlocks);
         this.verificationDataProvider = Objects.requireNonNull(verificationDataProvider);
@@ -103,7 +97,6 @@ public final class CompletableVerificationSession implements BlockVerificationSe
         this.endOfBlockReceived = new AtomicBoolean(false);
         this.blockItemsDeque = new ConcurrentLinkedDeque<>();
         this.verificationConfig = Objects.requireNonNull(verificationConfig);
-        this.finishedSessions = Objects.requireNonNull(finishedSessions);
         this.badBlockDumper = Objects.requireNonNull(badBlockDumper);
     }
 
@@ -111,6 +104,12 @@ public final class CompletableVerificationSession implements BlockVerificationSe
     @Override
     public SessionKey sessionKey() {
         return sessionKey;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public BlockSource blockSource() {
+        return blockSource;
     }
 
     /// {@inheritDoc}
@@ -127,8 +126,8 @@ public final class CompletableVerificationSession implements BlockVerificationSe
     ///    block proofs.
     /// 1. `ResultOrderingManager` - receives the result of the verifier and waits
     ///    for an order in case hashing and verification have passed.
-    /// 1. `SessionResultHandler` - receives the result of the chain. Propagates the
-    ///    result to messaging and manages some internal state.
+    /// 1. `SessionResultHandler` - receives the result of the chain. Sends the
+    ///    result to messaging through the outbox and manages some internal state.
     @Override
     public void start() {
         final BlockHasher hasher = new BlockHasher(
@@ -143,7 +142,7 @@ public final class CompletableVerificationSession implements BlockVerificationSe
         final ResultOrderingManager resultOrderManager =
                 new ResultOrderingManager(isCancelled, lastVerifiedBlock, verificationConfig);
         final SessionResultHandler sessionResultHandler = new SessionResultHandler(
-                context,
+                outbox,
                 verificationConfig,
                 metricsHolder.sessionResultMetrics(),
                 badBlockDumper,
@@ -151,7 +150,6 @@ public final class CompletableVerificationSession implements BlockVerificationSe
                 recentlyVerifiedBlocks,
                 blockNumber,
                 blockSource,
-                finishedSessions,
                 sessionKey,
                 endOfBlockReceived);
         final CompletableFuture<BlockVerificationResult> completionChain = CompletableFuture.supplyAsync(
@@ -160,7 +158,7 @@ public final class CompletableVerificationSession implements BlockVerificationSe
                 .thenApply(resultOrderManager);
         // Note that we save the completion chain just before the terminating stage `whenComplete`
         // so we can cancel that to work around a bug in CompletableFuture.
-        completionChain.whenComplete(sessionResultHandler);
+        resultHandling = completionChain.whenComplete(sessionResultHandler);
         sessionCompletionChain = completionChain;
     }
 
@@ -198,48 +196,23 @@ public final class CompletableVerificationSession implements BlockVerificationSe
 
     /// {@inheritDoc}
     @Override
-    public ConcurrentLinkedDeque<BlockItems> getBlockItemsDeque() {
-        return blockItemsDeque;
+    public boolean isEndOfBlockReceived() {
+        return endOfBlockReceived.get();
+    }
+
+    /// {@inheritDoc}
+    /// ---
+    /// The session is complete once its result handling stage has returned, so a
+    /// session whose notification is still being sent is not complete yet.
+    @Override
+    public boolean isComplete() {
+        final CompletableFuture<BlockVerificationResult> localResultHandling = resultHandling;
+        return localResultHandling != null && localResultHandling.isDone();
     }
 
     /// {@inheritDoc}
     @Override
-    public boolean complete() {
-        final boolean result;
-        try {
-            final CompletableFuture<BlockVerificationResult> localSession = sessionCompletionChain;
-            if (localSession != null) {
-                if (localSession.isDone() && !localSession.isCancelled()) {
-                    if (localSession.isCompletedExceptionally()) {
-                        // just call exception now, the whenComplete stage will handle a possible
-                        // thrown exception
-                        localSession.exceptionNow();
-                    } else {
-                        final BlockVerificationResult blockVerificationResult = localSession.resultNow();
-                        if (blockVerificationResult == null) {
-                            final String message =
-                                    "Verification session with id %d for block %d with source %s completes with null result"
-                                            .formatted(sessionKey.uniqueId(), blockNumber, blockSource);
-                            LOGGER.log(INFO, message);
-                        }
-                    }
-                    result = true;
-                } else
-                    // if canceled, the session is completed, otherwise it is not done yet
-                    result = localSession.isCancelled();
-            } else {
-                final String message = "Session with id %d for block %d with source %s completed before it was started"
-                        .formatted(sessionKey.uniqueId(), blockNumber, blockSource);
-                throw new IllegalStateException(message);
-            }
-        } catch (final RuntimeException e) {
-            // If an exception occurs during the completion of the session, we still want to move forward
-            final String message =
-                    "Exception occurred during completion of verification session with id %d for block %d with source %s"
-                            .formatted(sessionKey.uniqueId(), blockNumber, blockSource);
-            LOGGER.log(INFO, message, e);
-            return true;
-        }
-        return result;
+    public ConcurrentLinkedDeque<BlockItems> getBlockItemsDeque() {
+        return blockItemsDeque;
     }
 }

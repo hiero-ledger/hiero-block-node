@@ -77,9 +77,12 @@ verifies a single block from start to finish and always produces a result.</dd>
 <dt><code>Session Stage</code></dt><dd>One of the distinct, chained steps a
 session passes through: hashing, proof verification, result ordering, and
 result handling.</dd>
-<dt><code>Session Handler</code></dt><dd>The component that creates, manages,
-and cancels sessions, routes incoming data to the correct session, and enforces
-the active sessions limit.</dd>
+<dt><code>Session Handler</code></dt><dd>The component that manages the
+sessions and their lifecycle: it starts, supplies, cancels and clears them, and
+routes incoming data to the correct session.</dd>
+<dt><code>Active Sessions Buffer</code></dt><dd>A passive helper of the session
+handler that holds the running sessions in two lanes under one limit and
+applies the eviction policy when an admission exceeds it.</dd>
 <dt><code>Verification Notification</code></dt><dd>A message sent to the
 internal messaging system that conveys the result of a verification session,
 including failure details when verification did not succeed.</dd>
@@ -107,13 +110,30 @@ verified blocks buffer.
 
 ### BlockSessionHandler
 
-Creates, manages, and cancels verification sessions. It routes publisher item
-batches to the active publisher session and starts a new session for each
-backfilled block. It keeps the running sessions in the two lanes of the
-**active sessions buffer**, a high priority lane for sessions started from the
-publisher's live stream and a low priority lane for sessions started from any
-other channel, under one combined limit, and applies the **eviction policy**
-when that limit is exceeded.
+Manages the verification sessions and their lifecycle. Before handling any
+block items it clears the sessions that are complete from the active sessions
+buffer. It starts a session for every block that starts, admits it to the
+buffer, and supplies every session with the block items of its block: publisher
+item batches go to the active publisher session, and every backfilled block gets
+a session of its own. When the publisher starts a new block before the active one
+ended, it cancels the active one.
+
+### ActiveSessionsBuffer
+
+A passive helper of the session handler that holds the sessions the handler
+started and has not cleared yet, in two lanes: a **high priority lane** for
+sessions of blocks from the publisher and a **low priority lane** for sessions
+of blocks from any other source, under one combined limit. It gives the handler
+the means to manage its sessions: admitting a session to the lane its block's
+source calls for, applying the **eviction policy** when an admission exceeds the
+limit, finding the active publisher session, and clearing the sessions that are
+complete. Sessions never change the buffer themselves.
+
+### VerificationOutbox
+
+The one place the plugin sends its verification notifications from. The plugin
+and its sessions build their notifications and give them to the outbox, which
+sends them on the calling thread and logs and swallows a failure to send.
 
 ### CompletableVerificationSession
 
@@ -213,24 +233,34 @@ stage skips the remaining work and goes straight to result handling.
    is what turns out-of-order verification into an in-order stream of successes.
    Failures never pass through this stage; they are reported immediately.
 4. **Result handling.** The `SessionResultHandler` turns the outcome into a
-   verification notification and sends it to messaging. On success it also
-   advances the last verified block and records the block in the recently
-   verified buffer. On failure it decides whether the failure is informational,
-   optionally dumps the bad block for diagnostics, and updates metrics.
+   verification notification and sends it to messaging through the outbox. On
+   success it then advances the last verified block and records the block in the
+   recently verified buffer. On failure it decides whether the failure is
+   informational, optionally dumps the bad block for diagnostics, and updates
+   metrics. Once this stage has returned, the session is complete, and the
+   session handler clears it from the active sessions buffer before it handles
+   the next block items.
 
 ### The Active Sessions Buffer
 
-The session handler keeps all running sessions in a bounded buffer, sized by
+The active sessions buffer keeps all running sessions, sized by
 `activeSessionsBufferSize`. The buffer has two lanes: the **high priority
-lane** holds the sessions started from the publisher's live stream, the **low
-priority lane** holds the sessions started from any other channel (backfill
-today). The limit applies to the combined count of both lanes, so
-either lane may use the whole budget while the other is idle.
+lane** holds the sessions of blocks from the publisher, the **low priority
+lane** holds the sessions of blocks from any other source (backfill today). The
+limit applies to the combined count of both lanes, so either lane may use the
+whole budget while the other is idle.
 
-Every new session is added to its lane. If the combined count then exceeds the
-limit, room is made by an **eviction policy**: a separate unit that receives an
-immutable view of both lanes and selects the sessions to give up. The policy in
-use reasons as follows.
+Every new session is added to the lane its block's source calls for. A
+publisher session also becomes the *active publisher session*, whether its block
+comes in many batches or in one, until it has received the end of its block:
+the publisher's later batches go to it and the eviction policy never selects
+it. When the next publisher block starts before it ended, the session handler
+cancels it, because the publisher has moved on. The session handler clears the
+sessions that are complete before it handles new block items, and the buffer
+clears them again before deciding an eviction. If an admission takes the
+combined count over the limit, room is made by an **eviction policy**: a
+separate unit that receives an immutable view of both lanes and selects the
+sessions to give up. The policy in use reasons as follows.
 
 - A session *awaits order* when it would wait at the ordering stage: its block
   is more than one ahead of the last verified block, at or above
@@ -250,9 +280,10 @@ use reasons as follows.
 
 The session just admitted is not exempt: when it is the highest awaiting one, or
 already behind the last verified block, it is the one nobody waits for. The
-policy is consulted again while the count is still over the limit, so the
-buffer never grows beyond its size for any delivery order, including blocks
-arriving in descending order. Eviction happens only when a session is admitted,
+policy is consulted once per admission, and each admission pays for itself: it
+added one session and its eviction pass removes one, so the buffer never grows
+beyond its size for any delivery order, including blocks arriving in descending
+order. Eviction happens only when a session is admitted,
 never on a timer, and the two ingress threads never evict at the same time.
 
 An evicted session reports a failure through the normal result handling path:
@@ -304,6 +335,18 @@ behavior:
 
 Failures are never ordered. A failure is reported the moment it happens, from
 whichever stage produced it.
+
+### Sending Results
+
+Every notification goes through the `VerificationOutbox` and is sent on the
+calling thread. A success is only ever sent from a session thread, before the
+session advances the last verified block, so when messaging has no room for a
+verified block the send waits, and every later block waits in the ordering
+stage of its session, where the active sessions buffer bounds it. Failures,
+cancellations included, can also be sent from the threads that deliver blocks
+to the plugin (an evicted or superseded session reports on the thread that
+cancelled it); they travel on the notifications channel, whose sender never
+waits, so those threads are never held up by messaging.
 
 ### Failure Types
 
@@ -388,14 +431,14 @@ How the active sessions buffer makes room:
 flowchart TD
     NS[New session starts] --> ADD[Add to its lane]
     ADD --> FULL{"Combined count over the limit?"}
-    FULL -- no --> RUN[All sessions keep running]
+    FULL -- no --> RUN[Admission done]
     FULL -- yes --> NP{"Low priority session nobody waits for?"}
     NP -- yes --> C1["Cancel it (reports CANCELLED)"]
     NP -- no --> PUB{"High priority session other than the one being streamed?"}
     PUB -- yes --> C2["Cancel the highest one (reports CANCELLED, the publisher resends it)"]
     PUB -- no --> RUN
-    C1 --> FULL
-    C2 --> FULL
+    C1 --> RUN
+    C2 --> RUN
 ```
 
 ## Configuration
@@ -416,8 +459,9 @@ Configuration prefix: `verification`
 
 All metrics are in the `blocknode` category. Metrics are grouped per **metric
 holder**, the component that owns and records them, so the four groups below
-mirror the session pipeline: the session handler, the hashing stage, the proof
-verification stage, and the result handling stage.
+mirror the session pipeline: the session handler and its active sessions
+buffer, the hashing stage, the proof verification stage, and the result
+handling stage.
 
 |                                     Metric                                      |     Type     |                     Labels                     |                           Description                            |
 |---------------------------------------------------------------------------------|--------------|------------------------------------------------|------------------------------------------------------------------|
@@ -444,7 +488,8 @@ verification stage, and the result handling stage.
 
 ### Session Handler Metrics
 
-Owned by the session handler, which creates and manages sessions.
+Owned by the session handler, which creates sessions, and by the active
+sessions buffer, which holds them.
 
 #### `verification_blocks_received`
 
@@ -457,7 +502,7 @@ in flight.
 #### `verification_active_sessions`
 
 The combined number of sessions in both lanes of the active sessions buffer,
-set whenever a session is admitted or finished sessions are reaped. An
+set whenever a session is admitted or completed sessions are cleared. An
 admission that pushes it over `activeSessionsBufferSize` evicts before it
 returns, so the value stays within the limit.
 

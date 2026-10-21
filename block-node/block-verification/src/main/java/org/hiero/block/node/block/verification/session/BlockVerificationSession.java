@@ -3,6 +3,7 @@ package org.hiero.block.node.block.verification.session;
 
 import java.util.concurrent.ConcurrentLinkedDeque;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.hiero.block.node.spi.blockmessaging.BlockSource;
 
 /// This interface defines a verification session for a block.
 /// Sessions run async. They can be canceled. Once a session completes, it will
@@ -12,6 +13,12 @@ public interface BlockVerificationSession {
     /// A composite key of block number and a unique session id.
     /// @return the session key
     SessionKey sessionKey();
+
+    /// The source the block of this session came from. The active sessions buffer
+    /// chooses the lane of the session and how it is admitted from it.
+    ///
+    /// @return the source of the block, never null
+    BlockSource blockSource();
 
     /// Start the session.
     ///
@@ -48,18 +55,22 @@ public interface BlockVerificationSession {
     /// fully received).
     void markEndOfBlockReceived();
 
+    /// Whether the end of block has been received for this session, see
+    /// [#markEndOfBlockReceived()].
+    ///
+    /// @return true once the end of block has been marked
+    boolean isEndOfBlockReceived();
+
+    /// Whether the session is complete: its result, a success, a failure or a
+    /// cancellation, has been handled and its notification sent. A complete session
+    /// can be cleared from the active sessions buffer.
+    ///
+    /// @return true once the session is complete
+    boolean isComplete();
+
     /// Get the block items deque.
     /// Through this deque, we are able to offer the next block items of the block.
     ConcurrentLinkedDeque<BlockItems> getBlockItemsDeque();
-
-    /// Complete a finished session.
-    ///
-    /// This method attempts to complete a finished session. If a session has
-    /// marked itself as finished, we attempt to get a result from the future
-    /// to gracefully complete the session. Iff the session is not done when
-    /// this method is called, we will return `false`.
-    /// @return a [Boolean] indicating whether the session was completed
-    boolean complete();
 
     /// A composite key for a [BlockVerificationSession].
     /// We allow multiple sessions for the same block.

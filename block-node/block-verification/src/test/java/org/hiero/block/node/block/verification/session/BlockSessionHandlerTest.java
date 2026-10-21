@@ -9,7 +9,6 @@ import java.util.NavigableSet;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentLinkedDeque;
-import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -26,6 +25,7 @@ import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.block.verification.BadBlockDumper;
 import org.hiero.block.node.block.verification.VerificationConfig;
 import org.hiero.block.node.block.verification.VerificationDataProvider;
+import org.hiero.block.node.block.verification.VerificationOutbox;
 import org.hiero.block.node.block.verification.metrics.MetricsHolder;
 import org.hiero.block.node.block.verification.session.BlockVerificationSession.SessionKey;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -40,10 +40,11 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
-/// Tests for the [BlockSessionHandler].
+/// Tests for the [BlockSessionHandler] together with the [ActiveSessionsBuffer] it
+/// admits sessions to.
 /// Sessions run on a [BlockingExecutor] and therefore never progress on their own:
-/// a session ends only when the handler cancels it, and a cancellation reports
-/// synchronously through the [TestBlockMessagingFacility] of the context.
+/// a session ends only when it is cancelled, and a cancellation reports
+/// synchronously through the [TestBlockMessagingFacility] behind the outbox.
 @DisplayName("Block Session Handler Tests")
 @Timeout(value = 30, unit = TimeUnit.SECONDS)
 class BlockSessionHandlerTest {
@@ -53,11 +54,9 @@ class BlockSessionHandlerTest {
     private TestBlockMessagingFacility blockMessaging;
     /// The metrics of the handler under test.
     private MetricsHolder metrics;
-    /// The high priority lane handed to the handler under test.
-    private ConcurrentSkipListMap<SessionKey, BlockVerificationSession> highPrioritySessions;
-    /// The low priority lane handed to the handler under test.
-    private ConcurrentSkipListMap<SessionKey, BlockVerificationSession> lowPrioritySessions;
-    /// The context handed to the handler under test.
+    /// The buffer of the handler under test, set when the handler is built.
+    private ActiveSessionsBuffer activeSessions;
+    /// The context the verification data provider is built from.
     private BlockNodeContext context;
     /// The verification data provider handed to the handler under test.
     private VerificationDataProvider verificationDataProvider;
@@ -70,13 +69,11 @@ class BlockSessionHandlerTest {
     @BeforeEach
     void setUp() {
         blockMessaging = new TestBlockMessagingFacility();
-        context = new BlockNodeContext(null, null, null, blockMessaging, null, null, null, null, null);
+        context = new BlockNodeContext(null, null, null, null, null, null, null, null, null);
         metrics = MetricsHolder.create(TestUtils.createMetrics());
         verificationDataProvider = new VerificationDataProvider(context);
         lastVerifiedBlock = new AtomicLong(-1);
         recentlyVerifiedBlocks = new ConcurrentLinkedDeque<>();
-        highPrioritySessions = new ConcurrentSkipListMap<>();
-        lowPrioritySessions = new ConcurrentSkipListMap<>();
         executor = new BlockingExecutor(new LinkedBlockingQueue<>());
     }
 
@@ -104,7 +101,7 @@ class BlockSessionHandlerTest {
         assertThat(executor.wasAnyTaskSubmitted()).isTrue();
     }
 
-    /// Tests for the integration between the handler and an injected, scripted eviction policy.
+    /// Tests for the integration between the handler, its buffer and an injected, scripted eviction policy.
     @Nested
     @DisplayName("Eviction Policy Integration Tests")
     class EvictionPolicyIntegrationTests {
@@ -215,9 +212,9 @@ class BlockSessionHandlerTest {
 
         /// This test aims to assert that when a policy selects the high priority session
         /// still receiving items, the eviction reports an incomplete cancellation and
-        /// clears the handler's reference to that session, so that the next snapshot
-        /// carries no active high priority session and the remaining items of that block
-        /// are discarded.
+        /// the session stops being the active publisher session, so that the next
+        /// snapshot carries no active high priority session and the remaining items of
+        /// that block are discarded.
         @Test
         @DisplayName("processBlockItems() clears the active high priority session when a policy evicts it")
         void testClearsTheActivePublisherReferenceWhenTheActiveSessionIsEvicted() {
@@ -246,11 +243,11 @@ class BlockSessionHandlerTest {
         }
 
         /// This test aims to assert that a session cancelled by supersession in the
-        /// same call is reaped under the eviction lock before the policy is consulted,
+        /// same call is cleared under the eviction lock before the policy is consulted,
         /// so the count drops back within the limit and no eviction takes place.
         @Test
-        @DisplayName("processBlockItems() reaps finished sessions before evicting")
-        void testReapsFinishedSessionsBeforeConsultingThePolicy() {
+        @DisplayName("processBlockItems() clears completed sessions before evicting")
+        void testClearsCompletedSessionsBeforeConsultingThePolicy() {
             final RecordingEvictionPolicy policy = RecordingEvictionPolicy.lowestKeyFirst();
             final BlockSessionHandler toTest = newHandler(policy, 1);
             final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(2, 3);
@@ -267,6 +264,79 @@ class BlockSessionHandlerTest {
             assertThat(highPriorityKeys()).containsExactly(key(3, 1));
             assertThat(gauge()).isEqualTo(1L);
             assertThat(evictedHighPriority()).isEqualTo(0L);
+        }
+    }
+
+    /// Tests for the handler managing the lifecycle of its sessions.
+    @Nested
+    @DisplayName("Session Lifecycle Tests")
+    class SessionLifecycleTests {
+        /// This test aims to assert that the handler clears the sessions that are complete
+        /// before it handles new block items: a publisher session cancelled by
+        /// supersession is complete but stays in the buffer while the buffer is within its
+        /// limit, and the next block items received, here a backfilled block, clear it
+        /// before anything else happens.
+        @Test
+        @DisplayName("processBlockItems() clears completed sessions before handling new block items")
+        void testClearsCompletedSessionsBeforeHandlingNewBlockItems() {
+            final BlockSessionHandler toTest = newHandlerWithProductionPolicy(5);
+            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(2, 4);
+            toTest.processBlockItems(headerOnly(blocks.get(0)), BlockSource.PUBLISHER);
+            toTest.processBlockItems(headerOnly(blocks.get(1)), BlockSource.PUBLISHER);
+            assertThat(notifications())
+                    .hasSize(1)
+                    .first()
+                    .returns(
+                            FailureInfo.standard(FailureType.CANCELLED_INCOMPLETE),
+                            VerificationNotification::failureInfo)
+                    .returns(2L, VerificationNotification::blockNumber);
+            assertThat(highPriorityKeys()).containsExactly(key(2, 0), key(3, 1));
+            backfill(toTest, blocks.get(2));
+            assertThat(highPriorityKeys()).containsExactly(key(3, 1));
+            assertThat(lowPriorityKeys()).containsExactly(key(4, 2));
+            assertThat(gauge()).isEqualTo(2L);
+        }
+
+        /// This test aims to assert that a new publisher block does not cancel the session
+        /// of the previous block once that session has received its whole block, even
+        /// though it is still being verified: block 2 arrives as a header batch followed
+        /// by the batch ending it, then the header of block 3 arrives. No session is
+        /// cancelled, nothing is reported, both sessions stay in the buffer, and the
+        /// session of block 3 becomes the active publisher session.
+        @Test
+        @DisplayName("processBlockItems() does not cancel a publisher session that received its whole block")
+        void testDoesNotCancelAPublisherSessionThatReceivedItsWholeBlock() {
+            final BlockSessionHandler toTest = newHandlerWithProductionPolicy(5);
+            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(2, 3);
+            toTest.processBlockItems(headerOnly(blocks.get(0)), BlockSource.PUBLISHER);
+            toTest.processBlockItems(restOfBlock(blocks.get(0)), BlockSource.PUBLISHER);
+            toTest.processBlockItems(headerOnly(blocks.get(1)), BlockSource.PUBLISHER);
+            assertThat(notifications()).isEmpty();
+            assertThat(highPriorityKeys()).containsExactly(key(2, 0), key(3, 1));
+            assertThat(activeSessions.activePublisherSession().sessionKey()).isEqualTo(key(3, 1));
+        }
+
+        /// This test aims to assert that a publisher batch that does not start a block and
+        /// arrives after the batch that ended the previous block is disregarded: it is not
+        /// added to the session of the block that already ended, which keeps exactly the
+        /// two batches of its block, and no session is started for it.
+        @Test
+        @DisplayName("processBlockItems() disregards a publisher batch that arrives after the end of the block")
+        void testDisregardsAPublisherBatchThatArrivesAfterTheEndOfTheBlock() {
+            final BlockSessionHandler toTest = newHandlerWithProductionPolicy(5);
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(2);
+            final BlockItems header = headerOnly(block);
+            final BlockItems rest = restOfBlock(block);
+            toTest.processBlockItems(header, BlockSource.PUBLISHER);
+            final BlockVerificationSession session = activeSessions.activePublisherSession();
+            toTest.processBlockItems(rest, BlockSource.PUBLISHER);
+            final BlockItems stray =
+                    new BlockItems(block.blockUnparsed().blockItems().subList(1, 2), block.number(), false, false);
+            toTest.processBlockItems(stray, BlockSource.PUBLISHER);
+            assertThat(session.getBlockItemsDeque()).containsExactly(header, rest);
+            assertThat(activeSessions.activePublisherSession()).isNull();
+            assertThat(highPriorityKeys()).containsExactly(key(2, 0));
+            assertThat(notifications()).isEmpty();
         }
     }
 
@@ -589,20 +659,19 @@ class BlockSessionHandlerTest {
         return newHandler(new OrderAwareEvictionPolicy(verificationConfig), verificationConfig);
     }
 
-    /// Build a handler with the given policy and configuration.
+    /// Build a handler with the given policy and configuration, and keep its buffer.
     private BlockSessionHandler newHandler(final SessionEvictionPolicy policy, final VerificationConfig config) {
+        activeSessions = new ActiveSessionsBuffer(config, policy, lastVerifiedBlock, metrics.sessionHandlerMetrics());
         return new BlockSessionHandler(
-                context,
                 metrics,
                 config,
                 verificationDataProvider,
                 lastVerifiedBlock,
                 recentlyVerifiedBlocks,
-                highPrioritySessions,
-                lowPrioritySessions,
-                policy,
                 executor,
-                new BadBlockDumper(config, "test"));
+                new BadBlockDumper(config, "test"),
+                activeSessions,
+                new VerificationOutbox(blockMessaging));
     }
 
     /// Build a verification configuration with the given buffer size.
@@ -666,17 +735,17 @@ class BlockSessionHandlerTest {
 
     /// The keys of the high priority lane.
     private NavigableSet<SessionKey> highPriorityKeys() {
-        return highPrioritySessions.keySet();
+        return activeSessions.snapshot().highPrioritySessions();
     }
 
     /// The keys of the low priority lane.
     private NavigableSet<SessionKey> lowPriorityKeys() {
-        return lowPrioritySessions.keySet();
+        return activeSessions.snapshot().lowPrioritySessions();
     }
 
     /// The combined size of both lanes.
     private long combinedSize() {
-        return highPrioritySessions.size() + lowPrioritySessions.size();
+        return activeSessions.size();
     }
 
     /// Reads the current value of the active sessions gauge.

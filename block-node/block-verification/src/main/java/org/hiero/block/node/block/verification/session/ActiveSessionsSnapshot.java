@@ -3,7 +3,6 @@ package org.hiero.block.node.block.verification.session;
 
 import java.util.Collections;
 import java.util.NavigableSet;
-import java.util.Objects;
 import java.util.TreeSet;
 import org.hiero.block.node.block.verification.session.BlockVerificationSession.SessionKey;
 
@@ -28,10 +27,8 @@ public record ActiveSessionsSnapshot(
     /// Copies both key sets so that the snapshot is immutable and independent
     /// of the live lanes.
     public ActiveSessionsSnapshot {
-        highPrioritySessions =
-                Collections.unmodifiableNavigableSet(new TreeSet<>(Objects.requireNonNull(highPrioritySessions)));
-        lowPrioritySessions =
-                Collections.unmodifiableNavigableSet(new TreeSet<>(Objects.requireNonNull(lowPrioritySessions)));
+        highPrioritySessions = Collections.unmodifiableNavigableSet(new TreeSet<>(highPrioritySessions));
+        lowPrioritySessions = Collections.unmodifiableNavigableSet(new TreeSet<>(lowPrioritySessions));
     }
 
     /// The combined number of sessions in both lanes.
