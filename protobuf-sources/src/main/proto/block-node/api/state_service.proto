@@ -75,10 +75,19 @@ message BinaryStateQuery {
 }
 
 /**
+ * A list of raw domain-value byte strings read from a queue, in head-to-tail
+ * order. Wraps `repeated bytes` since protobuf does not allow a `repeated`
+ * field directly inside a `oneof`.
+ */
+message QueueValues {
+    repeated bytes values = 1;
+}
+
+/**
  * Response carrying the requested binary state plus the metadata of the
  * state slice it was read from.
  *
- * Exactly one of `kv_bytes`, `singleton_bytes`, or `queue_bytes` SHALL be
+ * Exactly one of `kv_bytes`, `singleton_bytes`, or `queue_values` SHALL be
  * populated on success, matching the RPC method invoked.
  */
 message BinaryStateQueryResponse {
@@ -142,21 +151,27 @@ message BinaryStateQueryResponse {
     uint64 block_number = 2;
 
     /**
-     * Raw domain-value bytes for a `getBinaryKV` response.
+     * The result payload. Exactly one is set on `SUCCESS`, matching the RPC
+     * method invoked; none are set on failure (see `status`).
      */
-    bytes kv_bytes = 3;
+    oneof result {
+        /**
+         * Raw domain-value bytes for a `getBinaryKV` response.
+         */
+        bytes kv_bytes = 3;
 
-    /**
-     * Raw domain-value bytes for a `getBinarySingleton` response.
-     */
-    bytes singleton_bytes = 4;
+        /**
+         * Raw domain-value bytes for a `getBinarySingleton` response.
+         */
+        bytes singleton_bytes = 4;
 
-    /**
-     * Raw domain-value bytes for a `getBinaryQueue` response. May contain
-     * a single element (indexed read) or every element from head to tail
-     * (full queue read).
-     */
-    repeated bytes queue_bytes = 5;
+        /**
+         * Raw domain-value bytes for a `getBinaryQueue` response. May contain
+         * a single element (indexed read) or every element from head to tail
+         * (full queue read).
+         */
+        QueueValues queue_values = 5;
+    }
 }
 
 /**

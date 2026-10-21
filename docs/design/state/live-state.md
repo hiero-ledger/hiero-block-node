@@ -160,6 +160,10 @@ message BinaryStateQuery {
   uint64 queue_index = 5;        // 1-indexed; 0 or unset = full queue
 }
 
+message QueueValues {
+  repeated bytes values = 1;    // wrapper, since protobuf disallows `repeated` directly in a `oneof`
+}
+
 message BinaryStateQueryResponse {
   enum Code {
     UNKNOWN          = 0;
@@ -169,19 +173,25 @@ message BinaryStateQueryResponse {
     NOT_READY        = 4;       // nothing attested yet (true genesis); never returned again after the first attestation
     NOT_AVAILABLE    = 5;       // block_number isn't the attested block (no historical retention)
   }
-  Code              status          = 1;
-  uint64            block_number    = 2;   // attested block, read from BlockStreamInfo — never a separate copy
-  bytes             kv_bytes        = 3;
-  bytes             singleton_bytes = 4;
-  repeated bytes    queue_bytes     = 5;
+  Code   status       = 1;
+  uint64 block_number = 2;      // attested block, read from BlockStreamInfo — never a separate copy
+  oneof result {
+    bytes       kv_bytes        = 3;
+    bytes       singleton_bytes = 4;
+    QueueValues queue_values    = 5;
+  }
 }
 ```
 
-`kv_bytes`/`singleton_bytes`/`queue_bytes` are mutually exclusive (exactly one populated per
-RPC method) and were considered for a `oneof`, but `queue_bytes` is `repeated` and protobuf
-does not allow `repeated` fields inside a `oneof` — it would need a wrapper message
-(`QueueValues { repeated bytes values = 1; }`). That wrapping cost more devex than the
-`oneof` saved, so left as plain fields; revisit if this becomes a pain point in practice.
+`kv_bytes`/`singleton_bytes`/`queue_values` are a `oneof`: exactly one populated per RPC method
+on `SUCCESS`, none on failure. An earlier draft left these as plain fields reasoning that
+`queue_bytes` being `repeated` (protobuf disallows `repeated` directly inside a `oneof`) cost
+more devex to wrap than the `oneof` saved — jsync's review pushed back on that: the wrapper
+message pattern (`QueueValues`) is already standard practice elsewhere in this API, and making
+mutual exclusivity a type-system guarantee is worth the one extra wrapper message. Applied here
+for the response only; `BinaryStateQuery`'s `key_bytes`/`queue_index` on the request side are
+not symmetric in the same way (`queue_index` narrows a queue read, it doesn't select between
+mutually exclusive request *kinds*) and are left as plain fields.
 
 `NOT_AVAILABLE` mirrors `BlockAccessService.getBlock()`'s `NOT_AVAILABLE` for a block outside
 the range this node currently holds. This plugin has no historical retention (§2/§7): the
