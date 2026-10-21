@@ -154,7 +154,7 @@ message BinaryStateQueryResponse {
      * The result payload. Exactly one is set on `SUCCESS`, matching the RPC
      * method invoked; none are set on failure (see `status`).
      */
-    oneof result {
+    oneof payload {
         /**
          * Raw domain-value bytes for a `getKV` response.
          */

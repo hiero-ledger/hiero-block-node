@@ -175,7 +175,7 @@ message BinaryStateQueryResponse {
   }
   Code   status       = 1;
   uint64 block_number = 2;      // attested block, read from BlockStreamInfo — never a separate copy
-  oneof result {
+  oneof payload {
     bytes       kv_bytes        = 3;
     bytes       singleton_bytes = 4;
     QueueValues queue_values    = 5;
