@@ -33,6 +33,25 @@ final class StateChangeApplier {
 
     private static final System.Logger LOGGER = System.getLogger(StateChangeApplier.class.getName());
 
+    /// `stateId` for token-relationship (`TokenAssociation`/`AccountTokenAssociation`) keys.
+    private static final int TOKEN_ASSOCIATION_STATE_ID = 9;
+
+    /// `MapChangeKey` oneof field number for the old, reserved `TokenAssociation` encoding
+    /// (`token_id` first) that consensus-node's own reference applier still remaps for older
+    /// captured chains. This plugin does not remap it — see `UnsupportedLegacyEncodingException`.
+    private static final int LEGACY_TOKEN_ASSOCIATION_FIELD = 2;
+
+    /// Thrown when a `MapChangeKey` for `stateId == 9` carries the legacy, reserved field-2
+    /// (`TokenAssociation`) encoding instead of the current field-25 (`AccountTokenAssociation`)
+    /// encoding. `reserved` in protobuf is a compile-time guard, not a runtime wire-format check,
+    /// so these bytes would otherwise be stored unrecognized and only surface later as a
+    /// generic, misleading hash mismatch — this fails fast and distinctly instead.
+    static final class UnsupportedLegacyEncodingException extends RuntimeException {
+        UnsupportedLegacyEncodingException(@NonNull final String message) {
+            super(message);
+        }
+    }
+
     /// Outcome of a single block apply.
     ///
     /// @param blockNumber the block number, or `-1` if unparseable
@@ -79,6 +98,10 @@ final class StateChangeApplier {
             } else if (item.hasStateChanges()) {
                 try {
                     applied += applyStateChangesBytes(binaryState, item.stateChangesOrThrow());
+                } catch (final UnsupportedLegacyEncodingException e) {
+                    // Propagate as-is — the caller distinguishes this from a generic malformed
+                    // state_changes item.
+                    throw e;
                 } catch (final RuntimeException e) {
                     throw new IllegalStateException("Failed to parse state_changes item", e);
                 }
@@ -227,8 +250,10 @@ final class StateChangeApplier {
                 case 10 -> { // key: field 1, message
                     final int messageLength = input.readVarInt(false);
                     if (messageLength > 0) {
-                        rawKey = readOneOfPayload(input, input.position() + messageLength, "MapChangeKey")
-                                .bytes();
+                        final OneOfPayload keyPayload =
+                                readOneOfPayload(input, input.position() + messageLength, "MapChangeKey");
+                        rejectLegacyTokenAssociationEncoding(stateId, keyPayload);
+                        rawKey = keyPayload.bytes();
                     }
                 }
                 case 18 -> { // value: field 2, message
@@ -259,8 +284,10 @@ final class StateChangeApplier {
             if (tag == 10) { // key: field 1, message
                 final int messageLength = input.readVarInt(false);
                 if (messageLength > 0) {
-                    rawKey = readOneOfPayload(input, input.position() + messageLength, "MapChangeKey")
-                            .bytes();
+                    final OneOfPayload keyPayload =
+                            readOneOfPayload(input, input.position() + messageLength, "MapChangeKey");
+                    rejectLegacyTokenAssociationEncoding(stateId, keyPayload);
+                    rawKey = keyPayload.bytes();
                 }
             } else {
                 skipField(input, tag);
@@ -299,6 +326,22 @@ final class StateChangeApplier {
             throw new IllegalStateException(description + " payload missing");
         }
         return new OneOfPayload(fieldNumber, payload);
+    }
+
+    /// Halt on a `MapChangeKey` for `stateId == 9` tagged with the legacy, reserved field-2
+    /// (`TokenAssociation`) encoding instead of the current field-25 (`AccountTokenAssociation`)
+    /// encoding — this plugin does not remap it (unlike consensus-node's reference applier).
+    ///
+    /// @param stateId the state ID the key belongs to
+    /// @param keyPayload the decoded `MapChangeKey` oneof payload
+    /// @throws UnsupportedLegacyEncodingException if the legacy encoding is detected
+    private static void rejectLegacyTokenAssociationEncoding(
+            final int stateId, @NonNull final OneOfPayload keyPayload) {
+        if (stateId == TOKEN_ASSOCIATION_STATE_ID && keyPayload.fieldNumber() == LEGACY_TOKEN_ASSOCIATION_FIELD) {
+            throw new UnsupportedLegacyEncodingException(
+                    "MapChangeKey for stateId=" + TOKEN_ASSOCIATION_STATE_ID + " carries the legacy, reserved "
+                            + "field-2 TokenAssociation encoding, which this plugin does not remap");
+        }
     }
 
     private static int requireStateId(final int stateId) {
