@@ -42,7 +42,8 @@ import org.hiero.block.node.base.Loggable;
  * @param idleSessionTimeoutSeconds How long a session may go without sending anything to its
  *     client before the node ends it with a {@code SUCCESS} status, so the client can reconnect
  *     from the next block. Bounds sessions whose client disconnected while the session was waiting
- *     for blocks, which are otherwise never detected. {@code 0} disables the limit.
+ *     for blocks, which are otherwise never detected. Skipping live blocks before a future start
+ *     block resets the limit. {@code 0} disables the limit.
  */
 // spotless:off - long annotations on record components must stay on one line
 @ConfigData("subscriber")

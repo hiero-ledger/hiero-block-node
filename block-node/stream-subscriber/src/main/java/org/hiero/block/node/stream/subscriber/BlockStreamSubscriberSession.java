@@ -157,7 +157,10 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     private final LongSupplier nanoTime;
     /** The idle session limit in nanoseconds, or 0 if disabled. */
     private final long idleTimeoutNanos;
-    /** When this session last sent anything to the client. Only accessed from this session's own thread. */
+    /**
+     * When this session last made progress: sent anything to the client, or skipped a live block that
+     * precedes its next block to send. Only accessed from this session's own thread.
+     */
     private long lastProgressNanos;
     /** Whether this session was closed because it exceeded the idle session limit. */
     private volatile boolean closedForIdle;
@@ -619,10 +622,12 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     }
 
     /**
-     * Close this session with {@code SUCCESS} if nothing has been sent to the client for longer than
+     * Close this session with {@code SUCCESS} if it has made no progress for longer than
      * {@link SubscriberConfig#idleSessionTimeoutSeconds()}. A client that disconnects while the session
      * waits for blocks is never detected, because only a failed send reveals it, so this limit is what
-     * releases such sessions. Only called from this session's own worker thread.
+     * releases such sessions. Skipping live blocks before a future start block counts as progress, since
+     * the session will send once the live stream reaches that start block, and that send detects a
+     * disconnected client. Only called from this session's own worker thread.
      *
      * @return true if the session is closed, whether by this call or earlier
      */
@@ -681,6 +686,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             if (blockItems.isStartOfNewBlock() && blockItems.blockNumber() < nextBlockToSend.get()) {
                 LOGGER.log(Level.TRACE, "Skipping block {0} for client {1}", blockItems.blockNumber(), clientId);
                 skipCurrentBlockInQueue(blockItems);
+                lastProgressNanos = nanoTime.getAsLong();
             } else if (blockItems.blockNumber()
                     == nextBlockToSend.get()) { // todo if block number from block items cannot be -1, we are good here
                 blockItems = liveBlockQueue.poll();

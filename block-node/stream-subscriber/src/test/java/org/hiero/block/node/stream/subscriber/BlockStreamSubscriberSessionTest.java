@@ -36,6 +36,7 @@ import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
 import org.hiero.block.node.spi.bulkhead.BlockReadBulkhead;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.stream.subscriber.BlockStreamSubscriberSession.SessionContext;
@@ -1670,6 +1671,48 @@ class BlockStreamSubscriberSessionTest {
     }
 
     /**
+     * Tests for re-registering the live block handler after it fell too far behind.
+     */
+    @Nested
+    @DisplayName("Live Handler Re-registration Tests")
+    class LiveHandlerReregistrationTests {
+        /** Upper bound for waits, so a regression fails the test instead of hanging it. */
+        private static final long WAIT_TIMEOUT_SECONDS = 10L;
+
+        /**
+         * This test verifies that a session closed partway through a loop iteration does not
+         * re-register its live block handler. close() unregisters the handler, so registering it
+         * again would leave it receiving live blocks with no session to drain its queue.
+         */
+        @Test
+        @DisplayName("should not re-register the live block handler after the session is closed")
+        void testClosedSessionDoesNotReregisterHandler() throws Exception {
+            historicalBlockFacility.handleBlockItemsReceived(
+                    generateBlockWithNumber(0L).asBlockItems(), false);
+            final RegistrationCountingMessagingFacility messagingFacility = new RegistrationCountingMessagingFacility();
+            final BlockNodeContext context =
+                    generateContext(blockNodeContext.configuration(), messagingFacility, historicalBlockFacility);
+            final HandlerBehindFailingResponsePipeline pipeline =
+                    new HandlerBehindFailingResponsePipeline(messagingFacility);
+            final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
+                    .startBlockNumber(0L)
+                    .endBlockNumber(-1L)
+                    .build();
+            final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
+                    SessionContext.create(clientId, request, context, TEST_BLOCK_READ_BULKHEAD),
+                    pipeline,
+                    context,
+                    sessionReadyLatch);
+
+            try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+                executor.submit(session).get(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            }
+
+            assertThat(messagingFacility.registrationCount.get()).isEqualTo(1);
+        }
+    }
+
+    /**
      * Tests for the idle session limit, which closes sessions that have sent nothing to their
      * client for {@link SubscriberConfig#idleSessionTimeoutSeconds()}. A client that disconnects
      * while its session waits for blocks is otherwise never detected, leaking the session.
@@ -1760,6 +1803,36 @@ class BlockStreamSubscriberSessionTest {
                     .isTrue();
 
             // Past the limit since the session started, but within it since the last send.
+            clock.advanceSeconds(IDLE_TIMEOUT_SECONDS - 10L);
+            assertThat(clock.awaitReads(READS_FOR_ONE_FULL_CHECK, WAIT_TIMEOUT_SECONDS))
+                    .isTrue();
+
+            assertThat(session.closedForIdle()).isFalse();
+            session.close(Code.SUCCESS);
+            sessionFuture.get(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        }
+
+        @Test
+        @DisplayName("should keep a future-start session open while the live stream advances toward its start block")
+        void testFutureStartSessionNotClosedWhileLiveAdvances() throws Exception {
+            for (long blockNumber = 0L; blockNumber <= 2L; blockNumber++) {
+                historicalBlockFacility.handleBlockItemsReceived(
+                        generateBlockWithNumber(blockNumber).asBlockItems(), false);
+            }
+            final TestBlockMessagingFacility messagingFacility = new TestBlockMessagingFacility();
+            final BlockNodeContext context =
+                    generateContext(blockNodeContext.configuration(), messagingFacility, historicalBlockFacility);
+            final BlockStreamSubscriberSession session = createSession(5L, -1L, context, responsePipeline);
+            final Future<BlockStreamSubscriberSession> sessionFuture = executor.submit(session);
+            assertThat(sessionReadyLatch.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                    .isTrue();
+            clock.advanceSeconds(IDLE_TIMEOUT_SECONDS - 10L);
+            // Block 3 precedes the requested start block 5, so the session skips it without sending.
+            messagingFacility.sendBlockItems(generateBlockWithNumber(3L).asBlockItems());
+            assertThat(clock.awaitReads(READS_FOR_ONE_FULL_CHECK, WAIT_TIMEOUT_SECONDS))
+                    .isTrue();
+
+            // Past the limit since the session started, but within it since the skipped live block.
             clock.advanceSeconds(IDLE_TIMEOUT_SECONDS - 10L);
             assertThat(clock.awaitReads(READS_FOR_ONE_FULL_CHECK, WAIT_TIMEOUT_SECONDS))
                     .isTrue();
@@ -1870,6 +1943,47 @@ class BlockStreamSubscriberSessionTest {
         public void onNext(final SubscribeStreamResponseUnparsed item) {
             super.onNext(item);
             expectedSends.countDown();
+        }
+    }
+
+    /**
+     * Messaging facility that counts registrations of no-backpressure handlers and keeps the last
+     * one registered, so a test can mark it as fallen behind.
+     */
+    private static final class RegistrationCountingMessagingFacility extends TestBlockMessagingFacility {
+        private final AtomicLong registrationCount = new AtomicLong(0L);
+        private volatile NoBackPressureBlockItemHandler lastRegisteredHandler;
+
+        @Override
+        public void registerNoBackpressureBlockItemHandler(
+                final NoBackPressureBlockItemHandler handler,
+                final boolean cpuIntensiveHandler,
+                final String handlerName) {
+            registrationCount.incrementAndGet();
+            lastRegisteredHandler = handler;
+            super.registerNoBackpressureBlockItemHandler(handler, cpuIntensiveHandler, handlerName);
+        }
+    }
+
+    /**
+     * Response pipeline whose sends fail after marking the session's live block handler as
+     * fallen behind, so the session closes itself while its handler is eligible to re-register.
+     */
+    private static final class HandlerBehindFailingResponsePipeline
+            extends TestResponsePipeline<SubscribeStreamResponseUnparsed> {
+        private final RegistrationCountingMessagingFacility messagingFacility;
+
+        private HandlerBehindFailingResponsePipeline(final RegistrationCountingMessagingFacility messagingFacility) {
+            this.messagingFacility = messagingFacility;
+        }
+
+        @Override
+        public void onNext(final SubscribeStreamResponseUnparsed item) {
+            super.onNext(item);
+            if (item.hasBlockItems()) {
+                messagingFacility.setHandlerBehind(messagingFacility.lastRegisteredHandler);
+                throw new RuntimeException("Stream reset by client.");
+            }
         }
     }
 
