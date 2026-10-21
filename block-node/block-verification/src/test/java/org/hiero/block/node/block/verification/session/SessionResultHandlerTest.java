@@ -3,21 +3,23 @@ package org.hiero.block.node.block.verification.session;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentLinkedDeque;
-import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.TestConfigurationBuilder;
 import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.block.verification.BadBlockDumper;
 import org.hiero.block.node.block.verification.VerificationConfig;
+import org.hiero.block.node.block.verification.VerificationOutbox;
 import org.hiero.block.node.block.verification.metrics.MetricsHolder;
 import org.hiero.block.node.block.verification.session.BlockVerificationSession.SessionKey;
-import org.hiero.block.node.spi.BlockNodeContext;
+import org.hiero.block.node.block.verification.verifier.BlockVerificationResult;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureInfo;
@@ -25,6 +27,7 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureT
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -36,6 +39,10 @@ class SessionResultHandlerTest {
     private static final long BLOCK_NUMBER = 10L;
     /// Captures the notifications the handler sends.
     private TestBlockMessagingFacility blockMessaging;
+    /// The last verified block handed to the handler under test.
+    private AtomicLong lastVerifiedBlock;
+    /// The recently verified blocks handed to the handler under test.
+    private ConcurrentLinkedDeque<Long> recentlyVerifiedBlocks;
     /// The flag the owning session raises when the batch ending the block has been received.
     private AtomicBoolean endOfBlockReceived;
     /// The instance under test.
@@ -45,8 +52,8 @@ class SessionResultHandlerTest {
     @BeforeEach
     void setUp() {
         blockMessaging = new TestBlockMessagingFacility();
-        final BlockNodeContext context =
-                new BlockNodeContext(null, null, null, blockMessaging, null, null, null, null, null);
+        lastVerifiedBlock = new AtomicLong(BLOCK_NUMBER - 1);
+        recentlyVerifiedBlocks = new ConcurrentLinkedDeque<>();
         final MetricsHolder metrics = MetricsHolder.create(TestUtils.createMetrics());
         final VerificationConfig verificationConfig = new TestConfigurationBuilder()
                 .withConfigDataType(VerificationConfig.class)
@@ -55,15 +62,14 @@ class SessionResultHandlerTest {
         final BadBlockDumper badBlockDumper = new BadBlockDumper(verificationConfig, "test");
         endOfBlockReceived = new AtomicBoolean(false);
         toTest = new SessionResultHandler(
-                context,
+                new VerificationOutbox(blockMessaging),
                 verificationConfig,
                 metrics.sessionResultMetrics(),
                 badBlockDumper,
-                new AtomicLong(-1),
-                new ConcurrentLinkedDeque<>(),
+                lastVerifiedBlock,
+                recentlyVerifiedBlocks,
                 BLOCK_NUMBER,
                 BlockSource.PUBLISHER,
-                new ConcurrentSkipListSet<>(),
                 new SessionKey(BLOCK_NUMBER, 0L),
                 endOfBlockReceived);
     }
@@ -153,6 +159,51 @@ class SessionResultHandlerTest {
                     .returns(BlockSource.PUBLISHER, VerificationNotification::source)
                     .returns(null, VerificationNotification::block)
                     .returns(null, VerificationNotification::blockHash);
+        }
+    }
+
+    /// Tests for sending the result.
+    @Nested
+    @DisplayName("Result Reporting Tests")
+    class ResultReportingTests {
+        /// This test aims to assert that a successful result is sent as a success
+        /// notification carrying the block and its root hash, and that only then the
+        /// block is recorded as recently verified and the last verified block advances
+        /// to it.
+        @Test
+        @DisplayName("accept() sends a success and advances the last verified block")
+        void testSendsASuccessAndAdvancesTheLastVerifiedBlock() {
+            final Bytes rootHash = Bytes.wrap(new byte[32]);
+            toTest.accept(
+                    new BlockVerificationResult(BLOCK_NUMBER, rootHash, BlockUnparsed.DEFAULT, BlockSource.PUBLISHER),
+                    null);
+            assertThat(blockMessaging.getSentVerificationNotifications(1))
+                    .hasSize(1)
+                    .first()
+                    .returns(true, VerificationNotification::success)
+                    .returns(BLOCK_NUMBER, VerificationNotification::blockNumber)
+                    .returns(BlockUnparsed.DEFAULT, VerificationNotification::block)
+                    .returns(rootHash, VerificationNotification::blockHash);
+            assertThat(recentlyVerifiedBlocks).containsExactly(BLOCK_NUMBER);
+            assertThat(lastVerifiedBlock.get()).isEqualTo(BLOCK_NUMBER);
+        }
+
+        /// This test aims to assert that a failed result is sent as a failure notification
+        /// and changes neither the recently verified blocks nor the last verified block.
+        @Test
+        @DisplayName("accept() sends a failure and leaves the last verified block alone")
+        void testSendsAFailureAndLeavesTheLastVerifiedBlockAlone() {
+            toTest.accept(
+                    null,
+                    new CompletionException(new VerificationSessionFailedException(
+                            BLOCK_NUMBER, SessionFailureType.BAD_BLOCK_PROOF, BlockSource.PUBLISHER)));
+            assertThat(blockMessaging.getSentVerificationNotifications(1))
+                    .hasSize(1)
+                    .first()
+                    .returns(false, VerificationNotification::success)
+                    .returns(FailureInfo.standard(FailureType.BAD_BLOCK_PROOF), VerificationNotification::failureInfo);
+            assertThat(recentlyVerifiedBlocks).isEmpty();
+            assertThat(lastVerifiedBlock.get()).isEqualTo(BLOCK_NUMBER - 1);
         }
     }
 }

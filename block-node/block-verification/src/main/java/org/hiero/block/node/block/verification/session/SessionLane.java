@@ -9,7 +9,7 @@ package org.hiero.block.node.block.verification.session;
 /// from every other channel (backfill today). The lane therefore coincides with
 /// the block source today. The lanes share one combined limit, and the eviction
 /// policy treats them differently: the high priority lane is kept as long as the
-/// low priority lane can make room. The lane is a session handler concept only;
+/// low priority lane can make room. The lane is an active sessions buffer concept only;
 /// it is not part of the plugin SPI.
 public enum SessionLane {
     /// Sessions kept whenever possible: today the sessions started from the live block items stream of the publisher.

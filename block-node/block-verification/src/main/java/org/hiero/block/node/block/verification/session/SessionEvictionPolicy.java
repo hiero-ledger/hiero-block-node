@@ -7,13 +7,12 @@ import org.hiero.block.node.block.verification.session.BlockVerificationSession.
 /// Chooses which active sessions to give up when the active sessions buffer
 /// holds more sessions than it may.
 ///
-/// The session handler consults the policy only when the combined count of both
-/// lanes exceeds the configured limit, and consults it again while the count is
-/// still over the limit after the selected sessions were evicted. A policy is a
-/// pure function of the snapshot it receives: it selects keys and never touches
-/// a session. Removal, cancellation and bookkeeping are the handler's job, which
-/// also checks that a selected session is still present and still running
-/// before counting an eviction.
+/// The [ActiveSessionsBuffer] consults the policy at most once per admission, and
+/// only when that admission takes the combined count of both lanes over the
+/// configured limit. A policy is a pure function of the snapshot it receives: it
+/// selects keys and never touches a session. Removal, cancellation and bookkeeping
+/// are the buffer's job, which also checks that a selected session is still
+/// present and still running before counting an eviction.
 @FunctionalInterface
 public interface SessionEvictionPolicy {
     /// Select the sessions to evict from the given view of the buffer.

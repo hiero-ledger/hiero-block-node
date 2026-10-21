@@ -9,7 +9,7 @@ import java.util.OptionalLong;
 import org.hiero.block.node.block.verification.VerificationConfig;
 import org.hiero.block.node.block.verification.session.BlockVerificationSession.SessionKey;
 
-/// The eviction policy the session handler applies in production.
+/// The eviction policy the active sessions buffer applies in production.
 ///
 /// The policy protects two things: the sessions the ordered stream of successes
 /// depends on, and the high priority session that is still receiving its block
@@ -59,7 +59,6 @@ public final class OrderAwareEvictionPolicy implements SessionEvictionPolicy {
     /// the order of preference.
     @Override
     public List<SessionKey> selectForEviction(final ActiveSessionsSnapshot snapshot) {
-        Objects.requireNonNull(snapshot);
         final OptionalLong highestAwaitingOrder = highestAwaitingOrder(snapshot);
         final SessionKey fromLowPriorityLane = selectFromLowPriorityLane(snapshot, highestAwaitingOrder);
         final List<SessionKey> result;
