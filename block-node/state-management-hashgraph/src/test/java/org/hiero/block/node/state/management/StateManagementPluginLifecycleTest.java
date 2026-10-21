@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.hedera.hapi.block.stream.input.RoundHeader;
 import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.hapi.block.stream.output.StateIdentifier;
+import com.hedera.hapi.node.state.blockstream.BlockStreamInfo;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.base.time.Time;
 import com.swirlds.config.api.ConfigurationBuilder;
@@ -17,7 +19,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.logging.Logger;
 import org.hiero.base.file.FileSystemManager;
-import org.hiero.block.api.StateMetadata;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.TestMetricsExporter;
@@ -40,7 +41,7 @@ class StateManagementPluginLifecycleTest {
     @Test
     void rejectsBlockWithUnparseableHeader(@TempDir final Path tmp) throws Exception {
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
-        final StateManagementPlugin plugin = startPlugin(tmp.resolve("md.json"), tmp.resolve("recent"), facility);
+        final StateManagementPlugin plugin = startPlugin(tmp.resolve("recent"), facility);
 
         final BlockUnparsed corrupt = BlockUnparsed.newBuilder()
                 .blockItems(BlockItemUnparsed.newBuilder()
@@ -51,31 +52,25 @@ class StateManagementPluginLifecycleTest {
                 new VerificationNotification(true, null, 1L, Bytes.fromHex("aabb"), corrupt, BlockSource.PUBLISHER));
         plugin.applyPending();
 
-        assertThat(plugin.metadata()).isEqualTo(StateMetadata.DEFAULT);
+        assertThat(plugin.attested().state()).isNull();
         plugin.stop();
     }
 
     @Test
-    void missingSnapshotForPersistedMetadataHaltsRatherThanFallingBackToGenesis(@TempDir final Path tmp)
-            throws Exception {
-        final Path metadataPath = tmp.resolve("stateMetadata.json");
+    void corruptSnapshotDirectoryHaltsRatherThanFallingBackToGenesis(@TempDir final Path tmp) throws Exception {
         final Path recentRoot = tmp.resolve("recent");
-        // Persist metadata pointing at block 5 but never create its recent/5 snapshot dir —
-        // the plugin should halt rather than silently fall back to genesis.
-        new StateMetadataStore(metadataPath)
-                .save(StateMetadata.newBuilder()
-                        .blockNumber(5L)
-                        .roundNumber(50L)
-                        .stateRootHash(Bytes.fromHex("abcd"))
-                        .stateSize(7L)
-                        .build());
+        Files.createDirectories(recentRoot);
+
+        // A snapshot directory that exists (so restore attempts to load it, same as operator
+        // intent being present) but holds none of the expected snapshot content — the plugin
+        // should halt rather than silently fall back to genesis.
+        Files.createDirectories(recentRoot.resolve("5"));
 
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
         final var configuration = ConfigurationBuilder.create()
                 .withConfigDataType(StateManagementConfig.class)
                 .withConfigDataType(MerkleDbConfig.class)
                 .withConfigDataType(VirtualMapConfig.class)
-                .withValue("state.management.metadataPath", metadataPath.toString())
                 .withValue("state.management.snapshotRecentPath", recentRoot.toString())
                 .build();
         final BlockNodeContext context = new BlockNodeContext(
@@ -93,13 +88,12 @@ class StateManagementPluginLifecycleTest {
         plugin.start();
 
         assertThat(plugin.isApplyHalted()).isTrue();
-        assertThat(plugin.metadata()).isEqualTo(StateMetadata.DEFAULT);
+        assertThat(plugin.attested().state()).isNull();
         plugin.stop();
     }
 
     @Test
     void startupRestoresFromExistingSnapshot(@TempDir final Path tmp) throws Exception {
-        final Path metadataPath = tmp.resolve("stateMetadata.json");
         final Path recentRoot = tmp.resolve("recent");
         Files.createDirectories(recentRoot);
 
@@ -114,27 +108,26 @@ class StateManagementPluginLifecycleTest {
                 new NoOpSwirldsMetrics(), Time.getCurrent(), seedConfig, new FileSystemManager(recentRoot));
         seedManager.copyMutableState();
         seedManager.getMutableState().updateSingleton(1, Bytes.fromHex("c0ffee"));
+        // Restore identifies a snapshot by reading BlockStreamInfo.block_number back out of the
+        // loaded state and checking it against the directory name (§5.1/§6.2) — seed it here to
+        // match the "5" directory below.
+        seedBlockStreamInfo(seedManager.getMutableState(), 5L);
         seedManager.copyMutableState();
         final VirtualMapState sealed = seedManager.getLatestImmutableState();
         final Bytes rootHash = Bytes.wrap(sealed.getRoot().getHash().copyToByteArray());
         seedManager.createSnapshot(sealed, recentRoot.resolve("5"));
-        new StateMetadataStore(metadataPath)
-                .save(StateMetadata.newBuilder()
-                        .blockNumber(5L)
-                        .roundNumber(50L)
-                        .stateRootHash(rootHash)
-                        .stateSize(1L)
-                        .build());
 
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
-        final StateManagementPlugin plugin = startPlugin(metadataPath, recentRoot, facility);
+        final StateManagementPlugin plugin = startPlugin(recentRoot, facility);
 
-        assertThat(plugin.metadata().blockNumber()).isEqualTo(5L);
-        assertThat(plugin.metadata().roundNumber()).isEqualTo(50L);
+        assertThat(plugin.attested().blockNumber()).isEqualTo(5L);
+        assertThat(plugin.attested().roundNumber())
+                .as("round number isn't persisted; it's unknown until the next applied block's RoundHeader")
+                .isEqualTo(-1L);
 
         // The restored state becomes state 2 (hashingImmutable) too — block 6's footer must
         // carry the same root hash to be accepted, proving restore seeded real state content,
-        // not just the metadata pointer.
+        // not just the block number.
         facility.sendBlockVerification(new VerificationNotification(
                 true, null, 6L, Bytes.fromHex("aabb"), buildBlock(6L, 60L, rootHash), BlockSource.PUBLISHER));
         plugin.applyPending();
@@ -144,8 +137,7 @@ class StateManagementPluginLifecycleTest {
     }
 
     @Test
-    void snapshotHashMismatchHaltsRatherThanServingCorruptedState(@TempDir final Path tmp) throws Exception {
-        final Path metadataPath = tmp.resolve("stateMetadata.json");
+    void snapshotSelfCheckMismatchHaltsRatherThanServingWrongState(@TempDir final Path tmp) throws Exception {
         final Path recentRoot = tmp.resolve("recent");
         Files.createDirectories(recentRoot);
 
@@ -156,25 +148,17 @@ class StateManagementPluginLifecycleTest {
         final var seedManager = new VirtualMapStateLifecycleManager(
                 new NoOpSwirldsMetrics(), Time.getCurrent(), seedConfig, new FileSystemManager(recentRoot));
         seedManager.copyMutableState();
-        seedManager.getMutableState().updateSingleton(1, Bytes.fromHex("c0ffee"));
+        // Deliberately record block 7 inside the state, but store it under directory "5" — the
+        // self-consistency check must catch this disagreement and halt.
+        seedBlockStreamInfo(seedManager.getMutableState(), 7L);
         seedManager.copyMutableState();
         seedManager.createSnapshot(seedManager.getLatestImmutableState(), recentRoot.resolve("5"));
-        // Metadata's stateRootHash doesn't match the real on-disk snapshot — a stale/corrupt
-        // snapshot paired with newer metadata.
-        new StateMetadataStore(metadataPath)
-                .save(StateMetadata.newBuilder()
-                        .blockNumber(5L)
-                        .roundNumber(50L)
-                        .stateRootHash(Bytes.fromHex("deadbeef".repeat(12)))
-                        .stateSize(1L)
-                        .build());
 
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
         final var configuration = ConfigurationBuilder.create()
                 .withConfigDataType(StateManagementConfig.class)
                 .withConfigDataType(MerkleDbConfig.class)
                 .withConfigDataType(VirtualMapConfig.class)
-                .withValue("state.management.metadataPath", metadataPath.toString())
                 .withValue("state.management.snapshotRecentPath", recentRoot.toString())
                 .build();
         final BlockNodeContext context = new BlockNodeContext(
@@ -193,14 +177,14 @@ class StateManagementPluginLifecycleTest {
 
         assertThat(plugin.isApplyHalted()).isTrue();
         assertThat(plugin.hashMismatchTotal()).isEqualTo(1L);
-        assertThat(plugin.metadata()).isEqualTo(StateMetadata.DEFAULT);
+        assertThat(plugin.attested().state()).isNull();
         plugin.stop();
     }
 
     @Test
     void malformedStateChangesHaltsApplyWithoutApplying(@TempDir final Path tmp) throws Exception {
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
-        final StateManagementPlugin plugin = startPlugin(tmp.resolve("md.json"), tmp.resolve("recent"), facility);
+        final StateManagementPlugin plugin = startPlugin(tmp.resolve("recent"), facility);
 
         // Genesis block 0 with a valid header/footer (real empty-state hash passes genesis
         // validation) but a state_changes item carrying invalid protobuf bytes. The applier
@@ -225,14 +209,14 @@ class StateManagementPluginLifecycleTest {
         plugin.applyPending();
 
         assertThat(plugin.isApplyHalted()).isTrue();
-        assertThat(plugin.metadata()).isEqualTo(StateMetadata.DEFAULT);
+        assertThat(plugin.attested().state()).isNull();
         plugin.stop();
     }
 
     @Test
     void genesisBlockWithWrongStartHashIsRejectedNotAcceptedUnconditionally(@TempDir final Path tmp) throws Exception {
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
-        final StateManagementPlugin plugin = startPlugin(tmp.resolve("md.json"), tmp.resolve("recent"), facility);
+        final StateManagementPlugin plugin = startPlugin(tmp.resolve("recent"), facility);
 
         // Block 0's footer must carry the real (computed) empty-state hash, not just any
         // empty/zero placeholder — an arbitrary wrong hash must still be rejected at genesis.
@@ -248,7 +232,7 @@ class StateManagementPluginLifecycleTest {
     @Test
     void digestLengthMismatchLogsAlgorithmMismatchNotDivergence(@TempDir final Path tmp) throws Exception {
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
-        final StateManagementPlugin plugin = startPlugin(tmp.resolve("md.json"), tmp.resolve("recent"), facility);
+        final StateManagementPlugin plugin = startPlugin(tmp.resolve("recent"), facility);
 
         final TestLogHandler logHandler = new TestLogHandler();
         final Logger julLogger = Logger.getLogger(StateManagementPlugin.class.getName());
@@ -277,10 +261,9 @@ class StateManagementPluginLifecycleTest {
 
     @Test
     void restartAfterApplyHaltStartsClean(@TempDir final Path tmp) throws Exception {
-        final Path metadataPath = tmp.resolve("stateMetadata.json");
         final Path recentRoot = tmp.resolve("recent");
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
-        final StateManagementPlugin plugin = startPlugin(metadataPath, recentRoot, facility);
+        final StateManagementPlugin plugin = startPlugin(recentRoot, facility);
 
         // Apply genesis block 0 (staged), then deliver block 1 whose footer start hash does
         // not match post-0 — a hash mismatch that halts apply.
@@ -306,7 +289,7 @@ class StateManagementPluginLifecycleTest {
         // Apply-halted state is in-memory only (the documented recovery is a restart). A fresh
         // instance must start clean and reach readiness.
         final TestBlockMessagingFacility facility2 = new TestBlockMessagingFacility();
-        final StateManagementPlugin plugin2 = startPlugin(metadataPath, recentRoot, facility2);
+        final StateManagementPlugin plugin2 = startPlugin(recentRoot, facility2);
         assertThat(plugin2.isApplyHalted()).isFalse();
         assertThat(StateManagementPluginTestSupport.awaitReady(plugin2, 5_000L)).isTrue();
         plugin2.stop();
@@ -321,8 +304,6 @@ class StateManagementPluginLifecycleTest {
                 .withConfigDataType(StateManagementConfig.class)
                 .withConfigDataType(MerkleDbConfig.class)
                 .withConfigDataType(VirtualMapConfig.class)
-                .withValue(
-                        "state.management.metadataPath", tmp.resolve("md.json").toString())
                 .withValue(
                         "state.management.snapshotRecentPath",
                         tmp.resolve("recent").toString())
@@ -392,8 +373,6 @@ class StateManagementPluginLifecycleTest {
                 .withConfigDataType(MerkleDbConfig.class)
                 .withConfigDataType(VirtualMapConfig.class)
                 .withValue(
-                        "state.management.metadataPath", tmp.resolve("md.json").toString())
-                .withValue(
                         "state.management.snapshotRecentPath",
                         tmp.resolve("recent").toString())
                 .withValue("state.management.pendingBlocksMax", "3")
@@ -454,8 +433,6 @@ class StateManagementPluginLifecycleTest {
                 .withConfigDataType(StateManagementConfig.class)
                 .withConfigDataType(MerkleDbConfig.class)
                 .withConfigDataType(VirtualMapConfig.class)
-                .withValue(
-                        "state.management.metadataPath", tmp.resolve("md.json").toString())
                 .withValue("state.management.snapshotRecentPath", badRecent.toString())
                 .build();
         final RecordingHealthFacility health = new RecordingHealthFacility();
@@ -499,13 +476,22 @@ class StateManagementPluginLifecycleTest {
 
     // ── Fixtures ───────────────────────────────────────────────────────────
 
-    private static StateManagementPlugin startPlugin(
-            final Path metadataPath, final Path recentRoot, final TestBlockMessagingFacility facility) {
+    /// Write a `BlockStreamInfo` singleton directly via the raw `BinaryState` API, matching what
+    /// `StateChangeApplier` would store from a real `SingletonUpdateChange` for this state ID —
+    /// used to manufacture a seed snapshot that restore's self-consistency check (§5.1/§6.2)
+    /// will accept.
+    private static void seedBlockStreamInfo(final VirtualMapState state, final long blockNumber) {
+        state.updateSingleton(
+                StateIdentifier.STATE_ID_BLOCK_STREAM_INFO.protoOrdinal(),
+                BlockStreamInfo.PROTOBUF.toBytes(
+                        BlockStreamInfo.newBuilder().blockNumber(blockNumber).build()));
+    }
+
+    private static StateManagementPlugin startPlugin(final Path recentRoot, final TestBlockMessagingFacility facility) {
         final var configuration = ConfigurationBuilder.create()
                 .withConfigDataType(StateManagementConfig.class)
                 .withConfigDataType(MerkleDbConfig.class)
                 .withConfigDataType(VirtualMapConfig.class)
-                .withValue("state.management.metadataPath", metadataPath.toString())
                 .withValue("state.management.snapshotRecentPath", recentRoot.toString())
                 .build();
         final BlockNodeContext context = new BlockNodeContext(

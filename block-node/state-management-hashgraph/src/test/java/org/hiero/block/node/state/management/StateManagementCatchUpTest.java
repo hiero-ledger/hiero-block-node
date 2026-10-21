@@ -16,7 +16,6 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.stream.LongStream;
 import java.util.stream.Stream;
-import org.hiero.block.api.StateMetadata;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.plugintest.RecordingServiceBuilder;
@@ -53,7 +52,7 @@ class StateManagementCatchUpTest {
         historic.put(0L, buildBlock(0L, 0L, genesisHash));
         plugin.catchUpFromHistoricalBlocks();
         // Under lag-1 block 0 is applied (staged) but not yet exposed — nothing attests it.
-        assertThat(plugin.metadata()).isEqualTo(StateMetadata.DEFAULT);
+        assertThat(plugin.attested().state()).isNull();
 
         // Chain the remaining blocks off the staged hash (empty blocks don't change state,
         // so every footer carries the same hash). Block 3 confirms block 2 so it is exposed.
@@ -64,8 +63,8 @@ class StateManagementCatchUpTest {
 
         // Second catch-up pass applies 1,2,3 → exposes up to block 2 (lag-1).
         plugin.catchUpFromHistoricalBlocks();
-        assertThat(plugin.metadata().blockNumber()).isEqualTo(2L);
-        assertThat(plugin.metadata().roundNumber()).isEqualTo(2L);
+        assertThat(plugin.attested().blockNumber()).isEqualTo(2L);
+        assertThat(plugin.attested().roundNumber()).isEqualTo(2L);
 
         plugin.stop();
     }
@@ -92,7 +91,7 @@ class StateManagementCatchUpTest {
         // rather than waiting on the real `GAP_RETRY_DELAY_SECONDS` timer.
         plugin.sweepHistoricalBlocks();
 
-        assertThat(plugin.metadata().blockNumber())
+        assertThat(plugin.attested().blockNumber())
                 .as("one sweep call should drain the entire available backlog, not just block 1")
                 .isEqualTo(9L); // lag-1: applying through block 10 exposes up to block 9
         assertThat(plugin.isApplyHalted()).isFalse();
@@ -128,12 +127,12 @@ class StateManagementCatchUpTest {
                 true, null, 3L, Bytes.fromHex("aabb"), buildBlock(3L, 3L, stagedAfter0), BlockSource.PUBLISHER));
 
         final long deadline = System.currentTimeMillis() + 8_000L;
-        while (plugin.metadata().blockNumber() < 2L && System.currentTimeMillis() < deadline) {
+        while (plugin.attested().blockNumber() < 2L && System.currentTimeMillis() < deadline) {
             Thread.sleep(50L);
         }
 
         assertThat(plugin.isApplyHalted()).isFalse();
-        assertThat(plugin.metadata().blockNumber())
+        assertThat(plugin.attested().blockNumber())
                 .as("gap recovery must apply blocks 1-2 (exposing up to 2 under lag-1) within one "
                         + "GAP_RETRY_DELAY_SECONDS cycle, not hang")
                 .isEqualTo(2L);
@@ -178,7 +177,7 @@ class StateManagementCatchUpTest {
         plugin.sweepHistoricalBlocks();
 
         assertThat(plugin.isApplyHalted()).isFalse();
-        assertThat(plugin.metadata().blockNumber()).isEqualTo(4L); // lag-1: applied through 5
+        assertThat(plugin.attested().blockNumber()).isEqualTo(4L); // lag-1: applied through 5
         assertThat(plugin.pendingBlocksSize()).isZero();
         plugin.stop();
     }
@@ -187,7 +186,7 @@ class StateManagementCatchUpTest {
     void noHistoricalFacilityIsHandledGracefully(@TempDir final Path tmp) throws Exception {
         final StateManagementPlugin plugin = startPlugin(tmp, null);
         assertThat(StateManagementPluginTestSupport.awaitReady(plugin, 5_000L)).isTrue();
-        assertThat(plugin.metadata().blockNumber()).isZero();
+        assertThat(plugin.attested().state()).isNull();
         plugin.stop();
     }
 
@@ -329,8 +328,6 @@ class StateManagementCatchUpTest {
                 .withConfigDataType(StateManagementConfig.class)
                 .withConfigDataType(MerkleDbConfig.class)
                 .withConfigDataType(VirtualMapConfig.class)
-                .withValue(
-                        "state.management.metadataPath", tmp.resolve("md.json").toString())
                 .withValue(
                         "state.management.snapshotRecentPath",
                         tmp.resolve("recent").toString())
