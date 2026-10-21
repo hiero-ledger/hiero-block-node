@@ -13,10 +13,10 @@ option java_multiple_files = true;
  * The combination of `state_id`, `key_bytes`, and `queue_index` determines
  * which RPC method should be used and the shape of the response:
  *
- *  - `getBinaryKV`        SHALL set `state_id` and `key_bytes`. `queue_index` MUST NOT be set.
- *  - `getBinarySingleton` SHALL set only `state_id`. `key_bytes` and `queue_index` MUST NOT be set.
- *  - `getBinaryQueue`     SHALL set `state_id`. `queue_index` MAY be set to read a single element;
- *                         when omitted the full queue is returned.
+ *  - `getKV`        SHALL set `state_id` and `key_bytes`. `queue_index` MUST NOT be set.
+ *  - `getSingleton` SHALL set only `state_id`. `key_bytes` and `queue_index` MUST NOT be set.
+ *  - `getQueue`     SHALL set `state_id`. `queue_index` MAY be set to read a single element;
+ *                   when omitted the full queue is returned.
  *
  * Exactly one of `block_specifier.block_number` or
  * `block_specifier.retrieve_latest` MUST be set. Block 0 (genesis) is a
@@ -61,13 +61,13 @@ message BinaryStateQuery {
     uint64 state_id = 3;
 
     /**
-     * Domain-encoded key bytes for `getBinaryKV`. MUST be empty for
+     * Domain-encoded key bytes for `getKV`. MUST be empty for
      * singleton and queue requests.
      */
     bytes key_bytes = 4;
 
     /**
-     * 1-indexed queue index for `getBinaryQueue`. Set to a value of `1` or greater to retrieve
+     * 1-indexed queue index for `getQueue`. Set to a value of `1` or greater to retrieve
      * a single queue element (`1` is the first element); omit (or set to `0`) to request the
      * full queue.
      */
@@ -156,17 +156,17 @@ message BinaryStateQueryResponse {
      */
     oneof result {
         /**
-         * Raw domain-value bytes for a `getBinaryKV` response.
+         * Raw domain-value bytes for a `getKV` response.
          */
         bytes kv_bytes = 3;
 
         /**
-         * Raw domain-value bytes for a `getBinarySingleton` response.
+         * Raw domain-value bytes for a `getSingleton` response.
          */
         bytes singleton_bytes = 4;
 
         /**
-         * Raw domain-value bytes for a `getBinaryQueue` response. May contain
+         * Raw domain-value bytes for a `getQueue` response. May contain
          * a single element (indexed read) or every element from head to tail
          * (full queue read).
          */
@@ -182,16 +182,16 @@ service StateService {
     /**
      * Read a key-value entry from the live state by `state_id` and `key_bytes`.
      */
-    rpc getBinaryKV(BinaryStateQuery) returns (BinaryStateQueryResponse);
+    rpc getKV(BinaryStateQuery) returns (BinaryStateQueryResponse);
 
     /**
      * Read a singleton from the live state by `state_id`.
      */
-    rpc getBinarySingleton(BinaryStateQuery) returns (BinaryStateQueryResponse);
+    rpc getSingleton(BinaryStateQuery) returns (BinaryStateQueryResponse);
 
     /**
      * Read a queue from the live state by `state_id`, optionally limited
      * to a single element via `queue_index`.
      */
-    rpc getBinaryQueue(BinaryStateQuery) returns (BinaryStateQueryResponse);
+    rpc getQueue(BinaryStateQuery) returns (BinaryStateQueryResponse);
 }

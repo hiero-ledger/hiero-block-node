@@ -6,7 +6,7 @@
 
 Maintain a local, queryable copy of the Hashgraph network state inside the Block
 Node so that other plugins and external clients can answer state queries
-(`getBinaryKV`, `getBinarySingleton`, `getBinaryQueue`) without depending on a
+(`getKV`, `getSingleton`, `getQueue`) without depending on a
 Consensus Node.
 
 Initial scope (#196):
@@ -18,7 +18,7 @@ Initial scope (#196):
    `data/state/` spec (see
    `hiero-consensus-node/platform-sdk/swirlds-state-api/docs/state-snapshot-spec.md`).
 3. New protobuf surface: `BinaryStateQuery`, `BinaryStateQueryResponse`, and three
-   `getBinary*` RPCs on `StateService`. `BinaryStateQueryResponse` carries the attested
+   `get*` RPCs on `StateService`. `BinaryStateQueryResponse` carries the attested
    `block_number` on every response (read directly from the state's own `BlockStreamInfo`
    singleton, not a separately tracked copy) so a client can see which block the latest state
    corresponds to.
@@ -54,7 +54,7 @@ Explicitly out of scope:
                                                        │  │ (every 15m)      │  │
                                                        │  └──────────────────┘  │
                                                        └────────────┬───────────┘
-                                                                    │ getBinaryKV / getBinarySingleton / getBinaryQueue
+                                                                    │ getKV / getSingleton / getQueue
                                                                     ▼
                                                      ┌──────────────────────────────┐
                                                      │ gRPC clients & other plugins │
@@ -206,11 +206,15 @@ RPC service updates on `state_service.proto`:
 
 ```proto
 service StateService {
-  rpc getBinaryKV(BinaryStateQuery)        returns (BinaryStateQueryResponse);
-  rpc getBinarySingleton(BinaryStateQuery) returns (BinaryStateQueryResponse);
-  rpc getBinaryQueue(BinaryStateQuery)     returns (BinaryStateQueryResponse);
+  rpc getKV(BinaryStateQuery)        returns (BinaryStateQueryResponse);
+  rpc getSingleton(BinaryStateQuery) returns (BinaryStateQueryResponse);
+  rpc getQueue(BinaryStateQuery)     returns (BinaryStateQueryResponse);
 }
 ```
+
+(Dropped the `Binary` prefix from the method names themselves — "binary" is already
+conveyed by `BinaryStateQuery`/`BinaryStateQueryResponse`, so it added nothing to the method
+name beyond length.)
 
 ## 6. Plugin lifecycle
 
@@ -466,7 +470,7 @@ fast and legibly for the one encoding this plugin deliberately does not support.
 
 Because stored bytes are now the oneof payload rather than the wrapper carrier, a caller can no
 longer recover the concrete entity type from the bytes alone (the wrapper's field number, which
-disclosed the type, isn't stored) — `getBinary*` callers need that mapping from elsewhere, e.g.
+disclosed the type, isn't stored) — `get*` callers need that mapping from elsewhere, e.g.
 a `stateId → type` table. This is an open API-surface question for the not-yet-implemented
 `StateService` gRPC query path (§8); it doesn't affect this plugin's own apply-and-store logic.
 
@@ -488,16 +492,16 @@ registered as the gRPC service in `init`. Each RPC:
    actively writing/sealing concurrently with no synchronization a query thread could safely
    join.
 2. Returns `INVALID_REQUEST` if:
-   - `getBinaryKV` is called without `key_bytes`, or with `queue_index`;
-   - `getBinarySingleton` is called with `key_bytes` or `queue_index`;
-   - `getBinaryQueue` is called with `key_bytes`.
+   - `getKV` is called without `key_bytes`, or with `queue_index`;
+   - `getSingleton` is called with `key_bytes` or `queue_index`;
+   - `getQueue` is called with `key_bytes`.
 3. Returns `NOT_AVAILABLE` if an explicit `block_number` was set and it doesn't match
    `attested.blockNumber()`. This holds regardless of `applyHalted`: a halted node's
    attested block is simply frozen, so requests for that exact block (or `retrieve_latest`)
    still succeed — only a `block_number` beyond it is affected, and halting makes that
    permanently true rather than transiently true. Block 0 is a valid, non-special `block_number`.
 4. Delegates to `getKv` / `getSingleton` / `getQueueAsList` / `peekQueue` on `attested.state()`.
-5. `getBinaryQueue` defensively maps any `RuntimeException` from
+5. `getQueue` defensively maps any `RuntimeException` from
    `getQueueState`/`getQueueAsList`/`peekQueue` (which NPE on unknown
    state IDs in `VirtualMapStateImpl`) to `NOT_FOUND`.
 6. Wraps the result in `BinaryStateQueryResponse` with `attested.blockNumber()` always populated —
@@ -597,8 +601,8 @@ Other test classes:
 
 E2E (`tools-and-tests/suites/.../StateManagementE2ETests.java`) boots the full
 `BlockNodeApp` and exercises `StateService` over real gRPC via the
-generated `StateServiceClient`. Two tests: `getBinarySingleton` round-trip
-and `getBinaryKV` / `getBinaryQueue` structured responses.
+generated `StateServiceClient`. Two tests: `getSingleton` round-trip
+and `getKV` / `getQueue` structured responses.
 
 ## 12. Design decisions
 
