@@ -174,7 +174,7 @@ does not allow `repeated` fields inside a `oneof` — it would need a wrapper me
 
 `NOT_AVAILABLE` mirrors `BlockAccessService.getBlock()`'s `NOT_AVAILABLE` for a block outside
 the range this node currently holds. This plugin has no historical retention (§2/§7): the
-*only* block it ever holds is the currently attested one, so any other requested `block_number`
+*only* state it ever holds is the currently attested one, so any other requested `block_number`
 is `NOT_AVAILABLE`, never `NOT_FOUND` (`NOT_FOUND` is reserved for "the attested state doesn't
 have this key/singleton/queue index"). Whether apply has halted is an internal detail, not a
 query concern: `retrieve_latest` or a `block_number` matching the attested block still answers
