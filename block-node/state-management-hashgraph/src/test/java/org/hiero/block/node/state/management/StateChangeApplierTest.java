@@ -113,6 +113,45 @@ class StateChangeApplierTest {
     }
 
     @Test
+    void legacyFieldTwoTokenAssociationEncodingHaltsWithDistinctError() {
+        // MapChangeKey's old, reserved field-2 (TokenAssociation) encoding has no PBJ builder
+        // accessor (reserved fields get none), so this constructs the StateChanges payload by
+        // hand at the wire level — the same level StateChangeApplier itself parses at — rather
+        // than through typed builders.
+        final InMemoryBinaryState state = new InMemoryBinaryState();
+        final StateChangeApplier applier = new StateChangeApplier();
+
+        final Bytes value = MapChangeValue.PROTOBUF.toBytes(
+                MapChangeValue.newBuilder().protoStringValue("associated").build());
+        // Field 2 (reserved TokenAssociation), length-delimited. Content is irrelevant — only
+        // the field number matters to trigger the legacy-encoding check.
+        final byte[] legacyKey =
+                lengthDelimitedField(2, Bytes.fromHex("0a03666f6f").toByteArray());
+        final byte[] mapUpdateChange = concat(
+                lengthDelimitedField(1, legacyKey), // MapUpdateChange.key: field 1
+                lengthDelimitedField(2, value.toByteArray())); // MapUpdateChange.value: field 2
+        final byte[] stateChange = concat(
+                varintField(1, TOKEN_ASSOCIATION_STATE_ID), // StateChange.state_id: field 1
+                lengthDelimitedField(5, mapUpdateChange)); // StateChange.map_update: field 5
+        final Bytes stateChangesBytes =
+                Bytes.wrap(lengthDelimitedField(2, stateChange)); // StateChanges.state_changes: field 2
+
+        final BlockUnparsed block = BlockUnparsed.newBuilder()
+                .blockItems(
+                        blockHeaderItem(7L),
+                        BlockItemUnparsed.newBuilder()
+                                .stateChanges(stateChangesBytes)
+                                .build())
+                .build();
+
+        assertThatThrownBy(() -> applier.applyBlock(state, block))
+                .isInstanceOf(StateChangeApplier.UnsupportedLegacyEncodingException.class)
+                .hasMessageContaining("legacy")
+                .hasMessageContaining("stateId=" + TOKEN_ASSOCIATION_STATE_ID);
+        assertThat(state.size()).isZero();
+    }
+
+    @Test
     void corruptStateChangesItemAborts() {
         final InMemoryBinaryState state = new InMemoryBinaryState();
         final StateChangeApplier applier = new StateChangeApplier();
@@ -131,6 +170,39 @@ class StateChangeApplierTest {
     }
 
     // ── Fixtures ───────────────────────────────────────────────────────────
+
+    private static final int TOKEN_ASSOCIATION_STATE_ID = 9;
+
+    /// Minimal hand-rolled protobuf wire encoding, used only to construct the legacy field-2
+    /// `MapChangeKey` shape that has no PBJ builder accessor (reserved fields get none).
+
+    private static byte[] varint(long value) {
+        final var out = new java.io.ByteArrayOutputStream();
+        while (true) {
+            if ((value & ~0x7FL) == 0) {
+                out.write((int) value);
+                return out.toByteArray();
+            }
+            out.write((int) ((value & 0x7F) | 0x80));
+            value >>>= 7;
+        }
+    }
+
+    private static byte[] lengthDelimitedField(final int fieldNumber, final byte[] payload) {
+        return concat(varint(((long) fieldNumber << 3) | 2L), varint(payload.length), payload);
+    }
+
+    private static byte[] varintField(final int fieldNumber, final long value) {
+        return concat(varint(((long) fieldNumber << 3)), varint(value));
+    }
+
+    private static byte[] concat(final byte[]... parts) {
+        final var out = new java.io.ByteArrayOutputStream();
+        for (final byte[] part : parts) {
+            out.writeBytes(part);
+        }
+        return out.toByteArray();
+    }
 
     /// Independent re-implementation of the "first delimited field" extraction a oneof wrapper
     /// message undergoes in `StateChangeApplier` (not a call into production code), so tests can
