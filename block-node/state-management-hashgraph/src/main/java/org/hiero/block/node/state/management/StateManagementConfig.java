@@ -12,9 +12,6 @@ import org.hiero.block.node.base.Loggable;
 /// filesystem layout described in `docs/design/state/live-state.md`.
 @ConfigData("state.management")
 public record StateManagementConfig(
-        @ConfigProperty(defaultValue = "/opt/hiero/block-node/data/state/stateMetadata.json")
-        String metadataPath,
-
         @ConfigProperty(defaultValue = "/opt/hiero/block-node/data/state/snapshot/recent")
         String snapshotRecentPath,
 

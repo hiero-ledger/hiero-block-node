@@ -2,6 +2,8 @@
 package org.hiero.block.node.state.management;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.hapi.block.stream.output.StateIdentifier;
+import com.hedera.hapi.node.state.blockstream.BlockStreamInfo;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.base.time.Time;
@@ -13,7 +15,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentSkipListMap;
@@ -27,7 +28,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 import org.hiero.base.file.FileSystemManager;
-import org.hiero.block.api.StateMetadata;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -91,17 +91,18 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     private BlockNodeContext context;
     private StateManagementConfig config;
     private VirtualMapStateLifecycleManager lifecycleManager;
-    private StateMetadataStore metadataStore;
     private StateChangeApplier applier;
 
-    /// State (1) and its metadata, published as one unit so a reader never pairs a new state
-    /// with stale metadata — see `publishAttested`. `state` is `null` until first attestation.
-    /// No reservation on `state` for readers yet; a future query API must add one before
-    /// reading `state` off the apply-worker thread.
-    private record AttestedSnapshot(
-            @Nullable VirtualMapState state, @NonNull StateMetadata metadata) {}
+    /// State (1) and the block/round number it corresponds to, published as one unit so a
+    /// reader never pairs a new state with a stale number — see `publishAttested`. `state` is
+    /// `null` until first attestation. `blockNumber`/`roundNumber` are read directly from the
+    /// state itself (or the snapshot directory name on restore) rather than tracked as an
+    /// independent copy — see `docs/design/state/live-state.md` §5.1. No reservation on `state`
+    /// for readers yet; a future query API must add one before reading `state` off the
+    /// apply-worker thread.
+    record AttestedSnapshot(@Nullable VirtualMapState state, long blockNumber, long roundNumber) {}
 
-    private static final AttestedSnapshot GENESIS_ATTESTED = new AttestedSnapshot(null, StateMetadata.DEFAULT);
+    private static final AttestedSnapshot GENESIS_ATTESTED = new AttestedSnapshot(null, -1L, -1L);
 
     /// Volatile because reads happen on query threads.
     private volatile AttestedSnapshot attested = GENESIS_ATTESTED;
@@ -180,7 +181,6 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
         this.context = context;
         this.config = context.configuration().getConfigData(StateManagementConfig.class);
-        this.metadataStore = new StateMetadataStore(Path.of(config.metadataPath()));
         this.applier = new StateChangeApplier();
         try {
             // Anchor FileSystemManager at the configured snapshot path so the scratchpad lives
@@ -209,10 +209,10 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     private void registerMetrics(@NonNull final MetricRegistry metrics) {
         metrics.register(ObservableGauge.builder(METRIC_APPLIED_BLOCK)
                 .setDescription("Latest committed (reader-visible) block number applied to live state")
-                .observe(() -> attested.metadata().blockNumber()));
+                .observe(() -> attested.blockNumber()));
         metrics.register(ObservableGauge.builder(METRIC_STATE_SIZE)
                 .setDescription("Node count of the latest network-attested state")
-                .observe(() -> attested.metadata().stateSize()));
+                .observe(() -> sizeOf(attested.state())));
         metrics.register(ObservableGauge.builder(METRIC_PENDING_BLOCKS)
                 .setDescription("Blocks buffered awaiting apply")
                 .observe(pendingBlocks::size));
@@ -247,7 +247,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         if (available == null || available.size() == 0L) {
             return 0L;
         }
-        return Math.max(0L, available.max() - attested.metadata().blockNumber());
+        return Math.max(0L, available.max() - attested.blockNumber());
     }
 
     /// {@inheritDoc}
@@ -322,12 +322,14 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         return stateIsCaughtUp.get();
     }
 
-    /// The latest applied state metadata.
+    /// The current attested snapshot: the network-confirmed state and the block/round number
+    /// it corresponds to, published together (§6.5). `state()` is `null` if nothing has been
+    /// attested yet.
     ///
-    /// @return the current `StateMetadata`
+    /// @return the current `AttestedSnapshot`
     @NonNull
-    StateMetadata metadata() {
-        return attested.metadata();
+    AttestedSnapshot attested() {
+        return attested;
     }
 
     /// The `startOfBlockStateRootHash` the next block's footer must carry to be accepted — the
@@ -363,45 +365,42 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
 
     // ── Internals ───────────────────────────────────────────────────────────
 
-    /// Load persisted metadata and, if present, the matching recent snapshot from disk, seeding
-    /// the lag-1 bookkeeping so the loaded state is exposed on boot. A fresh node falls back to
-    /// genesis; a node whose metadata names a block but can't load its snapshot halts instead,
-    /// since silently restarting from genesis would discard the operator's recorded intent.
+    /// Restore from the highest-numbered recent-snapshot directory, if any exist, seeding the
+    /// lag-1 bookkeeping so the loaded state is exposed on boot. A fresh node (no directories at
+    /// all) falls back to genesis; a directory that fails to load or whose own
+    /// `BlockStreamInfo.block_number` disagrees with its directory name halts instead, since
+    /// silently falling back to genesis would discard the operator's recorded intent — see
+    /// `docs/design/state/live-state.md` §6.2.
     private void loadPersistedState() {
-        StateMetadata loadedMetadata;
-        boolean metadataPersisted;
-        try {
-            final Optional<StateMetadata> persisted = metadataStore.load();
-            metadataPersisted = persisted.isPresent();
-            loadedMetadata = persisted.orElse(StateMetadata.DEFAULT);
-        } catch (final IOException e) {
-            LOGGER.log(System.Logger.Level.WARNING, "Unable to load state metadata; starting from genesis", e);
-            loadedMetadata = StateMetadata.DEFAULT;
-            metadataPersisted = false;
-        }
+        final long restoreCandidate = highestNumberedSnapshotDirectory();
         boolean snapshotLoaded = false;
-        final Path snapshotDir = recentSnapshotDirectoryFor(loadedMetadata.blockNumber());
-        if (Files.isDirectory(snapshotDir)) {
+        if (restoreCandidate >= 0L) {
+            final Path snapshotDir = recentSnapshotDirectoryFor(restoreCandidate);
             try {
-                final Bytes onDiskHash =
-                        lifecycleManager.loadSnapshot(snapshotDir).getBytes();
-                if (onDiskHash.equals(loadedMetadata.stateRootHash())) {
+                lifecycleManager.loadSnapshot(snapshotDir);
+                final long loadedBlockNumber = blockNumberOf(lifecycleManager.getLatestImmutableState());
+                if (loadedBlockNumber == restoreCandidate) {
                     snapshotLoaded = true;
+                    lastAppliedBlock = restoreCandidate;
                     LOGGER.log(System.Logger.Level.INFO, "Loaded state snapshot from {0}", snapshotDir);
                 } else {
-                    // Stale/corrupt snapshot paired with newer metadata. Unrecoverable in place,
-                    // same as a block-apply hash mismatch: halt rather than serve wrong data.
+                    // The loaded state disagrees with the name of the directory it came from —
+                    // unrecoverable in place, same as a block-apply hash mismatch: halt rather
+                    // than serve wrong data.
                     LOGGER.log(
                             System.Logger.Level.ERROR,
-                            "Snapshot at {0} has root hash {1}, metadata expects {2}; halting",
+                            "Snapshot at {0} reports block {1}, but its directory name is {2}; halting",
                             snapshotDir,
-                            onDiskHash.toHex(),
-                            loadedMetadata.stateRootHash().toHex());
+                            loadedBlockNumber,
+                            restoreCandidate);
                     hashMismatchTotal.incrementAndGet();
                     hashMismatchMetric.increment();
                     applyHalted.set(true);
                 }
-            } catch (final IOException e) {
+            } catch (final IOException | RuntimeException e) {
+                // loadSnapshot wraps most on-disk problems (missing/corrupt MerkleDb files) in an
+                // unchecked exception rather than a plain IOException — catch both rather than
+                // let a bad snapshot directory crash start() outright.
                 LOGGER.log(
                         System.Logger.Level.ERROR,
                         "Snapshot at {0} unreadable; halting rather than silently starting from genesis",
@@ -409,24 +408,6 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                         e);
                 applyHalted.set(true);
             }
-        } else if (metadataPersisted) {
-            LOGGER.log(
-                    System.Logger.Level.ERROR,
-                    "Persisted metadata names block {0} but its snapshot at {1} is missing; halting",
-                    loadedMetadata.blockNumber(),
-                    snapshotDir);
-            applyHalted.set(true);
-        }
-        if (!snapshotLoaded) {
-            // No operator intent to honor (metadata never persisted) — genesis is the only
-            // sensible start. If metadata was persisted, applyHalted is already set above
-            // and this plugin won't apply or serve anything regardless of this value.
-            loadedMetadata = StateMetadata.DEFAULT;
-        } else {
-            // Trust the snapshot represents post-(metadata.blockNumber); seed lag-1 bookkeeping
-            // so it's the exposed state on boot and the next block validates against it.
-            lastAppliedBlock = loadedMetadata.blockNumber();
-            lastAppliedRound = loadedMetadata.roundNumber();
         }
         // Force the initial copyMutableState so getLatestImmutableState() is non-null from boot
         // onwards (and so the live mutable is a writable copy).
@@ -434,8 +415,11 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         if (snapshotLoaded) {
             // The loaded (already-attested) block is simultaneously state 1 (exposed to
             // readers) and state 2 (the base the next block's footer validates against).
+            // roundNumber is left unknown (-1): it isn't persisted (see §5.1) and is repopulated
+            // by the first applied block's RoundHeader, exactly like the existing fallback for a
+            // block that doesn't carry one of its own.
             final VirtualMapState loaded = lifecycleManager.getLatestImmutableState();
-            publishAttested(loaded, loadedMetadata);
+            publishAttested(loaded, restoreCandidate, -1L);
             hashingImmutable = loaded;
             startBackgroundHash(loaded);
         } else if (!applyHalted.get()) {
@@ -447,6 +431,58 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         }
     }
 
+    /// Scan `${config.snapshotRecentPath()}` for numerically-named directories and return the
+    /// highest one.
+    ///
+    /// @return the highest-numbered snapshot directory's block number, or `-1` if none exist
+    private long highestNumberedSnapshotDirectory() {
+        final Path root = Path.of(config.snapshotRecentPath());
+        if (!Files.isDirectory(root)) {
+            return -1L;
+        }
+        try (final var entries = Files.list(root)) {
+            return entries.filter(Files::isDirectory)
+                    .map(p -> p.getFileName().toString())
+                    .filter(StateManagementPlugin::isDigits)
+                    .mapToLong(Long::parseLong)
+                    .max()
+                    .orElse(-1L);
+        } catch (final IOException e) {
+            LOGGER.log(
+                    System.Logger.Level.WARNING,
+                    "Unable to scan {0} for snapshot directories; treating as genesis",
+                    root,
+                    e);
+            return -1L;
+        }
+    }
+
+    /// @param name a directory's file name
+    /// @return `true` if `name` is non-empty and every character is an ASCII digit
+    private static boolean isDigits(@NonNull final String name) {
+        return !name.isEmpty() && name.chars().allMatch(Character::isDigit);
+    }
+
+    /// Read `BlockStreamInfo.block_number` from `state`'s own singleton — the self-consistency
+    /// check that replaces cross-referencing a separate metadata file (§5.1/§6.2).
+    ///
+    /// @param state the state to read
+    /// @return the block number recorded in `state`'s `BlockStreamInfo` singleton, or `-1` if
+    ///     absent or unparseable
+    private static long blockNumberOf(@NonNull final VirtualMapState state) {
+        final Bytes raw = state.getSingleton(StateIdentifier.STATE_ID_BLOCK_STREAM_INFO.protoOrdinal());
+        if (raw == null || raw.length() == 0L) {
+            return -1L;
+        }
+        try {
+            return BlockStreamInfo.PROTOBUF
+                    .parse(raw.toReadableSequentialData())
+                    .blockNumber();
+        } catch (final ParseException e) {
+            return -1L;
+        }
+    }
+
     /// Drain the pending-blocks queue in strict block-number order via `applyBlockStateChanges`.
     /// Stops on the first gap, when stopping, or when apply halts. A halt is terminal (the
     /// mutable state may be partially mutated; recovery is a restart from the last snapshot),
@@ -455,12 +491,9 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         applyLock.lock();
         try {
             while (!pendingBlocks.isEmpty() && !stopping.get() && !applyHalted.get()) {
-                final StateMetadata metadata = attested.metadata();
-                final boolean atGenesis = lastAppliedBlock < 0L
-                        && metadata.blockNumber() == 0L
-                        && metadata.stateRootHash().length() == 0L;
+                final boolean atGenesis = lastAppliedBlock < 0L;
                 final long expectedNext =
-                        atGenesis ? pendingBlocks.firstKey() : Math.max(lastAppliedBlock, metadata.blockNumber()) + 1L;
+                        atGenesis ? pendingBlocks.firstKey() : Math.max(lastAppliedBlock, attested.blockNumber()) + 1L;
                 // Peek (not remove) so a failure leaves the block for inspection, not retry.
                 final BlockUnparsed block = pendingBlocks.get(expectedNext);
                 if (block == null) {
@@ -575,11 +608,8 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             return;
         }
         final long latest = available.max();
-        final StateMetadata metadata = attested.metadata();
-        final boolean atGenesis = lastAppliedBlock < 0L
-                && metadata.blockNumber() == 0L
-                && metadata.stateRootHash().length() == 0L;
-        final long start = atGenesis ? available.min() : Math.max(lastAppliedBlock, metadata.blockNumber()) + 1L;
+        final boolean atGenesis = lastAppliedBlock < 0L;
+        final long start = atGenesis ? available.min() : Math.max(lastAppliedBlock, attested.blockNumber()) + 1L;
         if (start > latest) {
             return;
         }
@@ -721,22 +751,28 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         // N's footer just attested state 2. Promote HASHING → ATTESTED now (lag-1: readers
         // only see attested state). Skipped at genesis and when the last applied block is
         // already exposed, e.g. after a snapshot reload.
-        final StateMetadata currentMetadata = attested.metadata();
-        if (lastAppliedBlock >= 0L && (attested.state() == null || lastAppliedBlock != currentMetadata.blockNumber())) {
+        if (lastAppliedBlock >= 0L && (attested.state() == null || lastAppliedBlock != attested.blockNumber())) {
             publishAttested(
                     hashingImmutable,
-                    StateMetadata.newBuilder()
-                            .blockNumber(lastAppliedBlock)
-                            .roundNumber(lastAppliedRound < 0L ? currentMetadata.roundNumber() : lastAppliedRound)
-                            .stateRootHash(attestedHash)
-                            .stateSize(sizeOf(hashingImmutable))
-                            .build());
+                    lastAppliedBlock,
+                    lastAppliedRound < 0L ? attested.roundNumber() : lastAppliedRound);
         }
 
         // Apply this block into the live mutable (state 3) and fast-copy to seal it as the new
         // state 2, but DO NOT hash or expose it: it stays staged until block N+1 attests it.
         final VirtualMapState mutable = lifecycleManager.getMutableState();
-        final StateChangeApplier.ApplyResult result = applier.applyBlock(mutable, block);
+        final StateChangeApplier.ApplyResult result;
+        try {
+            result = applier.applyBlock(mutable, block);
+        } catch (final StateChangeApplier.UnsupportedLegacyEncodingException e) {
+            LOGGER.log(
+                    System.Logger.Level.ERROR,
+                    "Refusing to apply block {0}: {1}; apply-halted",
+                    incomingBlock,
+                    e.getMessage());
+            applyHalted.set(true);
+            return false;
+        }
         if (result.blockNumber() < 0L) {
             LOGGER.log(System.Logger.Level.WARNING, "Block had unparseable header; treating as failed apply");
             applyHalted.set(true);
@@ -765,18 +801,20 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         return attestedHash.equals(startHash);
     }
 
-    /// Publish `newState` and `newMetadata` as one atomic unit (a single volatile write to
-    /// `attested`) so a reader never pairs a new state with stale metadata. Also `reserve()`s
-    /// the new state's root and `release()`s the previous one, since `copyMutableState()`
-    /// releases the lifecycle manager's own reference — without this the held immutable is
-    /// destroyed and reads/snapshots throw `ReferenceCountException`.
+    /// Publish `newState` and its block/round number as one atomic unit (a single volatile
+    /// write to `attested`) so a reader never pairs a new state with a stale number. Also
+    /// `reserve()`s the new state's root and `release()`s the previous one, since
+    /// `copyMutableState()` releases the lifecycle manager's own reference — without this the
+    /// held immutable is destroyed and reads/snapshots throw `ReferenceCountException`.
     ///
     /// @param newState the newly-attested state to publish to readers
-    /// @param newMetadata the metadata describing `newState`
-    private void publishAttested(@NonNull final VirtualMapState newState, @NonNull final StateMetadata newMetadata) {
+    /// @param newBlockNumber the block number `newState` corresponds to
+    /// @param newRoundNumber the round number `newState` corresponds to, or `-1` if unknown
+    private void publishAttested(
+            @NonNull final VirtualMapState newState, final long newBlockNumber, final long newRoundNumber) {
         final AttestedSnapshot previous = attested;
         newState.getRoot().reserve();
-        attested = new AttestedSnapshot(newState, newMetadata);
+        attested = new AttestedSnapshot(newState, newBlockNumber, newRoundNumber);
         if (previous.state() != null && previous.state() != newState) {
             previous.state().getRoot().release();
         }
