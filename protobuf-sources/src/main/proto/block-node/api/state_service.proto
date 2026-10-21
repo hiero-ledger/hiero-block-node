@@ -7,8 +7,6 @@ option java_package = "org.hiero.block.api.protoc";
 // <<<pbj.java_package = "org.hiero.block.api">>> This comment is special code for setting PBJ Compiler java package
 option java_multiple_files = true;
 
-import "block-node/api/shared_message_types.proto";
-
 /**
  * A request for a single piece of binary state held by the Block-Node.
  *
@@ -134,11 +132,14 @@ message BinaryStateQueryResponse {
     Code status = 1;
 
     /**
-     * Metadata describing the state slice this response was sourced from.
-     * Populated on every response, including failures, so the client can
-     * decide whether to retry against a different Block-Node.
+     * The block number of the attested state this response was sourced
+     * from. Populated on every response, including failures, so the client
+     * can decide whether to retry against a different Block-Node. This is
+     * read directly from the state's own `BlockStreamInfo` singleton, never
+     * tracked as a separate copy, so it can never disagree with the state
+     * it describes.
      */
-    StateMetadata state_metadata = 2;
+    uint64 block_number = 2;
 
     /**
      * Raw domain-value bytes for a `getBinaryKV` response.
