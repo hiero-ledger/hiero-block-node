@@ -55,9 +55,9 @@ Explicitly out of scope:
                                                        └────────────┬───────────┘
                                                                     │ getBinaryKV / getBinarySingleton / getBinaryQueue
                                                                     ▼
-                                                 ┌──────────────────────────────┐
-                                                 │ gRPC clients & other plugins  │
-                                                 └──────────────────────────────┘
+                                                     ┌──────────────────────────────┐
+                                                     │ gRPC clients & other plugins │
+                                                     └──────────────────────────────┘
 ```
 
 State is owned by `com.swirlds.state.merkle.VirtualMapStateLifecycleManager`.
