@@ -400,11 +400,23 @@ walking the wire format directly needs no such switch.
 | `QueuePopChange`             | `popQueue(stateId)`                            | —                                               |
 | `STATE_ADD` / `STATE_REMOVE` | (skipped — schema events, out of scope for v1) | —                                               |
 
-Token-relationship keys (`stateId == 9`) need no special-casing: this plugin's pinned
-`state_changes.proto` carries that key as `AccountTokenAssociation` (field 25), introduced
-upstream specifically so its field order/types match state's `EntityIDPair` exactly — unlike
-the older `TokenAssociation` encoding (now reserved field 2) that consensus-node's own reference
-applier still remaps for compatibility with older captured chains.
+Token-relationship keys (`stateId == 9`) need no special-casing for the current wire format:
+this plugin's pinned `state_changes.proto` carries that key as `AccountTokenAssociation`
+(field 25), introduced upstream specifically so its field order/types match state's
+`EntityIDPair` exactly — unlike the older `TokenAssociation` encoding (now reserved field 2)
+that consensus-node's own reference applier still remaps for compatibility with older captured
+chains.
+
+This plugin does not remap field 2: `reserved` in protobuf is a compile-time guard against
+accidental reuse, not a runtime wire-format check, so wire bytes still carrying the old field-2
+encoding (a replayed pre-migration chain segment, or any producer still on the old encoding)
+would otherwise pass through `StateChangeApplier` unrecognized as the legacy shape, writing
+wrong state with no immediate error — surfacing only as a generic hash mismatch on some later
+block, indistinguishable from any other cause. Instead, the applier detects field 2 on
+`stateId == 9` specifically and halts immediately with a distinct "unsupported legacy
+token-association encoding" error, rather than the generic hash-mismatch halt. This keeps the
+applier's "no per-variant switch" simplicity for every other wire variant while still failing
+fast and legibly for the one encoding this plugin deliberately does not support.
 
 Because stored bytes are now the oneof payload rather than the wrapper carrier, a caller can no
 longer recover the concrete entity type from the bytes alone (the wrapper's field number, which
@@ -481,17 +493,23 @@ plugin (see Roadmap); add them alongside those features.
 | `startOfBlockStateRootHash` mismatch                                                       | Increment `hashMismatchTotal`, set `applyHalted=true`, log at ERROR. Apply loop short-circuits thereafter; further blocks ignored until restart.                                                                                                         |
 | First block after a fresh (no-metadata) start is N > 0, not 0                              | **Not yet handled** — no real seed state exists to validate N's footer against; currently indistinguishable from a genuine hash mismatch. See §6.5. Needs a design decision.                                                                             |
 | Malformed `state_changes` item                                                             | `IllegalStateException` from the applier; plugin refuses to advance metadata for that block.                                                                                                                                                             |
+| Legacy field-2 token-association encoding on a `stateId == 9` change                       | Halt with a distinct "unsupported legacy token-association encoding" error, not a generic hash mismatch — this plugin does not remap field 2 the way consensus-node's reference applier does. See §7.                                                   |
 | Verification gap                                                                           | Block parks in `pendingBlocks` until the predecessor arrives (via notification or catch-up); apply loop retries from `historicalBlockProvider` on a delay. `pendingBlocks` is capped (`pendingBlocksMax`) so a long-lived gap can't grow it unboundedly. |
 | Historical block missing locally                                                           | Catch-up skips it; the same block can arrive via notification later.                                                                                                                                                                                     |
 | Snapshot write fails (I/O)                                                                 | Log at WARNING; recent dir not deleted; next snapshot cycle retries.                                                                                                                                                                                     |
 | Missing-queue query                                                                        | gRPC handler defensively maps NPE from `getQueueState`/`getQueueAsList`/`peekQueue` to `NOT_FOUND`.                                                                                                                                                      |
 
-**Recovery from a halt** is restart-from-snapshot, but *which* restart recovers depends on the
-cause: a code-apply hash mismatch recovers automatically on restart (the next boot starts clean
-and re-validates from the last good snapshot). A snapshot-hash-mismatch or missing-snapshot halt
-does **not** self-heal on restart — the same bad snapshot directory gets reloaded and halts
-again immediately. For that cause, the operator must remove or replace the snapshot directory
-before restarting. There is no distinct query-time signal for "halted" versus "healthy" today;
+**Recovery from a halt** is restart-from-snapshot, but *which* restart recovers depends on
+whether the cause is transient or deterministic. A snapshot-hash-mismatch or missing-snapshot
+halt is transient from the plugin's perspective and recovers once the underlying disk state is
+fixed, but does **not** self-heal on restart alone — the same bad snapshot directory gets
+reloaded and halts again immediately. For that cause, the operator must remove or replace the
+snapshot directory before restarting. A deterministic cause — an apply bug, or an unhandled
+wire encoding such as the field-2 case above — replays the exact same bytes for the exact same
+block on every restart, so it does **not** self-heal either: recovery needs a fixed build (or a
+snapshot taken past the bad block), not just a restart. Only a genuinely transient fault (e.g. a
+footer hash mismatch caused by a passing I/O glitch rather than an actual code or encoding bug)
+recovers from a plain restart. There is no distinct query-time signal for "halted" versus "healthy" today;
 `state_apply_halted` and `state_ready` are the only observable signals (see §9). Internally the
 halted/not-halted distinction doesn't change query behavior at all (§8) — a halted node still
 answers queries for its (frozen) attested block with `SUCCESS`, since that state remains valid;
