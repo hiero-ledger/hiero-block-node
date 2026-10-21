@@ -317,6 +317,17 @@ mutable, but only exposed once the *next* block's footer attests its root hash.
    differs per network/config, e.g. a seeded genesis bootstrap vs. a truly empty map), and this
    step computes that hash the same way it computes every other block's, rather than assuming
    it's empty or all-zeros.
+   - **Digest algorithm assumption:** this step only validates if the plugin hashes `VirtualMap`
+     with the same digest the consensus-node that wrote the chain used. Since #3780, `main`'s
+     `CN_11_12_TSS_SCHNORR` footers carry a 32-byte SHA-256 state root hash, while the published
+     state libraries this plugin depends on (`hederaVersion` 0.80.0-alpha.2) hash `VirtualMap`
+     with SHA-384 and have no override — so on today's chain this step halts at block 0 with a
+     digest-length mismatch, not a real divergence. #3813 already logs this distinctly (a
+     digest-length mismatch is reported separately from a same-length, genuinely divergent hash)
+     so the halt is diagnosable, but does not itself resolve the mismatch — that needs either a
+     CN release that hashes with SHA-256, or this plugin pinned to a state library release that
+     matches whatever digest the source chain actually used. See §10's failure-mode row for the
+     current, still-open state of this gap.
    - **Known gap, not yet handled:** a fresh node (no persisted metadata) whose *first* real
      block is N > 0, not 0 — e.g. a deployment pointed at a mid-chain `historicalBlockProvider`
      with no snapshot ever supplied — has no real seed state to validate against either; N's
@@ -491,6 +502,7 @@ plugin (see Roadmap); add them alongside those features.
 | No persisted metadata at startup                                                           | Genesis, cleanly — there's no operator intent to honor, so this is the normal first-boot path, not a failure.                                                                                                                                            |
 | Persisted metadata names a block whose snapshot is missing, unreadable, or hash-mismatched | Halt (`applyHalted=true`), log at ERROR. Starting from genesis instead would silently discard the operator's recorded intent and surface only later as a confusing hash mismatch on an unrelated block. Plugin still starts; never becomes `ready`.      |
 | `startOfBlockStateRootHash` mismatch                                                       | Increment `hashMismatchTotal`, set `applyHalted=true`, log at ERROR. Apply loop short-circuits thereafter; further blocks ignored until restart.                                                                                                         |
+| Footer hash digest length differs from this build's (e.g. a SHA-256 footer against a SHA-384 `VirtualMap` hash) | Same halt as any other `startOfBlockStateRootHash` mismatch, but logged distinctly as a digest-length mismatch rather than genuine divergence (#3813). Does not self-resolve: needs a CN release or state-library pin that matches the source chain's digest. See §6.5. |
 | First block after a fresh (no-metadata) start is N > 0, not 0                              | **Not yet handled** — no real seed state exists to validate N's footer against; currently indistinguishable from a genuine hash mismatch. See §6.5. Needs a design decision.                                                                             |
 | Malformed `state_changes` item                                                             | `IllegalStateException` from the applier; plugin refuses to advance metadata for that block.                                                                                                                                                             |
 | Legacy field-2 token-association encoding on a `stateId == 9` change                       | Halt with a distinct "unsupported legacy token-association encoding" error, not a generic hash mismatch — this plugin does not remap field 2 the way consensus-node's reference applier does. See §7.                                                   |
