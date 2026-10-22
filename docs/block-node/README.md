@@ -34,6 +34,7 @@ The Block Node receives block streams from Consensus Nodes, stores blocks and ne
   - [Reset and upgrade](operate/resetting-and-upgrading-the-block-node.md)
   - [Test with simulator](operate/testing-a-deployed-block-node-using-the-simulator.md)
   - [Load testing](operate/load-testing-a-deployed-block-node-using-solo-and-nlg.md)
+  - [Disaster recovery](operate/disaster-recovery/README.md)
 - **Block stream cutover**
   - [Record stream to block stream migration](cutover/record-stream-to-block-stream-migration.md)
   - [WRB cutover preparation](cutover/preparing-your-block-node-for-wrb-cutover.md)
