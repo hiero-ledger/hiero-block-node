@@ -982,8 +982,15 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// acknowledgement, where it would clamp acks until pruned. `lastPersistedBlockNumber` is
     /// set before `persistedAheadOfAck` is trimmed, so checking it after the add closes that window.
     ///
+    /// Blocks below `earliestManagedBlock` are not managed by this node, so no resend is ever
+    /// scheduled for them. Such a block can only be in flight right after a restart, via the
+    /// pre-earliest-managed accept path in [#streamBeforeEmbOrElse].
+    ///
     /// @param blockNumber the block to schedule for resend
     void scheduleResend(final long blockNumber) {
+        if (blockNumber < earliestManagedBlock) {
+            return;
+        }
         blocksToResend.add(blockNumber);
         if (persistedAheadOfAck.contains(blockNumber) || blockNumber <= lastPersistedBlockNumber.get()) {
             blocksToResend.remove(blockNumber);
