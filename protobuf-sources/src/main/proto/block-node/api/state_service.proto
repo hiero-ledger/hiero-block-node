@@ -32,7 +32,7 @@ option java_multiple_files = true;
  * `block_specifier` into `shared_message_types.proto` and reuse here and
  * in `BlockRequest`.
  */
-message BinaryStateQuery {
+message StateQuery {
     /**
      * Which block this query targets — explicit block number or the latest
      * applied state. Modeled to match `BlockRequest.block_specifier` in
@@ -90,7 +90,7 @@ message QueueValues {
  * Exactly one of `kv_bytes`, `singleton_bytes`, or `queue_values` SHALL be
  * populated on success, matching the RPC method invoked.
  */
-message BinaryStateQueryResponse {
+message StateResponse {
     enum Code {
         /**
          * An "unset value" flag, this value SHALL NOT be used. A response
@@ -105,7 +105,7 @@ message BinaryStateQueryResponse {
 
         /**
          * The request was malformed or referenced fields in a combination
-         * that is not valid for the selected RPC method. See `BinaryStateQuery`
+         * that is not valid for the selected RPC method. See `StateQuery`
          * documentation for valid combinations.
          */
         INVALID_REQUEST = 2;
@@ -182,16 +182,16 @@ service StateService {
     /**
      * Read a key-value entry from the live state by `state_id` and `key_bytes`.
      */
-    rpc getKV(BinaryStateQuery) returns (BinaryStateQueryResponse);
+    rpc getKV(StateQuery) returns (StateResponse);
 
     /**
      * Read a singleton from the live state by `state_id`.
      */
-    rpc getSingleton(BinaryStateQuery) returns (BinaryStateQueryResponse);
+    rpc getSingleton(StateQuery) returns (StateResponse);
 
     /**
      * Read a queue from the live state by `state_id`, optionally limited
      * to a single element via `queue_index`.
      */
-    rpc getQueue(BinaryStateQuery) returns (BinaryStateQueryResponse);
+    rpc getQueue(StateQuery) returns (StateResponse);
 }

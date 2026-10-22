@@ -101,7 +101,7 @@ message ServerStatusResponse {
      * A flag indicating this Block-Node only offers the latest state.
      * <p>
      * If this value is `true` the client MUST set `retrieve_latest` `true`
-     * in any `BinaryStateQuery` sent to this Block-Node.
+     * in any `StateQuery` sent to this Block-Node.
      */
     bool only_latest_state = 3;
 

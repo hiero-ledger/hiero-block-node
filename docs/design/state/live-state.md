@@ -17,8 +17,8 @@ Initial scope (#196):
    `${snapshotRecentPath}/<blockNumber>` matching the consensus-node
    `data/state/` spec (see
    `hiero-consensus-node/platform-sdk/swirlds-state-api/docs/state-snapshot-spec.md`).
-3. New protobuf surface: `BinaryStateQuery`, `BinaryStateQueryResponse`, and three
-   `get*` RPCs on `StateService`. `BinaryStateQueryResponse` carries the attested
+3. New protobuf surface: `StateQuery`, `StateResponse`, and three
+   `get*` RPCs on `StateService`. `StateResponse` carries the attested
    `block_number` on every response (read directly from the state's own `BlockStreamInfo`
    singleton, not a separately tracked copy) so a client can see which block the latest state
    corresponds to.
@@ -121,7 +121,7 @@ arrives (see §6.5), not on a timer.
 
 Earlier drafts of this design tracked a `StateMetadata` message
 (`block_number`/`round_number`/`state_root_hash`/`state_size`) as an independent copy, persisted
-alongside the snapshot and returned on every `BinaryStateQueryResponse`. This plugin does not
+alongside the snapshot and returned on every `StateResponse`. This plugin does not
 maintain any such copy — all of it is either already tracked by the state itself or has no
 business being externally observable:
 
@@ -148,7 +148,7 @@ how this plugin identifies which block it last applied on restart without a sepa
 ### 5.2 Binary state query
 
 ```proto
-message BinaryStateQuery {
+message StateQuery {
   // Modeled on BlockRequest.block_specifier in block_access_service.proto.
   // Exactly one of these MUST be set. Block 0 (genesis) is a valid block_number.
   oneof block_specifier {
@@ -164,7 +164,7 @@ message QueueValues {
   repeated bytes values = 1;    // wrapper, since protobuf disallows `repeated` directly in a `oneof`
 }
 
-message BinaryStateQueryResponse {
+message StateResponse {
   enum Code {
     UNKNOWN          = 0;
     SUCCESS          = 1;
@@ -189,7 +189,7 @@ on `SUCCESS`, none on failure. An earlier draft left these as plain fields reaso
 more devex to wrap than the `oneof` saved — jsync's review pushed back on that: the wrapper
 message pattern (`QueueValues`) is already standard practice elsewhere in this API, and making
 mutual exclusivity a type-system guarantee is worth the one extra wrapper message. Applied here
-for the response only; `BinaryStateQuery`'s `key_bytes`/`queue_index` on the request side are
+for the response only; `StateQuery`'s `key_bytes`/`queue_index` on the request side are
 not symmetric in the same way (`queue_index` narrows a queue read, it doesn't select between
 mutually exclusive request *kinds*) and are left as plain fields.
 
@@ -206,14 +206,14 @@ RPC service updates on `state_service.proto`:
 
 ```proto
 service StateService {
-  rpc getKV(BinaryStateQuery)        returns (BinaryStateQueryResponse);
-  rpc getSingleton(BinaryStateQuery) returns (BinaryStateQueryResponse);
-  rpc getQueue(BinaryStateQuery)     returns (BinaryStateQueryResponse);
+  rpc getKV(StateQuery)        returns (StateResponse);
+  rpc getSingleton(StateQuery) returns (StateResponse);
+  rpc getQueue(StateQuery)     returns (StateResponse);
 }
 ```
 
 (Dropped the `Binary` prefix from the method names themselves — "binary" is already
-conveyed by `BinaryStateQuery`/`BinaryStateQueryResponse`, so it added nothing to the method
+conveyed by `StateQuery`/`StateResponse`, so it added nothing to the method
 name beyond length.)
 
 ## 6. Plugin lifecycle
@@ -504,7 +504,7 @@ registered as the gRPC service in `init`. Each RPC:
 5. `getQueue` defensively maps any `RuntimeException` from
    `getQueueState`/`getQueueAsList`/`peekQueue` (which NPE on unknown
    state IDs in `VirtualMapStateImpl`) to `NOT_FOUND`.
-6. Wraps the result in `BinaryStateQueryResponse` with `attested.blockNumber()` always populated —
+6. Wraps the result in `StateResponse` with `attested.blockNumber()` always populated —
    state and block number come from the same `AttestedSnapshot` read, so a response can never
    pair one block's data with another block's number.
 
