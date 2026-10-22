@@ -181,6 +181,10 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                 }
 
                 addStoredBlocks(firstZippedBlock, latestZippedBlock);
+                // report every range found on startup, gaps between zip files included
+                availableBlocks
+                        .streamRanges()
+                        .forEach(range -> context.applicationStateFacility().addAvailableBlockRange(this, range));
 
                 // Initialize total bytes stored by querying the zip block archive
                 totalBytesStored.set(zipBlockArchive.calculateTotalStoredBytes());
@@ -540,7 +544,12 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                             totalBytesStored.addAndGet(-zipFileSize);
                             availableBlocks.remove(
                                     minBlockNumberStored, minBlockNumberStored + numberOfBlocksPerZipFile - 1);
-                            context.applicationStateFacility().updateAvailableBlocks();
+                            context.applicationStateFacility()
+                                    .removeAvailableBlockRange(
+                                            this,
+                                            new BlockRange(
+                                                    minBlockNumberStored,
+                                                    minBlockNumberStored + numberOfBlocksPerZipFile - 1));
                             final long currentNumberOfZips = totalZipFiles.decrementAndGet();
                             if (currentNumberOfZips <= 0) {
                                 break;
@@ -666,7 +675,10 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                     // zipped and the staging files removed.
                     // Now we need to update the first and last block numbers
                     plugin.availableBlocks.add(batchFirstBlockNumber, batchLastBlockNumber);
-                    plugin.context.applicationStateFacility().updateAvailableBlocks();
+                    plugin.context
+                            .applicationStateFacility()
+                            .addAvailableBlockRange(
+                                    plugin, new BlockRange(batchFirstBlockNumber, batchLastBlockNumber));
                     plugin.totalZipFiles.incrementAndGet();
                     final String successMessage = "Successfully moved batch of blocks[{0} -> {1}] to zip file.";
                     plugin.LOGGER.log(DEBUG, successMessage, batchFirstBlockNumber, batchLastBlockNumber);

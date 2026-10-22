@@ -3,10 +3,13 @@ package org.hiero.block.node.spi;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
 import java.util.List;
+import java.util.Optional;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.TssData;
+import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 
 /**
  * Interface for the Application and block node plugins to exchange state information. The `ApplicationStateFacility`
@@ -41,7 +44,8 @@ public interface ApplicationStateFacility extends BlockNodePlugin {
 
     /**
      * Records a contiguous range of blocks as stored (persisted but not necessarily retrievable by
-     * clients). Block availability for clients is tracked by {@code HistoricalBlockFacility}.
+     * clients). Block availability for clients is tracked through
+     * {@link #addAvailableBlockRange}.
      *
      * @param blockRange the contiguous range of block numbers being reported
      */
@@ -154,12 +158,46 @@ public interface ApplicationStateFacility extends BlockNodePlugin {
     void updateExpectedBlock(final long updatedExpectedBlock);
 
     /**
-     * Used by block provider plugins to signal that their set of available blocks has changed.
-     * Call it after mutating the set, not before: the provider's set is combined live by reference
-     * into {@code HistoricalBlockFacility.availableBlocks()}, so the union is re-read from there
-     * rather than passed in. If the union changed, the snapshot is updated and notifications sent.
-     * Blocks loaded during {@code init()} need no call: the startup union is dispatched once the
-     * application state facility starts.
+     * Used by block provider plugins to report blocks they now provide. The range is recorded against the
+     * provider, added to the stored blocks too, and, if the union of available blocks changed, an
+     * {@link org.hiero.block.node.spi.blockmessaging.AvailableBlocksNotification} is sent. Providers call this
+     * from {@code init()} for the blocks they hold at startup, and later whenever they gain blocks.
+     *
+     * @param provider the plugin providing the blocks
+     * @param blockRange the contiguous range of block numbers now provided
      */
-    void updateAvailableBlocks();
+    void addAvailableBlockRange(BlockProviderPlugin provider, BlockRange blockRange);
+
+    /**
+     * Used by block provider plugins to report that they no longer provide a range of blocks. A block remains
+     * available if any other provider still provides it. The blocks stay in the stored blocks.
+     *
+     * @param provider the plugin that no longer provides the blocks
+     * @param blockRange the contiguous range of block numbers no longer provided
+     */
+    void removeAvailableBlockRange(BlockProviderPlugin provider, BlockRange blockRange);
+
+    /**
+     * The block ranges currently available from at least one provider.
+     *
+     * @return the available block ranges in ascending order; never {@code null} (empty when none)
+     */
+    List<BlockRange> availableBlocks();
+
+    /**
+     * The same as {@link #availableBlocks()} but as a {@link BlockRangeSet} for querying
+     * {@code min()}, {@code max()} and {@code contains()}.
+     *
+     * @return a snapshot set of the available blocks; never {@code null}
+     */
+    BlockRangeSet availableBlockSet();
+
+    /**
+     * The plugin providing the given block. If several plugins provide it, the one with the highest
+     * {@link BlockProviderPlugin#defaultPriority()} is returned.
+     *
+     * @param blockNumber the block number
+     * @return the providing plugin, or empty if no plugin provides the block
+     */
+    Optional<BlockProviderPlugin> blockProvider(long blockNumber);
 }
