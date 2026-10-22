@@ -1336,7 +1336,9 @@ class SubscriberServicePluginTest {
 
             waitOnEmptyOpenSessions();
 
-            assertThat(getMetricValue(SubscriberServicePlugin.METRIC_SUBSCRIBER_OPEN_CONNECTIONS))
+            assertThat(getMetric(SubscriberServicePlugin.METRIC_SUBSCRIBER_OPEN_CONNECTIONS)
+                            .getOrCreateNotLabeled()
+                            .get())
                     .isZero();
         }
 
@@ -1350,7 +1352,9 @@ class SubscriberServicePluginTest {
 
             waitOnEmptyOpenSessions();
 
-            assertThat(getMetricValue(SubscriberServicePlugin.METRIC_SUBSCRIBER_OPEN_CONNECTIONS))
+            assertThat(getMetric(SubscriberServicePlugin.METRIC_SUBSCRIBER_OPEN_CONNECTIONS)
+                            .getOrCreateNotLabeled()
+                            .get())
                     .isZero();
         }
 
@@ -1376,8 +1380,12 @@ class SubscriberServicePluginTest {
             waitOnEmptyOpenSessions();
 
             assertThat(List.of(
-                            getMetricValue(SubscriberServicePlugin.METRIC_SUBSCRIBER_IDLE_SESSIONS_CLOSED),
-                            getMetricValue(SubscriberServicePlugin.METRIC_SUBSCRIBER_ERRORS)))
+                            getMetric(SubscriberServicePlugin.METRIC_SUBSCRIBER_IDLE_SESSIONS_CLOSED)
+                                    .getOrCreateNotLabeled()
+                                    .get(),
+                            getMetric(SubscriberServicePlugin.METRIC_SUBSCRIBER_ERRORS)
+                                    .getOrCreateNotLabeled()
+                                    .get()))
                     .containsExactly(1L, 0L);
         }
 
