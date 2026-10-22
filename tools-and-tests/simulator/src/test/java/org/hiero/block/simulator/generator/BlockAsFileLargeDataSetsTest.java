@@ -11,11 +11,11 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.security.NoSuchAlgorithmException;
 import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
 import org.hiero.block.simulator.config.types.GenerationMode;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
-import org.hiero.block.simulator.fixtures.TestUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -23,12 +23,12 @@ import org.junit.jupiter.api.io.TempDir;
 
 class BlockAsFileLargeDataSetsTest {
 
-    private static final String rootFolder = TestUtils.getSimulatorBlocksFolder();
+    private static final String rootFolder = "build/resources/test/block-0.0.3-blk/";
     private static int filesInFolder;
 
     @BeforeAll
     static void setUp() {
-        filesInFolder = getFilesInFolder(rootFolder);
+        filesInFolder = getFilesInFolder(getAbsoluteFolder(rootFolder));
     }
 
     @AfterEach
@@ -36,14 +36,16 @@ class BlockAsFileLargeDataSetsTest {
 
     @Test
     void getGenerationMode() {
-        BlockStreamManager blockStreamManager = getBlockAsFileLargeDatasetsBlockStreamManager(rootFolder);
+        BlockStreamManager blockStreamManager =
+                getBlockAsFileLargeDatasetsBlockStreamManager(getAbsoluteFolder(rootFolder));
 
         assertEquals(GenerationMode.DIR, blockStreamManager.getGenerationMode());
     }
 
     @Test
     void getNextBlock() throws IOException, BlockSimulatorParsingException, ParseException, NoSuchAlgorithmException {
-        BlockStreamManager blockStreamManager = getBlockAsFileLargeDatasetsBlockStreamManager(rootFolder);
+        BlockStreamManager blockStreamManager =
+                getBlockAsFileLargeDatasetsBlockStreamManager(getAbsoluteFolder(rootFolder));
         blockStreamManager.init();
         for (int i = 0; i < filesInFolder; i++) {
             assertNotNull(blockStreamManager.getNextBlock());
@@ -58,7 +60,7 @@ class BlockAsFileLargeDataSetsTest {
 
         final BlockGeneratorConfig blockGeneratorConfig = BlockGeneratorConfig.builder()
                 .generationMode(GenerationMode.DIR)
-                .folderRootPath(rootFolder)
+                .folderRootPath(getAbsoluteFolder(rootFolder))
                 .paddedLength(36)
                 .fileExtension(".blk")
                 .startBlockNumber(2)
@@ -128,6 +130,10 @@ class BlockAsFileLargeDataSetsTest {
     private BlockAsFileLargeDataSets getBlockAsFileLargeDatasetsBlockStreamManager(
             BlockGeneratorConfig blockGeneratorConfig) {
         return new BlockAsFileLargeDataSets(blockGeneratorConfig);
+    }
+
+    private static String getAbsoluteFolder(String relativePath) {
+        return Paths.get(relativePath).toAbsolutePath().toString();
     }
 
     private static int getFilesInFolder(String absolutePath) {

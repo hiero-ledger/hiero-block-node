@@ -35,8 +35,10 @@ Inside an archive, each set of blocks has its own folder:
     <block-number>.blk[.<compression>]
 ```
 
-- `<family>/<subtype>`: the kind of block, for example `tss/direct`, `tss/indirect`, `wrb/v6` (wrapped record blocks,
-  record file version 6).
+- `<family>/<subtype>`: the kind of block, for example `tss/direct` (each block carries its own TSS signature),
+  `tss/indirect` (a state proof leads to a later signed block) or `wrb/v6` (wrapped record blocks, record file
+  version 6). Archives hold signed blocks only; blocks without a real proof stay in the repository with the tests
+  that use them.
 - `<tps>`: the transaction rate the blocks were captured at, `varied` when it is not known.
 - `<env>`: where the blocks were produced: `mainnet`, `testnet` or `local` (a local consensus node, a Solo cluster or
   the in-process test harness). The optional `-<variant>` suffix keeps sets of the same kind apart, for example
@@ -51,14 +53,14 @@ relative to the archive root. It pins the content: the download is checked again
 
 Each set folder has a `manifest.json` with only what the path and the file names do not already say:
 
-|      Field      |                                                   Meaning                                                   |
-|-----------------|-------------------------------------------------------------------------------------------------------------|
-| `environment`   | `mainnet`, `testnet` or `local`. Absent when the set comes from no network (for example the simulator set). |
-| `variant`       | The folder name suffix after `<env>-`. Absent when the folder has none.                                     |
-| `hashAlgorithm` | `SHA2-256` or `SHA2-384`, read from the block footer hash length (32 or 48 bytes).                          |
-| `hapiVersion`   | `BlockHeader.hapi_proto_version` of the blocks.                                                             |
-| `source`        | Where the blocks came from.                                                                                 |
-| `notes`         | Optional. Anything a user of the set needs to know (proofs not verifiable, temporary set, and so on).       |
+|      Field      |                                                Meaning                                                |
+|-----------------|-------------------------------------------------------------------------------------------------------|
+| `environment`   | `mainnet`, `testnet` or `local`.                                                                      |
+| `variant`       | The folder name suffix after `<env>-`. Absent when the folder has none.                               |
+| `hashAlgorithm` | `SHA2-256` or `SHA2-384`, read from the block footer hash length (32 or 48 bytes).                    |
+| `hapiVersion`   | `BlockHeader.hapi_proto_version` of the blocks.                                                       |
+| `source`        | Where the blocks came from.                                                                           |
+| `notes`         | Optional. Anything a user of the set needs to know (proofs not verifiable, temporary set, and so on). |
 
 Example (`ci-test-blocks/wrb/v6/varied/local-solo-4n/manifest.json`):
 
@@ -84,8 +86,7 @@ Nothing to do. Every `Test` task depends on `./gradlew fetchTestBlocks`, which d
 `.test-blocks/ci-test-blocks/` and passes that directory to the tests as the system property `hiero.testBlocks.dir`.
 The first run needs Docker and network access; after that the archive is downloaded again only when its pin changes.
 
-In Java, `ResourceTestBlockBuilder.testBlocksRoot()` (block node test fixtures) and
-`TestUtils.getSimulatorBlocksFolder()` (simulator test fixtures) resolve paths inside the archive.
+In Java, `ResourceTestBlockBuilder.testBlocksRoot()` (block node test fixtures) resolves paths inside the archive.
 
 ### Other archives
 
