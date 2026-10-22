@@ -390,8 +390,8 @@ Use the runbooks below during incidents. Each follows a consistent pattern:
    - For `BAD_BLOCK_PROOF` on every TSS block after an upgrade, the first with a WARNING
      `The TSS library <version> rejected the block signature or the ledger id of the TSS data valid from block <N>`: the Block Node's TSS data (its ledger ID) comes from a network
      that used an earlier TSS library, typically a TSS bootstrap file kept across the upgrade to BN 0.45.0. Reset the TSS data as described in
-     [Resetting TSS data across a TSS library change](./operations/resetting-and-upgrading-the-block-node.md#resetting-tss-data-across-a-tss-library-change). If the TSS data is
-     current, the publisher signs with another TSS library; check the Consensus Node version against [Version Compatibility](./operations/version-compatibility.md).
+     [Resetting TSS data across a TSS library change](./resetting-and-upgrading-the-block-node.md#resetting-tss-data-across-a-tss-library-change). If the TSS data is
+     current, the publisher signs with another TSS library; check the Consensus Node version against [Version Compatibility](../deploy/version-compatibility.md).
    - For `MISSING_VERIFICATION_DATA` with RSA block proofs (WRBs): the RSA bootstrap roster is not configured or not accessible inside the container.
      - Confirm the bootstrap file path is set in your Block Node configuration and that the directory is volume-mounted into the container.
      - Default RSA roster path: `/opt/hiero/block-node/application-state/rsa-bootstrap-roster.json` (`app.state.rsaBootstrapFilePath`). See [Provision the RSA bootstrap roster](../cutover/preparing-your-block-node-for-wrb-cutover.md#provision-the-rsa-bootstrap-roster) for how to generate and deliver the file.
