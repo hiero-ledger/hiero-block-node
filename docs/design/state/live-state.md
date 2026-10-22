@@ -111,6 +111,7 @@ used for `swirlds-config-*`.
 | `historicCatchUpBatchSize`     | `64`                                               | Blocks pulled per catch-up loop iteration.                                                                                                                                                           |
 | `snapshotRecentRetentionCount` | `3`                                                | Recent snapshot dirs kept on disk (oldest pruned).                                                                                                                                                   |
 | `port`                         | `null` (share `server.port`)                       | Dedicated port for the `StateService` gRPC API; `null` shares the default server port.                                                                                                               |
+| `maxQueueRangeSize`            | `1000`                                             | Largest `queue_range` width `getQueue` will serve in one call (§8); a wider range is `INVALID_REQUEST`. Operator-adjustable to allow raising it over time without a code change.                     |
 
 There is no apply-interval setting: state changes are applied the moment a verified block
 arrives (see §6.5), not on a timer.
@@ -148,6 +149,11 @@ how this plugin identifies which block it last applied on restart without a sepa
 ### 5.2 Binary state query
 
 ```proto
+message QueueRange {
+  uint64 start = 1;    // 1-indexed, inclusive
+  uint64 end   = 2;    // 1-indexed, inclusive
+}
+
 message StateQuery {
   // Modeled on BlockRequest.block_specifier in block_access_service.proto.
   // Exactly one of these MUST be set. Block 0 (genesis) is a valid block_number.
@@ -155,9 +161,13 @@ message StateQuery {
     uint64 block_number    = 1;
     bool   retrieve_latest = 2;
   }
-  uint64 state_id    = 3;        // which map/singleton/queue
-  bytes  key_bytes   = 4;        // which entry within that map, for getKV only
-  uint64 queue_index = 5;        // 1-indexed; 0 or unset = full queue
+  uint64 state_id = 3;           // which map/singleton/queue
+  // Exactly one MAY be set, never both — unset entirely for getSingleton and a
+  // full-queue getQueue read.
+  oneof selector {
+    bytes       key_bytes   = 4; // which entry within state_id's map, for getKV only
+    QueueRange  queue_range = 5; // element or range to read, for getQueue only
+  }
 }
 
 message QueueValues {
@@ -169,7 +179,7 @@ message StateResponse {
     UNKNOWN          = 0;
     SUCCESS          = 1;
     INVALID_REQUEST  = 2;
-    NOT_FOUND        = 3;       // requested key/singleton/queue index absent from the attested state
+    NOT_FOUND        = 3;       // requested key or queue index/range absent from the attested state
     NOT_READY        = 4;       // nothing attested yet (true genesis); never returned again after the first attestation
     NOT_AVAILABLE    = 5;       // block_number isn't the attested block (no historical retention)
   }
@@ -188,16 +198,19 @@ on `SUCCESS`, none on failure. An earlier draft left these as plain fields reaso
 `queue_bytes` being `repeated` (protobuf disallows `repeated` directly inside a `oneof`) cost
 more devex to wrap than the `oneof` saved — jsync's review pushed back on that: the wrapper
 message pattern (`QueueValues`) is already standard practice elsewhere in this API, and making
-mutual exclusivity a type-system guarantee is worth the one extra wrapper message. Applied here
-for the response only; `StateQuery`'s `key_bytes`/`queue_index` on the request side are
-not symmetric in the same way (`queue_index` narrows a queue read, it doesn't select between
-mutually exclusive request *kinds*) and are left as plain fields.
+mutual exclusivity a type-system guarantee is worth the one extra wrapper message.
+
+`StateQuery.selector` is a `oneof` too (`key_bytes`/`queue_range`), reversing an earlier call to
+leave the request side as plain fields — that call was made before `queue_range` existed, when
+`queue_index` was just a plain scalar that narrowed a queue read rather than selecting between
+mutually exclusive request *kinds*. Introducing `QueueRange` as a real message makes the two
+genuinely exclusive shapes, so the same type-system argument applies here now too.
 
 `NOT_AVAILABLE` mirrors `BlockAccessService.getBlock()`'s `NOT_AVAILABLE` for a block outside
 the range this node currently holds. This plugin has no historical retention (§2/§7): the
 *only* state it ever holds is the currently attested one, so any other requested `block_number`
 is `NOT_AVAILABLE`, never `NOT_FOUND` (`NOT_FOUND` is reserved for "the attested state doesn't
-have this key/singleton/queue index"). Whether apply has halted is an internal detail, not a
+have this key or queue index/range"). Whether apply has halted is an internal detail, not a
 query concern: `retrieve_latest` or a `block_number` matching the attested block still answers
 `SUCCESS` from that (now-frozen) state even while halted, since that state is still valid — only
 requests for a block the node hasn't (or will never) reach are affected.
@@ -492,18 +505,27 @@ registered as the gRPC service in `init`. Each RPC:
    actively writing/sealing concurrently with no synchronization a query thread could safely
    join.
 2. Returns `INVALID_REQUEST` if:
-   - `getKV` is called without `key_bytes`, or with `queue_index`;
-   - `getSingleton` is called with `key_bytes` or `queue_index`;
-   - `getQueue` is called with `key_bytes`.
+   - `getKV` is called without `selector.key_bytes` set;
+   - `getSingleton` is called with `selector` set at all;
+   - `getQueue` is called with `selector.key_bytes` set;
+   - `getQueue`'s `selector.queue_range` has `start > end`, or exactly one of `start`/`end` is
+     `0` while the other is positive;
+   - `getQueue`'s `selector.queue_range` spans more elements than the configured
+     `maxQueueRangeSize` (§4) — this is a unary RPC, not a streaming one, so an unbounded range
+     is rejected rather than served.
 3. Returns `NOT_AVAILABLE` if an explicit `block_number` was set and it doesn't match
    `attested.blockNumber()`. This holds regardless of `applyHalted`: a halted node's
    attested block is simply frozen, so requests for that exact block (or `retrieve_latest`)
    still succeed — only a `block_number` beyond it is affected, and halting makes that
    permanently true rather than transiently true. Block 0 is a valid, non-special `block_number`.
 4. Delegates to `getKv` / `getSingleton` / `getQueueAsList` / `peekQueue` on `attested.state()`.
+   A `queue_range` spanning multiple elements reads each index in the range via the same
+   `peekQueue(stateId, index)` call `getQueue` already uses for a single index — no new
+   `BinaryState` capability needed, just a loop.
 5. `getQueue` defensively maps any `RuntimeException` from
    `getQueueState`/`getQueueAsList`/`peekQueue` (which NPE on unknown
-   state IDs in `VirtualMapStateImpl`) to `NOT_FOUND`.
+   state IDs in `VirtualMapStateImpl`) to `NOT_FOUND`; for a `queue_range`, any single index in
+   the range failing this way fails the whole request — a range is never partially served.
 6. Wraps the result in `StateResponse` with `attested.blockNumber()` always populated —
    state and block number come from the same `AttestedSnapshot` read, so a response can never
    pair one block's data with another block's number.

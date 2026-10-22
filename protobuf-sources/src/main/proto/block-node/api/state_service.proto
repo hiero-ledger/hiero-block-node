@@ -8,15 +8,30 @@ option java_package = "org.hiero.block.api.protoc";
 option java_multiple_files = true;
 
 /**
+ * A 1-indexed, inclusive range of queue elements, for `getQueue`.
+ *
+ * Both `start` and `end` `0` (or the whole message left unset) requests the full queue.
+ * `start == end` (both positive) requests a single element. `start < end` (both positive)
+ * requests that inclusive range. `start > end`, or exactly one of `start`/`end` being `0`
+ * while the other is positive, is an `INVALID_REQUEST`. A range wider than this Block-Node's
+ * configured `maxQueueRangeSize` is also an `INVALID_REQUEST`, since this is a unary RPC, not
+ * a streaming one.
+ */
+message QueueRange {
+    uint64 start = 1;
+    uint64 end = 2;
+}
+
+/**
  * A request for a single piece of binary state held by the Block-Node.
  *
- * The combination of `state_id`, `key_bytes`, and `queue_index` determines
- * which RPC method should be used and the shape of the response:
+ * The combination of `state_id` and `selector` determines which RPC method should be used and
+ * the shape of the response:
  *
- *  - `getKV`        SHALL set `state_id` and `key_bytes`. `queue_index` MUST NOT be set.
- *  - `getSingleton` SHALL set only `state_id`. `key_bytes` and `queue_index` MUST NOT be set.
- *  - `getQueue`     SHALL set `state_id`. `queue_index` MAY be set to read a single element;
- *                   when omitted the full queue is returned.
+ *  - `getKV`        SHALL set `state_id` and `selector.key_bytes`.
+ *  - `getSingleton` SHALL set only `state_id`. `selector` MUST NOT be set.
+ *  - `getQueue`     SHALL set `state_id`. `selector.queue_range` MAY be set to narrow the read;
+ *                   when `selector` is unset the full queue is returned.
  *
  * Exactly one of `block_specifier.block_number` or
  * `block_specifier.retrieve_latest` MUST be set. Block 0 (genesis) is a
@@ -58,24 +73,30 @@ message StateQuery {
     /**
      * The integer state identifier as defined in `virtual_map_state.proto` — which map,
      * singleton, or queue this query targets (e.g. accounts, token relationships). A map holds
-     * many entries under one `state_id`; `key_bytes` below selects a single entry within it.
+     * many entries under one `state_id`; `selector.key_bytes` below selects a single entry
+     * within it.
      */
     uint64 state_id = 3;
 
     /**
-     * Domain-encoded key bytes identifying a single entry within the map named by `state_id`,
-     * for `getKV`. MUST be empty for singleton and queue requests: a singleton has exactly one
-     * value per `state_id` (no entry to select), and a queue is read by position
-     * (`queue_index`) rather than by key.
+     * Which entry or range this query targets, for RPC methods that need one. Exactly one of
+     * `key_bytes` or `queue_range` MAY be set, never both — enforced by this being a `oneof`
+     * rather than left to a MUST-be-empty convention. Unset entirely for `getSingleton` (a
+     * singleton has exactly one value per `state_id`, nothing to select) and for a full-queue
+     * `getQueue` read.
      */
-    bytes key_bytes = 4;
+    oneof selector {
+        /**
+         * Domain-encoded key bytes identifying a single entry within the map named by
+         * `state_id`, for `getKV`.
+         */
+        bytes key_bytes = 4;
 
-    /**
-     * 1-indexed queue index for `getQueue`. Set to a value of `1` or greater to retrieve
-     * a single queue element (`1` is the first element); omit (or set to `0`) to request the
-     * full queue.
-     */
-    uint64 queue_index = 5;
+        /**
+         * The element or range to read, for `getQueue`.
+         */
+        QueueRange queue_range = 5;
+    }
 }
 
 /**
@@ -115,8 +136,9 @@ message StateResponse {
         INVALID_REQUEST = 2;
 
         /**
-         * The requested state element (key, singleton, or queue index) does
-         * not exist in the attested state that was read.
+         * The requested state element (key or queue index) does not exist in the attested
+         * state that was read. For a `queue_range`, this applies to the whole request if `end`
+         * exceeds the queue's current size — a range is never partially served.
          */
         NOT_FOUND = 3;
 
@@ -170,9 +192,9 @@ message StateResponse {
         bytes singleton_bytes = 4;
 
         /**
-         * Raw domain-value bytes for a `getQueue` response. May contain
-         * a single element (indexed read) or every element from head to tail
-         * (full queue read).
+         * Raw domain-value bytes for a `getQueue` response, in head-to-tail order. May contain
+         * a single element, a `queue_range` of elements, or the full queue, matching the
+         * request.
          */
         QueueValues queue_values = 5;
     }
@@ -194,8 +216,8 @@ service StateService {
     rpc getSingleton(StateQuery) returns (StateResponse);
 
     /**
-     * Read a queue from the live state by `state_id`, optionally limited
-     * to a single element via `queue_index`.
+     * Read a queue from the live state by `state_id`, optionally narrowed to a single element
+     * or a range via `selector.queue_range`.
      */
     rpc getQueue(StateQuery) returns (StateResponse);
 }
