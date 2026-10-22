@@ -56,13 +56,17 @@ message StateQuery {
     }
 
     /**
-     * The integer state identifier as defined in `virtual_map_state.proto`.
+     * The integer state identifier as defined in `virtual_map_state.proto` — which map,
+     * singleton, or queue this query targets (e.g. accounts, token relationships). A map holds
+     * many entries under one `state_id`; `key_bytes` below selects a single entry within it.
      */
     uint64 state_id = 3;
 
     /**
-     * Domain-encoded key bytes for `getKV`. MUST be empty for
-     * singleton and queue requests.
+     * Domain-encoded key bytes identifying a single entry within the map named by `state_id`,
+     * for `getKV`. MUST be empty for singleton and queue requests: a singleton has exactly one
+     * value per `state_id` (no entry to select), and a queue is read by position
+     * (`queue_index`) rather than by key.
      */
     bytes key_bytes = 4;
 

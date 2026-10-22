@@ -155,8 +155,8 @@ message StateQuery {
     uint64 block_number    = 1;
     bool   retrieve_latest = 2;
   }
-  uint64 state_id    = 3;
-  bytes  key_bytes   = 4;        // KV key (mutually exclusive with queue_index)
+  uint64 state_id    = 3;        // which map/singleton/queue
+  bytes  key_bytes   = 4;        // which entry within that map, for getKV only
   uint64 queue_index = 5;        // 1-indexed; 0 or unset = full queue
 }
 
