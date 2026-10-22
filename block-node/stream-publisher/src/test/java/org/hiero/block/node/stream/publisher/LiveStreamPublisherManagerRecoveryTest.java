@@ -16,9 +16,12 @@ import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
+import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestApplicationStateFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
@@ -92,6 +95,7 @@ class LiveStreamPublisherManagerRecoveryTest {
     private ScriptedForwarderExecutor forwarderExecutor;
     private TestThreadPoolManager<ScriptedForwarderExecutor, ScheduledBlockingExecutor> threadPoolManager;
     private MetricsHolder managerMetrics;
+    private PublisherHandler.MetricsHolder handlerMetrics;
     private LiveStreamPublisherManager manager;
 
     @BeforeEach
@@ -118,6 +122,7 @@ class LiveStreamPublisherManagerRecoveryTest {
         historicalBlockFacility.init(context, null);
         final MetricRegistry registry = MetricRegistry.builder().build();
         managerMetrics = MetricsHolder.createMetrics(registry);
+        handlerMetrics = PublisherHandler.MetricsHolder.createMetrics(registry);
         manager = new LiveStreamPublisherManager(context, managerMetrics, List.of());
     }
 
@@ -198,6 +203,99 @@ class LiveStreamPublisherManagerRecoveryTest {
             manager.checkLogAndRestartForwarderTask();
 
             assertThat(forwarderExecutor.attempts).isEqualTo(1);
+        }
+    }
+
+    @Nested
+    @DisplayName("Flow control refresh recovery")
+    class FlowControlRecoveryTests {
+
+        @Test
+        @DisplayName("a refresh that throws does not stop the following runs")
+        void failedRefreshDoesNotStopTheSchedule() {
+            final PublisherHandler handler =
+                    manager.addHandler(new TestResponsePipeline<PublishStreamResponse>(), handlerMetrics, null);
+            final Runnable realRefresh = manager.flowControlRefreshAction;
+            final AtomicInteger runs = new AtomicInteger();
+            manager.flowControlRefreshAction = () -> {
+                if (runs.getAndIncrement() == 0) {
+                    throw new IllegalStateException("boom");
+                }
+                realRefresh.run();
+            };
+            handler.setMessageBudget(handler.getMessageBudget(), 5L);
+
+            assertThatNoException()
+                    .isThrownBy(() -> threadPoolManager.scheduledExecutor().executeSerially());
+            assertThat(handler.getMessageBudget()).isEqualTo(5L);
+            assertThat(manager.flowControlRefreshFuture.isDone()).isFalse();
+
+            threadPoolManager.scheduledExecutor().executeSerially();
+
+            assertThat(runs.get()).isEqualTo(2);
+            assertThat(handler.getMessageBudget()).isEqualTo(10L);
+        }
+
+        @Test
+        @DisplayName("a running refresh task is left alone by the activity check")
+        void runningRefreshIsNotRescheduled() {
+            final var before = manager.flowControlRefreshFuture;
+            final long tasksBefore = threadPoolManager.scheduledExecutor().getTaskCount();
+
+            manager.ensureFlowControlRefreshScheduled();
+
+            assertThat((Object) manager.flowControlRefreshFuture).isSameAs(before);
+            assertThat(threadPoolManager.scheduledExecutor().getTaskCount()).isEqualTo(tasksBefore);
+        }
+
+        @Test
+        @DisplayName("a finished refresh task is rescheduled by the activity check")
+        void finishedRefreshIsRescheduled() {
+            final var before = manager.flowControlRefreshFuture;
+            before.cancel(false);
+            final long tasksBefore = threadPoolManager.scheduledExecutor().getTaskCount();
+
+            manager.ensureFlowControlRefreshScheduled();
+
+            assertThat((Object) manager.flowControlRefreshFuture).isNotSameAs(before);
+            assertThat(manager.flowControlRefreshFuture.isDone()).isFalse();
+            assertThat(threadPoolManager.scheduledExecutor().getTaskCount()).isEqualTo(tasksBefore + 1);
+        }
+
+        @Test
+        @DisplayName("the activity check does not reschedule after shutdown")
+        void noRescheduleAfterShutdown() {
+            manager.shutdown();
+            final var cancelledByShutdown = manager.flowControlRefreshFuture;
+
+            manager.ensureFlowControlRefreshScheduled();
+
+            assertThat(cancelledByShutdown.isCancelled()).isTrue();
+            assertThat((Object) manager.flowControlRefreshFuture).isSameAs(cancelledByShutdown);
+        }
+
+        @Test
+        @DisplayName("adding a handler reschedules a finished refresh task")
+        void addHandlerRestoresRefresh() {
+            final var before = manager.flowControlRefreshFuture;
+            before.cancel(false);
+
+            manager.addHandler(new TestResponsePipeline<PublishStreamResponse>(), handlerMetrics, null);
+
+            assertThat((Object) manager.flowControlRefreshFuture).isNotSameAs(before);
+            assertThat(manager.flowControlRefreshFuture.isDone()).isFalse();
+        }
+
+        @Test
+        @DisplayName("the forwarder check reschedules a finished refresh task")
+        void forwarderCheckRestoresRefresh() {
+            final var before = manager.flowControlRefreshFuture;
+            before.cancel(false);
+
+            manager.checkLogAndRestartForwarderTask();
+
+            assertThat((Object) manager.flowControlRefreshFuture).isNotSameAs(before);
+            assertThat(manager.flowControlRefreshFuture.isDone()).isFalse();
         }
     }
 }
