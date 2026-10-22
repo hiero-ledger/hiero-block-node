@@ -21,7 +21,6 @@ import java.util.logging.Logger;
 import org.hiero.base.file.FileSystemManager;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
-import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.logging.TestLogHandler;
 import org.hiero.block.node.app.fixtures.plugintest.RecordingServiceBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
@@ -299,7 +298,6 @@ class StateManagementPluginLifecycleTest {
     void pendingBlocksStopsGrowingOnceApplyHalted(@TempDir final Path tmp) throws Exception {
         // handleVerification must stop staging new blocks once apply halts, since applyPending()
         // never drains pendingBlocks again until a restart.
-        final TestMetricsExporter metricsExporter = new TestMetricsExporter();
         final var configuration = ConfigurationBuilder.create()
                 .withConfigDataType(StateManagementConfig.class)
                 .withConfigDataType(MerkleDbConfig.class)
@@ -311,7 +309,7 @@ class StateManagementPluginLifecycleTest {
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
         final BlockNodeContext context = new BlockNodeContext(
                 configuration,
-                MetricRegistry.builder().setMetricsExporter(metricsExporter).build(),
+                MetricRegistry.builder().build(),
                 null,
                 facility,
                 null,
@@ -345,8 +343,7 @@ class StateManagementPluginLifecycleTest {
         plugin.applyPending();
         assertThat(plugin.isApplyHalted()).isTrue();
 
-        final long pendingAtApplyHalted =
-                metricsExporter.getMetricValue(StateManagementPlugin.METRIC_PENDING_BLOCKS.name());
+        final long pendingAtApplyHalted = plugin.pendingBlocksSize();
 
         // Deliver 100 more "verified" blocks after halting apply — none of them must be staged.
         for (long blockNumber = 2L; blockNumber <= 101L; blockNumber++) {
@@ -359,7 +356,7 @@ class StateManagementPluginLifecycleTest {
                     BlockSource.PUBLISHER));
         }
 
-        assertThat(metricsExporter.getMetricValue(StateManagementPlugin.METRIC_PENDING_BLOCKS.name()))
+        assertThat(plugin.pendingBlocksSize())
                 .as("pendingBlocks must not grow once apply is halted")
                 .isEqualTo(pendingAtApplyHalted);
         plugin.stop();
@@ -367,7 +364,6 @@ class StateManagementPluginLifecycleTest {
 
     @Test
     void pendingBlocksCapDropsExcessLiveBlocksDuringAGap(@TempDir final Path tmp) throws Exception {
-        final TestMetricsExporter metricsExporter = new TestMetricsExporter();
         final var configuration = ConfigurationBuilder.create()
                 .withConfigDataType(StateManagementConfig.class)
                 .withConfigDataType(MerkleDbConfig.class)
@@ -380,7 +376,7 @@ class StateManagementPluginLifecycleTest {
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
         final BlockNodeContext context = new BlockNodeContext(
                 configuration,
-                MetricRegistry.builder().setMetricsExporter(metricsExporter).build(),
+                MetricRegistry.builder().build(),
                 null,
                 facility,
                 null,
@@ -414,9 +410,9 @@ class StateManagementPluginLifecycleTest {
                     BlockSource.PUBLISHER));
         }
 
-        assertThat(metricsExporter.getMetricValue(StateManagementPlugin.METRIC_PENDING_BLOCKS.name()))
+        assertThat(plugin.pendingBlocksSize())
                 .as("pendingBlocks must stay at or below the configured cap")
-                .isLessThanOrEqualTo(3L);
+                .isLessThanOrEqualTo(3);
         plugin.stop();
     }
 
