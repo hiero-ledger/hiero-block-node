@@ -30,7 +30,7 @@ same kind of signature. The Block Node treats the signature as opaque; the TSS l
 format.
 
 **WRAPS**: the recursive proof system that keeps block signatures verifiable against the ledger
-ID as the Roster changes (see the [glossary](../block-node/glossary.md#wraps)). The TSS library
+ID as the Roster changes (see the [glossary](../block-node/reference/glossary.md#wraps)). The TSS library
 checks WRAPS whenever it verifies a block signature and embeds what it checks WRAPS against, so
 the Block Node configures, downloads or installs nothing for it.
 
@@ -188,8 +188,8 @@ every new TSS block fails with `BAD_BLOCK_PROOF`, the first one with the WARNING
 filter such data, since the ledger ID is opaque; the operator resets the TSS data instead (delete
 or replace the bootstrap file, or let block 0 of the new stream provision it) and resets the block
 store if it holds TSS blocks from before the change. See
-[Block Node Version Compatibility](../block-node/operations/version-compatibility.md) and
-[Resetting and Upgrading the Block Node](../block-node/operations/resetting-and-upgrading-the-block-node.md#resetting-tss-data-across-a-tss-library-change).
+[Block Node Version Compatibility](../block-node/deploy/version-compatibility.md) and
+[Resetting and Upgrading the Block Node](../block-node/operate/resetting-and-upgrading-the-block-node.md#resetting-tss-data-across-a-tss-library-change).
 
 ## Configuration
 
@@ -205,7 +205,7 @@ no configuration: it embeds what it verifies against and extracts its native lib
 ## Metrics
 
 `verification_proof_total{proof_type="tss", result=...}` counts TSS verification successes and
-failures (see [Metrics](../block-node/metrics.md)).
+failures (see [Metrics](../block-node/operate/metrics.md)).
 
 ## Exceptions
 

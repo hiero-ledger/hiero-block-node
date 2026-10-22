@@ -387,7 +387,7 @@ The opposite holds for IPv6: one client usually controls a whole /64, so it can 
 > _NOTE_ the TSS library that verifies TSS block proofs has no configuration. At start it extracts its native libraries
 > (a few MB) into the directory named by the `java.io.tmpdir` system property (`/tmp` by default), which must be
 > writable and allow executing mapped files; the Block Node shuts down when the library cannot load. See
-> [TSS Block Proof Verification](../design/tss-block-proof-verification.md#start-up-warm-up).
+> [TSS Block Proof Verification](../../design/tss-block-proof-verification.md#start-up-warm-up).
 
 ### Verification Plugin Configuration (DEPRECATED)
 

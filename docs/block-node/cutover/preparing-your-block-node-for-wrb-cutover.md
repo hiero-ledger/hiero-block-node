@@ -386,7 +386,7 @@ The file format:
 
 `ledgerId` is required, `validFromBlock` defaults to 0, and `currentRoster` is informational and may be omitted. Files written by earlier releases may also carry a
 `wrapsVerificationKey`, which the Block Node ignores: the TSS library embeds what it verifies against. TSS data from before the TSS library change in BN 0.45.0 does not verify blocks
-of the new library; see [Resetting TSS data across a TSS library change](./resetting-and-upgrading-the-block-node.md#resetting-tss-data-across-a-tss-library-change).
+of the new library; see [Resetting TSS data across a TSS library change](../operate/resetting-and-upgrading-the-block-node.md#resetting-tss-data-across-a-tss-library-change).
 
 **Peer Block Node query**
 

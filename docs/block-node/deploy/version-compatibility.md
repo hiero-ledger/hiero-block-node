@@ -61,7 +61,7 @@ Block Node's TSS data at the same time as their Consensus Nodes:
 - A BN that already stored TSS signed blocks from before the change must also reset its block
   store: those blocks do not verify on BN 0.45.0+.
 
-See [Resetting TSS data across a TSS library change](./resetting-and-upgrading-the-block-node.md#resetting-tss-data-across-a-tss-library-change)
+See [Resetting TSS data across a TSS library change](../operate/resetting-and-upgrading-the-block-node.md#resetting-tss-data-across-a-tss-library-change)
 for the procedure.
 
 ---
