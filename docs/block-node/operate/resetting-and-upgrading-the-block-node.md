@@ -255,7 +255,7 @@ grpcurl -plaintext -emit-defaults \
 ## Resetting TSS data across a TSS library change
 
 A change of the TSS library can change the ledger ID of every TSS network and the TSS block signatures it accepts. BN 0.45.0 is such a change (see the
-[compatibility fence at BN 0.45.0](./version-compatibility.md#compatibility-fence-at-bn-0450--cn-0790--mn-01660)). The Block Node keeps its TSS data (the ledger ID and an
+[compatibility fence at BN 0.45.0](../deploy/version-compatibility.md#compatibility-fence-at-bn-0450--cn-0790--mn-01660)). The Block Node keeps its TSS data (the ledger ID and an
 informational Roster) in `/opt/hiero/block-node/application-state/tss-bootstrap-roster.json` (`app.state.tssBootstrapFilePath`) on the application state volume, so an upgrade
 carries the old ledger ID over. Every new TSS block then fails verification with `BAD_BLOCK_PROOF`; the first one logs a WARNING
 `The TSS library <version> rejected the block signature or the ledger id of the TSS data valid from block <N>` (the following ones log the library's reason at DEBUG).
