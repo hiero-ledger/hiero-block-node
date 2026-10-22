@@ -9,7 +9,6 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Map;
 
 public class TestUtils {
@@ -41,7 +40,16 @@ public class TestUtils {
         }
     }
 
-    public static String getAbsoluteFolder(@NonNull String relativePath) {
-        return Paths.get(relativePath).toAbsolutePath().toString();
+    /**
+     * Absolute path of the simulator block set in the extracted {@code ci-test-blocks} archive, see
+     * {@code fetchTestBlocks} in the root build.
+     */
+    public static String getSimulatorBlocksFolder() {
+        final String dir = System.getProperty("hiero.testBlocks.dir");
+        if (dir == null) {
+            throw new IllegalStateException(
+                    "System property hiero.testBlocks.dir not set; run tests through Gradle (fetchTestBlocks)");
+        }
+        return Path.of(dir, "simulator", "block-0.0.3-blk").toString();
     }
 }

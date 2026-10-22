@@ -21,7 +21,6 @@ import com.hedera.hapi.block.stream.protoc.BlockItem;
 import com.hedera.pbj.runtime.ParseException;
 import com.swirlds.config.api.Configuration;
 import java.io.IOException;
-import java.nio.file.Paths;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
@@ -165,7 +164,7 @@ class BlockStreamSimulatorTest {
                 "blockStream.maxBlockItemsToStream",
                 "2",
                 "generator.rootPath",
-                getAbsoluteFolder("build/resources/test/block-0.0.3-blk/"),
+                TestUtils.getSimulatorBlocksFolder(),
                 "blockStream.streamingMode",
                 "CONSTANT_RATE",
                 "blockStream.blockItemsBatchSize",
@@ -183,10 +182,6 @@ class BlockStreamSimulatorTest {
 
         blockStreamSimulator.start();
         assertTrue(blockStreamSimulator.isRunning());
-    }
-
-    private String getAbsoluteFolder(String relativePath) {
-        return Paths.get(relativePath).toAbsolutePath().toString();
     }
 
     @Test
@@ -293,7 +288,7 @@ class BlockStreamSimulatorTest {
                 "blockStream.maxBlockItemsToStream",
                 "2",
                 "generator.rootPath",
-                getAbsoluteFolder("build/resources/test/block-0.0.3-blk/"),
+                TestUtils.getSimulatorBlocksFolder(),
                 "blockStream.streamingMode",
                 "MILLIS_PER_BLOCK"));
 
@@ -337,7 +332,7 @@ class BlockStreamSimulatorTest {
                 "blockStream.simulatorMode",
                 "PUBLISHER_CLIENT",
                 "generator.rootPath",
-                getAbsoluteFolder("build/resources/test/block-0.0.3-blk/"),
+                TestUtils.getSimulatorBlocksFolder(),
                 "blockStream.maxBlockItemsToStream",
                 "2",
                 "blockStream.streamingMode",

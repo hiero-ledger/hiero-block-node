@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.generator;
 
-import static org.hiero.block.simulator.fixtures.TestUtils.getAbsoluteFolder;
+import static org.hiero.block.simulator.fixtures.TestUtils.getSimulatorBlocksFolder;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.io.IOException;
@@ -30,10 +30,7 @@ class GeneratorInjectionModuleTest {
     @Test
     void providesBlockStreamManager_AsFileLargeDataSets() throws IOException {
         final BlockGeneratorConfig blockGeneratorConfig = TestUtils.getTestConfiguration(Map.of(
-                        "generator.generationMode",
-                        "DIR",
-                        "generator.folderRootPath",
-                        getAbsoluteFolder("build/resources/test/block-0.0.3-blk/")))
+                        "generator.generationMode", "DIR", "generator.folderRootPath", getSimulatorBlocksFolder()))
                 .getConfigData(BlockGeneratorConfig.class);
 
         final BlockStreamManager blockStreamManager = GeneratorInjectionModule.providesBlockStreamManager(

@@ -256,12 +256,13 @@ jobs:
           # The TSS library moved to hedera-cryptography 3.22.0 in 0.45.0 (#3689), after 0.45.0-rc2,
           # which changes the TSS block proofs and the ledger id. Releases before 0.45.0 and the 0.45.0
           # pre-releases up to rc2 (rc1, rc2, alpha, sha256) verify only the earlier proofs, which the
-          # snapshot's harness can no longer sign, so the install phase pushes a committed legacy chain
-          # (tools-and-tests/scripts/e2e-node-operator/legacy-tss-blocks) and the TSS bootstrap file is
-          # reset to the snapshot's before the upgrade. The 0.45.0 pre-releases are matched by name,
-          # since version precedence orders sha256.N after rc2; the tssupdate build carries 3.21.0,
-          # which is wire compatible with 3.22.0. A pre-release name not listed here, including later
-          # release candidates, stops the run instead of guessing which library the base carries.
+          # snapshot's harness can no longer sign, so the install phase pushes a legacy chain from the
+          # ci-test-blocks archive (see tools-and-tests/scripts/e2e-node-operator/legacy-tss-blocks) and
+          # the TSS bootstrap file is reset to the snapshot's before the upgrade. The 0.45.0
+          # pre-releases are matched by name, since version precedence orders sha256.N after rc2; the
+          # tssupdate build carries 3.21.0, which is wire compatible with 3.22.0. A pre-release name
+          # not listed here, including later release candidates, stops the run instead of guessing
+          # which library the base carries.
           if (( BASE_MAJOR == 0 && BASE_MINOR < 45 )); then
             BASE_TSS_ERA="legacy"
           elif (( BASE_MAJOR == 0 && BASE_MINOR == 45 && BASE_PATCH == 0 )) && [[ -n "${BASE_PRE_RELEASE}" ]]; then
@@ -357,9 +358,10 @@ jobs:
           # <BLOCKS_DIR>/0.blk.gz..4.blk.gz hashed with the snapshot's algorithm (SHA-256) plus the signer's
           # tss-bootstrap-roster.json. The base release gets its own chain in <BLOCKS_DIR>-base for the
           # install phase when it cannot verify the snapshot's blocks:
-          #   - a base from before the TSS library change (BASE_TSS_ERA=legacy) gets the committed legacy
-          #     chain matching its hash algorithm, since the snapshot's harness can no longer sign it; the
-          #     TSS bootstrap file is then reset to the snapshot's before the upgrade;
+          #   - a base from before the TSS library change (BASE_TSS_ERA=legacy) gets the legacy chain
+          #     matching its hash algorithm from the ci-test-blocks archive, since the snapshot's harness
+          #     can no longer sign it; the TSS bootstrap file is then reset to the snapshot's before the
+          #     upgrade;
           #   - otherwise a base verifying another hash algorithm gets a chain the harness hashes with that
           #     algorithm; both chains come from the same deterministic signer, so one TSS bootstrap
           #     (block 0) covers both.
@@ -375,7 +377,8 @@ jobs:
           if [[ "${BASE_ERA}" == "legacy" ]]; then
             BASE_BLOCKS_DIR="${BLOCKS_DIR}-base"
             mkdir -p "${BASE_BLOCKS_DIR}"
-            LEGACY_SET="tools-and-tests/scripts/e2e-node-operator/legacy-tss-blocks/$(echo "${BASE_ALGORITHM}" | tr '[:upper:]_' '[:lower:]-')"
+            ./gradlew fetchTestBlocks --no-daemon
+            LEGACY_SET=".test-blocks/ci-test-blocks/tss/direct/varied/local-legacy-$(echo "${BASE_ALGORITHM}" | tr '[:upper:]_' '[:lower:]-')"
             for i in 0 1 2; do
               gunzip -c "${LEGACY_SET}/${i}.blk.gz" > "${BASE_BLOCKS_DIR}/${i}.blk"
             done

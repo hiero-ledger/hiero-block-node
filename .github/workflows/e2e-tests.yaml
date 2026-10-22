@@ -50,6 +50,12 @@ jobs:
           distribution: "temurin"
           java-version: "25.0.2"
 
+      - name: Cache CI test blocks
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .test-blocks/ci-test-blocks
+          key: ci-test-blocks-${{ hashFiles('gradle.properties') }}
+
       - name: Run API E2E Tests
         id: api-e2e-tests
         run: SERVER_PORT=40481 PROMETHEUS_ENDPOINT_ENABLED=false ${GRADLE_EXEC} runAPISuites # run on non-default port to avoid parallel run conflicts
@@ -81,6 +87,12 @@ jobs:
         with:
           distribution: "temurin"
           java-version: "25.0.2"
+
+      - name: Cache CI test blocks
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .test-blocks/ci-test-blocks
+          key: ci-test-blocks-${{ hashFiles('gradle.properties') }}
 
       - name: Run Acceptance Tests
         id: acceptance-tests

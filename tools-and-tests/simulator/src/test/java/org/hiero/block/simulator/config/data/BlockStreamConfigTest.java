@@ -11,13 +11,10 @@ import java.nio.file.Paths;
 import org.hiero.block.simulator.config.types.GenerationMode;
 import org.hiero.block.simulator.config.types.SimulatorMode;
 import org.hiero.block.simulator.config.types.StreamingMode;
+import org.hiero.block.simulator.fixtures.TestUtils;
 import org.junit.jupiter.api.Test;
 
 class BlockStreamConfigTest {
-
-    private String getAbsoluteFolder(String relativePath) {
-        return Paths.get(relativePath).toAbsolutePath().toString();
-    }
 
     private BlockStreamConfig.Builder getBlockStreamConfigBuilder() {
         final StreamingMode streamingMode = StreamingMode.CONSTANT_RATE;
@@ -35,7 +32,7 @@ class BlockStreamConfigTest {
     }
 
     private BlockGeneratorConfig.Builder getBlockGeneratorConfigBuilder() {
-        String folderRootPath = "build/resources/test/block-0.0.3-blk/";
+        String folderRootPath = TestUtils.getSimulatorBlocksFolder();
         GenerationMode generationMode = GenerationMode.DIR;
 
         int paddedLength = 36;
@@ -85,8 +82,7 @@ class BlockStreamConfigTest {
     @Test
     void testValidAbsolutePath() {
         // Setup valid folder path and generation mode
-        String gzRootFolder = "build/resources/test/block-0.0.3-blk/";
-        String folderRootPath = getAbsoluteFolder(gzRootFolder);
+        String folderRootPath = TestUtils.getSimulatorBlocksFolder();
         GenerationMode generationMode = GenerationMode.DIR;
 
         // Assume the folder exists
