@@ -382,7 +382,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         //    retention policy) but were already stored.
         ConcurrentBlockRangeSet knownBlocks = new ConcurrentBlockRangeSet();
         knownBlocks.addAll(knownBlockRanges);
-        knownBlocks.addAll(context.historicalBlockProvider().availableBlocks());
+        knownBlocks.addAll(context.applicationStateFacility().availableBlockSet());
         List<BlockRange> blockRanges = knownBlocks.toList();
 
         // 2. Determine range to scan
@@ -650,7 +650,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         }
 
         long lastPersistedBlock =
-                Math.max(context.historicalBlockProvider().availableBlocks().max(), knownBlockRanges.max());
+                Math.max(context.applicationStateFacility().availableBlockSet().max(), knownBlockRanges.max());
         long startBackfillFrom = Math.max(lastPersistedBlock + 1, backfillConfiguration.startBlock());
         long newestBlockKnown = notification.blockNumber();
         long cappedEnd = backfillConfiguration.endBlock() >= 0

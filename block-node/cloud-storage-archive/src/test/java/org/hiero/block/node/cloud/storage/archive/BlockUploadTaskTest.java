@@ -894,6 +894,29 @@ class BlockUploadTaskTest {
         public void updateBackfillSources(NetworkData sources) {}
 
         @Override
-        public void updateAvailableBlocks() {}
+        public void addAvailableBlockRange(
+                final org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin provider,
+                final org.hiero.block.api.BlockRange blockRange) {}
+
+        @Override
+        public void removeAvailableBlockRange(
+                final org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin provider,
+                final org.hiero.block.api.BlockRange blockRange) {}
+
+        @Override
+        public List<org.hiero.block.api.BlockRange> availableBlocks() {
+            return List.of();
+        }
+
+        @Override
+        public org.hiero.block.node.spi.historicalblocks.BlockRangeSet availableBlockSet() {
+            return new org.hiero.block.node.base.ranges.ConcurrentBlockRangeSet();
+        }
+
+        @Override
+        public java.util.Optional<org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin> blockProvider(
+                final long blockNumber) {
+            return java.util.Optional.empty();
+        }
     }
 }

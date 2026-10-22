@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Stream;
@@ -37,6 +38,8 @@ import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.hiero.block.node.spi.health.HealthFacility;
+import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.module.SemanticVersionUtility;
 import org.hiero.metrics.core.Metric;
@@ -449,7 +452,30 @@ public abstract class PluginTestBase<
     }
 
     @Override
-    public void updateAvailableBlocks() {
-        // No-op for test base; use replaceAvailableBlocks to simulate updates.
+    public void addAvailableBlockRange(final BlockProviderPlugin provider, final BlockRange blockRange) {
+        // Available blocks are read live from the active historical block facility; only record as stored.
+        appStoredBlocks.add(blockRange);
+    }
+
+    @Override
+    public void removeAvailableBlockRange(final BlockProviderPlugin provider, final BlockRange blockRange) {
+        // No-op for test base; available blocks are read live from the active historical block facility.
+    }
+
+    @Override
+    public List<BlockRange> availableBlocks() {
+        return availableBlockSet().streamRanges().toList();
+    }
+
+    @Override
+    public BlockRangeSet availableBlockSet() {
+        return activeHistoricalBlockFacility == null
+                ? new ConcurrentBlockRangeSet()
+                : activeHistoricalBlockFacility.availableBlocks();
+    }
+
+    @Override
+    public Optional<BlockProviderPlugin> blockProvider(final long blockNumber) {
+        return Optional.empty();
     }
 }
