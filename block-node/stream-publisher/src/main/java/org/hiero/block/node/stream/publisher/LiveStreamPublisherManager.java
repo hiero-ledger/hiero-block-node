@@ -119,6 +119,10 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private long lastPenaltyResetNanos;
     /// Scheduled handle for the flow-control refresh task.
     private ScheduledFuture<?> flowControlRefreshFuture;
+    /// Guards check-and-replace of the queue forwarder task.
+    private final Object forwarderLock = new Object();
+    /// Set once on shutdown so recovery checks never start tasks on a stopped manager.
+    private volatile boolean stopped;
     /// Reference to application state facility, used to update the next
     /// expected block value.
     private final ApplicationStateFacility applicationState;
@@ -388,8 +392,13 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             }
         }
         handlers.clear();
+        // Set before cancelling anything so the recovery checks cannot restart a task we are stopping.
+        stopped = true;
         // Cancel the queue forwarder task if it is running.
-        final var lastResult = queueForwarderResult.getAndSet(null);
+        final Future<Long> lastResult;
+        synchronized (forwarderLock) {
+            lastResult = queueForwarderResult.getAndSet(null);
+        }
         if (lastResult != null) {
             lastResult.cancel(true);
         }
@@ -1194,23 +1203,45 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     }
 
     /// Check the queue forwarder task and start, or restart, if it is
-    /// null or completed, respectively.
-    private void checkLogAndRestartForwarderTask() {
-        final Future<Long> currentResult = queueForwarderResult.get();
-        if (currentResult != null && currentResult.isDone()) {
+    /// null or completed, respectively. A completed task is logged and replaced.
+    void checkLogAndRestartForwarderTask() {
+        if (stopped) {
+            return;
+        }
+        synchronized (forwarderLock) {
+            if (stopped) {
+                return;
+            }
+            final Future<Long> currentResult = queueForwarderResult.get();
+            if (currentResult != null && !currentResult.isDone()) {
+                return;
+            }
+            if (currentResult != null) {
+                logForwarderOutcome(currentResult);
+            }
             try {
-                final long blocksForwarded = currentResult.get();
-                metrics.blockBatchesMessaged().increment(blocksForwarded);
-                final String formatString = "Queue forwarder task completed normally after forwarding %d blocks.";
-                LOGGER.log(DEBUG, formatString.formatted(blocksForwarded));
-            } catch (CancellationException | ExecutionException e) {
-                LOGGER.log(INFO, "Queue forwarder task completed exceptionally.", e);
-            } catch (InterruptedException e) {
-                LOGGER.log(DEBUG, "Interrupted retrieving queue forwarder task result.");
+                queueForwarderResult.set(launchQueueForwarder());
+            } catch (final RuntimeException e) {
+                // Leave the reference empty so the next block proof tries again.
+                queueForwarderResult.set(null);
+                LOGGER.log(WARNING, "Unable to launch the queue forwarder task, will retry.", e);
             }
         }
-        if (queueForwarderResult.get() == null) {
-            queueForwarderResult.compareAndSet(null, launchQueueForwarder());
+    }
+
+    private void logForwarderOutcome(final Future<Long> completedResult) {
+        try {
+            final long blocksForwarded = completedResult.get();
+            metrics.blockBatchesMessaged().increment(blocksForwarded);
+            final String formatString = "Queue forwarder task completed normally after forwarding %d blocks.";
+            LOGGER.log(DEBUG, formatString.formatted(blocksForwarded));
+        } catch (final ExecutionException e) {
+            LOGGER.log(WARNING, "Queue forwarder task failed, restarting it.", e.getCause());
+        } catch (final CancellationException e) {
+            LOGGER.log(INFO, "Queue forwarder task was cancelled, restarting it.");
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOGGER.log(DEBUG, "Interrupted retrieving queue forwarder task result.");
         }
     }
 
