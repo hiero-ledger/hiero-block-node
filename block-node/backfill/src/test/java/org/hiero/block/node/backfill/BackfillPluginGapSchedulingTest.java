@@ -166,6 +166,25 @@ class BackfillPluginGapSchedulingTest {
             assertFalse(plugin.scheduleGap(liveTailGap(5, 19)), "The queue is full");
             assertEquals(4, plugin.liveTailHighWaterMark.get());
         }
+
+        @Test
+        @DisplayName("A worker reset made while a submission is failing is not overwritten by the rollback")
+        void rollbackKeepsWorkerResetMadeDuringSubmit() {
+            plugin.liveTailScheduler = idleScheduler(10);
+            assertTrue(plugin.scheduleGap(liveTailGap(0, 19)));
+
+            final ExecutorService executor = mock(ExecutorService.class);
+            when(executor.submit(any(Runnable.class))).thenAnswer(invocation -> {
+                // A worker ends a gap early and pulls the mark down while this submission is in flight.
+                plugin.liveTailHighWaterMark.set(4);
+                throw new RejectedExecutionException("executor is down");
+            });
+            plugin.liveTailScheduler = new BackfillTaskScheduler(
+                    executor, gap -> {}, 10, mock(BackfillFetcher.class), mock(BackfillPersistenceAwaiter.class));
+
+            assertFalse(plugin.scheduleGap(liveTailGap(10, 25)));
+            assertEquals(4, plugin.liveTailHighWaterMark.get(), "The worker's reset must survive the rollback");
+        }
     }
 
     @Nested

@@ -508,29 +508,30 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         // Deduplicate live-tail gaps using the high-water mark. The check, the reservation and the submission
         // are one critical section so concurrent callers cannot both schedule the same range.
         synchronized (liveTailLock) {
-            final long previousHighWaterMark = liveTailHighWaterMark.get();
-            if (gap.range().end() <= previousHighWaterMark) {
-                // Already scheduled this range
+            // Reserve the range before submitting: a worker that ends a gap early pulls the mark back down from
+            // its own thread without this lock, and that reset must not be overwritten by an advance made after
+            // the submission. The previous value comes from the reservation itself, so the dedup decision and the
+            // rollback target cannot go stale if a worker resets the mark in between.
+            final long markBeforeReservation = liveTailHighWaterMark.getAndUpdate(
+                    current -> Math.max(current, gap.range().end()));
+            if (gap.range().end() <= markBeforeReservation) {
+                // Already scheduled this range, the reservation left the mark unchanged
                 final String skippingDuplicateLiveTailMsg =
                         "Skipping duplicate live-tail gap [{0}], highWaterMark=[{1}]";
-                LOGGER.log(TRACE, skippingDuplicateLiveTailMsg, gap.range(), previousHighWaterMark);
+                LOGGER.log(TRACE, skippingDuplicateLiveTailMsg, gap.range(), markBeforeReservation);
                 return false;
             }
             GapDetector.Gap effectiveGap = gap;
-            if (gap.range().start() <= previousHighWaterMark) {
+            if (gap.range().start() <= markBeforeReservation) {
                 // Partial overlap - adjust start
-                long newStart = previousHighWaterMark + 1;
+                long newStart = markBeforeReservation + 1;
                 effectiveGap =
                         new GapDetector.Gap(new LongRange(newStart, gap.range().end()), GapDetector.Type.LIVE_TAIL);
                 final String adjustedLiveTailGapMsg = "Adjusted live-tail gap from [{0}] to [{1}]";
                 LOGGER.log(DEBUG, adjustedLiveTailGapMsg, gap.range(), effectiveGap.range());
             }
-            // Reserve the range before submitting: a worker that ends a gap early pulls the mark back down from
-            // its own thread, and that reset must not be overwritten by an advance made after the submission.
-            final long reservedHighWaterMark = liveTailHighWaterMark.updateAndGet(
-                    current -> Math.max(current, gap.range().end()));
             final String updatedHighWaterMarkMsg = "Updated liveTailHighWaterMark to [{0}]";
-            LOGGER.log(TRACE, updatedHighWaterMarkMsg, reservedHighWaterMark);
+            LOGGER.log(TRACE, updatedHighWaterMarkMsg, gap.range().end());
 
             final String submittingGapMsg = "Submitting gap type=[{0}] range=[{1}] to scheduler";
             LOGGER.log(DEBUG, submittingGapMsg, effectiveGap.type(), effectiveGap.range());
@@ -538,7 +539,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 return true;
             }
             // The gap never reached a scheduler, so give the range back for the next scan to rediscover.
-            liveTailHighWaterMark.compareAndSet(reservedHighWaterMark, previousHighWaterMark);
+            liveTailHighWaterMark.compareAndSet(gap.range().end(), markBeforeReservation);
             return false;
         }
     }
