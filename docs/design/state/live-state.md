@@ -118,31 +118,22 @@ arrives (see §6.5), not on a timer.
 
 ## 5. Data model
 
-### 5.1 Identifying the attested block — no separate metadata
+### 5.1 Identifying the attested block
 
-This plugin does not maintain an independent `StateMetadata` copy of
-`block_number`/`round_number`/`state_root_hash`/`state_size` — all of it is either already
-tracked by the state itself or has no business being externally observable:
+`block_number` is read directly from the `BlockStreamInfo` state singleton, which `main`'s own
+`state_changes` stream updates on every applied block (§7's applier walks every `state_changes`
+item generically, with no per-stateId filtering, so this singleton is populated by construction).
+Reading it from the state itself means it can never disagree with the state it describes.
 
-- `block_number` is read directly from the `BlockStreamInfo` state singleton, which `main`'s own
-  `state_changes` stream already updates on every applied block (§7's applier walks every
-  `state_changes` item generically, with no per-stateId filtering, so this singleton is populated
-  by construction, not by any extra bookkeeping this plugin would need to add).
-- `state_root_hash`/`state_size` are `VirtualMap.getHash()`/`.getMetadata().getSize()`, directly
-  queryable from the live `VirtualMap` at any time — not exposed on the query response at all
-  (nothing external currently needs them; internal code reads them from the `VirtualMap` where
-  needed, e.g. the hashing pipeline in §6.5 and the `state_size` metric in §9).
-- `round_number` is sourced purely from the last `RoundHeader` block item seen during apply
-  (§12) — it has no state-singleton equivalent, is not part of the query response, and is not
-  persisted: after a restore (§6.2) it is simply unknown until the next applied block's
-  `RoundHeader` repopulates it, exactly like the existing in-apply fallback for a block that
-  doesn't carry a `RoundHeader` of its own. This is harmless since every block carries at least
-  one `RoundHeader` (§12) and nothing reads `round_number` before the first post-restore apply.
+`round_number` is sourced purely from the last `RoundHeader` block item seen during apply (§12).
+It has no state-singleton equivalent and is not persisted: after a restore (§6.2) it is simply
+unknown until the next applied block's `RoundHeader` repopulates it, exactly like the existing
+in-apply fallback for a block that doesn't carry a `RoundHeader` of its own — harmless, since
+every block carries at least one `RoundHeader` (§12).
 
-A second, independently-tracked copy can only ever be as correct as the code that keeps it in
-sync with the state it describes; reading the value from the state directly cannot disagree with
-itself, which is why none of this is tracked separately. See §6.2 for how this plugin identifies
-which block it last applied on restart without a separate file.
+See §6.2 for how this plugin identifies which block it last applied on restart, using the
+snapshot directory name together with this same `BlockStreamInfo` read as a self-consistency
+check.
 
 ### 5.2 Binary state query
 
@@ -415,11 +406,9 @@ decides whether that scheduled invocation has anything new to write.
    canonical consensus-node `data/state/` layout into a temporary sibling directory, then
    `Files.move(..., ATOMIC_MOVE, REPLACE_EXISTING)` renames it into place as
    `recentPath/<blockNumber>`. Restore (§6.2) identifies a snapshot purely by directory name, so
-   a snapshot directory being present must imply it is fully written — the same
-   temp-then-atomic-rename pattern this plugin's now-removed `StateMetadataStore.save()` used
-   correctly for its JSON writes, just applied to a directory instead of a file. A
-   crash between the two steps leaves either no `<blockNumber>` directory (if before the rename)
-   or a complete one (if after) — never a partial one.
+   a snapshot directory being present must imply it is fully written. A crash between the two
+   steps leaves either no `<blockNumber>` directory (if before the rename) or a complete one (if
+   after) — never a partial one.
 3. `pruneOldRecentSnapshots(blockNumber)`: delete recent snapshot dirs beyond
    `snapshotRecentRetentionCount`, oldest first; the just-written
    `<blockNumber>` dir is always kept. Snapshots live only under `recentPath`
