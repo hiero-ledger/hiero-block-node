@@ -120,11 +120,9 @@ arrives (see §6.5), not on a timer.
 
 ### 5.1 Identifying the attested block — no separate metadata
 
-Earlier drafts of this design tracked a `StateMetadata` message
-(`block_number`/`round_number`/`state_root_hash`/`state_size`) as an independent copy, persisted
-alongside the snapshot and returned on every `StateResponse`. This plugin does not
-maintain any such copy — all of it is either already tracked by the state itself or has no
-business being externally observable:
+This plugin does not maintain an independent `StateMetadata` copy of
+`block_number`/`round_number`/`state_root_hash`/`state_size` — all of it is either already
+tracked by the state itself or has no business being externally observable:
 
 - `block_number` is read directly from the `BlockStreamInfo` state singleton, which `main`'s own
   `state_changes` stream already updates on every applied block (§7's applier walks every
@@ -141,10 +139,10 @@ business being externally observable:
   doesn't carry a `RoundHeader` of its own. This is harmless since every block carries at least
   one `RoundHeader` (§12) and nothing reads `round_number` before the first post-restore apply.
 
-Tracking any of this independently was flagged (correctly) as a structural out-of-sync risk: a
-second copy can only ever be as correct as the code that keeps it in sync with the state it
-describes, where reading it from the state directly cannot disagree with itself. See §6.2 for
-how this plugin identifies which block it last applied on restart without a separate file.
+A second, independently-tracked copy can only ever be as correct as the code that keeps it in
+sync with the state it describes; reading the value from the state directly cannot disagree with
+itself, which is why none of this is tracked separately. See §6.2 for how this plugin identifies
+which block it last applied on restart without a separate file.
 
 ### 5.2 Binary state query
 
@@ -194,17 +192,14 @@ message StateResponse {
 ```
 
 `kv_bytes`/`singleton_bytes`/`queue_values` are a `oneof`: exactly one populated per RPC method
-on `SUCCESS`, none on failure. An earlier draft left these as plain fields reasoning that
-`queue_bytes` being `repeated` (protobuf disallows `repeated` directly inside a `oneof`) cost
-more devex to wrap than the `oneof` saved — jsync's review pushed back on that: the wrapper
-message pattern (`QueueValues`) is already standard practice elsewhere in this API, and making
-mutual exclusivity a type-system guarantee is worth the one extra wrapper message.
+on `SUCCESS`, none on failure. `queue_values` needs a wrapper message (`QueueValues`) because
+protobuf disallows a `repeated` field directly inside a `oneof`; the wrapper pattern is already
+standard practice elsewhere in this API, and making mutual exclusivity a type-system guarantee
+is worth the one extra message.
 
-`StateQuery.selector` is a `oneof` too (`key_bytes`/`queue_range`), reversing an earlier call to
-leave the request side as plain fields — that call was made before `queue_range` existed, when
-`queue_index` was just a plain scalar that narrowed a queue read rather than selecting between
-mutually exclusive request *kinds*. Introducing `QueueRange` as a real message makes the two
-genuinely exclusive shapes, so the same type-system argument applies here now too.
+`StateQuery.selector` is a `oneof` too (`key_bytes`/`queue_range`): `getKV` and `getQueue` select
+mutually exclusive request *kinds*, not just independent optional fields, so the same
+type-system guarantee applies on the request side as well.
 
 `NOT_AVAILABLE` mirrors `BlockAccessService.getBlock()`'s `NOT_AVAILABLE` for a block outside
 the range this node currently holds. This plugin has no historical retention (§2/§7): the
@@ -347,10 +342,9 @@ caches its result, so the total hashing work is the same whether it runs eagerly
 the only real choice is *when* to pay the cost. Hashing starts in the background right after a
 state is sealed into (2), overlapping with whatever the apply pipeline does next; the block
 that needs the hash to validate against joins that in-flight computation instead of blocking
-on a synchronous hash. (An earlier version of this design deferred hashing until promotion,
-reasoning it would "avoid unnecessary work" for a never-confirmed stream tip — that reasoning
-doesn't hold, since the hash is computed exactly once either way; deferring only serialized the
-cost onto the apply path instead of overlapping it.)
+on a synchronous hash. Deferring hashing until promotion would not save any work — the hash is
+computed exactly once either way — it would only move the cost onto the apply path instead of
+overlapping it with other work.
 
 `applyBlockStateChanges(block N)` — **lag-1 commit**: a block is applied into the live
 mutable, but only exposed once the *next* block's footer attests its root hash.
@@ -552,9 +546,9 @@ Registered with the block node's `MetricRegistry` in `init()`, under the `blockn
 | `state_hash_mismatch_total` | LongCounter     | Cumulative footer hash mismatches observed                                                                                                                                                  |
 | `state_block_lag`           | ObservableGauge | Blocks between the latest available block and the attested block; grows during a stall — alert on it independent of `state_apply_halted`, since a stall can also be a slow/stuck apply path |
 
-`snapshot_latency_ms`/`catch_up_blocks_total`/`query_total{kind=...}` from an earlier draft of
-this table are not implemented — snapshot creation and the query path don't exist yet in this
-plugin (see Roadmap); add them alongside those features.
+`snapshot_latency_ms`, `catch_up_blocks_total`, and `query_total{kind=...}` are not implemented
+yet — snapshot creation and the query path don't exist yet in this plugin (see Roadmap); add
+them alongside those features.
 
 ## 10. Failure modes
 
