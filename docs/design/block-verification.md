@@ -51,11 +51,12 @@ contiguous, in order stream of verified blocks they can process safely.
    - Successful verifications **must** be propagated strictly in order, subject
      to the ordering configuration described below.
    - Failures **must** be propagated immediately, without ordering.
-4. The plugin **must** bound its resource usage: the number of simultaneously
-   active sessions is limited, and when the limit is exceeded the session
-   least likely to be released soon makes room; a session the ordered stream
-   is waiting for is never given up while another candidate exists, and the
-   block the publisher is still streaming is never given up at all.
+4. The plugin **must** bound the sessions that can wait indefinitely: when the
+   number of simultaneously active sessions exceeds its limit, a session stuck
+   behind a block that no session holds makes room, the highest one first. A
+   session that completes on its own or belongs to a run moving with the last
+   verified block is never given up, and neither is the block the publisher is
+   still streaming.
 5. A failure for a block that was *recently verified successfully* **must** be
    distinguishable from a first-time failure, so downstream plugins can treat it
    as informational.
@@ -81,7 +82,7 @@ result handling.</dd>
 sessions and their lifecycle: it starts, supplies, cancels and clears them, and
 routes incoming data to the correct session.</dd>
 <dt><code>Active Sessions Buffer</code></dt><dd>A passive helper of the session
-handler that holds the running sessions in two lanes under one limit and
+handler that holds the running sessions in two lanes under one soft limit and
 applies the eviction policy when an admission exceeds it.</dd>
 <dt><code>Verification Notification</code></dt><dd>A message sent to the
 internal messaging system that conveys the result of a verification session,
@@ -93,6 +94,11 @@ passed through.</dd>
 <dt><code>Last Verified Block</code></dt><dd>The highest block number whose
 successful verification has been propagated. Ordering of successes is enforced
 against this value.</dd>
+<dt><code>First Gap</code></dt><dd>The lowest block after the last verified
+block that no running session holds.</dd>
+<dt><code>Stuck Session</code></dt><dd>A session waiting for order above the
+first gap: it waits for a block nobody is working on. The only kind of session
+the eviction policy gives up.</dd>
 </dl>
 
 ## Entities
@@ -123,11 +129,11 @@ ended, it cancels the active one.
 A passive helper of the session handler that holds the sessions the handler
 started and has not cleared yet, in two lanes: a **high priority lane** for
 sessions of blocks from the publisher and a **low priority lane** for sessions
-of blocks from any other source, under one combined limit. It gives the handler
-the means to manage its sessions: admitting a session to the lane its block's
-source calls for, applying the **eviction policy** when an admission exceeds the
-limit, finding the active publisher session, and clearing the sessions that are
-complete. Sessions never change the buffer themselves.
+of blocks from any other source, under one combined, soft limit. It gives the
+handler the means to manage its sessions: admitting a session to the lane its
+block's source calls for, applying the **eviction policy** when an admission
+exceeds the limit, finding the active publisher session, and clearing the
+sessions that are complete. Sessions never change the buffer themselves.
 
 ### VerificationOutbox
 
@@ -243,12 +249,12 @@ stage skips the remaining work and goes straight to result handling.
 
 ### The Active Sessions Buffer
 
-The active sessions buffer keeps all running sessions, sized by
-`activeSessionsBufferSize`. The buffer has two lanes: the **high priority
-lane** holds the sessions of blocks from the publisher, the **low priority
-lane** holds the sessions of blocks from any other source (backfill today). The
-limit applies to the combined count of both lanes, so either lane may use the
-whole budget while the other is idle.
+The active sessions buffer keeps all running sessions. The buffer has two
+lanes: the **high priority lane** holds the sessions of blocks from the
+publisher, the **low priority lane** holds the sessions of blocks from any
+other source (backfill today). `activeSessionsBufferSize` applies to the
+combined count of both lanes, so either lane may use the whole budget while
+the other is idle.
 
 Every new session is added to the lane its block's source calls for. A
 publisher session also becomes the *active publisher session*, whether its block
@@ -258,33 +264,48 @@ it. When the next publisher block starts before it ended, the session handler
 cancels it, because the publisher has moved on. The session handler clears the
 sessions that are complete before it handles new block items, and the buffer
 clears them again before deciding an eviction. If an admission takes the
-combined count over the limit, room is made by an **eviction policy**: a
-separate unit that receives an immutable view of both lanes and selects the
-sessions to give up. The policy in use reasons as follows.
+combined count over the limit, the buffer consults an **eviction policy**: a
+separate unit that receives an immutable view of both lanes and the last
+verified block, and selects at most one session to give up. The policy in use
+sorts every session into one of three states.
 
-- A session *awaits order* when it would wait at the ordering stage: its block
-  is more than one ahead of the last verified block, at or above
-  `firstOrderedBlock`, and its lane is subject to ordering (the high priority
-  lane always is, the low priority lane when `allSourcesRequireOrdering` is
-  `true`). The session the publisher is still streaming is not counted.
-- A block is *needed* when a session above it awaits order: every block
-  between the last verified block and the highest awaiting block is needed.
-- First choice: in the low priority lane, a session for a block at or below
-  the last verified block (it can never be needed), otherwise the highest
-  session when nobody needs it.
-- Second choice: in the high priority lane, the highest session other than the
-  one the publisher is still streaming. Blocks in this lane arrive in ascending
-  order from the publisher, so the highest is the farthest from release and its
-  resend costs the publisher the smallest rewind. The session still being streamed is never
-  given up, because the publisher does not resend a block that ends incomplete.
+- *Finishing*: the session does not wait for order. Its block is at most one
+  ahead of the last verified block (the next expected block, or a block at or
+  below the last verified block, such as historical backfill), below
+  `firstOrderedBlock`, or in the low priority lane while
+  `allSourcesRequireOrdering` is `false`. It reports its result on its own.
+- *Progressing*: the session waits for order, and every block from the next
+  expected block up to its own is held by a session of either lane. It is
+  released as the run below it verifies.
+- *Stuck*: the session waits for order above the *first gap*, the lowest block
+  after the last verified block that no session holds. It waits for a block
+  nobody is working on, and can hold its place indefinitely.
 
-The session just admitted is not exempt: when it is the highest awaiting one, or
-already behind the last verified block, it is the one nobody waits for. The
-policy is consulted once per admission, and each admission pays for itself: it
-added one session and its eviction pass removes one, so the buffer never grows
-beyond its size for any delivery order, including blocks arriving in descending
-order. Eviction happens only when a session is admitted,
-never on a timer, and the two ingress threads never evict at the same time.
+Only stuck sessions are evicted, the one with the highest block first.
+Successes are released in order, so evicting a stuck session never holds up a
+session that could otherwise be released: everything below the first gap is
+unaffected, and everything above it is stuck already. The highest stuck session
+leaves no other session behind it but, possibly, the active publisher session,
+and for the publisher it is the newest block, the smallest rewind for a resend.
+The active publisher session is never selected, because the publisher does not
+resend a block that ends incomplete, and when sessions of both lanes hold the
+highest stuck block, the low priority one is selected. The session just
+admitted is treated like any other: the next expected block is finishing, so it
+is always admitted and kept, while a block that arrives stuck far ahead of the
+rest is the highest stuck session and is evicted on arrival.
+
+When no session is stuck, nothing is evicted: every session completes on its
+own, so the admission completes and the buffer stays over its limit until they
+do. The limit is therefore a soft one. It bounds the sessions that could wait
+indefinitely, and never gives up work that is moving. How far the count rises
+above the limit depends on how far ahead the sources deliver: backfill sends
+its blocks in chunks and waits for each chunk to be persisted, and the
+publisher streams ahead of the blocks the node has acknowledged, which the node
+does only once they are verified and persisted. The
+`verification_active_sessions` gauge shows the count. The policy is consulted
+once per admission over the limit; eviction happens only when a session is
+admitted, never on a timer; an admission never waits for room; and the two
+ingress threads never evict at the same time.
 
 An evicted session reports a failure through the normal result handling path:
 `CANCELLED` when it had already received its complete block,
@@ -342,7 +363,7 @@ Every notification goes through the `VerificationOutbox` and is sent on the
 calling thread. A success is only ever sent from a session thread, before the
 session advances the last verified block, so when messaging has no room for a
 verified block the send waits, and every later block waits in the ordering
-stage of its session, where the active sessions buffer bounds it. Failures,
+stage of its session, held in the active sessions buffer. Failures,
 cancellations included, can also be sent from the threads that deliver blocks
 to the plugin (an evicted or superseded session reports on the thread that
 cancelled it); they travel on the notifications channel, whose sender never
@@ -432,28 +453,27 @@ flowchart TD
     NS[New session starts] --> ADD[Add to its lane]
     ADD --> FULL{"Combined count over the limit?"}
     FULL -- no --> RUN[Admission done]
-    FULL -- yes --> NP{"Low priority session nobody waits for?"}
-    NP -- yes --> C1["Cancel it (reports CANCELLED)"]
-    NP -- no --> PUB{"High priority session other than the one being streamed?"}
-    PUB -- yes --> C2["Cancel the highest one (reports CANCELLED, the publisher resends it)"]
-    PUB -- no --> RUN
+    FULL -- yes --> GAP["Find the first gap: the lowest block after the last verified block that no session holds"]
+    GAP --> STUCK{"A stuck session above the gap, other than the active publisher session?"}
+    STUCK -- yes --> C1["Cancel the highest one, the low priority one on a tie (reports CANCELLED)"]
+    STUCK -- no --> OVER["Evict nothing: the buffer stays over its limit until sessions complete"]
     C1 --> RUN
-    C2 --> RUN
+    OVER --> RUN
 ```
 
 ## Configuration
 
 Configuration prefix: `verification`
 
-|              Property              |                  Default                   |                                                                                                                 Description                                                                                                                 |
-|------------------------------------|--------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `recentlyVerifiedBlocksBufferSize` | `100`                                      | Maximum number of recently verified block numbers kept for the informational failure check. When full, the oldest entry is dropped.                                                                                                         |
-| `activeSessionsBufferSize`         | `100`                                      | Maximum number of simultaneously active sessions across both lanes. When exceeded, the eviction policy makes room: a low priority session nobody waits for first, then the highest high priority session other than the one being streamed. |
-| `firstOrderedBlock`                | `0`                                        | The first block number that requires strict ordering. Blocks below this value report success immediately, without waiting for order.                                                                                                        |
-| `allSourcesRequireOrdering`        | `true`                                     | If `true`, successes from every source are strictly ordered. If `false`, only publisher blocks are ordered. Should remain `true` on Tier 1 Block Nodes.                                                                                     |
-| `dumpEnabled`                      | `false`                                    | Whether to write failing block bytes and metadata to disk for diagnostics.                                                                                                                                                                  |
-| `dumpDirectoryPath`                | `/opt/hiero/block-node/verification/dumps` | Directory where bad block dump files are written.                                                                                                                                                                                           |
-| `dumpRetentionDays`                | `7`                                        | How many days dump files are retained before the daily purge removes them.                                                                                                                                                                  |
+|              Property              |                  Default                   |                                                                                                                    Description                                                                                                                     |
+|------------------------------------|--------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `recentlyVerifiedBlocksBufferSize` | `100`                                      | Maximum number of recently verified block numbers kept for the informational failure check. When full, the oldest entry is dropped.                                                                                                                |
+| `activeSessionsBufferSize`         | `100`                                      | Number of simultaneously active sessions across both lanes above which stuck sessions are evicted, the highest first. Sessions that complete on their own are never evicted, so the count can exceed this value until they do. Must be at least 1. |
+| `firstOrderedBlock`                | `0`                                        | The first block number that requires strict ordering. Blocks below this value report success immediately, without waiting for order.                                                                                                               |
+| `allSourcesRequireOrdering`        | `true`                                     | If `true`, successes from every source are strictly ordered. If `false`, only publisher blocks are ordered. Should remain `true` on Tier 1 Block Nodes.                                                                                            |
+| `dumpEnabled`                      | `false`                                    | Whether to write failing block bytes and metadata to disk for diagnostics.                                                                                                                                                                         |
+| `dumpDirectoryPath`                | `/opt/hiero/block-node/verification/dumps` | Directory where bad block dump files are written.                                                                                                                                                                                                  |
+| `dumpRetentionDays`                | `7`                                        | How many days dump files are retained before the daily purge removes them.                                                                                                                                                                         |
 
 ## Metrics
 
@@ -502,19 +522,23 @@ in flight.
 #### `verification_active_sessions`
 
 The combined number of sessions in both lanes of the active sessions buffer,
-set whenever a session is admitted or completed sessions are cleared. An
-admission that pushes it over `activeSessionsBufferSize` evicts before it
-returns, so the value stays within the limit.
+set whenever a session is admitted or completed sessions are cleared. It can
+exceed `activeSessionsBufferSize`: an admission over the limit evicts only a
+stuck session, and when none is stuck every session completes on its own and
+the value comes back down as they do. A value that stays above the limit means
+the sources deliver faster than the node verifies.
 
 #### `verification_sessions_evicted`
 
 A single counter with the `lane` dynamic label (`high_priority` or
 `low_priority`). It increments once per session the eviction policy removed
 while it was still running; a session that finished on its own at the same
-moment is not counted. A rising `low_priority` series means backfilled blocks
-are being given up to make room, which the backfill plugin recovers from on a
-later gap scan; a rising `high_priority` series means the publisher is
-streaming faster than the node verifies and blocks are being resent.
+moment is not counted. Only stuck sessions are evicted, so a rising series
+means blocks are arriving above a block that no session holds: on the
+`low_priority` series, backfilled blocks delivered far ahead or above a missing
+block, which the backfill plugin fetches again on a later gap scan; on the
+`high_priority` series, publisher blocks streamed beyond the limit while an
+earlier block is missing, which the publisher resends.
 
 ### Hashing Metrics
 
@@ -631,12 +655,15 @@ ends in a verification notification, and the plugin keeps running.
 5. **Source ordering setting.** With `allSourcesRequireOrdering` set to
    `false`, a backfilled block ahead of the last verified block reports
    success immediately; with `true`, it waits.
-6. **Active sessions buffer.** When more sessions are started than the buffer
-   allows, a low priority session nobody waits for is cancelled first, then
-   the highest high priority session other than the one being streamed; the
-   cancelled session reports `CANCELLED` when its complete block was received;
-   the session the publisher is still streaming is never evicted; and the
-   combined count never stays above the limit, whatever the delivery order.
+6. **Active sessions buffer.** When an admission takes the combined count over
+   the limit, only a stuck session is cancelled, the one with the highest
+   block, the low priority one on a tie; the cancelled session reports
+   `CANCELLED` when its complete block was received; the session the publisher
+   is still streaming is never evicted; sessions at or below the next expected
+   block and runs contiguous with the last verified block are never evicted, so
+   the next expected block is always admitted; and when no session is stuck,
+   nothing is evicted and the count stays above the limit until sessions
+   complete.
 7. **Informational failures.** A failure for a block present in the recently
    verified buffer is reported as informational; the same failure for a block
    not in the buffer is standard.

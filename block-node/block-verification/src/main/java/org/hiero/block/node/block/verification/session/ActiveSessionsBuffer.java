@@ -3,7 +3,6 @@ package org.hiero.block.node.block.verification.session;
 
 import static java.lang.System.Logger.Level.DEBUG;
 
-import java.util.List;
 import java.util.NavigableSet;
 import java.util.Objects;
 import java.util.TreeSet;
@@ -19,6 +18,9 @@ import org.hiero.metrics.LongCounter;
 /// The active sessions buffer: a helper of the [BlockSessionHandler] that holds the
 /// sessions the handler has started and not cleared yet, in two lanes (see
 /// [SessionLane]) that share one limit, [VerificationConfig#activeSessionsBufferSize()].
+/// The limit is soft: an admission over it evicts what the [SessionEvictionPolicy]
+/// selects, and when the policy selects nothing the buffer stays over it until
+/// sessions complete. An admission never waits for room.
 ///
 /// The buffer is passive. The handler decides what happens to its sessions and when,
 /// and the buffer gives it the means to do so: [#admit(BlockVerificationSession)] adds
@@ -35,7 +37,7 @@ public final class ActiveSessionsBuffer {
     private static final System.Logger LOGGER = System.getLogger(ActiveSessionsBuffer.class.getName());
     /// The configuration for verification, source of the limit.
     private final VerificationConfig verificationConfig;
-    /// The policy that selects the sessions to evict when the lanes hold more sessions than allowed.
+    /// The policy that selects the session to evict when the lanes hold more sessions than the limit.
     private final SessionEvictionPolicy evictionPolicy;
     /// The last successfully verified block, read for the snapshot handed to the policy.
     private final AtomicLong lastVerifiedBlock;
@@ -74,8 +76,10 @@ public final class ActiveSessionsBuffer {
     /// Admit a started session to the lane its block's source calls for: the high
     /// priority lane for the publisher, the low priority lane for any other source. A
     /// publisher session also becomes the latest publisher session. When the combined
-    /// count then exceeds the limit, room is made under the eviction lock, see
-    /// [#makeRoom()].
+    /// count then exceeds the limit, the eviction policy is consulted under the
+    /// eviction lock, see [#makeRoom()]. The admission never waits for room; the
+    /// session is added before the policy is consulted, so it may itself be the one
+    /// evicted.
     ///
     /// @param session the started session to admit, must not be null
     public void admit(final BlockVerificationSession session) {
@@ -165,24 +169,24 @@ public final class ActiveSessionsBuffer {
         }
     }
 
-    /// Make room in the lanes, called with the eviction lock held, once per admission.
-    /// Complete sessions are cleared first, because sessions may have completed while
-    /// waiting for the lock, and the count is checked again before the policy is
-    /// consulted: the other ingress thread may already have made room. Every session
-    /// the policy selects is then evicted when it is still present. One pass pays for
-    /// one admission: the admission added one session, and the pass removes the
-    /// selected session, or finds that the count is already within the limit, or finds
-    /// that the selected session was cleared meanwhile, which lowered the count as
-    /// well. An admission in flight on the other ingress thread pays for itself in its
-    /// own pass, so the time spent under the lock is bounded by one clearing, one
-    /// policy consultation and the evictions it selected.
+    /// Try to make room in the lanes, called with the eviction lock held, once per
+    /// admission over the limit. Complete sessions are cleared first, because sessions
+    /// may have completed while waiting for the lock, and the count is checked again
+    /// before the policy is consulted: the other ingress thread may already have made
+    /// room. The session the policy selects, if any, is then evicted when it is still
+    /// present. The policy may select nothing, when every session completes on its own;
+    /// the buffer then stays over its limit, and the next admission over the limit
+    /// consults the policy again. A pass never loops and never waits: the time spent
+    /// under the lock is bounded by one clearing, one snapshot, one policy consultation
+    /// and at most one eviction, and an admission in flight on the other ingress thread
+    /// runs its own pass.
     private void makeRoom() {
         clearCompleted(highPrioritySessions);
         clearCompleted(lowPrioritySessions);
         if (isOverLimit()) {
-            final List<SessionKey> selected = evictionPolicy.selectForEviction(snapshot());
-            for (final SessionKey key : selected) {
-                evict(key);
+            final SessionKey selected = evictionPolicy.selectForEviction(snapshot());
+            if (selected != null) {
+                evict(selected);
             }
         }
     }

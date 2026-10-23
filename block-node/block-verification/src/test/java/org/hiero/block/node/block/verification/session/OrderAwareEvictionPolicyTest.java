@@ -29,248 +29,289 @@ class OrderAwareEvictionPolicyTest {
         toTest = new OrderAwareEvictionPolicy(config(Map.of()));
     }
 
-    /// Tests for the first step of the policy, the low priority lane.
+    /// Tests for the sessions that complete on their own, finishing or progressing,
+    /// which the policy never selects.
     @Nested
-    @DisplayName("Low Priority Lane Selection")
-    class LowPriorityLaneSelection {
-        /// This test aims to assert that a snapshot without any session yields an
-        /// empty selection, since there is nothing to give up.
+    @DisplayName("Sessions That Complete On Their Own")
+    class SessionsThatCompleteOnTheirOwn {
+        /// This test aims to assert that for a snapshot without any session nothing is
+        /// selected, since there is nothing to give up.
         @Test
         @DisplayName("selectForEviction() returns nothing for empty lanes")
         void testSelectsNothingWhenBothLanesAreEmpty() {
             assertThat(toTest.selectForEviction(snapshot(keys(), keys(), null, 6L)))
-                    .isEmpty();
+                    .isNull();
         }
 
-        /// This test aims to assert that when every session sits at the next expected
-        /// block (nothing awaits order, so nothing is needed), the highest key of the
-        /// low priority lane is selected, and that among two sessions for the same
-        /// block the newer one (higher unique id) goes.
+        /// This test aims to assert that sessions for blocks at or below the last
+        /// verified block, such as historical backfill or a re-delivery, are never
+        /// selected: they do not wait for order and complete on their own. With the
+        /// last verified block 50, the low priority sessions 45, 48 and 50 are not
+        /// selected, alone or together with the high priority session for the next
+        /// expected block 51, which is finishing as well.
         @Test
-        @DisplayName("selectForEviction() selects the highest low priority session when no session awaits order")
-        void testSelectsTheHighestLowPrioritySessionWhenNothingAwaitsOrder() {
-            final NavigableSet<SessionKey> lowPriority = keys(key(11, 0), key(11, 1));
-            assertThat(toTest.selectForEviction(snapshot(keys(), lowPriority, null, 10L)))
-                    .containsExactly(key(11, 1));
-        }
-
-        /// This test aims to assert that a low priority session whose block is at or
-        /// below the last verified block is selected first, even though the highest
-        /// low priority session is needed by a high priority session above it, so that a
-        /// high priority session is never given up while a session that can never be
-        /// useful exists.
-        @Test
-        @DisplayName("selectForEviction() selects a stale low priority session before anything else")
-        void testSelectsTheLowestStaleLowPrioritySessionFirst() {
-            final NavigableSet<SessionKey> lowPriority =
-                    keys(key(45, 0), key(48, 1), key(55, 2), key(56, 3), key(57, 4));
-            final NavigableSet<SessionKey> highPriority = keys(key(60, 5));
-            assertThat(toTest.selectForEviction(snapshot(highPriority, lowPriority, null, 50L)))
-                    .containsExactly(key(45, 0));
-        }
-
-        /// This test aims to assert that with a chain of awaiting low priority sessions
-        /// and no high priority session, the highest one is selected: every lower session
-        /// is needed by the sessions above it, while the highest is needed by nobody.
-        @Test
-        @DisplayName(
-                "selectForEviction() selects the highest awaiting low priority session because nobody waits for it")
-        void testSelectsTheHighestLowPrioritySessionThatNobodyWaitsFor() {
-            final NavigableSet<SessionKey> lowPriority = keys(key(8, 0), key(9, 1), key(10, 2), key(16, 3));
-            assertThat(toTest.selectForEviction(snapshot(keys(), lowPriority, null, 6L)))
-                    .containsExactly(key(16, 3));
-        }
-
-        /// This test aims to assert that when a complete high priority session far ahead of
-        /// the last verified block waits for the low priority sessions below it, none
-        /// of those is selected and the high priority session is, mirroring a backfill
-        /// catch-up under a parked publisher block.
-        @Test
-        @DisplayName(
-                "selectForEviction() keeps needed low priority sessions and selects the far-ahead high priority session")
-        void testKeepsLowPrioritySessionsThatAnAwaitingHighPrioritySessionNeeds() {
-            final NavigableSet<SessionKey> highPriority = keys(key(10, 0));
-            final NavigableSet<SessionKey> lowPriority = keys(key(7, 1), key(8, 2), key(9, 3));
-            assertThat(toTest.selectForEviction(snapshot(highPriority, lowPriority, null, 6L)))
-                    .containsExactly(key(10, 0));
-        }
-
-        /// This test aims to assert that the high priority session still receiving its items
-        /// is not counted as awaiting order, so the low priority sessions below it are
-        /// not protected on its behalf and the highest of them is selected.
-        @Test
-        @DisplayName(
-                "selectForEviction() ignores the high priority session still receiving items when computing what is needed")
-        void testTheActiveHighPrioritySessionDoesNotProtectSessionsBelowIt() {
-            final SessionKey active = key(20, 0);
-            final NavigableSet<SessionKey> highPriority = keys(active);
-            final NavigableSet<SessionKey> lowPriority = keys(key(7, 1), key(8, 2), key(9, 3));
-            assertThat(toTest.selectForEviction(snapshot(highPriority, lowPriority, active, 6L)))
-                    .containsExactly(key(9, 3));
-        }
-
-        /// This test aims to assert that when blocks arrive in descending order into a
-        /// full lane, each admission selects the highest session, so the lane keeps the
-        /// blocks closest to release and progress resumes as soon as the missing low
-        /// block arrives; this is the case in which the former lowest-block rule
-        /// selected nothing.
-        @Test
-        @DisplayName("selectForEviction() selects the highest session on every admission of a descending delivery")
-        void testEvictsTheHighestSessionOnEveryAdmissionOfADescendingDelivery() {
-            final long lastVerified = 4L;
-            final NavigableSet<SessionKey> first = keys(key(10, 0), key(9, 1), key(8, 2), key(7, 3));
-            assertThat(toTest.selectForEviction(snapshot(keys(), first, null, lastVerified)))
-                    .containsExactly(key(10, 0));
-            final NavigableSet<SessionKey> second = keys(key(9, 1), key(8, 2), key(7, 3), key(6, 4));
-            assertThat(toTest.selectForEviction(snapshot(keys(), second, null, lastVerified)))
-                    .containsExactly(key(9, 1));
-            final NavigableSet<SessionKey> third = keys(key(8, 2), key(7, 3), key(6, 4), key(5, 5));
-            assertThat(toTest.selectForEviction(snapshot(keys(), third, null, lastVerified)))
-                    .containsExactly(key(8, 2));
-        }
-
-        /// This test aims to assert that when the highest low priority block has two
-        /// sessions, the one with the higher unique id (the newer) is selected, keeping
-        /// the older session that is further along.
-        @Test
-        @DisplayName("selectForEviction() selects the newer of two sessions for the highest block")
-        void testPrefersTheNewerOfTwoSessionsForTheSameBlock() {
-            final NavigableSet<SessionKey> lowPriority = keys(key(55, 0), key(56, 1), key(57, 2), key(57, 5));
+        @DisplayName("selectForEviction() never selects a session at or below the last verified block")
+        void testNeverSelectsSessionsAtOrBelowTheLastVerifiedBlock() {
+            final NavigableSet<SessionKey> lowPriority = keys(key(45, 0), key(48, 1), key(50, 2));
             assertThat(toTest.selectForEviction(snapshot(keys(), lowPriority, null, 50L)))
-                    .containsExactly(key(57, 5));
+                    .isNull();
+            assertThat(toTest.selectForEviction(snapshot(keys(key(51, 3)), lowPriority, null, 50L)))
+                    .isNull();
         }
 
-        /// This test aims to assert that with `allSourcesRequireOrdering` set to false the
-        /// low priority sessions never await order, so a waiting high priority session alone
-        /// decides what is needed: with a high priority session at 500 the backfilled
-        /// sessions 7 to 16 are needed and the high priority session is selected; without
-        /// any high priority session nothing is needed and the highest backfilled session is
+        /// This test aims to assert that a session for the next expected block is
+        /// never selected: alone it is finishing and nothing is selected, and with a
+        /// session for block 9 above the missing block 8 the stuck session 9 is
+        /// selected while the next expected block 7 is kept.
+        @Test
+        @DisplayName("selectForEviction() keeps the next expected block and selects a stuck session above it")
+        void testNeverSelectsTheNextExpectedBlock() {
+            final NavigableSet<SessionKey> lowPriority = keys(key(7, 0));
+            assertThat(toTest.selectForEviction(snapshot(keys(), lowPriority, null, 6L)))
+                    .isNull();
+            assertThat(toTest.selectForEviction(snapshot(keys(key(9, 1)), lowPriority, null, 6L)))
+                    .isEqualTo(key(9, 1));
+        }
+
+        /// This test aims to assert that a run contiguous with the last verified block
+        /// is never selected, even when its blocks are spread over both lanes: every
+        /// block from 7 to 12 is held by a session of one of the two lanes, so the first
+        /// gap is 13, every session is progressing or finishing, and nothing is
         /// selected.
         @Test
         @DisplayName(
-                "selectForEviction() treats low priority sessions as never awaiting order when allSourcesRequireOrdering is false")
-        void testLowPrioritySessionsNeverAwaitOrderWhenNotAllSourcesRequireOrdering() {
-            final OrderAwareEvictionPolicy policy =
-                    new OrderAwareEvictionPolicy(config(Map.of("verification.allSourcesRequireOrdering", "false")));
-            final NavigableSet<SessionKey> lowPriority = new TreeSet<>();
-            for (long block = 7L; block <= 16L; block++) {
-                lowPriority.add(key(block, block - 6L));
-            }
-            assertThat(policy.selectForEviction(snapshot(keys(key(500, 0)), lowPriority, null, 6L)))
-                    .containsExactly(key(500, 0));
-            assertThat(policy.selectForEviction(snapshot(keys(), lowPriority, null, 6L)))
-                    .containsExactly(key(16, 10));
-        }
-    }
-
-    /// Tests for the second step of the policy, the high priority lane.
-    @Nested
-    @DisplayName("High Priority Lane Selection")
-    class HighPriorityLaneSelection {
-        /// This test aims to assert that in a burst of high priority sessions the highest
-        /// session other than the one still receiving items is selected, never the
-        /// lowest, because the lowest is the next block to be released and the highest
-        /// is the farthest from release.
-        @Test
-        @DisplayName("selectForEviction() selects the highest complete high priority session in a publisher only burst")
-        void testSelectsTheHighestHighPrioritySessionOtherThanTheActiveOneInABurst() {
-            final SessionKey active = key(11, 4);
-            final NavigableSet<SessionKey> highPriority = keys(key(7, 0), key(8, 1), key(9, 2), key(10, 3), active);
-            assertThat(toTest.selectForEviction(snapshot(highPriority, keys(), active, 6L)))
-                    .containsExactly(key(10, 3));
+                "selectForEviction() never selects a run contiguous with the last verified block across both lanes")
+        void testNeverSelectsARunContiguousWithTheLastVerifiedBlock() {
+            final NavigableSet<SessionKey> highPriority = keys(key(9, 2), key(11, 4), key(12, 5));
+            final NavigableSet<SessionKey> lowPriority = keys(key(7, 0), key(8, 1), key(10, 3));
+            assertThat(toTest.selectForEviction(snapshot(highPriority, lowPriority, null, 6L)))
+                    .isNull();
         }
 
-        /// This test aims to assert that the high priority session still receiving its items
-        /// is never selected, even when it is the only session in the buffer, because
-        /// its cancellation would report an incomplete block the publisher does not
-        /// resend.
-        @Test
-        @DisplayName("selectForEviction() never selects the high priority session still receiving items")
-        void testSelectsNothingWhenOnlyTheActiveHighPrioritySessionExists() {
-            final SessionKey active = key(11, 0);
-            assertThat(toTest.selectForEviction(snapshot(keys(active), keys(), active, 6L)))
-                    .isEmpty();
-        }
-
-        /// This test aims to assert that when the low priority lane holds only sessions
-        /// that the far-ahead high priority session is waiting for, the high priority session is
+        /// This test aims to assert that sessions below `firstOrderedBlock` never wait
+        /// for order and are never selected: before any block is verified the first gap
+        /// is block 0, yet the sessions 95, 96 and 97 below the first ordered block 100
+        /// are not selected, while the ordered session 100 above the gap is stuck and
         /// selected.
         @Test
-        @DisplayName("selectForEviction() selects a far-ahead high priority session over needed backfilled sessions")
-        void testEvictsAFarAheadHighPrioritySessionBeforeNeededLowPrioritySessions() {
-            final NavigableSet<SessionKey> highPriority = keys(key(500, 0));
-            final NavigableSet<SessionKey> lowPriority = keys(key(7, 1), key(8, 2), key(9, 3), key(10, 4));
-            assertThat(toTest.selectForEviction(snapshot(highPriority, lowPriority, null, 6L)))
-                    .containsExactly(key(500, 0));
-        }
-
-        /// This test aims to assert that the policy departs from the former lowest-block
-        /// rule in the high priority lane: with high priority sessions 7, 8, 9 and nothing else,
-        /// 9 is selected and 7, the next block to be released, is kept.
-        @Test
-        @DisplayName("selectForEviction() does not select the lowest high priority session")
-        void testNeverSelectsTheLowestHighPrioritySessionWhileAHigherOneExists() {
-            final NavigableSet<SessionKey> highPriority = keys(key(7, 0), key(8, 1), key(9, 2));
-            assertThat(toTest.selectForEviction(snapshot(highPriority, keys(), null, 6L)))
-                    .containsExactly(key(9, 2));
-        }
-
-        /// This test aims to assert that after a resend the high priority session still
-        /// receiving items can sit below complete sessions, and the highest complete
-        /// session is still the one selected.
-        @Test
-        @DisplayName("selectForEviction() skips the active high priority session wherever it sits")
-        void testSkipsTheActiveHighPrioritySessionEvenWhenItIsNotTheHighest() {
-            final SessionKey active = key(8, 0);
-            final NavigableSet<SessionKey> highPriority = keys(active, key(9, 1), key(10, 2));
-            assertThat(toTest.selectForEviction(snapshot(highPriority, keys(), active, 6L)))
-                    .containsExactly(key(10, 2));
-        }
-    }
-
-    /// Tests for the boundaries of the ordering rule the policy mirrors.
-    @Nested
-    @DisplayName("Ordering Boundary Cases")
-    class OrderingBoundaryCases {
-        /// This test aims to assert that before any block has been verified (last
-        /// verified block -1) every session above block 0 awaits order, block 0 is the
-        /// next expected block, and the highest complete high priority session is selected.
-        @Test
-        @DisplayName("selectForEviction() handles the startup state without a last verified block")
-        void testTreatsEverySessionAboveZeroAsAwaitingOrderBeforeTheFirstBlockIsVerified() {
-            final SessionKey active = key(4, 4);
-            final NavigableSet<SessionKey> highPriority = keys(key(0, 0), key(1, 1), key(2, 2), key(3, 3), active);
-            assertThat(toTest.selectForEviction(snapshot(highPriority, keys(), active, -1L)))
-                    .containsExactly(key(3, 3));
-        }
-
-        /// This test aims to assert that sessions below `firstOrderedBlock` never await
-        /// order, so with only such sessions nothing is needed and the highest is
-        /// selected, while with an ordered high priority session above them they are kept
-        /// and the high priority session is selected.
-        @Test
-        @DisplayName("selectForEviction() never treats sessions below the first ordered block as awaiting order")
-        void testSessionsBelowTheFirstOrderedBlockNeverAwaitOrder() {
+        @DisplayName("selectForEviction() never selects a session below the first ordered block")
+        void testNeverSelectsSessionsBelowTheFirstOrderedBlock() {
             final OrderAwareEvictionPolicy policy =
                     new OrderAwareEvictionPolicy(config(Map.of("verification.firstOrderedBlock", "100")));
             final NavigableSet<SessionKey> lowPriority = keys(key(95, 0), key(96, 1), key(97, 2));
             assertThat(policy.selectForEviction(snapshot(keys(), lowPriority, null, -1L)))
-                    .containsExactly(key(97, 2));
+                    .isNull();
             assertThat(policy.selectForEviction(snapshot(keys(key(100, 3)), lowPriority, null, -1L)))
-                    .containsExactly(key(100, 3));
+                    .isEqualTo(key(100, 3));
         }
 
-        /// This test aims to assert that a session for the next expected block never
-        /// awaits order itself, is needed when a session above it waits and is then
-        /// kept, and is selected when nothing waits above it.
+        /// This test aims to assert that with `allSourcesRequireOrdering` set to false
+        /// the low priority sessions never wait for order and are never selected, even
+        /// far ahead of the last verified block: the backfilled sessions 500 and 600
+        /// alone yield nothing, and with the high priority session 550 above the first
+        /// gap 7, the high priority session is selected although 600 is higher.
         @Test
-        @DisplayName("selectForEviction() keeps the next expected block when a session above it waits")
-        void testTheNextExpectedSessionNeverAwaitsOrderAndIsKeptWhenNeeded() {
-            final NavigableSet<SessionKey> lowPriority = keys(key(7, 0));
-            assertThat(toTest.selectForEviction(snapshot(keys(key(9, 1)), lowPriority, null, 6L)))
-                    .containsExactly(key(9, 1));
+        @DisplayName("selectForEviction() never selects a low priority session when allSourcesRequireOrdering is false")
+        void testNeverSelectsLowPrioritySessionsWhenNotAllSourcesRequireOrdering() {
+            final OrderAwareEvictionPolicy policy =
+                    new OrderAwareEvictionPolicy(config(Map.of("verification.allSourcesRequireOrdering", "false")));
+            final NavigableSet<SessionKey> lowPriority = keys(key(500, 0), key(600, 1));
+            assertThat(policy.selectForEviction(snapshot(keys(), lowPriority, null, 6L)))
+                    .isNull();
+            assertThat(policy.selectForEviction(snapshot(keys(key(550, 2)), lowPriority, null, 6L)))
+                    .isEqualTo(key(550, 2));
+        }
+    }
+
+    /// Tests for finding the first gap, the lowest block after the last verified
+    /// block that no session holds.
+    @Nested
+    @DisplayName("First Gap")
+    class FirstGap {
+        /// This test aims to assert that a block held by sessions of both lanes is
+        /// counted once when the first gap is found: with block 7 in both lanes and
+        /// block 8 in the low priority lane, the first gap is 9 and nothing is stuck;
+        /// adding a session for block 10 makes it the only stuck session, and it is
+        /// selected.
+        @Test
+        @DisplayName("selectForEviction() counts a block held in both lanes once when finding the first gap")
+        void testCountsABlockHeldInBothLanesOnce() {
+            final NavigableSet<SessionKey> highPriority = keys(key(7, 0));
+            assertThat(toTest.selectForEviction(snapshot(highPriority, keys(key(7, 1), key(8, 2)), null, 6L)))
+                    .isNull();
+            assertThat(toTest.selectForEviction(
+                            snapshot(highPriority, keys(key(7, 1), key(8, 2), key(10, 3)), null, 6L)))
+                    .isEqualTo(key(10, 3));
+        }
+
+        /// This test aims to assert that before any block is verified (last verified
+        /// block -1) block 0 is the next expected block: a run starting at block 0 is
+        /// not stuck and nothing is selected, while without block 0 every session is
+        /// stuck and the highest is selected.
+        @Test
+        @DisplayName("selectForEviction() expects block 0 next before any block is verified")
+        void testStartsTheGapSearchAtBlockZeroBeforeAnyBlockIsVerified() {
+            assertThat(toTest.selectForEviction(snapshot(keys(key(0, 0), key(1, 1), key(2, 2)), keys(), null, -1L)))
+                    .isNull();
+            assertThat(toTest.selectForEviction(snapshot(keys(key(1, 0), key(2, 1), key(3, 2)), keys(), null, -1L)))
+                    .isEqualTo(key(3, 2));
+        }
+
+        /// This test aims to assert that when blocks arrive in descending order, each
+        /// admission selects the highest stuck session while the lowest block is
+        /// missing, and that nothing is selected once it arrives: with the last
+        /// verified block 4, sessions 7 to 10 and then 6 to 9 wait above the missing
+        /// block 5 and the highest is selected each time, while sessions 5 to 8 form a
+        /// run with the last verified block and none is stuck.
+        @Test
+        @DisplayName(
+                "selectForEviction() selects the highest stuck session on each admission of a descending delivery until the missing block arrives")
+        void testStopsSelectingOnceTheMissingBlockOfADescendingDeliveryArrives() {
+            final long lastVerified = 4L;
+            final NavigableSet<SessionKey> first = keys(key(10, 0), key(9, 1), key(8, 2), key(7, 3));
+            assertThat(toTest.selectForEviction(snapshot(keys(), first, null, lastVerified)))
+                    .isEqualTo(key(10, 0));
+            final NavigableSet<SessionKey> second = keys(key(9, 1), key(8, 2), key(7, 3), key(6, 4));
+            assertThat(toTest.selectForEviction(snapshot(keys(), second, null, lastVerified)))
+                    .isEqualTo(key(9, 1));
+            final NavigableSet<SessionKey> third = keys(key(8, 2), key(7, 3), key(6, 4), key(5, 5));
+            assertThat(toTest.selectForEviction(snapshot(keys(), third, null, lastVerified)))
+                    .isNull();
+        }
+    }
+
+    /// Tests for the choice among the stuck sessions.
+    @Nested
+    @DisplayName("Stuck Session Selection")
+    class StuckSessionSelection {
+        /// This test aims to assert that among stuck sessions the one with the highest
+        /// block is selected: with the last verified block 6 and block 7 missing, the
+        /// sessions 8, 9, 10 and 16 are all stuck, and 16, which no session waits for,
+        /// is selected.
+        @Test
+        @DisplayName("selectForEviction() selects the highest stuck session")
+        void testSelectsTheHighestStuckSession() {
+            final NavigableSet<SessionKey> lowPriority = keys(key(8, 0), key(9, 1), key(10, 2), key(16, 3));
             assertThat(toTest.selectForEviction(snapshot(keys(), lowPriority, null, 6L)))
-                    .containsExactly(key(7, 0));
+                    .isEqualTo(key(16, 3));
+        }
+
+        /// This test aims to assert that the highest stuck session is selected whatever
+        /// its lane: above the missing block 7, the complete high priority session 10 is
+        /// selected over the low priority sessions 8 and 9 below it, and the low
+        /// priority session 20 is selected over the high priority session 10 below it.
+        @Test
+        @DisplayName("selectForEviction() selects the highest stuck session whatever its lane")
+        void testSelectsTheHighestStuckSessionWhateverItsLane() {
+            final NavigableSet<SessionKey> highPriority = keys(key(10, 0));
+            assertThat(toTest.selectForEviction(snapshot(highPriority, keys(key(8, 1), key(9, 2)), null, 6L)))
+                    .isEqualTo(key(10, 0));
+            assertThat(toTest.selectForEviction(snapshot(highPriority, keys(key(8, 1), key(20, 2)), null, 6L)))
+                    .isEqualTo(key(20, 2));
+        }
+
+        /// This test aims to assert that when sessions of both lanes hold the highest
+        /// stuck block, the low priority one is selected and the publisher's copy is
+        /// kept, and that the lane decides, not the unique id: the low priority session
+        /// goes whether it is the newer or the older of the two.
+        @Test
+        @DisplayName(
+                "selectForEviction() selects the low priority session when both lanes hold the highest stuck block")
+        void testSelectsTheLowPrioritySessionOnATie() {
+            assertThat(toTest.selectForEviction(snapshot(keys(key(10, 0)), keys(key(10, 1)), null, 6L)))
+                    .isEqualTo(key(10, 1));
+            assertThat(toTest.selectForEviction(snapshot(keys(key(10, 5)), keys(key(10, 2)), null, 6L)))
+                    .isEqualTo(key(10, 2));
+        }
+
+        /// This test aims to assert that when one lane holds two sessions for the
+        /// highest stuck block, the one with the higher unique id (the newer) is
+        /// selected, keeping the older session that is further along.
+        @Test
+        @DisplayName("selectForEviction() selects the newer of two sessions for the highest stuck block in one lane")
+        void testSelectsTheNewerOfTwoSessionsForTheSameBlockInALane() {
+            final NavigableSet<SessionKey> lowPriority = keys(key(55, 0), key(56, 1), key(57, 2), key(57, 5));
+            assertThat(toTest.selectForEviction(snapshot(keys(), lowPriority, null, 50L)))
+                    .isEqualTo(key(57, 5));
+        }
+
+        /// This test aims to assert that a session far ahead of a run, such as a
+        /// newcomer just admitted, is selected while the run is kept: with the last
+        /// verified block 100, the sessions 101 and 102 form a run, the first gap is
+        /// 103, and the session 500 is the only stuck session.
+        @Test
+        @DisplayName("selectForEviction() selects a session stuck far ahead of a run, the newcomer included")
+        void testSelectsAStuckNewcomerFarAheadOfARun() {
+            final NavigableSet<SessionKey> lowPriority = keys(key(101, 0), key(102, 1), key(500, 2));
+            assertThat(toTest.selectForEviction(snapshot(keys(), lowPriority, null, 100L)))
+                    .isEqualTo(key(500, 2));
+        }
+    }
+
+    /// Tests for the high priority session that is still receiving its block items.
+    @Nested
+    @DisplayName("Active Publisher Session")
+    class ActivePublisherSession {
+        /// This test aims to assert that the active publisher session is never
+        /// selected, even when it is the only stuck session, because its cancellation
+        /// would report an incomplete block the publisher does not resend.
+        @Test
+        @DisplayName(
+                "selectForEviction() never selects the active publisher session, even when it is the only stuck session")
+        void testNeverSelectsTheActivePublisherSession() {
+            final SessionKey active = key(11, 0);
+            assertThat(toTest.selectForEviction(snapshot(keys(active), keys(), active, 6L)))
+                    .isNull();
+        }
+
+        /// This test aims to assert that in a publisher only burst behind a missing
+        /// block, the highest stuck session other than the active one is selected:
+        /// with the last verified block 0 and block 1 missing, the sessions 2, 3 and 4
+        /// are stuck, 4 is the active publisher session during its own admission, and
+        /// 3 is selected.
+        @Test
+        @DisplayName(
+                "selectForEviction() selects the highest stuck session below the active publisher session in a burst")
+        void testSelectsTheHighestStuckSessionBelowTheActiveOneInABurst() {
+            final SessionKey active = key(4, 2);
+            final NavigableSet<SessionKey> highPriority = keys(key(2, 0), key(3, 1), active);
+            assertThat(toTest.selectForEviction(snapshot(highPriority, keys(), active, 0L)))
+                    .isEqualTo(key(3, 1));
+        }
+
+        /// This test aims to assert that the active publisher session is skipped
+        /// wherever it sits: after a resend it can sit below complete sessions, and
+        /// the highest stuck session above it is still the one selected.
+        @Test
+        @DisplayName("selectForEviction() skips the active publisher session wherever it sits")
+        void testSkipsTheActivePublisherSessionWhereverItSits() {
+            final SessionKey active = key(8, 0);
+            final NavigableSet<SessionKey> highPriority = keys(active, key(9, 1), key(10, 2));
+            assertThat(toTest.selectForEviction(snapshot(highPriority, keys(), active, 6L)))
+                    .isEqualTo(key(10, 2));
+        }
+
+        /// This test aims to assert that the active publisher session holds its block
+        /// for the first gap: while the publisher streams the next expected block 7,
+        /// the backfilled sessions 8 and 9 form a run with it, the first gap is 10,
+        /// and nothing is selected.
+        @Test
+        @DisplayName("selectForEviction() counts the active publisher session as holding its block")
+        void testCountsTheActivePublisherSessionAsHoldingItsBlock() {
+            final SessionKey active = key(7, 0);
+            assertThat(toTest.selectForEviction(snapshot(keys(active), keys(key(8, 1), key(9, 2)), active, 6L)))
+                    .isNull();
+        }
+
+        /// This test aims to assert that a stuck low priority session above the active
+        /// publisher session is selected: with block 7 missing, the active session 8 and
+        /// the backfilled session 9 are both stuck, and the backfilled one goes.
+        @Test
+        @DisplayName("selectForEviction() selects a stuck low priority session above the active publisher session")
+        void testSelectsAStuckLowPrioritySessionAboveTheActiveOne() {
+            final SessionKey active = key(8, 0);
+            assertThat(toTest.selectForEviction(snapshot(keys(active), keys(key(9, 1)), active, 6L)))
+                    .isEqualTo(key(9, 1));
         }
     }
 
