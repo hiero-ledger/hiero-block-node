@@ -1,26 +1,19 @@
 # Live Hashgraph State — Design Doc
 
-> Status: **Beta / experimental** — not yet listed in chart deployments.
+> Status: **Beta** — not yet listed in chart deployments.
 
 ## 1. Purpose & Goals
 
-Maintain a local, queryable copy of the Hashgraph network state inside the Block
-Node so that other plugins and external clients can answer state queries
-(`getKV`, `getSingleton`, `getQueue`) without depending on a
-Consensus Node.
+Maintain a local, queryable copy of the Hashgraph network state inside the Block Node so that other plugins and external
+clients can query for state values (KVs, Singletons, Queues) without depending on a Consensus Node.
 
 Initial scope (#196):
 
-1. A single new plugin, `state-management-hashgraph`, owning state load, apply,
-   snapshot, and binary state query.
-2. Persistence of state-on-disk snapshots under
-   `${snapshotRecentPath}/<blockNumber>` matching the consensus-node
-   `data/state/` spec (see
-   `hiero-consensus-node/platform-sdk/swirlds-state-api/docs/state-snapshot-spec.md`).
-3. New protobuf surface: `StateQuery`, `StateResponse`, and three
-   `get*` RPCs on `StateService`. `StateResponse` carries the attested
-   `block_number` on every response so a client can see which block the latest state
-   corresponds to (§5.1).
+1. A single new plugin, `state-management-hashgraph`, owning state load, apply, snapshot, and binary state query.
+2. Persistence of on disk state snapshots under `${snapshotRecentPath}/<blockNumber>` matching the consensus-node
+   `data/state/` spec (see `hiero-consensus-node/platform-sdk/swirlds-state-api/docs/state-snapshot-spec.md`).
+3. New protobuf surface: `StateQuery`, `StateResponse`, and three `get*` RPCs on `StateService`. `StateResponse` carries
+   the attested `block_number` on every response so a client can see which block the latest state corresponds to (§5.1).
 
 Explicitly out of scope:
 
@@ -34,30 +27,30 @@ Explicitly out of scope:
 ┌──────────────────────────┐    handleVerification    ┌────────────────────────┐
 │ stream-verifier plugin   │ ───────────────────────▶ │ StateManagementPlugin  │
 └──────────────────────────┘                          │                        │
-                                                       │  ┌──────────────────┐  │
-                                                       │  │ apply worker     │  │
-                                                       │  │ (blocks on a     │  │
-                                                       │  │ queue; applies   │  │
-                                                       │  │ on arrival)      │  │
-                                                       │  └────────┬─────────┘  │
-                                                       │           │            │
-                                                       │  ┌────────▼─────────┐  │
-                                                       │  │ Virtual map      │  │
-                                                       │  │  state lifecycle │  │
-                                                       │  │  manager (CN)    │  │
-                                                       │  └────────┬─────────┘  │
-                                                       │           │            │
-                                                       │  ┌────────▼─────────┐  │
-                                                       │  │ ScheduledExec    │  │
-                                                       │  │ snapshot         │  │
-                                                       │  │ (every 15m)      │  │
-                                                       │  └──────────────────┘  │
-                                                       └────────────┬───────────┘
-                                                                    │ getKV / getSingleton / getQueue
-                                                                    ▼
-                                                     ┌──────────────────────────────┐
-                                                     │ gRPC clients & other plugins │
-                                                     └──────────────────────────────┘
+                                                      │  ┌──────────────────┐  │
+                                                      │  │ apply worker     │  │
+                                                      │  │ (blocks on a     │  │
+                                                      │  │ queue; applies   │  │
+                                                      │  │ on arrival)      │  │
+                                                      │  └────────┬─────────┘  │
+                                                      │           │            │
+                                                      │  ┌────────▼─────────┐  │
+                                                      │  │ Virtual map      │  │
+                                                      │  │  state lifecycle │  │
+                                                      │  │  manager         │  │
+                                                      │  └────────┬─────────┘  │
+                                                      │           │            │
+                                                      │  ┌────────▼─────────┐  │
+                                                      │  │ ScheduledExec    │  │
+                                                      │  │ snapshot         │  │
+                                                      │  │ (every 15m)      │  │
+                                                      │  └──────────────────┘  │
+                                                      └────────────┬───────────┘
+                                                                   │ getKV / getSingleton / getQueue
+                                                                   ▼
+                                                    ┌──────────────────────────────┐
+                                                    │ gRPC clients & other plugins │
+                                                    └──────────────────────────────┘
 ```
 
 State is owned by `com.swirlds.state.merkle.VirtualMapStateLifecycleManager`.
@@ -79,9 +72,8 @@ block-node/state-management-hashgraph/
 └── src/test/java/...
 ```
 
-There is no separate access-service or snapshot-manager class: the plugin
-itself implements the `StateService` gRPC surface and owns the snapshot
-save/load/prune logic (recent-dir retention only — no tar/historic archival).
+There is no separate access-service or snapshot-manager class: the plugin itself implements the `StateService` gRPC
+surface and owns the snapshot save/load/prune logic (recent-dir retention only — no tar/historic archival).
 
 Module-info (the state libraries are required non-transitively — the plugin
 consumes them internally and does not re-export them):
@@ -103,32 +95,29 @@ used for `swirlds-config-*`.
 
 ## 4. Configuration (`@ConfigData("state.management")`)
 
-|            Property            |                      Default                       |                                                                                                Notes                                                                                                 |
-|--------------------------------|----------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `snapshotRecentPath`           | `/opt/hiero/block-node/data/state/snapshot/recent` | Directory for live snapshot dirs (`<blockNumber>/`). The block number is recovered on restart by scanning this directory for the highest-numbered entry (§6.2) — there is no separate metadata file. |
-| `snapshotIntervalMillis`       | `900000` (15m)                                     | Periodic snapshot cadence.                                                                                                                                                                           |
-| `historicCatchUpBatchSize`     | `64`                                               | Blocks pulled per catch-up loop iteration.                                                                                                                                                           |
-| `snapshotRecentRetentionCount` | `3`                                                | Recent snapshot dirs kept on disk (oldest pruned).                                                                                                                                                   |
-| `port`                         | `null` (share `server.port`)                       | Dedicated port for the `StateService` gRPC API; `null` shares the default server port.                                                                                                               |
-| `maxQueueRangeSize`            | `1000`                                             | Largest `queue_range` width `getQueue` will serve in one call (§8); a wider range is `INVALID_REQUEST`. Operator-adjustable to allow raising it over time without a code change.                     |
+|            Property            |                      Default                       |                                                                                      Notes                                                                                       |
+|--------------------------------|----------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `snapshotRecentPath`           | `/opt/hiero/block-node/data/state/snapshot/recent` | Directory for live snapshot dirs (`<blockNumber>/`). The block number is recovered on restart by scanning this directory for the highest-numbered entry (§6.2).                  |
+| `snapshotIntervalMillis`       | `900000` (15m)                                     | Periodic snapshot cadence.                                                                                                                                                       |
+| `historicCatchUpBatchSize`     | `64`                                               | Blocks pulled per catch-up loop iteration.                                                                                                                                       |
+| `snapshotRecentRetentionCount` | `3`                                                | Recent snapshot dirs kept on disk (oldest pruned).                                                                                                                               |
+| `port`                         | `null` (share `server.port`)                       | Dedicated port for the `StateService` gRPC API; `null` shares the default server port.                                                                                           |
+| `maxQueueRangeSize`            | `1000`                                             | Largest `queue_range` width `getQueue` will serve in one call (§8); a wider range is `INVALID_REQUEST`. Operator-adjustable to allow raising it over time without a code change. |
 
-There is no apply-interval setting: state changes are applied the moment a verified block
-arrives (see §6.5), not on a timer.
+There is no apply-interval setting: state changes are applied the moment a verified block arrives (see §6.5).
 
 ## 5. Data model
 
 ### 5.1 Identifying the attested block
 
-`block_number` is read directly from the `BlockStreamInfo` state singleton, which `main`'s own
-`state_changes` stream updates on every applied block (§7's applier walks every `state_changes`
-item generically, with no per-stateId filtering, so this singleton is populated by construction).
+`block_number` is read directly from the `BlockStreamInfo` state singleton, which is updated on every applied block
+(§7's applier walks every `state_changes` item generically, with no per-stateId filtering, so this singleton is
+populated by construction).
 Reading it from the state itself means it can never disagree with the state it describes.
 
 `round_number` is sourced purely from the last `RoundHeader` block item seen during apply (§12).
 It has no state-singleton equivalent and is not persisted: after a restore (§6.2) it is simply
-unknown until the next applied block's `RoundHeader` repopulates it, exactly like the existing
-in-apply fallback for a block that doesn't carry a `RoundHeader` of its own — harmless, since
-every block carries at least one `RoundHeader` (§12).
+unknown until the next applied block's `RoundHeader` repopulates it.
 
 See §6.2 for how this plugin identifies which block it last applied on restart, using the
 snapshot directory name together with this same `BlockStreamInfo` read as a self-consistency
@@ -192,8 +181,8 @@ mutually exclusive request *kinds*, not just independent optional fields, so the
 type-system guarantee applies on the request side as well.
 
 `NOT_AVAILABLE` mirrors `BlockAccessService.getBlock()`'s `NOT_AVAILABLE` for a block outside
-the range this node currently holds. This plugin has no historical retention (§2/§7): the
-*only* state it ever holds is the currently attested one, so any other requested `block_number`
+the range this node currently holds. This plugin initially serves no historical state (§2/§7): the
+*only* state it serves is the currently attested one, so any other requested `block_number`
 is `NOT_AVAILABLE`, never `NOT_FOUND` (`NOT_FOUND` is reserved for "the attested state doesn't
 have this key or queue index/range"). Whether apply has halted is an internal detail, not a
 query concern: `retrieve_latest` or a `block_number` matching the attested block still answers
@@ -216,15 +205,11 @@ service StateService {
 
 - Capture context.
 - Construct `VirtualMapStateLifecycleManager(metrics, time, configuration, fileSystemManager)`.
-  - `fileSystemManager` is `new FileSystemManager(Path.of(snapshotRecentPath))`.
-    Anchoring the swirlds temp scratchpad next to the snapshots keeps disk
-    layout predictable.
-  - The constructor eagerly creates a genesis state which is replaced later
-    if a snapshot is loaded.
-- Register self as the `StateServiceInterface` gRPC service via
-  `serviceBuilder.registerGrpcService(config.port(), this)` — the plugin **is** the
-  service. A `null` `port` shares the default `server.port`; a configured port opens the
-  `StateService` API on its own port.
+  - `fileSystemManager` is `new FileSystemManager(Path.of(snapshotRecentPath))`. Anchoring the swirlds temp scratchpad
+    next to the snapshots keeps disk layout predictable.
+  - The constructor eagerly creates a genesis state which is replaced later if a snapshot is loaded.
+- Register self as the `StateServiceInterface` gRPC service via `serviceBuilder.registerGrpcService(config.port(), this)`.
+  A `null` `port` shares the default `server.port`; a configured port opens the `StateService` API on its own port.
 
 ### 6.2 `start()`
 
@@ -257,7 +242,7 @@ service StateService {
 
 - Only proceed on `success=true` with a non-null block payload.
 - Park the block in the `ConcurrentSkipListMap<Long, BlockUnparsed> pendingBlocks`
-  keyed by block number (the ordered gap buffer — a plain queue cannot hold gaps).
+  keyed by block number (the ordered gap buffer).
 - `offer` the block number to the apply worker's `BlockingQueue` to wake it immediately.
   The actual state mutation runs on the apply worker, not on the messaging thread, to keep
   the messaging dispatcher unblocked; `applyPending()` is guarded by a `ReentrantLock` so
@@ -268,7 +253,7 @@ service StateService {
 
 ### 6.4 `catchUpFromHistoricalBlocks()` (one-shot on `start()`)
 
-Closes the gap between `attested.blockNumber()` and the latest block the
+Closes the gap between `attested.blockNumber()` and the latest verified block the
 Block-Node has on hand without waiting for verification notifications.
 
 1. Read `context.historicalBlockProvider()`. If null or empty → set
@@ -317,7 +302,7 @@ The apply pipeline runs three versions of the state concurrently:
 
 - **(3) MUTABLE** — `lifecycleManager.getMutableState()`: receives the current block's
   `state_changes` (library-managed).
-- **(2) HASHING** — `hashingImmutable`: sealed by `copyMutableState()`, awaiting hash +
+- **(2) HASHING** — `hashingImmutable`: sealed by `copyMutableState()`, awaiting
   attestation by the next block's footer (library-managed, held by the plugin).
 - **(1) ATTESTED** — `attested` (an `AttestedSnapshot(state, blockNumber)` record behind a single
   volatile field): the network-confirmed, query-serving copy and the block number it corresponds
@@ -328,9 +313,8 @@ caches its result, so the total hashing work is the same whether it runs eagerly
 the only real choice is *when* to pay the cost. Hashing starts in the background right after a
 state is sealed into (2), overlapping with whatever the apply pipeline does next; the block
 that needs the hash to validate against joins that in-flight computation instead of blocking
-on a synchronous hash. Deferring hashing until promotion would not save any work — the hash is
-computed exactly once either way — it would only move the cost onto the apply path instead of
-overlapping it with other work.
+on a synchronous hash. Deferring hashing until promotion would not save any work, it would only move the cost onto the
+apply path instead of overlapping it with other work.
 
 `applyBlockStateChanges(block N)` — **lag-1 commit**: a block is applied into the live
 mutable, but only exposed once the *next* block's footer attests its root hash.
@@ -345,16 +329,8 @@ mutable, but only exposed once the *next* block's footer attests its root hash.
    step computes that hash the same way it computes every other block's, rather than assuming
    it's empty or all-zeros.
    - **Digest algorithm assumption:** this step only validates if the plugin hashes `VirtualMap`
-     with the same digest the consensus-node that wrote the chain used. Since #3780, `main`'s
-     `CN_11_12_TSS_SCHNORR` footers carry a 32-byte SHA-256 state root hash, while the published
-     state libraries this plugin depends on (`hederaVersion` 0.80.0-alpha.2) hash `VirtualMap`
-     with SHA-384 and have no override — so on today's chain this step halts at block 0 with a
-     digest-length mismatch, not a real divergence. #3813 already logs this distinctly (a
-     digest-length mismatch is reported separately from a same-length, genuinely divergent hash)
-     so the halt is diagnosable, but does not itself resolve the mismatch — that needs either a
-     CN release that hashes with SHA-256, or this plugin pinned to a state library release that
-     matches whatever digest the source chain actually used. See §10's failure-mode row for the
-     current, still-open state of this gap.
+     with the same digest the consensus-node that wrote the chain used. The block footer is assumed
+     to carry a 32-byte SHA-256 state root hash. See §10's failure-mode row.
    - **Known gap, not yet handled:** a fresh node (no persisted state) whose *first* real
      block is N > 0, not 0 — e.g. a deployment pointed at a mid-chain `historicalBlockProvider`
      with no snapshot ever supplied — has no real seed state to validate against either; N's
@@ -611,6 +587,13 @@ the `ConcurrentSkipListMap` (ordering + gap handling) and wakes a single
 apply-worker thread via a `BlockingQueue`; the worker drains under
 `applyLock`. State changes are applied the moment a block arrives.
 
+**Gap-recovery sweeps run on the apply-worker thread, not a background executor.** A gap-retry
+timer fires on `backgroundExecutor`, the same thread that also runs background state hashing
+(§6.5). Running the sweep there too would be a self-deadlock risk: a sweep that applies several
+blocks back-to-back can queue a hash task behind itself on that same thread, then block waiting
+on it. The timer only sets a flag and wakes the apply worker; the sweep itself always runs on
+the single apply-worker thread, the same thread every other apply already runs on.
+
 **`roundNumber` is sourced from `RoundHeader`, kept in-memory only.** Pulled directly from the
 `RoundHeader` block item — every block carries at least one. The applier tracks the last seen
 `RoundHeader.roundNumber()` during the block walk and keeps it as a plain in-memory field after
@@ -626,6 +609,20 @@ surrounding I/O.
 
 **Historical state is explicitly out of scope** for this plugin — only the
 current applied state is queryable.
+
+**Mutually-exclusive request/response shapes are enforced via `oneof`, not a MUST-be-empty
+convention.** Both `StateQuery.selector` (`key_bytes`/`queue_range`) and `StateResponse.payload`
+(`kv_bytes`/`singleton_bytes`/`queue_values`) use `oneof` rather than plain fields paired with
+prose rules about which combinations are valid — the protobuf type system enforces the
+exclusivity instead of relying on callers reading and following documentation (§5.2).
+
+**Legacy field-2 token-association encoding halts rather than being remapped.** `protobuf`'s
+`reserved` is a compile-time guard, not a runtime wire-format check, so wire bytes still
+carrying the old field-2 (`TokenAssociation`) shape would otherwise pass through
+`StateChangeApplier` unrecognized, writing wrong state with no immediate error. This plugin
+detects field 2 on `stateId == 9` specifically and halts immediately with a distinct error
+instead, keeping the applier's no-per-variant-switch simplicity for every other wire variant
+(§7).
 
 **Snapshot layout nests under block number, not consensus round.** The CN
 spec expects per-round directories (`<round>/data/state/`); this plugin
