@@ -376,6 +376,12 @@ is a block-count cap, not a disk-size cap (see [Host / Volume](#host--volume-ext
 | L        | `messaging_notification_queue_percent_used` | If percentage exceeds 60%, otherwise, configure as needed |
 | M        | `messaging_handler_failures`                | If value increases, otherwise, configure as needed        |
 
+**Verification**: Alerts for the active sessions buffer of the verification plugin
+
+| Severity |             Metric             |                                          Alert Condition                                           |
+|----------|--------------------------------|----------------------------------------------------------------------------------------------------|
+| L        | `verification_active_sessions` | If above `VERIFICATION_ACTIVE_SESSIONS_BUFFER_SIZE` for 10 minutes, otherwise, configure as needed |
+
 **Latency**: Alerts for latency metrics in receiving, hashing, verifying, and persisting blocks
 
 | Severity |                   Metric                   |                   Alert Condition                    |
