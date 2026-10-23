@@ -19,9 +19,8 @@ Initial scope (#196):
    `hiero-consensus-node/platform-sdk/swirlds-state-api/docs/state-snapshot-spec.md`).
 3. New protobuf surface: `StateQuery`, `StateResponse`, and three
    `get*` RPCs on `StateService`. `StateResponse` carries the attested
-   `block_number` on every response (read directly from the state's own `BlockStreamInfo`
-   singleton, not a separately tracked copy) so a client can see which block the latest state
-   corresponds to.
+   `block_number` on every response so a client can see which block the latest state
+   corresponds to (§5.1).
 
 Explicitly out of scope:
 
@@ -211,10 +210,6 @@ service StateService {
 }
 ```
 
-(Dropped the `Binary` prefix from the method names themselves — "binary" is already
-conveyed by `StateQuery`/`StateResponse`, so it added nothing to the method
-name beyond length.)
-
 ## 6. Plugin lifecycle
 
 ### 6.1 `init(BlockNodeContext, ServiceBuilder)`
@@ -360,7 +355,7 @@ mutable, but only exposed once the *next* block's footer attests its root hash.
      CN release that hashes with SHA-256, or this plugin pinned to a state library release that
      matches whatever digest the source chain actually used. See §10's failure-mode row for the
      current, still-open state of this gap.
-   - **Known gap, not yet handled:** a fresh node (no persisted metadata) whose *first* real
+   - **Known gap, not yet handled:** a fresh node (no persisted state) whose *first* real
      block is N > 0, not 0 — e.g. a deployment pointed at a mid-chain `historicalBlockProvider`
      with no snapshot ever supplied — has no real seed state to validate against either; N's
      footer carries the hash of real pre-N state the node never had, which the empty-state
@@ -472,7 +467,7 @@ a `stateId → type` table. This is an open API-surface question for the not-yet
 
 A malformed `state_changes` item aborts the apply with
 `IllegalStateException`; the plugin treats that as a hard failure for the
-block (does not advance metadata). An open question for upstream feedback:
+block (does not advance past it). An open question for upstream feedback:
 whether to centralize this applier into `swirlds-state-impl` so every
 consumer doesn't reinvent it.
 
@@ -481,7 +476,7 @@ consumer doesn't reinvent it.
 `StateManagementPlugin` implements `StateServiceInterface` directly and is
 registered as the gRPC service in `init`. Each RPC:
 
-1. Reads `attested` (the `AttestedSnapshot` — state and metadata published together, §6.5).
+1. Reads `attested` (the `AttestedSnapshot` — state and block number published together, §6.5).
    Returns `NOT_READY` if `attested.state() == null` (nothing has been attested yet — true
    genesis, no block fully confirmed). This is the *only* state this RPC ever reads: never the
    live mutable or the sealed-but-unattested `hashingImmutable`, which the apply worker is
@@ -536,8 +531,8 @@ Registered with the block node's `MetricRegistry` in `init()`, under the `blockn
 | `state_block_lag`           | ObservableGauge | Blocks between the latest available block and the attested block; grows during a stall — alert on it independent of `state_apply_halted`, since a stall can also be a slow/stuck apply path |
 
 `snapshot_latency_ms`, `catch_up_blocks_total`, and `query_total{kind=...}` are not implemented
-yet — snapshot creation and the query path don't exist yet in this plugin (see Roadmap); add
-them alongside those features.
+yet, since snapshot creation and the query path don't exist yet in this plugin; add them
+alongside those features.
 
 ## 10. Failure modes
 
@@ -547,8 +542,8 @@ them alongside those features.
 | Highest-numbered snapshot directory is unreadable, fails to load, or fails its self-consistency check (loaded `BlockStreamInfo.block_number` disagrees with the directory name) | Halt (`applyHalted=true`), log at ERROR. Starting from genesis instead would silently discard the operator's recorded intent and surface only later as a confusing hash mismatch on an unrelated block. Plugin still starts; never becomes `ready`.                     |
 | `startOfBlockStateRootHash` mismatch                                                                                                                                            | Increment `hashMismatchTotal`, set `applyHalted=true`, log at ERROR. Apply loop short-circuits thereafter; further blocks ignored until restart.                                                                                                                        |
 | Footer hash digest length differs from this build's (e.g. a SHA-256 footer against a SHA-384 `VirtualMap` hash)                                                                 | Same halt as any other `startOfBlockStateRootHash` mismatch, but logged distinctly as a digest-length mismatch rather than genuine divergence (#3813). Does not self-resolve: needs a CN release or state-library pin that matches the source chain's digest. See §6.5. |
-| First block after a fresh (no-metadata) start is N > 0, not 0                                                                                                                   | **Not yet handled** — no real seed state exists to validate N's footer against; currently indistinguishable from a genuine hash mismatch. See §6.5. Needs a design decision.                                                                                            |
-| Malformed `state_changes` item                                                                                                                                                  | `IllegalStateException` from the applier; plugin refuses to advance metadata for that block.                                                                                                                                                                            |
+| First block after a fresh (no-snapshot) start is N > 0, not 0                                                                                                                   | **Not yet handled** — no real seed state exists to validate N's footer against; currently indistinguishable from a genuine hash mismatch. See §6.5. Needs a design decision.                                                                                            |
+| Malformed `state_changes` item                                                                                                                                                  | `IllegalStateException` from the applier; plugin refuses to advance past that block.                                                                                                                                                                                    |
 | Legacy field-2 token-association encoding on a `stateId == 9` change                                                                                                            | Halt with a distinct "unsupported legacy token-association encoding" error, not a generic hash mismatch — this plugin does not remap field 2 the way consensus-node's reference applier does. See §7.                                                                   |
 | Verification gap                                                                                                                                                                | Block parks in `pendingBlocks` until the predecessor arrives (via notification or catch-up); apply loop retries from `historicalBlockProvider` on a delay. `pendingBlocks` is capped (`pendingBlocksMax`) so a long-lived gap can't grow it unboundedly.                |
 | Historical block missing locally                                                                                                                                                | Catch-up skips it; the same block can arrive via notification later.                                                                                                                                                                                                    |
@@ -579,8 +574,8 @@ Acceptance scenarios live in
 and exercise the real `VirtualMapStateLifecycleManager`:
 
 1. **scenario1** — genesis startup applies the first verified block.
-2. **scenario2** — `metadata.block=n`, verification of `n+1` with the right
-   footer hash advances metadata.
+2. **scenario2** — with block `n` already applied, verification of `n+1` with the right
+   footer hash promotes the attested block to `n`.
 3. **scenario3** — gap: block `n+2` parks until `n+1` fills the gap; both
    then apply in order.
 4. **scenario4** — chained blocks `0..3` apply in order; under lag-1 the exposed
@@ -622,12 +617,11 @@ apply-worker thread via a `BlockingQueue`; the worker drains under
 apply completes; it is not persisted or exposed on the query response (§5.1) and is simply
 unknown after a restore until the next applied block repopulates it. No timestamp approximation.
 
-**Block identity lives in the snapshot directory name, not a separate metadata file.** Restoring
-which block was last applied (§6.2) and reporting it on queries (§8) both read
-`BlockStreamInfo.block_number` from the state itself, or the directory name a snapshot was
-restored from — never an independently-tracked copy. This removes an entire class of
-out-of-sync bug (a tracked copy disagreeing with the state it describes) at the cost of one
-extra singleton read per restore and per query response, which is cheap relative to the
+**Block identity lives in the snapshot directory name.** Restoring which block was last applied
+(§6.2) and reporting it on queries (§8) both read `BlockStreamInfo.block_number` from the state
+itself, or the directory name a snapshot was restored from — never an independently-tracked
+copy, so there is nothing that can drift out of sync with the state it describes. The cost is
+one extra singleton read per restore and per query response, which is cheap relative to the
 surrounding I/O.
 
 **Historical state is explicitly out of scope** for this plugin — only the
