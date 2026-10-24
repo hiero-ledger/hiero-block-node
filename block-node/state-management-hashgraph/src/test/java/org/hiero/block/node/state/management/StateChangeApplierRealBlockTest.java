@@ -35,7 +35,7 @@ class StateChangeApplierRealBlockTest {
             + "published base-crypto/swirlds-state-impl libraries (hederaVersion=0.80.0-alpha.2) still "
             + "hardcode Cryptography.DEFAULT_DIGEST_TYPE=SHA_384 for state-tree hashing, with no config "
             + "override — CN's SHA-256 state-hashing migration is still on an unreleased branch")
-    // @todo re-enable once CN tags a release with SHA-256 state hashing wired in
+    // @todo re-enable once CN tags a release with SHA-256 state hashing wired in, see #3920
     void appliedBlockRootHashMatchesNextBlocksFooter(@TempDir final Path tmp) throws Exception {
         final BlockUnparsed block0 = loadBlock("CN_11_12_TSS_SCHNORR/0.blk.gz");
         final BlockUnparsed block1 = loadBlock("CN_11_12_TSS_SCHNORR/1.blk.gz");
