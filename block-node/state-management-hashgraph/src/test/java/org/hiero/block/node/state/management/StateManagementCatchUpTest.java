@@ -88,7 +88,7 @@ class StateManagementCatchUpTest {
         }
 
         // This is exactly what `retryGap` invokes on a gap-retry firing — call it directly
-        // rather than waiting on the real `GAP_RETRY_DELAY_SECONDS` timer.
+        // rather than waiting on the real `gapRetryDelaySeconds` timer.
         plugin.sweepHistoricalBlocks();
 
         assertThat(plugin.attested().blockNumber())
@@ -102,7 +102,10 @@ class StateManagementCatchUpTest {
     void liveGapRecoveryDoesNotDeadlockOnBackgroundExecutor(@TempDir final Path tmp) throws Exception {
         final InMemoryHistoricalBlockFacility historic = new InMemoryHistoricalBlockFacility();
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
-        final StateManagementPlugin plugin = startPlugin(tmp, historic, facility);
+        // 1s gap-retry delay (vs. the 5s default) keeps this test fast and leaves a generous
+        // margin against the deadline below, rather than racing the real 5s timer on a loaded
+        // CI runner.
+        final StateManagementPlugin plugin = startPlugin(tmp, historic, facility, 1);
         final Bytes genesisHash = plugin.stagedStateRootHash();
         historic.put(0L, buildBlock(0L, 0L, genesisHash));
         plugin.catchUpFromHistoricalBlocks();
@@ -126,7 +129,7 @@ class StateManagementCatchUpTest {
         facility.sendBlockVerification(new VerificationNotification(
                 true, null, 3L, Bytes.fromHex("aabb"), buildBlock(3L, 3L, stagedAfter0), BlockSource.PUBLISHER));
 
-        final long deadline = System.currentTimeMillis() + 8_000L;
+        final long deadline = System.currentTimeMillis() + 4_000L;
         while (plugin.attested().blockNumber() < 2L && System.currentTimeMillis() < deadline) {
             Thread.sleep(50L);
         }
@@ -134,7 +137,7 @@ class StateManagementCatchUpTest {
         assertThat(plugin.isApplyHalted()).isFalse();
         assertThat(plugin.attested().blockNumber())
                 .as("gap recovery must apply blocks 1-2 (exposing up to 2 under lag-1) within one "
-                        + "GAP_RETRY_DELAY_SECONDS cycle, not hang")
+                        + "gapRetryDelaySeconds cycle, not hang")
                 .isEqualTo(2L);
         plugin.stop();
     }
@@ -324,6 +327,14 @@ class StateManagementCatchUpTest {
 
     private static StateManagementPlugin startPlugin(
             final Path tmp, final HistoricalBlockFacility historic, final TestBlockMessagingFacility facility) {
+        return startPlugin(tmp, historic, facility, 5);
+    }
+
+    private static StateManagementPlugin startPlugin(
+            final Path tmp,
+            final HistoricalBlockFacility historic,
+            final TestBlockMessagingFacility facility,
+            final int gapRetryDelaySeconds) {
         final var configuration = ConfigurationBuilder.create()
                 .withConfigDataType(StateManagementConfig.class)
                 .withConfigDataType(MerkleDbConfig.class)
@@ -332,6 +343,7 @@ class StateManagementCatchUpTest {
                         "state.management.snapshotRecentPath",
                         tmp.resolve("recent").toString())
                 .withValue("state.management.historicCatchUpBatchSize", "2")
+                .withValue("state.management.gapRetryDelaySeconds", String.valueOf(gapRetryDelaySeconds))
                 .build();
         final BlockNodeContext context = new BlockNodeContext(
                 configuration,
