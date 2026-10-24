@@ -24,6 +24,7 @@ mainModuleInfo {
 
 testModuleInfo {
     requires("org.hiero.block.node.app.test.fixtures")
+    requires("java.logging")
     requires("org.assertj.core")
     requires("org.junit.jupiter.api")
 
