@@ -1,58 +1,27 @@
 # `state-management-hashgraph` plugin
 
-> **Status:** *Beta, partial.* This slice covers lifecycle, the apply
-> pipeline, and snapshot restore. Snapshot creation and the gRPC query API
-> are not implemented yet — see Roadmap.
+> **Status:** *Beta, partial.* Lifecycle, apply, and snapshot restore are implemented. Snapshot
+> creation and the gRPC query API are not yet, see Roadmap.
 
-Live Hashgraph state on the Block Node. The plugin subscribes to verified
-block-stream notifications and applies `state_changes` items to an
-in-memory state store, backed by the same `VirtualMapState` lifecycle
+Live Hashgraph state on the Block Node. Subscribes to verified block-stream notifications and
+applies their `state_changes` into an in-memory `VirtualMapState`, using the same lifecycle
 types the consensus node uses.
 
 ## How it works
 
-1. **Subscribe.** On `start()` the plugin registers as a
-   `BlockNotificationHandler` and receives every `VerificationNotification`
-   with `success == true`.
-2. **Queue.** Each verified block is parked in a `ConcurrentSkipListMap`
-   keyed by block number.
-3. **Catch up.** A one-shot `catchUpFromHistoricalBlocks` task runs after
-   `start()`. It compares `metadata.blockNumber` to
-   `context.historicalBlockProvider().availableBlocks().max()` and pulls
-   missing blocks via `block(n)` in batches of `historicCatchUpBatchSize`.
-4. **Apply (lag-1 commit).** A single apply-worker thread blocks on a
-   queue and drains the pending map in strict block-number order the
-   moment a block arrives (no timer). The pipeline runs **three
-   concurrent state versions**: **(3)** the live *mutable*
-   (`getMutableState()`) receiving the current block's changes; **(2)**
-   `hashingImmutable`, the sealed copy awaiting hash + attestation; and
-   **(1)** `attestedImmutable`, the network-confirmed copy. A block is
-   applied into the live mutable, but only **exposed** once the *next*
-   block's footer confirms its root hash. For each block N:
-   - **Hash state 2** (post-(N-1)) *now* — the single point at which a
-     state is hashed, on promotion, never eagerly at seal — and validate
-     N's `BlockFooter.startOfBlockStateRootHash` against it. On mismatch
-     the plugin sets `applyHalted=true`, increments `hashMismatchTotal`,
-     and refuses further applies.
-   - On match, promote state 2 → `attestedImmutable` and record its
-     `StateMetadata` with the just-computed hash.
-   - Apply N's `state_changes` to the live mutable `BinaryState`:
-     | wire variant | `BinaryState` call |
-     |---|---|
-     | `SingletonUpdateChange` | `updateSingleton(stateId, bytes)` |
-     | `MapUpdateChange`       | `updateKv(stateId, keyBytes, valueBytes)` |
-     | `MapDeleteChange`       | `removeKv(stateId, keyBytes)` |
-     | `QueuePushChange`       | `pushQueue(stateId, bytes)` |
-     | `QueuePopChange`        | `popQueue(stateId)` |
-   - `lifecycleManager.copyMutableState()` seals post-N; it stays staged
-     until block N+1 attests it.
-5. **Restore on start.** If a snapshot directory matching the persisted
-   `stateMetadata.json` exists under `snapshotRecentPath`, the plugin
-   loads it via `lifecycleManager.loadSnapshot(...)` and seeds the lag-1
-   bookkeeping so the restored state is already exposed on boot. Falls
-   back to genesis only when there is no persisted metadata at all; if
-   metadata names a block but its snapshot is missing, unreadable, or its
-   hash doesn't match, the plugin halts instead (see Failure modes).
+The apply pipeline runs each block through three state versions, one block behind attestation
+("lag-1 commit"):
+
+![Apply pipeline state machine: MUTABLE seals into HASHING, HASHING either promotes to ATTESTED on a matching footer hash or halts on a mismatch](../../docs/assets/state/apply-pipeline-state-machine.svg)
+
+|   Step    |                                                                                            What happens                                                                                             |
+|-----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Subscribe | Registers as a `BlockNotificationHandler`; only `VerificationNotification.success == true` blocks are staged.                                                                                       |
+| Catch up  | One-shot on `start()`: fills the gap between the attested block and `historicalBlockProvider`'s latest, in batches.                                                                                 |
+| Apply     | A single apply-worker thread drains staged blocks in order the moment one arrives, no timer.                                                                                                        |
+| Restore   | On `start()`, scans `snapshotRecentPath` for the highest-numbered directory, loads it, then checks the loaded state's `BlockStreamInfo.block_number` against the directory name before trusting it. |
+
+Full per-block walkthrough: `docs/design/state/live-state.md` §6.
 
 ## Storage encoding
 
@@ -65,52 +34,41 @@ All values written to `BinaryState` are the raw payload of the oneof-selected fi
 
 ## Configuration
 
-Bound under `@ConfigData("state.management")` in `StateManagementConfig` — see
+Bound under `@ConfigData("state.management")` in `StateManagementConfig`, see
 `docs/design/state/live-state.md` §4 for the full property table.
 
-There is no `enabled` flag. Block-Node plugins are active whenever their
-jar is on the classpath; opt-in lives in the deployment manifest.
+There is no `enabled` flag. Block-Node plugins are active whenever their jar is on the
+classpath; opt-in lives in the deployment manifest.
 
 ## Failure modes
 
-- **State unreadable at startup.** If persisted metadata names a block and its
-  snapshot is missing or unreadable (I/O failure), the plugin logs at `ERROR`
-  and halts (`applyHalted=true`) rather than silently starting from genesis.
-- **Snapshot hash mismatch at startup.** When a loaded snapshot's root
-  hash doesn't match the persisted metadata's `stateRootHash`, the
-  plugin treats it the same as a block-apply hash mismatch: halts
-  (`applyHalted=true`) rather than silently serving a stale/corrupt
-  snapshot.
-- **Hash mismatch.** When a block's `BlockFooter.startOfBlockStateRootHash`
-  doesn't equal the current live root hash, the plugin increments
-  `hashMismatchTotal`, sets `applyHalted=true`, logs at `ERROR`, and the
-  apply loop short-circuits on `applyHalted` for every subsequent block.
-- **Malformed `state_changes` item.** Raises `IllegalStateException` from
-  the applier; the plugin logs and does **not** advance metadata.
-- **Concurrent gap.** A block arriving out of order parks in the pending
-  map until its predecessor lands. A gap retry sweeps everything
-  `historicalBlockProvider` currently has from the next expected block
-  onward (not just the one missing block), on a delay, until the gap
-  fills; `pendingBlocks` is capped (`pendingBlocksMax`) so a long-lived
-  gap can't grow it unboundedly.
+|                                Failure                                |                                                 Behaviour                                                 |
+|-----------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|
+| No snapshot directories at startup                                    | Genesis; this is the normal first boot, not a failure.                                                    |
+| Highest snapshot directory unreadable, or fails its self-check        | Halt.                                                                                                     |
+| Footer hash mismatch (`startOfBlockStateRootHash`)                    | Halt; `hashMismatchTotal` incremented.                                                                    |
+| Digest-length mismatch (e.g. SHA-256 footer vs. this build's SHA-384) | Halt, logged distinctly from a genuine divergence.                                                        |
+| Legacy field-2 token-association encoding                             | Halt with a distinct error, not a generic hash mismatch.                                                  |
+| Malformed `state_changes` item                                        | That block's apply aborts; plugin does not advance past it.                                               |
+| Gap in `pendingBlocks`                                                | Retried from `historicalBlockProvider` after `gapRetryDelaySeconds`; buffer capped at `pendingBlocksMax`. |
+
+All halts are terminal: recovery is a restart from the last good snapshot, not a live retry.
+Full table and recovery semantics: `docs/design/state/live-state.md` §10.
 
 ## Limitations
 
-- No snapshot creation yet — the plugin can only restore a snapshot
-  produced externally; it never writes one itself.
+- No snapshot creation yet. The plugin restores an externally-produced snapshot; it never
+  writes one itself.
 - No gRPC query API yet.
-- Hash-mismatch recovery requires operator intervention; apply stays
-  halted until restart and there is no automatic rewind/replay.
-- Catch-up is sequential and synchronous within batches; very large
-  catch-up windows block `ready=true` proportionally.
-- The plugin also declares `MerkleDbConfig`/`VirtualMapConfig` in
-  `StateManagementConfigExtension`, since the swirlds jars don't
-  self-register them — see that class's javadoc for details.
+- Hash-mismatch recovery requires a restart; there is no automatic rewind/replay.
+- Catch-up is sequential and synchronous within batches; very large catch-up windows delay
+  `ready=true` proportionally.
+- `StateManagementConfigExtension` also declares `MerkleDbConfig`/`VirtualMapConfig`, since the
+  swirlds jars don't self-register them, see that class's javadoc.
 
 ## Roadmap
 
 - Snapshot creation (periodic, with retention/pruning).
-- `StateService` gRPC query API (`getBinaryKV`/`getBinarySingleton`/
-  `getBinaryQueue`).
+- `StateService` gRPC query API (`getKV`/`getSingleton`/`getQueue`).
 - Hash-mismatch recovery protocol.
 - Merkle proof RPC exposure.
