@@ -17,6 +17,8 @@ public record StateManagementConfig(
 
         @Loggable @ConfigProperty(defaultValue = "64") @Max(512) @Min(1) int historicCatchUpBatchSize,
 
-        @Loggable @ConfigProperty(defaultValue = "50") @Max(10_000) @Min(1) int pendingBlocksMax) {
+        @Loggable @ConfigProperty(defaultValue = "50") @Max(10_000) @Min(1) int pendingBlocksMax,
+
+        @Loggable @ConfigProperty(defaultValue = "5") @Max(300) @Min(1) int gapRetryDelaySeconds) {
     // spotless:on
 }

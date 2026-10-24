@@ -140,8 +140,6 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// task behind itself there, then block waiting on it — a self-deadlock.
     private final AtomicBoolean gapSweepRequested = new AtomicBoolean(false);
 
-    private static final long GAP_RETRY_DELAY_SECONDS = 5L;
-
     /// Wake-up channel for the apply worker: `handleVerification` stages the block in
     /// `pendingBlocks` and offers its number here so the worker wakes immediately instead of
     /// waiting for a timer. Unbounded so the messaging dispatch thread never blocks handing off.
@@ -588,7 +586,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// Walk forward from the next expected block to whatever `historicalBlockProvider` currently
     /// has, applying in `historicCatchUpBatchSize` batches via `applyPending`. Shared by startup
     /// catch-up and live gap recovery, so a deep gap converges in one sweep instead of trickling
-    /// in one block per `GAP_RETRY_DELAY_SECONDS`. Gap recovery runs this from `runApplyWorker`
+    /// in one block per `gapRetryDelaySeconds`. Gap recovery runs this from `runApplyWorker`
     /// (via `gapSweepRequested`), never directly from `retryGap` on `backgroundExecutor` — see
     /// `gapSweepRequested`'s javadoc for why.
     ///
@@ -644,8 +642,8 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                 System.Logger.Level.WARNING,
                 "Block {0} missing; retrying from historical storage in {1}s",
                 expectedNext,
-                GAP_RETRY_DELAY_SECONDS);
-        backgroundExecutor.schedule(() -> retryGap(expectedNext), GAP_RETRY_DELAY_SECONDS, TimeUnit.SECONDS);
+                config.gapRetryDelaySeconds());
+        backgroundExecutor.schedule(() -> retryGap(expectedNext), config.gapRetryDelaySeconds(), TimeUnit.SECONDS);
     }
 
     /// Request a gap-recovery sweep and wake the apply worker. Runs on `backgroundExecutor`
