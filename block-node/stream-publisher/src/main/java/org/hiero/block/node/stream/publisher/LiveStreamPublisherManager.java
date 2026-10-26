@@ -35,13 +35,13 @@ import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.TreeSet;
 import java.util.concurrent.Callable;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -121,12 +121,12 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     volatile ScheduledFuture<?> flowControlRefreshFuture;
     /// The refresh body run by the scheduled task. Package-private so tests can inject failures.
     volatile Runnable flowControlRefreshAction = this::refreshFlowControl;
-    /// Guards (re)scheduling and cancelling the flow-control refresh task.
-    private final Object flowControlScheduleLock = new Object();
+    /// Held by the one caller that is currently rescheduling the flow-control refresh task.
+    private final AtomicBoolean flowControlRescheduling = new AtomicBoolean(false);
     /// Number of consecutive failed flow-control refresh runs; only touched by the refresh task.
     private int consecutiveFlowControlRefreshFailures;
-    /// Guards check-and-replace of the queue forwarder task.
-    private final Object forwarderLock = new Object();
+    /// Held by the one caller that is currently replacing a finished queue forwarder task.
+    private final AtomicBoolean forwarderRestarting = new AtomicBoolean(false);
     /// Set once on shutdown so recovery checks never start tasks on a stopped manager.
     private volatile boolean stopped;
     /// Reference to application state facility, used to update the next
@@ -402,20 +402,16 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         // Set before cancelling anything so the recovery checks cannot restart a task we are stopping.
         stopped = true;
         // Cancel the queue forwarder task if it is running.
-        final Future<Long> lastResult;
-        synchronized (forwarderLock) {
-            lastResult = queueForwarderResult.getAndSet(null);
-        }
+        final Future<Long> lastResult = queueForwarderResult.getAndSet(null);
         if (lastResult != null) {
             lastResult.cancel(true);
         }
         queueByBlockMap.clear();
         activeStreamHandlerByBlock.clear();
         // Cancel the flow control refresh task before executor shutdown.
-        synchronized (flowControlScheduleLock) {
-            if (flowControlRefreshFuture != null) {
-                flowControlRefreshFuture.cancel(false);
-            }
+        final ScheduledFuture<?> refreshFuture = flowControlRefreshFuture;
+        if (refreshFuture != null) {
+            refreshFuture.cancel(false);
         }
         // We can safely shut down the scheduled executor abruptly. The timeout
         // tasks can be ignored completely as we shut down the manager.
@@ -1219,40 +1215,53 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             return;
         }
         ensureFlowControlRefreshScheduled();
-        synchronized (forwarderLock) {
-            if (stopped) {
-                return;
-            }
-            final Future<Long> currentResult = queueForwarderResult.get();
-            if (currentResult != null && !currentResult.isDone()) {
-                return;
-            }
-            if (currentResult != null) {
-                logForwarderOutcome(currentResult);
-            }
+        // Only one caller replaces the forwarder, a caller that loses the race has nothing to do because the
+        // winner is already restarting it.
+        if (needsForwarderRestart() && forwarderRestarting.compareAndSet(false, true)) {
             try {
-                queueForwarderResult.set(launchQueueForwarder());
-            } catch (final RuntimeException e) {
-                // Leave the reference empty so the next block proof tries again.
-                queueForwarderResult.set(null);
-                LOGGER.log(WARNING, "Unable to launch the queue forwarder task, will retry.", e);
+                restartForwarderTask();
+            } finally {
+                forwarderRestarting.set(false);
             }
         }
     }
 
-    private void logForwarderOutcome(final Future<Long> completedResult) {
-        try {
-            final long blocksForwarded = completedResult.get();
-            metrics.blockBatchesMessaged().increment(blocksForwarded);
-            final String formatString = "Queue forwarder task completed normally after forwarding %d blocks.";
-            LOGGER.log(DEBUG, formatString.formatted(blocksForwarded));
-        } catch (final ExecutionException e) {
-            LOGGER.log(WARNING, "Queue forwarder task failed, restarting it.", e.getCause());
-        } catch (final CancellationException e) {
-            LOGGER.log(INFO, "Queue forwarder task was cancelled, restarting it.");
-        } catch (final InterruptedException e) {
-            Thread.currentThread().interrupt();
-            LOGGER.log(DEBUG, "Interrupted retrieving queue forwarder task result.");
+    private boolean needsForwarderRestart() {
+        final Future<Long> currentResult = queueForwarderResult.get();
+        return currentResult == null || currentResult.isDone();
+    }
+
+    private void restartForwarderTask() {
+        // Look again now that this caller owns the restart, another caller may have just finished it.
+        final Future<Long> finishedResult = queueForwarderResult.get();
+        if (finishedResult != null) {
+            if (!finishedResult.isDone()) {
+                return;
+            }
+            logForwarderOutcome(finishedResult);
+        }
+        queueForwarderResult.set(launchQueueForwarder());
+        // The manager may have been stopped while the replacement was launched, make sure it does not outlive it.
+        if (stopped) {
+            final Future<Long> orphan = queueForwarderResult.getAndSet(null);
+            if (orphan != null) {
+                orphan.cancel(true);
+            }
+        }
+    }
+
+    private void logForwarderOutcome(final Future<Long> finishedResult) {
+        switch (finishedResult.state()) {
+            case SUCCESS -> {
+                final long blocksForwarded = finishedResult.resultNow();
+                metrics.blockBatchesMessaged().increment(blocksForwarded);
+                final String formatString = "Queue forwarder task completed normally after forwarding %d blocks.";
+                LOGGER.log(DEBUG, formatString.formatted(blocksForwarded));
+            }
+            case FAILED ->
+                LOGGER.log(WARNING, "Queue forwarder task failed, restarting it.", finishedResult.exceptionNow());
+            case CANCELLED -> LOGGER.log(INFO, "Queue forwarder task was cancelled, restarting it.");
+            case RUNNING -> LOGGER.log(DEBUG, "Queue forwarder task is still running.");
         }
     }
 
@@ -1267,7 +1276,13 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     ///
     /// @return a Future representing pending completion of the task
     private Future<Long> launchQueueForwarder() {
-        return threadManager.getVirtualThreadExecutor().submit(new MessagingForwarderTask(this));
+        try {
+            return threadManager.getVirtualThreadExecutor().submit(new MessagingForwarderTask(this));
+        } catch (final RejectedExecutionException e) {
+            // Return no task so the reference stays empty and the next block proof tries again.
+            LOGGER.log(WARNING, "Unable to launch the queue forwarder task, will retry.", e);
+            return null;
+        }
     }
 
     private void scheduleFlowControlRefresh() {
@@ -1285,25 +1300,26 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// task that throws is silently dropped by the executor, so without this check a single
     /// failure would stop all budget refills for the life of the process.
     void ensureFlowControlRefreshScheduled() {
-        if (stopped) {
+        if (stopped || isRunning(flowControlRefreshFuture)) {
             return;
         }
-        final ScheduledFuture<?> current = flowControlRefreshFuture;
-        if (current != null && !current.isDone()) {
-            return;
-        }
-        synchronized (flowControlScheduleLock) {
-            final ScheduledFuture<?> latest = flowControlRefreshFuture;
-            if (stopped || (latest != null && !latest.isDone())) {
-                return;
-            }
-            LOGGER.log(WARNING, "Flow control refresh task is not running, rescheduling it.");
+        // Only one caller reschedules, a caller that loses the race has nothing to do because the winner is
+        // already rescheduling it.
+        if (flowControlRescheduling.compareAndSet(false, true)) {
             try {
-                startFlowControlRefreshTask();
-            } catch (final RuntimeException e) {
-                LOGGER.log(WARNING, "Unable to reschedule the flow control refresh task.", e);
+                // Look again now that this caller owns the reschedule, another caller may have just finished it.
+                if (!stopped && !isRunning(flowControlRefreshFuture)) {
+                    LOGGER.log(WARNING, "Flow control refresh task is not running, rescheduling it.");
+                    startFlowControlRefreshTask();
+                }
+            } finally {
+                flowControlRescheduling.set(false);
             }
         }
+    }
+
+    private static boolean isRunning(final ScheduledFuture<?> future) {
+        return future != null && !future.isDone();
     }
 
     private void refreshFlowControlSafely() {

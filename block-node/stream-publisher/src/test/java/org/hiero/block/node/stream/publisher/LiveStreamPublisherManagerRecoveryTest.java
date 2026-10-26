@@ -5,13 +5,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 
 import com.swirlds.config.api.Configuration;
-import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
@@ -42,10 +46,10 @@ class LiveStreamPublisherManagerRecoveryTest {
     /// An executor that hands out scripted futures instead of running the forwarder, so each
     /// scenario can decide exactly how the previous forwarder task ended.
     private static final class ScriptedForwarderExecutor extends AbstractExecutorService {
-        private final Deque<Future<Long>> scripted = new ArrayDeque<>();
-        private boolean rejecting;
-        private int attempts;
-        private int launched;
+        private final Deque<Future<Long>> scripted = new ConcurrentLinkedDeque<>();
+        private volatile boolean rejecting;
+        private final AtomicInteger attempts = new AtomicInteger();
+        private final AtomicInteger launched = new AtomicInteger();
 
         void script(final Future<Long> next) {
             scripted.add(next);
@@ -54,11 +58,11 @@ class LiveStreamPublisherManagerRecoveryTest {
         @Override
         @SuppressWarnings("unchecked")
         public <T> Future<T> submit(final Callable<T> task) {
-            attempts++;
+            attempts.incrementAndGet();
             if (rejecting) {
                 throw new RejectedExecutionException("rejected for test");
             }
-            launched++;
+            launched.incrementAndGet();
             final Future<Long> next = scripted.isEmpty() ? new CompletableFuture<>() : scripted.poll();
             return (Future<T>) next;
         }
@@ -126,6 +130,31 @@ class LiveStreamPublisherManagerRecoveryTest {
         manager = new LiveStreamPublisherManager(context, managerMetrics, List.of());
     }
 
+    /// Runs the action on `callers` threads that all start at the same moment.
+    private static void runConcurrently(final int callers, final Runnable action) throws Exception {
+        final ExecutorService pool = Executors.newFixedThreadPool(callers);
+        try {
+            final CountDownLatch ready = new CountDownLatch(callers);
+            final CountDownLatch go = new CountDownLatch(1);
+            final List<Future<Object>> tasks = new ArrayList<>();
+            for (int i = 0; i < callers; i++) {
+                tasks.add(pool.submit(() -> {
+                    ready.countDown();
+                    go.await();
+                    action.run();
+                    return null;
+                }));
+            }
+            ready.await();
+            go.countDown();
+            for (final Future<Object> task : tasks) {
+                task.get(30, TimeUnit.SECONDS);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
     @Nested
     @DisplayName("Queue forwarder recovery")
     class ForwarderRecoveryTests {
@@ -138,7 +167,7 @@ class LiveStreamPublisherManagerRecoveryTest {
             manager.checkLogAndRestartForwarderTask();
             manager.checkLogAndRestartForwarderTask();
 
-            assertThat(forwarderExecutor.launched).isEqualTo(2);
+            assertThat(forwarderExecutor.launched.get()).isEqualTo(2);
             assertThat(managerMetrics.blockBatchesMessaged().get()).isEqualTo(5L);
         }
 
@@ -150,7 +179,7 @@ class LiveStreamPublisherManagerRecoveryTest {
             manager.checkLogAndRestartForwarderTask();
 
             assertThatNoException().isThrownBy(() -> manager.checkLogAndRestartForwarderTask());
-            assertThat(forwarderExecutor.launched).isEqualTo(2);
+            assertThat(forwarderExecutor.launched.get()).isEqualTo(2);
             assertThat(managerMetrics.blockBatchesMessaged().get()).isZero();
         }
 
@@ -164,7 +193,7 @@ class LiveStreamPublisherManagerRecoveryTest {
             manager.checkLogAndRestartForwarderTask();
             manager.checkLogAndRestartForwarderTask();
 
-            assertThat(forwarderExecutor.launched).isEqualTo(2);
+            assertThat(forwarderExecutor.launched.get()).isEqualTo(2);
         }
 
         @Test
@@ -174,7 +203,7 @@ class LiveStreamPublisherManagerRecoveryTest {
             manager.checkLogAndRestartForwarderTask();
             manager.checkLogAndRestartForwarderTask();
 
-            assertThat(forwarderExecutor.attempts).isEqualTo(1);
+            assertThat(forwarderExecutor.attempts.get()).isEqualTo(1);
         }
 
         @Test
@@ -183,26 +212,38 @@ class LiveStreamPublisherManagerRecoveryTest {
             forwarderExecutor.rejecting = true;
 
             assertThatNoException().isThrownBy(() -> manager.checkLogAndRestartForwarderTask());
-            assertThat(forwarderExecutor.launched).isZero();
+            assertThat(forwarderExecutor.launched.get()).isZero();
 
             forwarderExecutor.rejecting = false;
             manager.checkLogAndRestartForwarderTask();
             manager.checkLogAndRestartForwarderTask();
 
-            assertThat(forwarderExecutor.launched).isEqualTo(1);
-            assertThat(forwarderExecutor.attempts).isEqualTo(2);
+            assertThat(forwarderExecutor.launched.get()).isEqualTo(1);
+            assertThat(forwarderExecutor.attempts.get()).isEqualTo(2);
         }
 
         @Test
         @DisplayName("nothing is launched after the manager is shut down")
         void noRelaunchAfterShutdown() {
             manager.checkLogAndRestartForwarderTask();
-            assertThat(forwarderExecutor.attempts).isEqualTo(1);
+            assertThat(forwarderExecutor.attempts.get()).isEqualTo(1);
 
             manager.shutdown();
             manager.checkLogAndRestartForwarderTask();
 
-            assertThat(forwarderExecutor.attempts).isEqualTo(1);
+            assertThat(forwarderExecutor.attempts.get()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("callers racing on a finished forwarder launch exactly one replacement")
+        void racingChecksLaunchOneReplacement() throws Exception {
+            forwarderExecutor.script(CompletableFuture.completedFuture(1L));
+            manager.checkLogAndRestartForwarderTask();
+            assertThat(forwarderExecutor.launched.get()).isEqualTo(1);
+
+            runConcurrently(16, manager::checkLogAndRestartForwarderTask);
+
+            assertThat(forwarderExecutor.launched.get()).isEqualTo(2);
         }
     }
 
@@ -260,6 +301,18 @@ class LiveStreamPublisherManagerRecoveryTest {
             assertThat((Object) manager.flowControlRefreshFuture).isNotSameAs(before);
             assertThat(manager.flowControlRefreshFuture.isDone()).isFalse();
             assertThat(threadPoolManager.scheduledExecutor().getTaskCount()).isEqualTo(tasksBefore + 1);
+        }
+
+        @Test
+        @DisplayName("callers racing on a finished refresh task schedule exactly one replacement")
+        void racingChecksRescheduleOnce() throws Exception {
+            manager.flowControlRefreshFuture.cancel(false);
+            final long tasksBefore = threadPoolManager.scheduledExecutor().getTaskCount();
+
+            runConcurrently(16, manager::ensureFlowControlRefreshScheduled);
+
+            assertThat(threadPoolManager.scheduledExecutor().getTaskCount()).isEqualTo(tasksBefore + 1);
+            assertThat(manager.flowControlRefreshFuture.isDone()).isFalse();
         }
 
         @Test
