@@ -8,6 +8,7 @@ import static org.hiero.block.tools.utils.Sha256.SHA_256_HASH_SIZE;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -17,6 +18,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -320,8 +322,46 @@ class StreamingHasherTest {
         StreamingHasher hasher = new StreamingHasher();
         hasher.addLeaf("leaf".getBytes(StandardCharsets.UTF_8));
         IOException ex = assertThrows(IOException.class, () -> hasher.load(legacyFile));
+        assertInstanceOf(LegacyHashFormatException.class, ex);
         assertTrue(ex.getMessage().contains("SHA-384"));
         assertEquals(1, hasher.leafCount(), "Failed load must not replace the current state");
+    }
+
+    /**
+     * Verifies that a valid state file with trailing bytes beyond what even a SHA-384 layout needs is reported as
+     * corrupt, not as legacy.
+     */
+    @Test
+    @DisplayName("Loading a state file with trailing garbage should fail as corrupt, not legacy")
+    void testLoadTrailingGarbageIsCorruptNotLegacy() throws Exception {
+        StreamingHasher original = new StreamingHasher();
+        original.addLeaf("leaf".getBytes(StandardCharsets.UTF_8));
+        Path stateFile = tempDir.resolve("trailing_garbage.bin");
+        original.save(stateFile);
+        Files.write(stateFile, new byte[100], StandardOpenOption.APPEND);
+
+        IOException ex = assertThrows(IOException.class, () -> new StreamingHasher().load(stateFile));
+        assertFalse(ex instanceof LegacyHashFormatException);
+        assertTrue(ex.getMessage().contains("corrupt"));
+    }
+
+    /**
+     * Verifies that a state file whose hash count does not match the number of set bits in its leaf count is
+     * reported as corrupt even though its size fits the hash count.
+     */
+    @Test
+    @DisplayName("Loading a state file with an inconsistent header should fail as corrupt")
+    void testLoadInconsistentHeaderIsCorrupt() throws Exception {
+        Path stateFile = tempDir.resolve("inconsistent_header.bin");
+        try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(stateFile))) {
+            out.writeLong(3);
+            out.writeInt(1);
+            out.write(new byte[SHA_256_HASH_SIZE]);
+        }
+
+        IOException ex = assertThrows(IOException.class, () -> new StreamingHasher().load(stateFile));
+        assertFalse(ex instanceof LegacyHashFormatException);
+        assertTrue(ex.getMessage().contains("corrupt"));
     }
 
     /**
