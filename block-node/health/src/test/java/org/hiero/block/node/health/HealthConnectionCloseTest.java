@@ -27,7 +27,6 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
-import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacility;
@@ -229,9 +228,7 @@ class HealthConnectionCloseTest
         @Override
         public BlockReadBulkhead blockReadBulkhead() {
             if (blockReadBulkhead == null) {
-                final MetricRegistry metricRegistry = MetricRegistry.builder()
-                        .setMetricsExporter(new TestMetricsExporter())
-                        .build();
+                final MetricRegistry metricRegistry = MetricRegistry.builder().build();
                 blockReadBulkhead = new BlockReadBulkhead(1_000, metricRegistry);
             }
             return blockReadBulkhead;

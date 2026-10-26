@@ -15,7 +15,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Stream;
-import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.bulkhead.BlockReadBulkhead;
 import org.hiero.metrics.core.MetricRegistry;
@@ -157,9 +156,7 @@ public final class RecordingServiceBuilder implements ServiceBuilder {
     @Override
     public BlockReadBulkhead blockReadBulkhead() {
         if (blockReadBulkhead == null) {
-            final MetricRegistry metricRegistry = MetricRegistry.builder()
-                    .setMetricsExporter(new TestMetricsExporter())
-                    .build();
+            final MetricRegistry metricRegistry = MetricRegistry.builder().build();
             blockReadBulkhead = new BlockReadBulkhead(DEFAULT_BLOCK_READ_BULKHEAD_PERMITS, metricRegistry);
         }
         return blockReadBulkhead;

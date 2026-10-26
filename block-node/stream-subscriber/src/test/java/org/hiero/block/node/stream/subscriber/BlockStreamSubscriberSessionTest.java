@@ -23,7 +23,6 @@ import org.hiero.block.api.SubscribeStreamResponse.Code;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed.ResponseOneOfType;
-import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
@@ -57,11 +56,8 @@ class BlockStreamSubscriberSessionTest {
             SubscribeStreamResponseUnparsed::status;
 
     /** A generously-sized bulkhead shared by every {@link SessionContext#create} call in this file. */
-    private static final BlockReadBulkhead TEST_BLOCK_READ_BULKHEAD = new BlockReadBulkhead(
-            1_000,
-            MetricRegistry.builder()
-                    .setMetricsExporter(new TestMetricsExporter())
-                    .build());
+    private static final BlockReadBulkhead TEST_BLOCK_READ_BULKHEAD =
+            new BlockReadBulkhead(1_000, MetricRegistry.builder().build());
 
     // SESSION FIELDS
     /** Client id of the session. */
@@ -1627,11 +1623,8 @@ class BlockStreamSubscriberSessionTest {
             final TestBlock blockZero = TestBlockBuilder.generateBlockWithNumber(0);
             historicalBlockFacility.handleBlockItemsReceived(blockZero.asBlockItems());
 
-            final BlockReadBulkhead singlePermitBulkhead = new BlockReadBulkhead(
-                    1,
-                    MetricRegistry.builder()
-                            .setMetricsExporter(new TestMetricsExporter())
-                            .build());
+            final BlockReadBulkhead singlePermitBulkhead =
+                    new BlockReadBulkhead(1, MetricRegistry.builder().build());
             final StallingResponsePipeline stallingPipeline = new StallingResponsePipeline();
             final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
                     .startBlockNumber(0L)
