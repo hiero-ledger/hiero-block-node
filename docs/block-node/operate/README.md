@@ -9,3 +9,4 @@
 | [Test with simulator](testing-a-deployed-block-node-using-the-simulator.md) | Validate a deployment using the Block Node simulator    |
 | [Load testing](load-testing-a-deployed-block-node-using-solo-and-nlg.md)    | Run load tests with Solo and the network load generator |
 | [Disaster recovery](disaster-recovery/README.md)                            | Playbooks for incidents already in progress             |
+| [Cloud storage expanded plugin](cloud-storage-expanded-plugin.md)           | Archive verified blocks to S3-compatible object storage |

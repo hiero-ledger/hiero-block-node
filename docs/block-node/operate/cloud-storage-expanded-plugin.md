@@ -18,8 +18,8 @@ transient S3 outages without triggering a publisher disconnect.
 ## Prerequisites
 
 - A deployed Block Node. See
-  [Deploy with Solo Provisioner](./solo-weaver-single-node-k8s-deployment.md) or
-  [Manual Kubernetes Deployment](./single-node-k8s-deployment.md).
+  [Deploy with Solo Provisioner](../deploy/solo-weaver-single-node-k8s-deployment.md) or
+  [Manual Kubernetes Deployment](../deploy/single-node-k8s-deployment.md).
 - `helm` v3 and `kubectl` installed and configured to access the namespace where your Block Node
   is deployed.
 - An S3-compatible bucket with write access. Create one using your cloud provider's console or
@@ -91,7 +91,7 @@ Plugin properties can be set as environment variables (`CLOUD_STORAGE_EXPANDED_*
 convention) or as JVM system properties (`-Dcloud.storage.expanded.*` via `JAVA_TOOL_OPTIONS`).
 JVM system properties take priority when both are set. For the full environment variable
 reference see
-[Cloud Storage Expanded Plugin Configuration](../configuration.md#cloud-storage-expanded-plugin-configuration).
+[Cloud Storage Expanded Plugin Configuration](../configure/configuration.md#cloud-storage-expanded-plugin-configuration).
 
 Add the required endpoint and bucket settings to `blockNode.config` in your Helm override
 file, in the same file where you set `plugins.names`:
@@ -285,7 +285,7 @@ block-node-block-node-server-0     1/1     Running   0          2m
 The plugin exposes the following metrics under the `blocknode_` prefix. Prometheus appends
 `_total` to counter names - for example, `cloud_expanded_total_uploads` becomes
 `blocknode_cloud_expanded_total_uploads_total`. Use the full Prometheus names in PromQL queries
-and alert rules. See [Metrics](../metrics.md#cloud-expanded) for alerting recommendations.
+and alert rules. See [Metrics](metrics.md#cloud-expanded) for alerting recommendations.
 
 |                 Metric                 |                                           Description                                            |
 |----------------------------------------|--------------------------------------------------------------------------------------------------|

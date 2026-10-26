@@ -81,7 +81,7 @@ Observes the block access service that serves requests for blocks.
 ### Read Bulkhead
 
 **Plugin:** shared SPI (`spi-plugins`), used by `block-access [block-access-service]` and `subscriber [stream-subscriber]`
-Observes the shared bulkhead that caps concurrent block-storage reads. See [Block Read Bulkhead Configuration](configuration.md#block-read-bulkhead-configuration) for sizing.
+Observes the shared bulkhead that caps concurrent block-storage reads. See [Block Read Bulkhead Configuration](../configure/configuration.md#block-read-bulkhead-configuration) for sizing.
 
 |  Type   |           Name           |                                                 Labels                                                 |                                                                 Description                                                                 |
 |---------|--------------------------|--------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
@@ -275,7 +275,7 @@ Observes the server status API that provides information about the node.
 ### Throttle
 
 **Plugin:** `server-status [block-node-server-status]`
-Per-client and node-wide throttling of the `serverStatus` and `serverStatusDetail` methods. See [Throttle Configuration](./configuration.md#throttle-configuration).
+Per-client and node-wide throttling of the `serverStatus` and `serverStatusDetail` methods. See [Throttle Configuration](../configure/configuration.md#throttle-configuration).
 
 |  Type   |               Name                |                                                                                   Description                                                                                    |
 |---------|-----------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|

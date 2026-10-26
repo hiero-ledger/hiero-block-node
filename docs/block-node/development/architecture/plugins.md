@@ -90,7 +90,7 @@ next start; other jars in `plugins/`, such as third-party plugins, are left alon
 writable.
 
 The `hiero-block-node-plugins` image holds only the catalog, to combine with the plain
-`hiero-block-node` image. See [`block-node/app/docker/README.md`](../../../block-node/app/docker/README.md).
+`hiero-block-node` image. See [`block-node/app/docker/README.md`](../../../../block-node/app/docker/README.md).
 
 ### How Other Projects Consume Plugins
 
