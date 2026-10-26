@@ -2,6 +2,7 @@
 package org.hiero.block.node.app;
 
 import static java.lang.System.Logger.Level.INFO;
+import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.pbj.grpc.helidon.PbjRouting;
@@ -156,15 +157,17 @@ public class ServiceBuilderImpl implements ServiceBuilder {
                 1, "throttle-client-state-sweep", (thread, throwable) -> {});
         final long intervalMinutes = globalThrottleConfig.clientStateSweepIntervalMinutes();
         clientStateSweepExecutor.scheduleAtFixedRate(
-                () -> {
-                    final long now = System.nanoTime();
-                    for (final StaleClientSweepable throttled : throttledServices) {
-                        throttled.sweepStaleClients(now);
-                    }
-                },
-                intervalMinutes,
-                intervalMinutes,
-                TimeUnit.MINUTES);
+                this::sweepAllThrottledServices, intervalMinutes, intervalMinutes, TimeUnit.MINUTES);
+    }
+
+    /// Runs one stale-client-state sweep across every throttled service registered so far.
+    private void sweepAllThrottledServices() {
+        final long now = System.nanoTime();
+        int totalEvicted = 0;
+        for (final StaleClientSweepable throttled : throttledServices) {
+            totalEvicted += throttled.sweepStaleClients(now);
+        }
+        LOGGER.log(TRACE, "Stale-client sweep evicted {0} client-state entries", totalEvicted);
     }
 
     /// Returns all HTTP routing builders keyed by port.
