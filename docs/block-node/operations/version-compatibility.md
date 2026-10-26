@@ -25,7 +25,7 @@ pre-releases 0.45.0-rc1, 0.45.0-rc2 and 0.45.0-sha256.*, and the Consensus Node 
 from the first 0.45.0 release candidate after rc2.
 For version combinations not listed here, check the
 [Block Node releases page](https://github.com/hiero-ledger/hiero-block-node/releases)
-or contact your Hashgraph point of contact.
+or open an issue on the [hiero-block-node repository](https://github.com/hiero-ledger/hiero-block-node/issues).
 
 ---
 
