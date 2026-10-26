@@ -199,7 +199,6 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         this.liveBlockHandler = new LiveBlockHandler(liveBlockQueue, latestLiveStreamBlock, sessionContext.handlerName);
         this.nanoTime = requireNonNull(nanoTime);
         this.idleTimeoutNanos = TimeUnit.SECONDS.toNanos(sessionContext.subscriberConfig.idleSessionTimeoutSeconds());
-        this.lastProgressNanos = nanoTime.getAsLong();
     }
 
     /**
@@ -255,6 +254,8 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                 if (canFulfillRequest()) {
                     // the request can be fulfilled, so we can start sending blocks
                     sessionReadyLatch.countDown();
+                    // Start the idle clock only now, so time spent queued for a worker thread does not count.
+                    lastProgressNanos = nanoTime.getAsLong();
                     // Send blocks forever if requested, otherwise send until we reach the requested end block
                     // or the stream is interrupted.
                     while (!(isClosed() || allRequestedBlocksSent())) {
@@ -588,6 +589,11 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
      * releases such sessions. Skipping live blocks before a future start block counts as progress, since
      * the session will send once the live stream reaches that start block, and that send detects a
      * disconnected client. Only called from this session's own worker thread.
+     * <p>
+     * Side effect: if the client reset this stream and has since opened a newer stream on the same
+     * connection, the client answers this close with RST_STREAM. Helidon then treats that as a
+     * connection error and sends GOAWAY, failing every other stream on the connection
+     * (helidon-io/helidon#12771). Any write to such a stream does the same, so no close avoids it.
      *
      * @return true if the session is closed, whether by this call or earlier
      */

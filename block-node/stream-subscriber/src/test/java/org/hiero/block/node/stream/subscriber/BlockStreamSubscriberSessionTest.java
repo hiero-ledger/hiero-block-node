@@ -1767,6 +1767,23 @@ class BlockStreamSubscriberSessionTest {
         }
 
         @Test
+        @DisplayName("should start the idle limit when the session starts serving, not when it is created")
+        void testIdleLimitExcludesTimeQueuedBeforeServing() throws Exception {
+            final BlockStreamSubscriberSession session = createSession(-1L, -1L, blockNodeContext, responsePipeline);
+            // The session waited the full limit for a worker thread before it started serving.
+            clock.advanceSeconds(IDLE_TIMEOUT_SECONDS);
+            final Future<BlockStreamSubscriberSession> sessionFuture = executor.submit(session);
+            assertThat(sessionReadyLatch.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                    .isTrue();
+            assertThat(clock.awaitReads(READS_FOR_ONE_FULL_CHECK, WAIT_TIMEOUT_SECONDS))
+                    .isTrue();
+
+            assertThat(session.closedForIdle()).isFalse();
+            session.close(Code.SUCCESS);
+            sessionFuture.get(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        }
+
+        @Test
         @DisplayName("should never close an idle session when the limit is 0")
         void testZeroLimitDisablesIdleClose() throws Exception {
             final Configuration configuration = ConfigurationBuilder.create()
