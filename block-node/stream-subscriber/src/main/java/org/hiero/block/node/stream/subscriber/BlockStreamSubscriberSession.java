@@ -24,6 +24,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -106,6 +107,11 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
      * giving up on this poll and retrying later, rather than disconnecting the session.
      */
     private static final Duration HISTORICAL_READ_PERMIT_WAIT = Duration.ofMillis(100);
+    /**
+     * Each session adds a random extra of up to this fraction of the idle session limit, so sessions
+     * idled by the same stall don't all close and reconnect at once.
+     */
+    private static final long IDLE_TIMEOUT_JITTER_DIVISOR = 10;
 
     /** The pipeline to send responses to the client */
     private final Pipeline<? super SubscribeStreamResponseUnparsed> responsePipeline;
@@ -155,7 +161,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     private Exception sessionFailedCause;
     /** Source of monotonic time, in nanoseconds, used for the idle session limit. */
     private final LongSupplier nanoTime;
-    /** The idle session limit in nanoseconds, or 0 if disabled. */
+    /** The idle session limit in nanoseconds, including this session's jitter, or 0 if disabled. */
     private final long idleTimeoutNanos;
     /**
      * When this session last made progress: sent anything to the client, or skipped a live block that
@@ -205,7 +211,11 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         this.liveBlockQueue = new ArrayBlockingQueue<>(sessionContext.subscriberConfig.liveQueueSize());
         this.liveBlockHandler = new LiveBlockHandler(liveBlockQueue, latestLiveStreamBlock, sessionContext.handlerName);
         this.nanoTime = requireNonNull(nanoTime);
-        this.idleTimeoutNanos = TimeUnit.SECONDS.toNanos(sessionContext.subscriberConfig.idleSessionTimeoutSeconds());
+        final long configuredIdleTimeoutNanos =
+                TimeUnit.SECONDS.toNanos(sessionContext.subscriberConfig.idleSessionTimeoutSeconds());
+        final long maximumJitterNanos = configuredIdleTimeoutNanos / IDLE_TIMEOUT_JITTER_DIVISOR;
+        this.idleTimeoutNanos =
+                configuredIdleTimeoutNanos + ThreadLocalRandom.current().nextLong(maximumJitterNanos + 1);
     }
 
     /**
@@ -624,9 +634,9 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
 
     /**
      * Close this session with {@code SUCCESS} if it has made no progress for longer than
-     * {@link SubscriberConfig#idleSessionTimeoutSeconds()}. A client that disconnects while the session
-     * waits for blocks is never detected, because only a failed send reveals it, so this limit is what
-     * releases such sessions. Skipping live blocks before a future start block counts as progress, since
+     * {@link SubscriberConfig#idleSessionTimeoutSeconds()} plus this session's jitter of up to 10%. A client
+     * that disconnects while the session waits for blocks is never detected, because only a failed send
+     * reveals it, so this limit is what releases such sessions. Skipping live blocks before a future start block counts as progress, since
      * the session will send once the live stream reaches that start block, and that send detects a
      * disconnected client. Only called from this session's own worker thread.
      * <p>
