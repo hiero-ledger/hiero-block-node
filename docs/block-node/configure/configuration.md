@@ -65,7 +65,7 @@ grants less than configured. On high-latency links, raise the `tcp_rmem` / `tcp_
 
 | ENV Variable                                 | Description                                                                                                                                                                                                                                                                                                                                       |                                Default                                |
 |:---------------------------------------------|:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------|
-| APP_STATE_TSS_BOOTSTRAP_FILE_PATH            | Path where [TSS](../reference/glossary.md#tss-hints) data (ledger ID, current roster, [WRAPS](../reference/glossary.md#wraps) VK) is persisted across restarts.                                                                                                                                                                                   | /opt/hiero/block-node/application-state/tss-bootstrap-roster.json     |
+| APP_STATE_TSS_BOOTSTRAP_FILE_PATH            | Path where [TSS](../reference/glossary.md#tss-hints) data (ledger ID and the informational current Roster) is persisted across restarts.                                                                                                                                                                                                          | /opt/hiero/block-node/application-state/tss-bootstrap-roster.json     |
 | APP_STATE_RSA_BOOTSTRAP_FILE_PATH            | Path where the single current RSA node address book is persisted across restarts. Used by single-book deployments that have not yet migrated to the address book history file.                                                                                                                                                                    | /opt/hiero/block-node/application-state/rsa-bootstrap-roster.json     |
 | APP_STATE_RSA_ADDRESS_BOOK_HISTORY_FILE_PATH | Path to the block-number-keyed RSA address book history file (JSON-encoded `RangedAddressBookHistory`). When present, this file takes precedence over `APP_STATE_RSA_BOOTSTRAP_FILE_PATH` and enables verification of historical [WRBs](../reference/glossary.md#wrb-wrapped-record-block) against the address book that was in effect per block. | /opt/hiero/block-node/application-state/rsa-address-book-history.json |
 | APP_STATE_BLOCK_RANGES_FILE_PATH             | Path where the set of available and stored block ranges is persisted. Written every 1,000 blocks received.                                                                                                                                                                                                                                        | /opt/hiero/block-node/application-state/block-ranges.json             |
@@ -308,7 +308,7 @@ The same four keys apply under each prefix.
 
 #### When a client is rejected
 
-The client receives gRPC status `RESOURCE_EXHAUSTED` with a reason string: rate limit exceeded, per-client concurrency limit reached, or node-wide concurrency limit reached. The matching `outcome` label on the `throttle_calls` metric increments. See [metrics](./metrics.md).
+The client receives gRPC status `RESOURCE_EXHAUSTED` with a reason string: rate limit exceeded, per-client concurrency limit reached, or node-wide concurrency limit reached. The matching `outcome` label on the `throttle_calls` metric increments. See [metrics](../operate/metrics.md).
 
 #### Operator note: client identity
 
@@ -408,8 +408,10 @@ The opposite holds for IPv6: one client usually controls a whole /64, so it can 
 ### Cloud Storage Expanded Plugin Configuration
 
 Uploads each [verified block](../reference/glossary.md#verified-block) as a single ZSTD-compressed `.blk.zstd` object to any
-S3-compatible store (AWS S3, GCS S3-interop, MinIO, etc.). The plugin is **disabled by
-default** — setting `CLOUD_EXPANDED_ENDPOINT_URL` to a non-empty value activates it.
+S3-compatible store (AWS S3, GCS S3-interop, MinIO, etc.). The plugin is loaded only when
+`cloud-storage-expanded` appears in `plugins.names`; an endpoint URL alone does not activate it.
+Once loaded, it needs all five required settings below; a blank one leaves it loaded but
+inactive, logging a WARNING at startup and uploading nothing.
 
 | ENV Variable                                    | Description                                                                                                                                                                |  Default |
 |:------------------------------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------:|

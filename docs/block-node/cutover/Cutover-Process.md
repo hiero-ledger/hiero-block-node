@@ -128,9 +128,11 @@ timeline
   - WRAPS parameters are embedded in the TSS library the Consensus
     Node ships with; nothing is downloaded or validated by hash.
   - TSS is enabled in Consensus Node but does not sign blocks.
-    - TSS creates the Ledger ID and publishes LedgerID, Initial Roster, and
-      WRAPS verification key in record stream via TSS adoption transaction.
-    - Consensus Node creates WRAPS proofs for each new Roster.
+    - TSS creates the Ledger ID and publishes the Ledger ID and the initial
+      Roster in the record stream via the TSS adoption transaction
+      (`LedgerIdPublication`).
+    - Consensus Node creates WRAPS for the genesis Roster and for each new
+      Roster.
   - Offline process continues to generate WRB files for backfill via [RBH Block Node](../reference/glossary.md#record-block-history-rbh-block-node).
   - Block Nodes are prepared for cutover.
     - All "production" Tier 1 block nodes are reset to clear preview blocks.

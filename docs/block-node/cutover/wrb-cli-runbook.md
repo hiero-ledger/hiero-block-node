@@ -480,7 +480,7 @@ java -jar tools.jar blocks wrap -i compressedDays -o wrappedBlocks \
 
 ##### tss-enablement.bin
 
-**Purpose**: Binary [TSS](../reference/glossary.md#tss-hints) (Threshold Signature Scheme) parameters file for Block Node verification plugins.
+**Purpose**: Binary [TSS](../reference/glossary.md#tss-hints) (Threshold Signature Scheme) data file, kept for archival next to its JSON copy `tss-bootstrap-roster.json`.
 
 **Contents**: the Block Node's `TssData` in protobuf format, built from the most recent `LedgerIdPublication` transaction:
 - Ledger ID
