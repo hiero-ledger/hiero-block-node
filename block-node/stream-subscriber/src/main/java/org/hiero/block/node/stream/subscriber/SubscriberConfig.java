@@ -43,7 +43,8 @@ import org.hiero.block.node.base.Loggable;
  *     client before the node ends it with a {@code SUCCESS} status, so the client can reconnect
  *     from the next block. Bounds sessions whose client disconnected while the session was waiting
  *     for blocks, which are otherwise never detected. Skipping live blocks before a future start
- *     block resets the limit. {@code 0} disables the limit.
+ *     block resets the limit. Each session adds a random extra of up to 10% of this value, so
+ *     sessions idled by the same stall don't all reconnect at once. {@code 0} disables the limit.
  */
 // spotless:off - long annotations on record components must stay on one line
 @ConfigData("subscriber")

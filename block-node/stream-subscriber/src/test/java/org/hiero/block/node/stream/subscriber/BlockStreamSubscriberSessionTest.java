@@ -1648,6 +1648,8 @@ class BlockStreamSubscriberSessionTest {
         private static final long WAIT_TIMEOUT_SECONDS = 10L;
         /** The default idle session limit. */
         private static final long IDLE_TIMEOUT_SECONDS = 60L;
+        /** The default idle session limit plus the largest jitter a session can add (10%). */
+        private static final long MAXIMUM_JITTERED_IDLE_TIMEOUT_SECONDS = 66L;
         /**
          * Clock reads that prove the session evaluated the idle limit at least once at the
          * current time; one read may still have seen the previous time.
@@ -1677,7 +1679,7 @@ class BlockStreamSubscriberSessionTest {
             assertThat(sessionReadyLatch.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
                     .isTrue();
 
-            clock.advanceSeconds(IDLE_TIMEOUT_SECONDS);
+            clock.advanceSeconds(MAXIMUM_JITTERED_IDLE_TIMEOUT_SECONDS);
             sessionFuture.get(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
             assertThat(responsePipeline.getOnNextCalls())
@@ -1700,7 +1702,7 @@ class BlockStreamSubscriberSessionTest {
             assertThat(pipeline.expectedSends.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
                     .isTrue();
 
-            clock.advanceSeconds(IDLE_TIMEOUT_SECONDS);
+            clock.advanceSeconds(MAXIMUM_JITTERED_IDLE_TIMEOUT_SECONDS);
             sessionFuture.get(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
             assertThat(pipeline.getOnNextCalls())
