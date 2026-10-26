@@ -15,7 +15,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
-import org.hiero.block.node.spi.historicalblocks.BlockRanges;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -45,7 +45,7 @@ class BackfillPluginHelperTest {
             final BackfillPlugin plugin = new BackfillPlugin();
             final BlockNodeSourceConfig source = node("localhost", 1);
             final Map<BlockNodeSourceConfig, List<BlockRange>> availability =
-                    Map.of(source, List.of(BlockRanges.of(20, 30)));
+                    Map.of(source, List.of(BlockRangeSet.of(20, 30)));
 
             // Start is below the only available range, so no chunk should be produced.
             BlockRange result =
@@ -60,13 +60,13 @@ class BackfillPluginHelperTest {
             final BackfillPlugin plugin = new BackfillPlugin();
             final BlockNodeSourceConfig source = node("localhost", 1);
             final Map<BlockNodeSourceConfig, List<BlockRange>> availability =
-                    Map.of(source, List.of(BlockRanges.of(10, 15)));
+                    Map.of(source, List.of(BlockRangeSet.of(10, 15)));
 
             // Batch size would request past range end, and gapEnd is 12, so end should clamp at 12.
             BlockRange result =
                     plugin.computeChunk(new NodeSelectionStrategy.NodeSelection(source, 10), availability, 12, 10);
 
-            assertEquals(BlockRanges.of(10, 12), result);
+            assertEquals(BlockRangeSet.of(10, 12), result);
         }
 
         @Test
@@ -75,13 +75,13 @@ class BackfillPluginHelperTest {
             final BackfillPlugin plugin = new BackfillPlugin();
             final BlockNodeSourceConfig source = node("localhost", 1);
             final Map<BlockNodeSourceConfig, List<BlockRange>> availability =
-                    Map.of(source, List.of(BlockRanges.of(0, 100)));
+                    Map.of(source, List.of(BlockRangeSet.of(0, 100)));
 
             // Request batch of 10 starting at 5, gap ends at 50, range goes to 100
             BlockRange result =
                     plugin.computeChunk(new NodeSelectionStrategy.NodeSelection(source, 5), availability, 50, 10);
 
-            assertEquals(BlockRanges.of(5, 14), result, "Should return full batch size when possible");
+            assertEquals(BlockRangeSet.of(5, 14), result, "Should return full batch size when possible");
         }
 
         @Test

@@ -11,7 +11,6 @@ import java.util.stream.LongStream;
 import java.util.stream.Stream;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
-import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 
 /**
  * A simple implementation of {@link BlockRangeSet} that uses a {@link ConcurrentSkipListSet} to store the block numbers.
@@ -113,14 +112,14 @@ public class SimpleBlockRangeSet implements BlockRangeSet {
             long cur = it.next();
             if (cur != prev + 1) {
                 // break in continuity → close out the previous range
-                ranges.add(BlockRanges.of(start, prev));
+                ranges.add(BlockRangeSet.of(start, prev));
                 start = cur;
             }
             prev = cur;
         }
 
         // finally, add the last open range [start … prev]
-        ranges.add(BlockRanges.of(start, prev));
+        ranges.add(BlockRangeSet.of(start, prev));
 
         return ranges.stream();
     }

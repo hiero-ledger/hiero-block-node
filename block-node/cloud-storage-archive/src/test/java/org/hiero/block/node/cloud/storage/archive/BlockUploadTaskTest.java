@@ -43,7 +43,7 @@ import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
-import org.hiero.block.node.spi.historicalblocks.BlockRanges;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -528,7 +528,7 @@ class BlockUploadTaskTest {
         assertThat(task.call()).isEqualTo(UploadResult.SUCCESS);
 
         assertThat(asf.storedRanges).hasSize(1);
-        assertThat(asf.storedRanges.getFirst()).isEqualTo(BlockRanges.of(0, groupSize - 1));
+        assertThat(asf.storedRanges.getFirst()).isEqualTo(BlockRangeSet.of(0, groupSize - 1));
     }
 
     /// Verifies that [ApplicationStateFacility#addStoredBlockRange] is called once per flushed part

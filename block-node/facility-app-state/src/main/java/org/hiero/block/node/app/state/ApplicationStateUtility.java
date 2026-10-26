@@ -33,7 +33,6 @@ import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
-import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 
 final class ApplicationStateUtility {
     /// The logger for this class.
@@ -128,7 +127,7 @@ final class ApplicationStateUtility {
     /// overlap or are adjacent are combined, as in a `ConcurrentBlockRangeSet`.
     ///
     /// Each set yields its ranges in ascending order, so the two lists are merged in one pass, O(n + m), by
-    /// [BlockRanges#merge(List, List)].
+    /// [BlockRangeSet#merge(List, List)].
     /// Called unconditionally on every scan (not only when `availableBlocks` changes) — `storedBlocks` can
     /// change independently (e.g. a plugin calling `addStoredBlockRange`), and skipping the merge in that
     /// case previously let `storedBlocks()` regress to the unmerged, durable-only set once
@@ -137,9 +136,16 @@ final class ApplicationStateUtility {
     /// @param storedBlocks a set of stored blocks to merge into the result.
     /// @param availableBlocks a set of available blocks to merge into the result.
     static List<BlockRange> mergeRanges(final BlockRangeSet storedBlocks, final BlockRangeSet availableBlocks) {
-        return BlockRanges.merge(
-                storedBlocks.streamRanges().toList(),
-                availableBlocks.streamRanges().toList());
+        return mergeRanges(storedBlocks, availableBlocks.toList());
+    }
+
+    /// As [#mergeRanges(BlockRangeSet, BlockRangeSet)], for callers that already hold the available ranges as a
+    /// list and so avoid reading them from the set a second time.
+    ///
+    /// @param storedBlocks a set of stored blocks to merge into the result.
+    /// @param availableBlocks the available block ranges, ascending and non-overlapping, to merge.
+    static List<BlockRange> mergeRanges(final BlockRangeSet storedBlocks, final List<BlockRange> availableBlocks) {
+        return BlockRangeSet.merge(storedBlocks.toList(), availableBlocks);
     }
 
     /// Loads a [NetworkData] document from the given JSON file.

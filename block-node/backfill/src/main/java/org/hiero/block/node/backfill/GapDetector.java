@@ -6,7 +6,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import org.hiero.block.api.BlockRange;
-import org.hiero.block.node.spi.historicalblocks.BlockRanges;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 
 /**
  * Utility to compute gaps in available block ranges.
@@ -49,7 +49,7 @@ final class GapDetector {
 
         for (BlockRange range : availableRanges) {
             if (range.rangeStart() > previousEnd + 1) {
-                gaps.add(BlockRanges.of(previousEnd + 1, range.rangeStart() - 1));
+                gaps.add(BlockRangeSet.of(previousEnd + 1, range.rangeStart() - 1));
             }
             previousEnd = range.rangeEnd();
         }
@@ -57,7 +57,7 @@ final class GapDetector {
         // Add trailing gap if there are missing blocks after the last range
         // Don't add trailing gap when endBlock is Long.MAX_VALUE (unlimited backfill)
         if (previousEnd < endBlock && endBlock != Long.MAX_VALUE) {
-            gaps.add(BlockRanges.of(previousEnd + 1, endBlock));
+            gaps.add(BlockRangeSet.of(previousEnd + 1, endBlock));
         }
 
         return gaps;
@@ -82,13 +82,13 @@ final class GapDetector {
                 continue;
             }
             if (cappedEnd <= liveTailBoundary) {
-                typed.add(new Gap(BlockRanges.of(gap.rangeStart(), cappedEnd), Type.HISTORICAL));
+                typed.add(new Gap(BlockRangeSet.of(gap.rangeStart(), cappedEnd), Type.HISTORICAL));
             } else if (gap.rangeStart() > liveTailBoundary) {
-                typed.add(new Gap(BlockRanges.of(gap.rangeStart(), cappedEnd), Type.LIVE_TAIL));
+                typed.add(new Gap(BlockRangeSet.of(gap.rangeStart(), cappedEnd), Type.LIVE_TAIL));
             } else {
                 // split across boundary
-                typed.add(new Gap(BlockRanges.of(gap.rangeStart(), liveTailBoundary), Type.HISTORICAL));
-                typed.add(new Gap(BlockRanges.of(liveTailBoundary + 1, cappedEnd), Type.LIVE_TAIL));
+                typed.add(new Gap(BlockRangeSet.of(gap.rangeStart(), liveTailBoundary), Type.HISTORICAL));
+                typed.add(new Gap(BlockRangeSet.of(liveTailBoundary + 1, cappedEnd), Type.LIVE_TAIL));
             }
         }
         return typed;

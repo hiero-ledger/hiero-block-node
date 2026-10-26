@@ -12,7 +12,6 @@ import java.util.stream.Stream;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
-import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 
 /**
  * Collection that represents a set of long values. This is represented internally as a set of contiguous ranges of
@@ -47,21 +46,25 @@ public class ConcurrentBlockRangeSet implements BlockRangeSet {
      * @throws IllegalArgumentException if the range is invalid
      */
     public ConcurrentBlockRangeSet(long start, long end) {
-        ranges.set(List.of(BlockRanges.of(start, end)));
+        ranges.set(List.of(BlockRangeSet.of(start, end)));
     }
 
     /**
      * Constructs a ConcurrentBlockRangeSet with multiple ranges. If there is more than one range they will be merged into a single
      * set of ranges with no overlaps or duplication.
      *
-     * @param longRanges the ranges to include in this set
-     * @throws NullPointerException if longRanges is null
+     * @param blockRanges the ranges to include in this set
+     * @throws NullPointerException if blockRanges is null
+     * @throws IllegalArgumentException if any range is invalid
      */
-    public ConcurrentBlockRangeSet(BlockRange... longRanges) {
+    public ConcurrentBlockRangeSet(BlockRange... blockRanges) {
+        for (final BlockRange range : blockRanges) {
+            BlockRangeSet.requireValid(range);
+        }
         this.ranges.set(
-                longRanges.length == 0
+                blockRanges.length == 0
                         ? Collections.emptyList()
-                        : BlockRanges.mergeContiguousRanges(List.of(longRanges)));
+                        : BlockRangeSet.mergeContiguousRanges(List.of(blockRanges)));
     }
 
     /**
@@ -82,7 +85,7 @@ public class ConcurrentBlockRangeSet implements BlockRangeSet {
         while (low <= high) {
             int mid = (low + high) >>> 1;
             BlockRange range = ranges.get(mid);
-            if (BlockRanges.contains(range, value)) {
+            if (BlockRangeSet.contains(range, value)) {
                 return true;
             } else if (range.rangeStart() > value) {
                 high = mid - 1;
@@ -112,7 +115,7 @@ public class ConcurrentBlockRangeSet implements BlockRangeSet {
         while (low <= high) {
             int mid = (low + high) >>> 1;
             BlockRange range = ranges.get(mid);
-            if (BlockRanges.contains(range, start, end)) {
+            if (BlockRangeSet.contains(range, start, end)) {
                 return true;
             } else if (range.rangeStart() > end) {
                 high = mid - 1;
@@ -129,6 +132,7 @@ public class ConcurrentBlockRangeSet implements BlockRangeSet {
      * @param range the range to check
      * @return true if the range is contained in any of the ranges, false otherwise
      */
+    @Override
     public boolean contains(BlockRange range) {
         return contains(range.rangeStart(), range.rangeEnd());
     }
@@ -154,7 +158,7 @@ public class ConcurrentBlockRangeSet implements BlockRangeSet {
      */
     public void add(long start, long end) {
         // BlockRange constructor will validate the range
-        add(BlockRanges.of(start, end));
+        add(BlockRangeSet.of(start, end));
     }
 
     /**
@@ -162,8 +166,10 @@ public class ConcurrentBlockRangeSet implements BlockRangeSet {
      * will add a new range. Only new values that are not in the set will be added.
      *
      * @param range the range to add
+     * @throws IllegalArgumentException if the range is invalid
      */
     public void add(BlockRange range) {
+        BlockRangeSet.requireValid(range);
         while (true) {
             List<BlockRange> currentRanges = ranges.get();
             List<BlockRange> newRanges = mergeRange(currentRanges, range);
@@ -188,7 +194,7 @@ public class ConcurrentBlockRangeSet implements BlockRangeSet {
      * @param ranges the ranges to add
      */
     public void addAll(BlockRange... ranges) {
-        addMerged(BlockRanges.mergeContiguousRanges(List.of(ranges)));
+        addMerged(BlockRangeSet.mergeContiguousRanges(List.of(ranges)));
     }
 
     /**
@@ -202,7 +208,7 @@ public class ConcurrentBlockRangeSet implements BlockRangeSet {
         for (Collection<BlockRange> rangeCollection : ranges) {
             all.addAll(rangeCollection);
         }
-        addMerged(BlockRanges.mergeContiguousRanges(all));
+        addMerged(BlockRangeSet.mergeContiguousRanges(all));
     }
 
     /**
@@ -220,7 +226,7 @@ public class ConcurrentBlockRangeSet implements BlockRangeSet {
      * @param ranges the set whose ranges to add
      */
     public void addAll(BlockRangeSet ranges) {
-        addMerged(BlockRanges.mergeContiguousRanges(ranges.streamRanges().toList()));
+        addMerged(BlockRangeSet.mergeContiguousRanges(ranges.toList()));
     }
 
     /**
@@ -233,7 +239,7 @@ public class ConcurrentBlockRangeSet implements BlockRangeSet {
         }
         while (true) {
             final List<BlockRange> currentRanges = ranges.get();
-            final List<BlockRange> newRanges = BlockRanges.merge(currentRanges, incoming);
+            final List<BlockRange> newRanges = BlockRangeSet.merge(currentRanges, incoming);
             if (newRanges.equals(currentRanges) || ranges.compareAndSet(currentRanges, newRanges)) {
                 return;
             }
@@ -258,7 +264,7 @@ public class ConcurrentBlockRangeSet implements BlockRangeSet {
      * @param end the last value in range
      */
     public void remove(long start, long end) {
-        remove(BlockRanges.of(start, end));
+        remove(BlockRangeSet.of(start, end));
     }
 
     /**
@@ -266,8 +272,10 @@ public class ConcurrentBlockRangeSet implements BlockRangeSet {
      * no change will be made.
      *
      * @param range the range to remove
+     * @throws IllegalArgumentException if the range is invalid
      */
     public void remove(BlockRange range) {
+        BlockRangeSet.requireValid(range);
         while (true) {
             List<BlockRange> currentRanges = ranges.get();
             List<BlockRange> newRanges = removeRange(currentRanges, range);
@@ -368,29 +376,29 @@ public class ConcurrentBlockRangeSet implements BlockRangeSet {
         // Find the first and last affected ranges (overlapping or adjacent)
         int firstAffected = insertPosition;
         while (firstAffected > 0
-                && (BlockRanges.overlaps(currentRanges.get(firstAffected - 1), newRange)
-                        || BlockRanges.isAdjacent(currentRanges.get(firstAffected - 1), newRange))) {
+                && (BlockRangeSet.overlaps(currentRanges.get(firstAffected - 1), newRange)
+                        || BlockRangeSet.isAdjacent(currentRanges.get(firstAffected - 1), newRange))) {
             firstAffected--;
         }
 
         int lastAffected = insertPosition;
         // Ensure we don't go out of bounds
         while (lastAffected < size - 1
-                && (BlockRanges.overlaps(currentRanges.get(lastAffected + 1), newRange)
-                        || BlockRanges.isAdjacent(currentRanges.get(lastAffected + 1), newRange))) {
+                && (BlockRangeSet.overlaps(currentRanges.get(lastAffected + 1), newRange)
+                        || BlockRangeSet.isAdjacent(currentRanges.get(lastAffected + 1), newRange))) {
             lastAffected++;
         }
 
         // Check if insertPosition is valid, and we need to merge with any existing range
         // Fix: Check that firstAffected is in bounds and either overlaps or is adjacent to newRange
         if (firstAffected < size
-                && (BlockRanges.overlaps(currentRanges.get(firstAffected), newRange)
-                        || BlockRanges.isAdjacent(currentRanges.get(firstAffected), newRange))) {
+                && (BlockRangeSet.overlaps(currentRanges.get(firstAffected), newRange)
+                        || BlockRangeSet.isAdjacent(currentRanges.get(firstAffected), newRange))) {
 
             // Calculate the merged range
             long mergedStart = Math.min(currentRanges.get(firstAffected).rangeStart(), newRange.rangeStart());
             long mergedEnd = Math.max(currentRanges.get(lastAffected).rangeEnd(), newRange.rangeEnd());
-            BlockRange mergedRange = BlockRanges.of(mergedStart, mergedEnd);
+            BlockRange mergedRange = BlockRangeSet.of(mergedStart, mergedEnd);
 
             // Create a new list with the merged range
             List<BlockRange> result = new ArrayList<>(size - (lastAffected - firstAffected));
@@ -465,7 +473,7 @@ public class ConcurrentBlockRangeSet implements BlockRangeSet {
                 high = mid - 1;
             } else {
                 // Range might overlap with removal range
-                if (BlockRanges.overlaps(range, rangeToRemove)) {
+                if (BlockRangeSet.overlaps(range, rangeToRemove)) {
                     lastAffectedIndex = mid;
                 }
                 low = mid + 1;
@@ -484,12 +492,12 @@ public class ConcurrentBlockRangeSet implements BlockRangeSet {
 
             // Check if there's a part of the range that should remain before the removal range
             if (currentRange.rangeStart() < rangeToRemove.rangeStart()) {
-                result.add(BlockRanges.of(currentRange.rangeStart(), rangeToRemove.rangeStart() - 1));
+                result.add(BlockRangeSet.of(currentRange.rangeStart(), rangeToRemove.rangeStart() - 1));
             }
 
             // Check if there's a part of the range that should remain after the removal range
             if (currentRange.rangeEnd() > rangeToRemove.rangeEnd()) {
-                result.add(BlockRanges.of(rangeToRemove.rangeEnd() + 1, currentRange.rangeEnd()));
+                result.add(BlockRangeSet.of(rangeToRemove.rangeEnd() + 1, currentRange.rangeEnd()));
             }
         }
 
@@ -506,7 +514,7 @@ public class ConcurrentBlockRangeSet implements BlockRangeSet {
      */
     @Override
     public long size() {
-        return ranges.get().stream().mapToLong(BlockRanges::size).sum();
+        return ranges.get().stream().mapToLong(BlockRangeSet::size).sum();
     }
 
     /**
@@ -553,7 +561,7 @@ public class ConcurrentBlockRangeSet implements BlockRangeSet {
      */
     @Override
     public LongStream stream() {
-        return ranges.get().stream().flatMapToLong(BlockRanges::stream);
+        return ranges.get().stream().flatMapToLong(BlockRangeSet::stream);
     }
 
     /**
@@ -571,6 +579,7 @@ public class ConcurrentBlockRangeSet implements BlockRangeSet {
      *
      * @return an unmodifiable, ascending, non-overlapping list of the ranges in the set
      */
+    @Override
     public List<BlockRange> toList() {
         return Collections.unmodifiableList(ranges.get());
     }
@@ -583,7 +592,7 @@ public class ConcurrentBlockRangeSet implements BlockRangeSet {
     @Override
     public String toString() {
         return "ConcurrentBlockRangeSet{"
-                + ranges.get().stream().map(BlockRanges::toString).collect(Collectors.joining(", "))
+                + ranges.get().stream().map(BlockRangeSet::toString).collect(Collectors.joining(", "))
                 + '}';
     }
 }

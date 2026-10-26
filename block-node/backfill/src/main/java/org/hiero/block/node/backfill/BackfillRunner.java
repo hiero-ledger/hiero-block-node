@@ -21,7 +21,7 @@ import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
-import org.hiero.block.node.spi.historicalblocks.BlockRanges;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 
 /**
  * Executes backfill tasks by planning availability, fetching blocks from peers,
@@ -372,7 +372,7 @@ final class BackfillRunner {
      * Called when current availability becomes stale (e.g., after node failures).
      */
     private Map<BlockNodeSourceConfig, List<BlockRange>> replanAvailability(long startBlock, long gapEnd) {
-        BlockRange remaining = BlockRanges.of(startBlock, gapEnd);
+        BlockRange remaining = BlockRangeSet.of(startBlock, gapEnd);
         return planAvailabilityForGap(fetcher, remaining);
     }
 
@@ -416,7 +416,7 @@ final class BackfillRunner {
         // blocks 1..N are not fetched until it has persisted, so they cannot race the bootstrap and fail
         // with MISSING_VERIFICATION_DATA. Costs one extra single-block fetch, once per node lifetime.
         long chunkEnd = start == 0 ? 0 : Math.min(Math.min(start + batchSize - 1, coveringRange.rangeEnd()), gapEnd);
-        return BlockRanges.of(start, chunkEnd);
+        return BlockRangeSet.of(start, chunkEnd);
     }
 
     /**

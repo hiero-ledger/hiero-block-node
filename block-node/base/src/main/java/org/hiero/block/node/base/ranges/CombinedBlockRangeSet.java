@@ -10,7 +10,6 @@ import java.util.stream.LongStream;
 import java.util.stream.Stream;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
-import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 
 /**
  * A class that combines multiple {@link BlockRangeSet} instances into a single set. The combining is done live via
@@ -55,7 +54,7 @@ public class CombinedBlockRangeSet implements BlockRangeSet {
             return false;
         }
         // the merged ranges are coalesced, so a contiguous run must be inside one of them
-        return mergedRanges().stream().anyMatch(range -> BlockRanges.contains(range, start, end));
+        return mergedRanges().stream().anyMatch(range -> BlockRangeSet.contains(range, start, end));
     }
 
     /**
@@ -99,7 +98,7 @@ public class CombinedBlockRangeSet implements BlockRangeSet {
      */
     @Override
     public LongStream stream() {
-        return mergedRanges().stream().flatMapToLong(BlockRanges::stream);
+        return mergedRanges().stream().flatMapToLong(BlockRangeSet::stream);
     }
 
     /**
@@ -110,11 +109,15 @@ public class CombinedBlockRangeSet implements BlockRangeSet {
         return mergedRanges().stream();
     }
 
+    @Override
+    public List<BlockRange> toList() {
+        return mergedRanges();
+    }
+
     /// Merges the ranges of every set in one linear pass. Each set yields its ranges in ascending order.
     @NonNull
     private List<BlockRange> mergedRanges() {
-        return BlockRanges.merge(Arrays.stream(blockRangeSets)
-                .map(set -> set.streamRanges().toList())
-                .toList());
+        return BlockRangeSet.merge(
+                Arrays.stream(blockRangeSets).map(set -> set.toList()).toList());
     }
 }

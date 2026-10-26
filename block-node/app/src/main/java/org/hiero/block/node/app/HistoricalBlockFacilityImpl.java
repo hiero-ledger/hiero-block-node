@@ -9,7 +9,6 @@ import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
-import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 
 /**
@@ -96,7 +95,7 @@ public class HistoricalBlockFacilityImpl implements HistoricalBlockFacility {
     @Override
     public String toString() {
         return "HistoricalBlockFacilityImpl{" + "availableBlocks=["
-                + availableBlocks().streamRanges().map(BlockRanges::toString).collect(Collectors.joining(", "))
+                + availableBlocks().streamRanges().map(BlockRangeSet::toString).collect(Collectors.joining(", "))
                 + "], providers=["
                 + providers.stream().map(p -> p.getClass().getSimpleName()).collect(Collectors.joining(", ")) + "]"
                 + '}';

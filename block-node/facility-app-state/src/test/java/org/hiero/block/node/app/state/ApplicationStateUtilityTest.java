@@ -34,7 +34,7 @@ import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.node.base.ranges.ConcurrentBlockRangeSet;
-import org.hiero.block.node.spi.historicalblocks.BlockRanges;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -669,10 +669,10 @@ class ApplicationStateUtilityTest {
         @DisplayName("one range bridging several ranges of the other set merges them all")
         void bridgingRangeMergesMany() {
             final ConcurrentBlockRangeSet stored = new ConcurrentBlockRangeSet();
-            stored.add(BlockRanges.of(0, 9));
-            stored.add(BlockRanges.of(20, 29));
-            stored.add(BlockRanges.of(40, 49));
-            stored.add(BlockRanges.of(100, 109));
+            stored.add(BlockRangeSet.of(0, 9));
+            stored.add(BlockRangeSet.of(20, 29));
+            stored.add(BlockRangeSet.of(40, 49));
+            stored.add(BlockRangeSet.of(100, 109));
             final List<BlockRange> result =
                     ApplicationStateUtility.mergeRanges(stored, new ConcurrentBlockRangeSet(5, 45));
             assertEquals(List.of(new BlockRange(0L, 49L), new BlockRange(100L, 109L)), result);
@@ -682,11 +682,11 @@ class ApplicationStateUtilityTest {
         @DisplayName("interleaved ranges stay in ascending order")
         void interleavedRangesAreOrdered() {
             final ConcurrentBlockRangeSet stored = new ConcurrentBlockRangeSet();
-            stored.add(BlockRanges.of(0, 4));
-            stored.add(BlockRanges.of(20, 24));
+            stored.add(BlockRangeSet.of(0, 4));
+            stored.add(BlockRangeSet.of(20, 24));
             final ConcurrentBlockRangeSet available = new ConcurrentBlockRangeSet();
-            available.add(BlockRanges.of(10, 14));
-            available.add(BlockRanges.of(30, 34));
+            available.add(BlockRangeSet.of(10, 14));
+            available.add(BlockRangeSet.of(30, 34));
             assertEquals(
                     List.of(
                             new BlockRange(0L, 4L),
@@ -716,7 +716,7 @@ class ApplicationStateUtilityTest {
             final int count = random.nextInt(20);
             for (int i = 0; i < count; i++) {
                 final long start = random.nextInt(300);
-                set.add(BlockRanges.of(start, start + random.nextInt(15)));
+                set.add(BlockRangeSet.of(start, start + random.nextInt(15)));
             }
             return set;
         }

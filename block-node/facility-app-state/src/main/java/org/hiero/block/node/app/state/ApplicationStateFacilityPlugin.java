@@ -47,7 +47,6 @@ import org.hiero.block.node.spi.blockmessaging.AvailableBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
-import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.metrics.ObservableGauge;
 import org.hiero.metrics.core.MetricKey;
@@ -446,9 +445,9 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
     /// stored >= available. The function returns the very same pair when nothing changed.
     private void refreshBlockRanges() {
         final BlockRangesSnapshot previous = blockRanges.getAndUpdate(current -> {
-            final BlockRangeSet liveAvailable = historicalBlockFacility().availableBlocks();
-            final List<BlockRange> available = liveAvailable.streamRanges().toList();
-            final List<BlockRange> stored = mergeRanges(storedBlocks, liveAvailable);
+            final List<BlockRange> available =
+                    historicalBlockFacility().availableBlocks().toList();
+            final List<BlockRange> stored = mergeRanges(storedBlocks, available);
             return available.equals(current.available()) && stored.equals(current.stored())
                     ? current
                     : new BlockRangesSnapshot(available, stored);
@@ -583,9 +582,9 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
     }
 
     private BlockRangesState toBlockRangesState() {
-        final List<BlockRange> stored = storedBlocks.streamRanges().toList();
+        final List<BlockRange> stored = storedBlocks.toList();
         final List<BlockRange> available =
-                historicalBlockFacility().availableBlocks().streamRanges().toList();
+                historicalBlockFacility().availableBlocks().toList();
         return new BlockRangesState(stored, available);
     }
 
@@ -702,7 +701,7 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
     /// @param source the file the ranges were read from, for logging
     private void restoreStoredBlocks(final List<BlockRange> ranges, final Path source) {
         if (ranges.stream().allMatch(r -> isValidRange(r.rangeStart(), r.rangeEnd()))) {
-            ranges.forEach(r -> storedBlocks.add(BlockRanges.of(r.rangeStart(), r.rangeEnd())));
+            ranges.forEach(r -> storedBlocks.add(BlockRangeSet.of(r.rangeStart(), r.rangeEnd())));
             LOGGER.log(INFO, "Loaded block ranges from file: {0}", source);
         } else {
             LOGGER.log(WARNING, "Ignoring block ranges file with an invalid range: {0}", source);

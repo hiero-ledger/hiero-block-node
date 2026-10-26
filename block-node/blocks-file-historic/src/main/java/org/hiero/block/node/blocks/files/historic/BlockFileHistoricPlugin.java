@@ -46,7 +46,6 @@ import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessorBatch;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
-import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.ObservableGauge;
 import org.hiero.metrics.core.MetricKey;
@@ -495,7 +494,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             final boolean blocksAvailablePreCheck = availableStagedBlocks.contains(minBlockNumber, maxBlockNumber);
 
             if (isValidStart && blocksAvailablePreCheck) {
-                final BlockRange batchRange = BlockRanges.of(minBlockNumber, maxBlockNumber);
+                final BlockRange batchRange = BlockRangeSet.of(minBlockNumber, maxBlockNumber);
                 // move the batch of blocks to a zip file
                 startMovingBatchOfBlocksToZipFile(batchRange);
             }

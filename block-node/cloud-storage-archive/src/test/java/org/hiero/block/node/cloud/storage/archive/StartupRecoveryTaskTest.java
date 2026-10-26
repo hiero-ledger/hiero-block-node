@@ -27,7 +27,7 @@ import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.TestApplicationStateFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
-import org.hiero.block.node.spi.historicalblocks.BlockRanges;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -230,7 +230,7 @@ class StartupRecoveryTaskTest {
         assertThat(result.lastHandedOffBlock()).isEqualTo(groupSize * groupCount - 1);
         // The eleven groups are contiguous, so ConcurrentBlockRangeSet merges them into one range.
         assertThat(result.completedRanges().streamRanges())
-                .containsExactly(BlockRanges.of(0, groupSize * groupCount - 1));
+                .containsExactly(BlockRangeSet.of(0, groupSize * groupCount - 1));
     }
 
     /// Verifies that when completed tars live in two different 4th-level S3 "folders"
@@ -1053,7 +1053,7 @@ class StartupRecoveryTaskTest {
         final RecoveryResult result = new StartupRecoveryTask(config).call();
 
         assertThat(result.completedRanges()).isNotNull();
-        assertThat(result.completedRanges().streamRanges()).containsExactly(BlockRanges.of(0, groupSize * 2 - 1));
+        assertThat(result.completedRanges().streamRanges()).containsExactly(BlockRangeSet.of(0, groupSize * 2 - 1));
     }
 
     /// Verifies that a single hanging multipart upload (Case 2) returns [RecoveryResult#completedRanges()]
@@ -1107,7 +1107,7 @@ class StartupRecoveryTaskTest {
         assertThat(result.currentGroupStart()).isEqualTo(groupSize);
         assertThat(result.uploadId()).isNull();
         assertThat(result.completedRanges()).isNotNull();
-        assertThat(result.completedRanges().streamRanges()).containsExactly(BlockRanges.of(0, groupSize - 1));
+        assertThat(result.completedRanges().streamRanges()).containsExactly(BlockRangeSet.of(0, groupSize - 1));
     }
 
     /// Verifies that a bucket containing only foreign objects (no valid archive keys) yields a

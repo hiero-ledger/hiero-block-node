@@ -38,7 +38,7 @@ import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotifica
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
-import org.hiero.block.node.spi.historicalblocks.BlockRanges;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.ObservableGauge;
 import org.hiero.metrics.core.MetricKey;
@@ -414,7 +414,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             if (gap.type() == GapDetector.Type.HISTORICAL) {
                 final long start = gap.range().rangeStart();
                 detectedHistoricalStarts.add(start);
-                if (isHistoricalGapInBackoff(start, BlockRanges.size(gap.range()), now)) {
+                if (isHistoricalGapInBackoff(start, BlockRangeSet.size(gap.range()), now)) {
                     final String backingOffMsg = "Historical gap [{0}] is backing off, skipping this scan";
                     LOGGER.log(DEBUG, backingOffMsg, gap.range());
                     continue;
@@ -423,7 +423,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             if (scheduleGap(gap)) {
                 metricsHolder.backfillGapsSubmitted.increment();
                 if (gap.type() == GapDetector.Type.HISTORICAL) {
-                    recordHistoricalGapAttempt(gap.range().rangeStart(), BlockRanges.size(gap.range()), now);
+                    recordHistoricalGapAttempt(gap.range().rangeStart(), BlockRangeSet.size(gap.range()), now);
                 }
             }
         }
@@ -495,7 +495,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     ///
     /// @return `true` if the gap was accepted by a scheduler, `false` if it was skipped or the submission failed
     boolean scheduleGap(GapDetector.Gap gap) {
-        if (BlockRanges.size(gap.range()) <= 0) {
+        if (BlockRangeSet.size(gap.range()) <= 0) {
             return false;
         }
 
@@ -535,8 +535,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             if (gap.range().rangeStart() <= markBeforeReservation) {
                 // Partial overlap - adjust start
                 long newStart = markBeforeReservation + 1;
-                effectiveGap =
-                        new GapDetector.Gap(BlockRanges.of(newStart, gap.range().rangeEnd()), GapDetector.Type.LIVE_TAIL);
+                effectiveGap = new GapDetector.Gap(
+                        BlockRangeSet.of(newStart, gap.range().rangeEnd()), GapDetector.Type.LIVE_TAIL);
                 final String adjustedLiveTailGapMsg = "Adjusted live-tail gap from [{0}] to [{1}]";
                 LOGGER.log(DEBUG, adjustedLiveTailGapMsg, gap.range(), effectiveGap.range());
             }
@@ -599,7 +599,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 // the live-tail high-water mark, and scheduleGap's dedup would otherwise drop the retry.
                 final long blockNumber = notification.blockNumber();
                 if (submitGap(
-                        new GapDetector.Gap(BlockRanges.of(blockNumber, blockNumber), GapDetector.Type.LIVE_TAIL))) {
+                        new GapDetector.Gap(BlockRangeSet.of(blockNumber, blockNumber), GapDetector.Type.LIVE_TAIL))) {
                     final String backfillPersistFailedMsg =
                             "Backfill persistence failed for block=[{0}], re-queuing for on-demand backfill";
                     LOGGER.log(INFO, backfillPersistFailedMsg, blockNumber);
@@ -662,7 +662,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             LOGGER.log(DEBUG, skippingOnDemandBackfillMsg, cappedEnd, startBackfillFrom);
             return;
         }
-        scheduleGap(new GapDetector.Gap(BlockRanges.of(startBackfillFrom, cappedEnd), GapDetector.Type.LIVE_TAIL));
+        scheduleGap(new GapDetector.Gap(BlockRangeSet.of(startBackfillFrom, cappedEnd), GapDetector.Type.LIVE_TAIL));
     }
 
     /**

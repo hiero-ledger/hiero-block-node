@@ -43,7 +43,6 @@ import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotifica
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
-import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -1580,7 +1579,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // already sees it (mirrors BlockNodeApp dispatching loaded state before plugins start).
         final HistoricalBlockFacility pluginStore = getHistoricalBlockFacility(50, 100);
         doInit(new BackfillPlugin(), pluginStore, null, config, Map.of());
-        updateStoredBlocks(BlockRanges.of(0, 100));
+        updateStoredBlocks(BlockRangeSet.of(0, 100));
         doStart();
 
         // Handlers turn any fetched block into a persisted notification so re-fetching would be observable.
