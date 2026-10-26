@@ -2,8 +2,8 @@
 package org.hiero.block.simulator.metrics;
 
 import static org.hiero.block.simulator.fixtures.TestUtils.getTestConfiguration;
-import static org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter.LiveBlockItemsSent;
-import static org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter.LiveBlocksSent;
+import static org.hiero.block.simulator.metrics.SimulatorMetricsProvider.LIVE_BLOCKS_SENT_KEY;
+import static org.hiero.block.simulator.metrics.SimulatorMetricsProvider.LIVE_BLOCK_ITEMS_SENT_KEY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.io.IOException;
@@ -23,19 +23,19 @@ public class MetricsServiceTest {
     void MetricsService_verifyLiveBlockItemsSentCounter() {
 
         for (int i = 0; i < 10; i++) {
-            metricsService.get(LiveBlockItemsSent).increment();
+            metricsService.incrementCounterNoLabels(LIVE_BLOCK_ITEMS_SENT_KEY);
         }
 
-        assertEquals(10, metricsService.getValue(LiveBlockItemsSent));
+        assertEquals(10, metricsService.getCounterNoLabelsValue(LIVE_BLOCK_ITEMS_SENT_KEY));
     }
 
     @Test
     void MetricsService_verifyLiveBlocksSentCounter() {
 
         for (int i = 0; i < 10; i++) {
-            metricsService.get(LiveBlocksSent).increment();
+            metricsService.incrementCounterNoLabels(LIVE_BLOCKS_SENT_KEY);
         }
 
-        assertEquals(10, metricsService.getValue(LiveBlocksSent));
+        assertEquals(10, metricsService.getCounterNoLabelsValue(LIVE_BLOCKS_SENT_KEY));
     }
 }

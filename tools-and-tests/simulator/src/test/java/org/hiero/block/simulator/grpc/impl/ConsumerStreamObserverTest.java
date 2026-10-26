@@ -2,6 +2,7 @@
 package org.hiero.block.simulator.grpc.impl;
 
 import static org.hiero.block.simulator.fixtures.TestUtils.getTestConfiguration;
+import static org.hiero.block.simulator.metrics.SimulatorMetricsProvider.LIVE_BLOCKS_CONSUMED_KEY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
@@ -23,7 +24,6 @@ import org.hiero.block.api.protoc.SubscribeStreamResponse.Code;
 import org.hiero.block.simulator.config.data.ConsumerConfig;
 import org.hiero.block.simulator.metrics.MetricsService;
 import org.hiero.block.simulator.metrics.MetricsServiceImpl;
-import org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -98,13 +98,13 @@ class ConsumerStreamObserverTest {
         SubscribeStreamResponse response = SubscribeStreamResponse.newBuilder()
                 .setBlockItems(blockItemsSet)
                 .build();
-        assertEquals(0, metricsService.getValue(Counter.LiveBlocksConsumed));
+        assertEquals(0, metricsService.getCounterNoLabelsValue(LIVE_BLOCKS_CONSUMED_KEY));
 
         observer.onNext(response);
         observer.onNext(
                 SubscribeStreamResponse.newBuilder().setEndOfBlock(endOfBlock).build());
 
-        assertEquals(1, metricsService.getValue(Counter.LiveBlocksConsumed));
+        assertEquals(1, metricsService.getCounterNoLabelsValue(LIVE_BLOCKS_CONSUMED_KEY));
         verifyNoInteractions(streamLatch);
     }
 

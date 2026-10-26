@@ -4,8 +4,8 @@ package org.hiero.block.simulator.grpc.impl;
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 import static java.util.Objects.requireNonNull;
-import static org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter.LiveBlockItemsSent;
-import static org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter.LiveBlocksSent;
+import static org.hiero.block.simulator.metrics.SimulatorMetricsProvider.LIVE_BLOCKS_SENT_KEY;
+import static org.hiero.block.simulator.metrics.SimulatorMetricsProvider.LIVE_BLOCK_ITEMS_SENT_KEY;
 
 import com.hedera.hapi.block.stream.protoc.Block;
 import com.hedera.hapi.block.stream.protoc.BlockItem;
@@ -132,8 +132,11 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
                                 .addAllBlockItems(streamingBatch)
                                 .build())
                         .build());
-                metricsService.get(LiveBlockItemsSent).increment(streamingBatch.size());
-                LOGGER.log(DEBUG, "Number of block items sent: {0}", metricsService.getValue(LiveBlockItemsSent));
+                metricsService.incrementCounterNoLabels(LIVE_BLOCK_ITEMS_SENT_KEY, streamingBatch.size());
+                LOGGER.log(
+                        DEBUG,
+                        "Number of block items sent: {0}",
+                        metricsService.getCounterNoLabelsValue(LIVE_BLOCK_ITEMS_SENT_KEY));
             } else {
                 publishStreamResponseConsumer.accept(publishStreamObserver.getPublishStreamResponse());
                 LOGGER.log(ERROR, "Not allowed to send next batch of block items");
@@ -145,7 +148,7 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
                         .setBlockNumber(blockNumber)
                         .build())
                 .build());
-        metricsService.get(LiveBlocksSent).increment();
+        metricsService.incrementCounterNoLabels(LIVE_BLOCKS_SENT_KEY);
         return streamEnabled.get();
     }
 
@@ -165,7 +168,7 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
      */
     @Override
     public long getPublishedBlocks() {
-        return metricsService.getValue(LiveBlocksSent);
+        return metricsService.getCounterNoLabelsValue(LIVE_BLOCKS_SENT_KEY);
     }
 
     /**
@@ -193,7 +196,8 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
         requireNonNull(streamingBatch);
         if (blockStreamConfig.midBlockFailType() == MidBlockFailType.NONE
                 || streamingBatch.size() < 3
-                || blockStreamConfig.midBlockFailOffset() != metricsService.getValue(LiveBlocksSent)) {
+                || blockStreamConfig.midBlockFailOffset()
+                        != metricsService.getCounterNoLabelsValue(LIVE_BLOCKS_SENT_KEY)) {
             return;
         }
         final int failIndex = new Random().nextInt(1, streamingBatch.size() - 1);

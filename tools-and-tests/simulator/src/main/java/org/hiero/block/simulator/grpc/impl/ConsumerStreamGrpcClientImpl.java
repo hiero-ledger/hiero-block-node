@@ -2,7 +2,7 @@
 package org.hiero.block.simulator.grpc.impl;
 
 import static java.util.Objects.requireNonNull;
-import static org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter.LiveBlocksConsumed;
+import static org.hiero.block.simulator.metrics.SimulatorMetricsProvider.LIVE_BLOCKS_CONSUMED_KEY;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.grpc.ManagedChannel;
@@ -117,7 +117,7 @@ public class ConsumerStreamGrpcClientImpl implements ConsumerStreamGrpcClient {
 
     @Override
     public long getConsumedBlocks() {
-        return metricsService.getValue(LiveBlocksConsumed);
+        return metricsService.getCounterNoLabelsValue(LIVE_BLOCKS_CONSUMED_KEY);
     }
 
     @Override

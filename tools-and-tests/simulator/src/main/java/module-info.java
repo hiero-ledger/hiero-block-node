@@ -39,4 +39,6 @@ module org.hiero.block.simulator {
 
     provides com.swirlds.config.api.ConfigurationExtension with
             SimulatorConfigExtension;
+    provides org.hiero.metrics.core.MetricsRegistrationProvider with
+            org.hiero.block.simulator.metrics.SimulatorMetricsProvider;
 }
