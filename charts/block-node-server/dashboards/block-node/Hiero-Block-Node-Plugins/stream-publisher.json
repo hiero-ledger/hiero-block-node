@@ -235,7 +235,7 @@
       ],
       "title": "Publisher Handlers (active / passive)",
       "type": "timeseries",
-      "description": "Connected publishers by mode. Active publishers stream block items; passive publishers only send AcknowledgeOnly. Stacked, so the total matches Publishers Connected."
+      "description": "Connected publishers by mode, per node. Active publishers stream block items; passive publishers only send AcknowledgeOnly. Active plus passive should equal Publishers Connected for the same node."
     },
     {
       "datasource": {
