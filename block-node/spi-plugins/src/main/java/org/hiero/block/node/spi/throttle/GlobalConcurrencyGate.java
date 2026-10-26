@@ -48,6 +48,13 @@ final class GlobalConcurrencyGate {
     /// Admits a call using only this shared gate, for a method with no per-client settings
     /// configured at all.
     ///
+    /// Reservation and release happen at two different points in time this method has no
+    /// visibility into: it reserves a permit the instant it's called, but that permit must stay
+    /// held for the entire duration of the in-flight call, which could be a long-lived streaming
+    /// RPC. So an admitted call is handed a `Runnable` (wrapped in [AdmissionResult#admitted]) that
+    /// the caller invokes whenever the call actually completes, rather than this method releasing
+    /// the permit itself.
+    ///
     /// @param description a human-readable label for this call's service/method, used in the
     ///     rejection reason if the ceiling has been reached
     /// @return the admission result, see [AdmissionResult]

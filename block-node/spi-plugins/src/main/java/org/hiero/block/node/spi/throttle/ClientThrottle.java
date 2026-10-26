@@ -52,6 +52,12 @@ final class ClientThrottle implements StaleClientSweepable {
     /// Attempts to admit a call from `clientKey`, applying the decision order described in the
     /// class-level documentation.
     ///
+    /// Like [GlobalConcurrencyGate#tryAdmit], reservation and release happen at two different
+    /// points in time this method has no visibility into: the permits are reserved the instant
+    /// this method is called, but must stay held for the entire in-flight call. An admitted call is
+    /// handed a `Runnable` (wrapped in [AdmissionResult#admitted]) that the caller invokes whenever
+    /// the call actually completes, rather than this method releasing the permits itself.
+    ///
     /// @param clientKey the caller's key, from a [ClientKeyExtractor]
     /// @param nowNanos the current time from a monotonic clock (e.g. [System#nanoTime()])
     /// @return the admission result, see [AdmissionResult]
@@ -75,11 +81,15 @@ final class ClientThrottle implements StaleClientSweepable {
             return AdmissionResult.rejected("node-wide concurrency limit reached for " + description);
         }
         if (!tryReserve(state.inFlight, settings.maxConcurrentPerClient())) {
+            // Only roll back the global slot: the client slot isn't held yet at this point, this
+            // check is what just failed to reserve it.
             globalGate.release();
             throttleMetrics.recordCall(service, method, ThrottleMetrics.Outcome.REJECTED_CLIENT_CONCURRENCY);
             return AdmissionResult.rejected("per-client concurrency limit reached for " + description);
         }
         if (!state.limiter.tryAcquire(nowNanos)) {
+            // Roll back both: the global slot and the client slot were both reserved by the two
+            // checks above before this one ran.
             globalGate.release();
             state.inFlight.decrementAndGet();
             throttleMetrics.recordCall(service, method, ThrottleMetrics.Outcome.REJECTED_RATE);

@@ -64,6 +64,8 @@ public final class ThrottledServiceInterface implements ServiceInterface, StaleC
         this.throttleMetrics = throttleMetrics;
         this.globalGate = new GlobalConcurrencyGate(maxConcurrentGlobal);
 
+        // Explicit per-method settings always win. Build those first so the computeIfAbsent below
+        // only backfills methods with no explicit entry.
         final Map<String, ClientThrottle> throttles = new HashMap<>();
         for (final Map.Entry<String, PerClientThrottleSettings> entry : perClientSettings.entrySet()) {
             final String method = entry.getKey();
@@ -77,6 +79,8 @@ public final class ThrottledServiceInterface implements ServiceInterface, StaleC
                             method,
                             clientStateTtl));
         }
+        // defaultPerClientSettings, if configured, only fills in the methods not already covered
+        // above — it never overrides an explicit per-method entry.
         defaultPerClientSettings.ifPresent(defaults -> {
             for (final Method method : delegate.methods()) {
                 throttles.computeIfAbsent(
