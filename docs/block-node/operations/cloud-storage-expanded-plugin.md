@@ -7,8 +7,11 @@ tooling that reads directly from S3. Each block is stored as a single ZSTD-compr
 object, independently retrievable by block number.
 
 The plugin supports AWS S3, Google Cloud Storage (via S3 interoperability), and any other
-S3-compatible store. Enabling it does not affect block processing - uploads run asynchronously
-in the background.
+S3-compatible store. Uploads run asynchronously in the background and do not slow block
+ingestion. However, if uploads fail persistently beyond the configured retry window, the plugin
+reports a terminal persistence failure, which causes the publisher plugin to end all active
+handlers. Size the retry window (`cloud.storage.expanded.retryMaxAgeSeconds`) to tolerate
+transient S3 outages without triggering a publisher disconnect.
 
 ---
 
@@ -21,9 +24,10 @@ in the background.
   is deployed.
 - An S3-compatible bucket with write access. Create one using your cloud provider's console or
   CLI (AWS S3, Google Cloud Storage, or any S3-compatible service) before proceeding.
-- S3 credentials for the bucket: an access key and secret key, an IAM role attached to the
-  node, or a Workload Identity binding (GKE). The required permission is `s3:PutObject` on the
-  bucket. See your cloud provider's documentation:
+- S3 credentials for the bucket: an access key ID and secret access key. The plugin's underlying
+  S3 client has no credential chain and no IAM role or Workload Identity fallback; these two
+  values are the only supported authentication method. The required S3 permission is `s3:PutObject`
+  on the target bucket. See your cloud provider's documentation for how to create static credentials:
   [AWS IAM access keys](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html) ·
   [GCS HMAC keys](https://cloud.google.com/storage/docs/authentication/hmackeys).
   Then see [Configure credentials](#configure-credentials) for how to supply them to the plugin.
@@ -138,13 +142,13 @@ All properties below can be set as environment variables (`CLOUD_STORAGE_EXPANDE
 | `cloud.storage.expanded.regionName`           | _(blank)_  |   Yes    | AWS or S3-compatible region name (e.g. `us-east-1`). Blank disables the plugin with a WARNING.               |
 | `cloud.storage.expanded.objectKeyPrefix`      | _(blank)_  |    No    | Prefix prepended to every object key (e.g. `blocks`). Leave blank for no prefix.                             |
 | `cloud.storage.expanded.storageClass`         | `STANDARD` |    No    | S3 storage class. Only `STANDARD` is accepted; use bucket lifecycle policies for archive tiering.            |
-| `cloud.storage.expanded.accessKey`            | _(blank)_  |    No    | S3 access key (not logged). Leave blank to use environment variables or IAM role.                            |
-| `cloud.storage.expanded.secretKey`            | _(blank)_  |    No    | S3 secret key (not logged). Leave blank to use environment variables or IAM role.                            |
+| `cloud.storage.expanded.accessKey`            | _(blank)_  |   Yes    | S3 access key (not logged). Required; must not be blank. No IAM role or credential-chain fallback.           |
+| `cloud.storage.expanded.secretKey`            | _(blank)_  |   Yes    | S3 secret key (not logged). Required; must not be blank. No IAM role or credential-chain fallback.           |
 | `cloud.storage.expanded.uploadTimeoutSeconds` |    `60`    |    No    | Seconds to wait for in-flight uploads during Block Node shutdown before treating them as failed. Minimum: 1. |
 
-> **Note:** If `endpointUrl`, `bucketName`, or `regionName` is blank at startup, the plugin logs
-> a WARNING and skips all uploads for the life of the process. Correct the value and restart the
-> Block Node to recover.
+> **Note:** All five required properties (`endpointUrl`, `bucketName`, `regionName`, `accessKey`,
+> `secretKey`) must not be blank. Each blank property is named in a WARNING at startup, and the
+> plugin skips all uploads for the life of the process. Correct the value and restart the Block Node to recover.
 
 ---
 
@@ -156,12 +160,12 @@ no data is written to disk - so any buffered blocks are lost if the process rest
 recovery succeeds. A deferred `succeeded=false` notification is sent to downstream plugins only
 once retries are exhausted, preventing unnecessary reconnection storms on transient failures.
 
-|                    Property                    | Default |                                                                 Description                                                                  |
-|------------------------------------------------|:-------:|----------------------------------------------------------------------------------------------------------------------------------------------|
-| `cloud.storage.expanded.retryEnabled`          | `true`  | Enable background retry. When `false`, a failed upload is reported as a terminal failure immediately with no buffering.                      |
-| `cloud.storage.expanded.retryIntervalSeconds`  |  `10`   | Fixed interval in seconds at which the retry tick reattempts every buffered block not already in flight. Minimum: 1.                         |
-| `cloud.storage.expanded.retryMaxAgeSeconds`    |  `60`   | Maximum time in seconds a block may remain buffered before it is dropped and reported as a terminal failure. Minimum: 1.                     |
-| `cloud.storage.expanded.retryMaxPendingBlocks` |  `30`   | Maximum number of blocks held in the retry buffer at once. A new failure exceeding this cap is reported as terminal immediately. Minimum: 1. |
+|                    Property                    | Default |                                                                                                 Description                                                                                                 |
+|------------------------------------------------|:-------:|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `cloud.storage.expanded.retryEnabled`          | `true`  | Enable background retry. When `false`, a failed upload is reported as a terminal failure immediately with no buffering.                                                                                     |
+| `cloud.storage.expanded.retryIntervalSeconds`  |  `10`   | Period of the background retry tick and the per-block backoff after a failed attempt. Each tick re-attempts only blocks whose backoff has elapsed. Minimum: 1.                                              |
+| `cloud.storage.expanded.retryMaxAgeSeconds`    |  `60`   | Maximum time in seconds a block may remain buffered before it is dropped and reported as a terminal failure. Minimum: 1.                                                                                    |
+| `cloud.storage.expanded.retryMaxPendingBlocks` |  `30`   | Maximum number of blocks held in the in-memory retry buffer at once. At capacity, the new block is still buffered and the longest-buffered block is evicted and reported as a terminal failure. Minimum: 1. |
 
 The defaults bound memory usage tightly: at most 30 blocks are buffered, each for at most
 60 seconds. Increase `retryMaxAgeSeconds` or `retryMaxPendingBlocks` only if your S3 endpoint
@@ -211,15 +215,17 @@ block-node-block-node-server-0     1/1     Running   0          2m
    plugin is inactive - correct the named property and restart the pod:
 
    ```bash
-   kubectl logs -n block-node <pod-name> | grep "cloud.storage.expanded"
+   kubectl logs -n block-node <pod-name> | grep -E "cloud.storage.expanded|Failed to initialize S3 client"
    ```
 
    If a required property is blank, output contains one or more of:
 
    ```
+   cloud.storage.expanded.accessKey is blank; S3 uploads will be skipped until configured.
    cloud.storage.expanded.bucketName is blank; S3 uploads will be skipped until configured.
    cloud.storage.expanded.endpointUrl is blank; S3 uploads will be skipped until configured.
    cloud.storage.expanded.regionName is blank; S3 uploads will be skipped until configured.
+   cloud.storage.expanded.secretKey is blank; S3 uploads will be skipped until configured.
    ```
 
    **No output means the plugin started successfully with no configuration warnings.**
@@ -283,8 +289,8 @@ and alert rules. See [Metrics](../metrics.md#cloud-expanded) for alerting recomm
 | `cloud_expanded_total_upload_bytes`    | Compressed bytes successfully transferred.                                                       |
 | `cloud_expanded_upload_latency_ns`     | Total wall-clock time spent in upload calls, in nanoseconds.                                     |
 | `cloud_expanded_pending_retry_blocks`  | Current number of blocks buffered in memory awaiting a background retry upload.                  |
-| `cloud_expanded_retry_success_total`   | Blocks recovered by background retry after an initial upload failure.                            |
-| `cloud_expanded_retry_exhausted_total` | Blocks dropped after exhausting all retry attempts, or still buffered when the plugin shut down. |
+| `cloud_expanded_retry_success`         | Blocks recovered by background retry after an initial upload failure.                            |
+| `cloud_expanded_retry_exhausted`       | Blocks dropped after exhausting all retry attempts, or still buffered when the plugin shut down. |
 
 A rising `blocknode_cloud_expanded_total_upload_failures_total` with no corresponding rise in
 `blocknode_cloud_expanded_retry_success_total` indicates a persistent S3 error. Use the
