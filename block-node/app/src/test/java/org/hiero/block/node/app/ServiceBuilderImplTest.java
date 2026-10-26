@@ -33,7 +33,6 @@ import java.util.Set;
 import org.hiero.block.node.app.config.GlobalThrottleConfig;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.app.config.WebServerHttp2Config;
-import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
 import org.hiero.block.node.spi.throttle.ThrottleExempt;
@@ -63,9 +62,7 @@ class ServiceBuilderImplTest {
         final SocketOptions socketOptions = SocketOptions.builder().build();
         ServerConfig testConfig = new ServerConfig(0, 0, 0, PUBLISHER_PORT, 0, 0, 0, 0, false, 0, 0);
         final GlobalThrottleConfig globalThrottleConfig = new GlobalThrottleConfig(1000, 30, 5);
-        final MetricRegistry metricRegistry = MetricRegistry.builder()
-                .setMetricsExporter(new TestMetricsExporter())
-                .build();
+        final MetricRegistry metricRegistry = MetricRegistry.builder().build();
         final ThreadPoolManager threadPoolManager = mock(ThreadPoolManager.class);
         // Mock executor; only throttled-registration tests trigger the lazy sweep start, and none assert on it.
         when(threadPoolManager.createVirtualThreadScheduledExecutor(
@@ -537,9 +534,7 @@ class ServiceBuilderImplTest {
         final ServerConfig serverConfig =
                 new ServerConfig(1_048_576, 32_768, 32_768, PUBLISHER_PORT, 0, 1_000, 1, 1, true, 1_024, 32);
         final GlobalThrottleConfig globalThrottleConfig = new GlobalThrottleConfig(1000, 30, 5);
-        final MetricRegistry metricRegistry = MetricRegistry.builder()
-                .setMetricsExporter(new TestMetricsExporter())
-                .build();
+        final MetricRegistry metricRegistry = MetricRegistry.builder().build();
         return new ServiceBuilderImpl(
                 serverConfig,
                 http2Config,
