@@ -173,7 +173,7 @@ class PublishStreamGrpcClientImplTest {
     }
 
     @AfterEach
-    void teardown() throws InterruptedException {
+    void teardown() throws InterruptedException, IOException {
         if (!isShutdownCalled) {
             publishStreamGrpcClient.shutdown();
         }
@@ -181,6 +181,7 @@ class PublishStreamGrpcClientImplTest {
         if (server != null) {
             server.shutdown();
         }
+        metricsService.close();
         isResendBlockEnabled = false;
         isSkipBlockEnabled = false;
     }

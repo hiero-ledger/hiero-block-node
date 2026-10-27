@@ -25,6 +25,7 @@ import org.hiero.block.simulator.grpc.PublishStreamGrpcClient;
 import org.hiero.block.simulator.metrics.MetricsService;
 import org.hiero.block.simulator.metrics.MetricsServiceImpl;
 import org.hiero.block.simulator.mode.impl.PublisherClientModeHandler;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
@@ -53,6 +54,11 @@ public class PublisherClientModeHandlerTest {
         blockStreamConfig = configuration.getConfigData(BlockStreamConfig.class);
 
         metricsService = new MetricsServiceImpl(configuration);
+    }
+
+    @AfterEach
+    void tearDown() throws IOException {
+        metricsService.close();
     }
 
     @Test

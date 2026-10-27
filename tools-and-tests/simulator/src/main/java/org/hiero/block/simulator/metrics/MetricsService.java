@@ -2,14 +2,18 @@
 package org.hiero.block.simulator.metrics;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.Closeable;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.core.Metric;
 import org.hiero.metrics.core.MetricKey;
 
 /**
  * A service for managing and retrieving metrics for the Hedera Block Node Simulator.
+ *
+ * <p>Closing the service releases the underlying metrics resources (e.g. stops the metrics
+ * exporter).
  */
-public interface MetricsService {
+public interface MetricsService extends Closeable {
 
     /**
      * Retrieves a metric by its key.

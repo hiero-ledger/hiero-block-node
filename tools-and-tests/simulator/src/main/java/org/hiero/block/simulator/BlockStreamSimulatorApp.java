@@ -24,6 +24,7 @@ import org.hiero.block.simulator.generator.BlockStreamManager;
 import org.hiero.block.simulator.grpc.ConsumerStreamGrpcClient;
 import org.hiero.block.simulator.grpc.PublishStreamGrpcClient;
 import org.hiero.block.simulator.grpc.PublishStreamGrpcServer;
+import org.hiero.block.simulator.metrics.MetricsService;
 import org.hiero.block.simulator.mode.SimulatorModeHandler;
 
 /**
@@ -46,6 +47,7 @@ public class BlockStreamSimulatorApp {
     private final ConsumerStreamGrpcClient consumerStreamGrpcClient;
     private final SimulatorModeHandler simulatorModeHandler;
     private final ConfigurationLogging configurationLogging;
+    private final MetricsService metricsService;
 
     // State
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
@@ -60,6 +62,8 @@ public class BlockStreamSimulatorApp {
      *                                 generation
      * @param publishStreamGrpcClient  The gRPC client for publishing blocks
      * @param consumerStreamGrpcClient The gRPC client for consuming blocks
+     * @param metricsService           The metrics service, closed when the
+     *                                 simulator is stopped
      * @throws NullPointerException     if any parameter is null
      * @throws IllegalArgumentException if an unknown simulator mode is configured
      */
@@ -71,7 +75,8 @@ public class BlockStreamSimulatorApp {
             @NonNull final PublishStreamGrpcServer publishStreamGrpcServer,
             @NonNull final ConsumerStreamGrpcClient consumerStreamGrpcClient,
             @NonNull final SimulatorModeHandler simulatorModeHandler,
-            @NonNull final ConfigurationLogging configurationLogging) {
+            @NonNull final ConfigurationLogging configurationLogging,
+            @NonNull final MetricsService metricsService) {
         requireNonNull(configuration);
         requireNonNull(blockStreamManager);
         loadLoggingProperties();
@@ -80,6 +85,7 @@ public class BlockStreamSimulatorApp {
         this.consumerStreamGrpcClient = requireNonNull(consumerStreamGrpcClient);
         this.simulatorModeHandler = requireNonNull(simulatorModeHandler);
         this.configurationLogging = requireNonNull(configurationLogging);
+        this.metricsService = requireNonNull(metricsService);
     }
 
     /**
@@ -113,15 +119,20 @@ public class BlockStreamSimulatorApp {
     }
 
     /**
-     * Gracefully stops the simulator and closes all gRPC channels.
-     * This method ensures proper cleanup of resources and termination of streaming
-     * operations.
+     * Gracefully stops the simulator, closes all gRPC channels and the metrics
+     * service. This method ensures proper cleanup of resources and termination of
+     * streaming operations.
      *
      * @throws InterruptedException if the shutdown process is interrupted
      */
     public void stop() throws InterruptedException {
         // @todo(322) Add real lifecycle to the simulator
         simulatorModeHandler.stop();
+        try {
+            metricsService.close();
+        } catch (final IOException e) {
+            LOGGER.log(ERROR, "Failed to close metrics service", e);
+        }
         isRunning.set(false);
 
         LOGGER.log(INFO, "Block Stream Simulator has stopped");

@@ -24,6 +24,7 @@ import org.hiero.block.api.protoc.SubscribeStreamResponse.Code;
 import org.hiero.block.simulator.config.data.ConsumerConfig;
 import org.hiero.block.simulator.metrics.MetricsService;
 import org.hiero.block.simulator.metrics.MetricsServiceImpl;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -47,6 +48,11 @@ class ConsumerStreamObserverTest {
         consumerConfig = config.getConfigData(ConsumerConfig.class);
         observer = new ConsumerStreamObserver(
                 metricsService, streamLatch, lastKnownStatuses, lastKnownStatusesCapacity, consumerConfig);
+    }
+
+    @AfterEach
+    void tearDown() throws IOException {
+        metricsService.close();
     }
 
     @Test

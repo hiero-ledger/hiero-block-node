@@ -9,14 +9,12 @@ import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricsRegistrationProvider;
 import org.jspecify.annotations.NonNull;
 
-/**
- * Provides the metrics to be registered for the Block Stream Simulator.
- *
- * <p>This class implements the {@link MetricsRegistrationProvider} interface, allowing it to
- * supply a collection of metrics that should be registered with the metrics system. The metrics
- * provided here are specific to the simulator's operation, including counters for live block items
- * sent, live blocks sent, live blocks processed by the server, and live blocks consumed.
- */
+/// Provides the metrics to be registered for the Block Stream Simulator.
+///
+/// This class implements the [MetricsRegistrationProvider] interface, allowing it to
+/// supply a collection of metrics that should be registered with the metrics system. The metrics
+/// provided here are specific to the simulator's operation, including counters for live block items
+/// sent, live blocks sent, live blocks processed by the server, and live blocks consumed.
 public class SimulatorMetricsProvider implements MetricsRegistrationProvider {
 
     private static final String CATEGORY = "blocknode_simulator";

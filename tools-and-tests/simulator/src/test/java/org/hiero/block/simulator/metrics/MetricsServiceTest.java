@@ -7,6 +7,7 @@ import static org.hiero.block.simulator.metrics.SimulatorMetricsProvider.LIVE_BL
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.io.IOException;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -17,6 +18,11 @@ public class MetricsServiceTest {
     @BeforeEach
     public void setUp() throws IOException {
         metricsService = new MetricsServiceImpl(getTestConfiguration());
+    }
+
+    @AfterEach
+    public void tearDown() throws IOException {
+        metricsService.close();
     }
 
     @Test

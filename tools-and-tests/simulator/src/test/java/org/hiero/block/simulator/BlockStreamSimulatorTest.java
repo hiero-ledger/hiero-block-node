@@ -87,7 +87,8 @@ class BlockStreamSimulatorTest {
                 publishStreamGrpcServer,
                 consumerStreamGrpcClient,
                 simulatorModeHandler,
-                configurationLoggingMock);
+                configurationLoggingMock,
+                metricsService);
     }
 
     @AfterEach
@@ -119,7 +120,6 @@ class BlockStreamSimulatorTest {
         SimulatorModeHandler consumerModeHandler = new ConsumerModeHandler(consumerStreamGrpcClient);
         Configuration configuration = TestUtils.getTestConfiguration(Map.of("blockStream.simulatorMode", "CONSUMER"));
 
-        metricsService = new MetricsServiceImpl(configuration);
         blockStreamSimulator = new BlockStreamSimulatorApp(
                 configuration,
                 blockStreamManager,
@@ -127,7 +127,8 @@ class BlockStreamSimulatorTest {
                 publishStreamGrpcServer,
                 consumerStreamGrpcClient,
                 consumerModeHandler,
-                configurationLoggingMock);
+                configurationLoggingMock,
+                metricsService);
         blockStreamSimulator.start();
 
         verify(consumerStreamGrpcClient).init();
@@ -175,7 +176,8 @@ class BlockStreamSimulatorTest {
                 publishStreamGrpcServer,
                 consumerStreamGrpcClient,
                 publisherClientModeHandler,
-                configurationLoggingMock);
+                configurationLoggingMock,
+                metricsService);
 
         blockStreamSimulator.start();
         assertTrue(blockStreamSimulator.isRunning());
@@ -193,7 +195,6 @@ class BlockStreamSimulatorTest {
         Configuration configuration =
                 TestUtils.getTestConfiguration(Map.of("blockStream.simulatorMode", "PUBLISHER_CLIENT"));
 
-        metricsService = new MetricsServiceImpl(configuration);
         blockStreamSimulator = new BlockStreamSimulatorApp(
                 configuration,
                 blockStreamManager,
@@ -201,7 +202,8 @@ class BlockStreamSimulatorTest {
                 publishStreamGrpcServer,
                 consumerStreamGrpcClient,
                 publisherClientModeHandler,
-                configurationLoggingMock);
+                configurationLoggingMock,
+                metricsService);
 
         assertDoesNotThrow(() -> blockStreamSimulator.stop());
         assertFalse(blockStreamSimulator.isRunning());
@@ -213,7 +215,6 @@ class BlockStreamSimulatorTest {
         SimulatorModeHandler consumerModeHandler = new ConsumerModeHandler(consumerStreamGrpcClient);
         Configuration configuration = TestUtils.getTestConfiguration(Map.of("blockStream.simulatorMode", "CONSUMER"));
 
-        metricsService = new MetricsServiceImpl(configuration);
         blockStreamSimulator = new BlockStreamSimulatorApp(
                 configuration,
                 blockStreamManager,
@@ -221,7 +222,8 @@ class BlockStreamSimulatorTest {
                 publishStreamGrpcServer,
                 consumerStreamGrpcClient,
                 consumerModeHandler,
-                configurationLoggingMock);
+                configurationLoggingMock,
+                metricsService);
         assertDoesNotThrow(() -> blockStreamSimulator.stop());
         assertFalse(blockStreamSimulator.isRunning());
         verify(consumerStreamGrpcClient, atLeast(1)).completeStreaming();
@@ -259,7 +261,8 @@ class BlockStreamSimulatorTest {
                 publishStreamGrpcServer,
                 consumerStreamGrpcClient,
                 publisherClientModeHandler,
-                configurationLoggingMock);
+                configurationLoggingMock,
+                metricsService);
 
         blockStreamSimulator.start();
         assertTrue(blockStreamSimulator.isRunning());
@@ -310,7 +313,8 @@ class BlockStreamSimulatorTest {
                 publishStreamGrpcServer,
                 consumerStreamGrpcClient,
                 publisherClientModeHandler,
-                configurationLoggingMock);
+                configurationLoggingMock,
+                metricsService);
         List<LogRecord> logRecords = captureLogs();
 
         blockStreamSimulator.start();
