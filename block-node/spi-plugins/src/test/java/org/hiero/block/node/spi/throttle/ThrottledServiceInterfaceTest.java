@@ -3,6 +3,7 @@ package org.hiero.block.node.spi.throttle;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.pbj.runtime.grpc.GrpcException;
@@ -174,7 +175,7 @@ class ThrottledServiceInterfaceTest {
                     recordingService,
                     Map.of(ONLY_METHOD.name(), new PerClientThrottleSettings(1_000_000, 1_000_000, callerCount)),
                     Optional.empty(),
-                    ceiling,
+                    Map.of(ONLY_METHOD.name(), ceiling),
                     new RemoteAddressKeyExtractor(roundMetricRegistry),
                     new ThrottleMetrics(roundMetricRegistry),
                     Duration.ofDays(1));
@@ -279,7 +280,7 @@ class ThrottledServiceInterfaceTest {
                 recordingService,
                 Map.of(ONLY_METHOD.name(), new PerClientThrottleSettings(100, 10, 1)),
                 Optional.empty(),
-                5,
+                Map.of(ONLY_METHOD.name(), 5, OTHER_METHOD.name(), 5),
                 new RemoteAddressKeyExtractor(metricRegistry),
                 throttleMetrics,
                 Duration.ofDays(1));
@@ -295,27 +296,63 @@ class ThrottledServiceInterfaceTest {
     }
 
     @Test
-    @DisplayName("Configured methods get independent per-client state but share the global ceiling")
-    void configuredMethodsHaveIndependentStateButShareGlobalCeiling() {
+    @DisplayName("Each method has its own node-wide ceiling, not one shared across the service")
+    void eachMethodHasItsOwnGlobalCeiling() {
         final ThrottledServiceInterface throttled = new ThrottledServiceInterface(
                 recordingService,
                 Map.of(
-                        ONLY_METHOD.name(), new PerClientThrottleSettings(100, 10, 1),
-                        OTHER_METHOD.name(), new PerClientThrottleSettings(100, 10, 1)),
+                        ONLY_METHOD.name(), new PerClientThrottleSettings(100, 10, 5),
+                        OTHER_METHOD.name(), new PerClientThrottleSettings(100, 10, 5)),
                 Optional.empty(),
-                1,
+                Map.of(ONLY_METHOD.name(), 1, OTHER_METHOD.name(), 1),
                 new RemoteAddressKeyExtractor(metricRegistry),
                 throttleMetrics,
                 Duration.ofDays(1));
 
-        throttled.open(ONLY_METHOD, optionsFor("10.0.0.1"), new CapturingPipeline()); // consumes the one global permit
+        throttled.open(ONLY_METHOD, optionsFor("10.0.0.1"), new CapturingPipeline()); // fills ONLY_METHOD's ceiling
         final CapturingPipeline otherMethodReplies = new CapturingPipeline();
         throttled.open(OTHER_METHOD, optionsFor("10.0.0.2"), otherMethodReplies);
+        final CapturingPipeline sameMethodReplies = new CapturingPipeline();
+        throttled.open(ONLY_METHOD, optionsFor("10.0.0.3"), sameMethodReplies);
 
-        assertEquals(
-                1,
-                otherMethodReplies.errors.size(),
-                "a sibling method's independent per-client table must still draw from the one shared global ceiling");
+        assertTrue(
+                otherMethodReplies.errors.isEmpty(),
+                "a sibling method's node-wide ceiling must be independent of this method's");
+        assertEquals(1, sameMethodReplies.errors.size(), "the full method's own ceiling must still reject");
+    }
+
+    @Test
+    @DisplayName("A per-client gate with no node-wide ceiling for its method fails fast at construction")
+    void perClientGateWithoutCeilingFailsFast() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new ThrottledServiceInterface(
+                        recordingService,
+                        Map.of(ONLY_METHOD.name(), new PerClientThrottleSettings(100, 10, 1)),
+                        Optional.empty(),
+                        Map.of(),
+                        new RemoteAddressKeyExtractor(metricRegistry),
+                        throttleMetrics,
+                        Duration.ofDays(1)));
+    }
+
+    @Test
+    @DisplayName("A method with neither per-client settings nor a ceiling is not throttled")
+    void methodWithNoConfigurationIsPassedThrough() {
+        final ThrottledServiceInterface throttled = new ThrottledServiceInterface(
+                recordingService,
+                Map.of(),
+                Optional.empty(),
+                Map.of(),
+                new RemoteAddressKeyExtractor(metricRegistry),
+                throttleMetrics,
+                Duration.ofDays(1));
+        final CapturingPipeline replies = new CapturingPipeline();
+
+        throttled.open(ONLY_METHOD, optionsFor("10.0.0.1"), replies);
+
+        assertEquals(1, recordingService.openCalls);
+        assertTrue(replies.errors.isEmpty());
     }
 
     @Test
@@ -327,7 +364,7 @@ class ThrottledServiceInterfaceTest {
                         ONLY_METHOD.name(), new PerClientThrottleSettings(100, 10, 1),
                         OTHER_METHOD.name(), new PerClientThrottleSettings(100, 10, 1)),
                 Optional.empty(),
-                5, // generous global ceiling, so only the per-client ceiling is under test here
+                Map.of(ONLY_METHOD.name(), 5, OTHER_METHOD.name(), 5), // generous, so only per-client is under test
                 new RemoteAddressKeyExtractor(metricRegistry),
                 throttleMetrics,
                 Duration.ofDays(1));
@@ -350,7 +387,7 @@ class ThrottledServiceInterfaceTest {
                 recordingService,
                 Map.of(),
                 Optional.of(new PerClientThrottleSettings(100, 10, 1)),
-                5,
+                Map.of(ONLY_METHOD.name(), 5, OTHER_METHOD.name(), 5),
                 new RemoteAddressKeyExtractor(metricRegistry),
                 throttleMetrics,
                 Duration.ofDays(1));
@@ -362,6 +399,41 @@ class ThrottledServiceInterfaceTest {
 
         assertEquals(
                 1, secondCallReplies.errors.size(), "the default settings must gate this method's per-client calls");
+    }
+
+    @Test
+    @DisplayName("Reaping across methods releases only expired permits, and reports the smallest non-zero hold limit")
+    void reapsExpiredPermitsAndReportsSmallestHoldLimit() {
+        final ThrottledServiceInterface throttled = new ThrottledServiceInterface(
+                recordingService,
+                Map.of(
+                        ONLY_METHOD.name(), new PerClientThrottleSettings(100, 10, 1, 60),
+                        OTHER_METHOD.name(), new PerClientThrottleSettings(100, 10, 1, 10)),
+                Optional.empty(),
+                Map.of(ONLY_METHOD.name(), 5, OTHER_METHOD.name(), 5),
+                new RemoteAddressKeyExtractor(metricRegistry),
+                throttleMetrics,
+                Duration.ofDays(1));
+        throttled.open(ONLY_METHOD, optionsFor("10.0.0.1"), new CapturingPipeline());
+        throttled.open(OTHER_METHOD, optionsFor("10.0.0.1"), new CapturingPipeline());
+
+        assertEquals(10, throttled.smallestPermitHoldSeconds());
+        final MetricRegistry otherRegistry = MetricRegistry.builder().build();
+        final long later = System.nanoTime() + Duration.ofSeconds(11).toNanos();
+
+        assertEquals(1, throttled.reapExpiredPermits(later), "only the method with the 10 s limit has expired");
+        assertEquals(
+                0,
+                new ThrottledServiceInterface(
+                                recordingService,
+                                Map.of(ONLY_METHOD.name(), new PerClientThrottleSettings(100, 10, 1)),
+                                Optional.empty(),
+                                Map.of(ONLY_METHOD.name(), 5),
+                                new RemoteAddressKeyExtractor(otherRegistry),
+                                new ThrottleMetrics(otherRegistry),
+                                Duration.ofDays(1))
+                        .smallestPermitHoldSeconds(),
+                "a service whose methods never reap reports 0");
     }
 
     private ThrottledServiceInterface throttledWith(
@@ -386,7 +458,7 @@ class ThrottledServiceInterfaceTest {
                         ONLY_METHOD.name(),
                         new PerClientThrottleSettings(ratePerSecond, burstTolerance, maxConcurrentPerClient)),
                 Optional.empty(),
-                maxConcurrentGlobal,
+                Map.of(ONLY_METHOD.name(), maxConcurrentGlobal),
                 new RemoteAddressKeyExtractor(metricRegistry),
                 throttleMetrics,
                 clientStateTtl);

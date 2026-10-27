@@ -318,8 +318,8 @@ public class ServerStatusServicePluginTest
     }
 
     @Test
-    @DisplayName("ThrottleSpec reports the configured per-client settings and global ceiling")
-    void perClientSettingsAndGlobalCeilingReflectConfig() {
+    @DisplayName("ThrottleSpec reports each method's own per-client settings and global ceiling")
+    void perClientSettingsAndGlobalCeilingsReflectConfigPerMethod() {
         final ServerStatusServicePlugin localPlugin = new ServerStatusServicePlugin();
         start(
                 localPlugin,
@@ -329,16 +329,31 @@ public class ServerStatusServicePluginTest
                         "throttle.serverStatus.ratePerSecond", "42",
                         "throttle.serverStatus.burstTolerance", "7",
                         "throttle.serverStatus.maxConcurrentPerClient", "3",
-                        "throttle.global.serverStatusMaxConcurrent", "99"));
+                        "throttle.serverStatus.maxPermitHoldSeconds", "11",
+                        "throttle.serverStatusDetail.ratePerSecond", "20",
+                        "throttle.serverStatusDetail.maxPermitHoldSeconds", "61",
+                        "throttle.global.serverStatusMaxConcurrent", "99",
+                        "throttle.global.serverStatusDetailMaxConcurrent", "55"));
 
-        final PerClientThrottleSettings expected = new PerClientThrottleSettings(42, 7, 3);
         assertEquals(
                 Map.of(
-                        "serverStatus", expected,
-                        "serverStatusDetail", expected),
+                        "serverStatus", new PerClientThrottleSettings(42, 7, 3, 11),
+                        "serverStatusDetail", new PerClientThrottleSettings(20, 20, 5, 61)),
                 localPlugin.perClientSettings(),
-                "serverStatus and serverStatusDetail each get their own independent table from the same settings");
-        assertEquals(99, localPlugin.globalConcurrencyCeiling());
+                "each method gets its own settings; unset keys fall back to that method's defaults");
+        assertEquals(Map.of("serverStatus", 99, "serverStatusDetail", 55), localPlugin.globalConcurrencyCeilings());
+    }
+
+    @Test
+    @DisplayName("Default throttle settings give serverStatus a 10 s and serverStatusDetail a 60 s permit hold limit")
+    void defaultPermitHoldLimitsDifferPerMethod() {
+        final ServerStatusServicePlugin localPlugin = new ServerStatusServicePlugin();
+        start(localPlugin, localPlugin.methods().getFirst(), new SimpleInMemoryHistoricalBlockFacility(), Map.of());
+
+        assertEquals(10, localPlugin.perClientSettings().get("serverStatus").maxPermitHoldSeconds());
+        assertEquals(
+                60, localPlugin.perClientSettings().get("serverStatusDetail").maxPermitHoldSeconds());
+        assertEquals(Map.of("serverStatus", 1000, "serverStatusDetail", 1000), localPlugin.globalConcurrencyCeilings());
     }
 
     /**
