@@ -1848,9 +1848,9 @@ public class LiveSequential implements Runnable {
 
     /**
      * Save jumpstart.bin atomically. Format matches what {@link JumpstartValidation} reads:
-     * block number (long), block hash (48 bytes), consensus timestamp hash (48 bytes),
-     * output items tree root hash (48 bytes), leaf count (long), hash count (int),
-     * followed by hash count × 48-byte hashes (streaming hasher intermediate state).
+     * block number (long), block hash (32 bytes), consensus timestamp hash (32 bytes),
+     * output items tree root hash (32 bytes), leaf count (long), hash count (int),
+     * followed by hash count × 32-byte hashes (streaming hasher intermediate state).
      */
     private static void saveJumpstart(
             Path jumpstartPath,

@@ -18,6 +18,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.internal.BulkLoadState;
 import org.hiero.block.tools.blocks.model.BlockZipsUtilities;
+import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Help.Ansi;
 import picocli.CommandLine.Option;
@@ -124,6 +125,22 @@ public class BulkLoadBlocksCommand implements Callable<Integer> {
         if (!Files.isDirectory(sourceDir)) {
             System.err.println("Error: Source directory does not exist: " + sourceDir);
             return 1;
+        }
+
+        // Refuse SHA-384 output from an older CLI. Only read the header, so the source is never written.
+        final Path registryPath = sourceDir.resolve("blockStreamBlockHashes.bin");
+        if (Files.exists(registryPath)) {
+            try {
+                if (!BlockStreamBlockHashRegistry.hasSha256Header(registryPath)) {
+                    System.err.println("Error: " + registryPath
+                            + " is not a SHA-256 block hash registry (missing header). The source is probably"
+                            + " SHA-384 output from an older CLI version.");
+                    return 1;
+                }
+            } catch (IOException e) {
+                System.err.println("Error: Failed to read " + registryPath + ": " + e.getMessage());
+                return 1;
+            }
         }
 
         // Warn if destination already exists

@@ -12,6 +12,7 @@ import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Files;
@@ -23,6 +24,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import picocli.CommandLine;
 
 /**
@@ -417,6 +420,40 @@ class ValidateBlocksCommandTest {
         assertTrue(output2.contains("last validated block = 2"), "Should resume from block 2. Output:\n" + output2);
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void legacyCheckpoint_reportsRewrap(final boolean legacyInBak) throws Exception {
+        List<Block> blocks = TestBlockFactory.createValidChain(5);
+        blocks.set(3, TestBlockFactory.withBrokenPreviousHash(blocks.get(3)));
+        writeBlocks(blocks);
+        writeAddressBook();
+
+        Object[] result1 = runValidate("--no-resume");
+        assertEquals(1, (int) result1[0], "First run should fail. Output:\n" + result1[1]);
+
+        // Replace the tree state with a consistent legacy SHA-384 file: 3 leaves, two 48-byte hashes. Either the
+        // primary is legacy with no .bak, or the primary is missing and the .bak is legacy.
+        Path treeState = tempDir.resolve("validateCheckpoint/historicalTreeValidation.bin");
+        Path bak = Path.of(treeState + ".bak");
+        Files.deleteIfExists(treeState);
+        Files.deleteIfExists(bak);
+        try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(legacyInBak ? bak : treeState))) {
+            out.writeLong(3);
+            out.writeInt(2);
+            out.write(new byte[48]);
+            out.write(new byte[48]);
+        }
+
+        Object[] result2 = runValidate();
+        String output2 = (String) result2[1];
+
+        assertEquals(1, (int) result2[0], "Should refuse to resume. Output:\n" + output2);
+        assertTrue(output2.contains("before SHA-256"), "Should name the legacy state. Output:\n" + output2);
+        assertTrue(output2.contains("re-wrap"), "Should offer a re-wrap. Output:\n" + output2);
+        assertTrue(output2.contains("--no-resume"), "Should offer --no-resume. Output:\n" + output2);
+        assertFalse(output2.contains("corrupt or missing"), "Should not call it corrupt. Output:\n" + output2);
+    }
+
     @Test
     void checkpointPreservedOnFullSuccess() throws Exception {
         List<Block> blocks = TestBlockFactory.createValidChain(5);
@@ -527,7 +564,7 @@ class ValidateBlocksCommandTest {
         fakeCheckpoint.addProperty("schemaVersion", 3);
         fakeCheckpoint.addProperty("lastValidatedBlockNumber", 0);
         fakeCheckpoint.addProperty("blocksValidated", 1);
-        fakeCheckpoint.addProperty("previousBlockHashHex", "aa".repeat(48));
+        fakeCheckpoint.addProperty("previousBlockHashHex", "aa".repeat(32));
         Files.writeString(checkpointDir.resolve("validateProgress.json"), fakeCheckpoint.toString());
 
         // --no-resume should validate ALL 5 blocks from scratch

@@ -38,6 +38,7 @@ import org.hiero.block.tools.blocks.model.BlockZipsUtilities;
 import org.hiero.block.tools.blocks.model.BlockZipsUtilities.BlockSource;
 import org.hiero.block.tools.blocks.model.BlockZipsUtilities.PreValidatedBlock;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
+import org.hiero.block.tools.blocks.model.hashing.LegacyHashFormatException;
 import org.hiero.block.tools.blocks.validation.AddressBookUpdateValidation;
 import org.hiero.block.tools.blocks.validation.BalanceCheckpointValidation;
 import org.hiero.block.tools.blocks.validation.BlockChainValidation;
@@ -528,6 +529,7 @@ public class ValidateBlocksCommand implements Callable<Integer> {
             } catch (IOException ignored) {
             }
             List<BlockValidation> failedLoads = new ArrayList<>();
+            List<BlockValidation> legacyLoads = new ArrayList<>();
             for (BlockValidation v : validations) {
                 try {
                     v.load(checkpointDir);
@@ -536,6 +538,10 @@ public class ValidateBlocksCommand implements Callable<Integer> {
                             "@|yellow Warning:|@ could not load " + v.name() + " state: " + e.getMessage()));
                     if (v.requiresGenesisStart()) {
                         failedLoads.add(v);
+                        if (e instanceof LegacyHashFormatException
+                                || e.getCause() instanceof LegacyHashFormatException) {
+                            legacyLoads.add(v);
+                        }
                     }
                 }
             }
@@ -547,10 +553,20 @@ public class ValidateBlocksCommand implements Callable<Integer> {
             // silently skipping it would undermine the completeness guarantee of the validation.
             if (!failedLoads.isEmpty()) {
                 for (BlockValidation failed : failedLoads) {
-                    System.err.println(Ansi.AUTO.string("@|red Error:|@ " + failed.name()
-                            + " checkpoint state is corrupt or missing and cannot be rebuilt without "
-                            + "starting from block 0. Delete the checkpoint directory and re-run "
-                            + "validation from the beginning, or use --no-resume to ignore the checkpoint."));
+                    if (legacyLoads.contains(failed)) {
+                        final String blocksDir =
+                                checkpointDir.getParent() != null ? " in " + checkpointDir.getParent() : "";
+                        System.err.println(Ansi.AUTO.string("@|red Error:|@ " + failed.name()
+                                + " checkpoint state was written by a CLI version before SHA-256. If the blocks"
+                                + blocksDir + " are from that version too, re-wrap them with this CLI version into"
+                                + " a fresh output directory and validate that; if they were already re-wrapped,"
+                                + " re-run with --no-resume."));
+                    } else {
+                        System.err.println(Ansi.AUTO.string("@|red Error:|@ " + failed.name()
+                                + " checkpoint state is corrupt or missing and cannot be rebuilt without "
+                                + "starting from block 0. Delete the checkpoint directory and re-run "
+                                + "validation from the beginning, or use --no-resume to ignore the checkpoint."));
+                    }
                 }
                 return 1;
             }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks;
 
+import static org.hiero.block.tools.utils.Sha256.SHA_256_HASH_SIZE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -36,9 +37,9 @@ class AmendmentIntegrationTest {
     private static final long GENESIS_BLOCK_NUMBER = 0L;
 
     /** Dummy hashes for block conversion */
-    private static final byte[] DUMMY_PREVIOUS_HASH = new byte[48];
+    private static final byte[] DUMMY_PREVIOUS_HASH = new byte[SHA_256_HASH_SIZE];
 
-    private static final byte[] DUMMY_ROOT_HASH = new byte[48];
+    private static final byte[] DUMMY_ROOT_HASH = new byte[SHA_256_HASH_SIZE];
 
     private ParsedRecordBlock block0;
     private AddressBookRegistry addressBookRegistry;

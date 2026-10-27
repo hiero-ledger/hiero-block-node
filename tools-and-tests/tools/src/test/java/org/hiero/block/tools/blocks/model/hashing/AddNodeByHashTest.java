@@ -2,7 +2,8 @@
 package org.hiero.block.tools.blocks.model.hashing;
 
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashLeaf;
-import static org.hiero.block.tools.utils.Sha384.sha384Digest;
+import static org.hiero.block.tools.utils.Sha256.SHA_256_HASH_SIZE;
+import static org.hiero.block.tools.utils.Sha256.sha256Digest;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -29,7 +30,7 @@ class AddNodeByHashTest {
     @Test
     @DisplayName("Single node by hash should produce correct root in StreamingHasher")
     void singleNodeByHashStreaming() {
-        MessageDigest digest = sha384Digest();
+        MessageDigest digest = sha256Digest();
         byte[] leafHash = hashLeaf(digest, new byte[] {1, 2, 3});
 
         StreamingHasher withLeaf = new StreamingHasher();
@@ -45,7 +46,7 @@ class AddNodeByHashTest {
     @Test
     @DisplayName("Single node by hash should produce correct root in InMemoryTreeHasher")
     void singleNodeByHashInMemory() {
-        MessageDigest digest = sha384Digest();
+        MessageDigest digest = sha256Digest();
         byte[] leafHash = hashLeaf(digest, new byte[] {1, 2, 3});
 
         InMemoryTreeHasher withLeaf = new InMemoryTreeHasher();
@@ -61,7 +62,7 @@ class AddNodeByHashTest {
     @Test
     @DisplayName("Both implementations should agree when using addNodeByHash")
     void crossValidationWithNodeByHash() {
-        MessageDigest digest = sha384Digest();
+        MessageDigest digest = sha256Digest();
         Random random = new Random(RANDOM_SEED);
 
         StreamingHasher streaming = new StreamingHasher();
@@ -84,7 +85,7 @@ class AddNodeByHashTest {
     @ValueSource(ints = {1, 2, 3, 4, 5, 7, 8, 15, 16, 31, 32, 100})
     @DisplayName("addNodeByHash should match addLeaf with pre-hashed data for various counts")
     void nodeByHashMatchesLeafForVariousCounts(int count) {
-        MessageDigest digest = sha384Digest();
+        MessageDigest digest = sha256Digest();
         Random random = new Random(RANDOM_SEED);
 
         StreamingHasher leafHasher = new StreamingHasher();
@@ -120,7 +121,7 @@ class AddNodeByHashTest {
     @Test
     @DisplayName("Mixing addLeaf and addNodeByHash should work correctly")
     void mixedAddLeafAndAddNodeByHash() {
-        MessageDigest digest = sha384Digest();
+        MessageDigest digest = sha256Digest();
 
         byte[] data0 = {10, 20, 30};
         byte[] data1 = {40, 50, 60};
@@ -158,7 +159,7 @@ class AddNodeByHashTest {
     @Test
     @DisplayName("Single leaf tree root hash is exactly hash(0x00 || data) with no internal node wrapping")
     void singleLeafTreeRootIsLeafHashOnly() {
-        MessageDigest digest = sha384Digest();
+        MessageDigest digest = sha256Digest();
         byte[] data = {1, 2, 3, 4, 5};
         byte[] expectedLeafHash = hashLeaf(digest, data);
 
@@ -184,7 +185,7 @@ class AddNodeByHashTest {
     void nodeByHashWithArbitraryHashDiffersFromLeaf() {
         // When we pass an arbitrary hash (not from hashLeaf), the result should differ
         // from addLeaf with raw data, since addLeaf applies the leaf prefix
-        byte[] arbitraryHash = new byte[48];
+        byte[] arbitraryHash = new byte[SHA_256_HASH_SIZE];
         new Random(42).nextBytes(arbitraryHash);
 
         StreamingHasher byHash = new StreamingHasher();
