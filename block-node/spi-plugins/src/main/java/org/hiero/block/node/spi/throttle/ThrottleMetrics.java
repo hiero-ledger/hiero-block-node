@@ -15,7 +15,7 @@ import org.hiero.metrics.core.MetricRegistry;
 /// shared by every [ClientThrottle] and [GlobalConcurrencyGate] instance the node creates. See
 /// `docs/design/apis/api-throttling.md`'s Metrics section.
 ///
-/// Every call outcome is recorded against one counter, `throttle_calls_total`, labeled by
+/// Every call outcome is recorded against one counter, `throttle_calls`, labeled by
 /// `service`, `method`, and `outcome`, rather than a separate counter per outcome.
 ///
 /// Must be constructed exactly once per [MetricRegistry], shared across every throttled service
@@ -30,11 +30,10 @@ public final class ThrottleMetrics {
 
     /// @param metricRegistry the registry to register this mechanism's shared metrics with
     public ThrottleMetrics(@NonNull final MetricRegistry metricRegistry) {
-        callsCounter =
-                metricRegistry.register(LongCounter.builder(MetricKey.of("throttle_calls_total", LongCounter.class)
-                                .addCategory(BlockNodePlugin.METRICS_CATEGORY))
-                        .setDescription("Calls to a throttled method, by outcome")
-                        .addDynamicLabelNames(LABEL_SERVICE, LABEL_METHOD, LABEL_OUTCOME));
+        callsCounter = metricRegistry.register(LongCounter.builder(
+                        MetricKey.of("throttle_calls", LongCounter.class).addCategory(BlockNodePlugin.METRICS_CATEGORY))
+                .setDescription("Calls to a throttled method, by outcome")
+                .addDynamicLabelNames(LABEL_SERVICE, LABEL_METHOD, LABEL_OUTCOME));
         clientStateCountGauge = metricRegistry.register(
                 ObservableGauge.builder(MetricKey.of("throttle_client_state_count", ObservableGauge.class)
                                 .addCategory(BlockNodePlugin.METRICS_CATEGORY))

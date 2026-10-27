@@ -22,7 +22,7 @@ public final class RemoteAddressKeyExtractor implements ClientKeyExtractor {
     /// Metric key for [#UNKNOWN_KEY] fallbacks, public so tests can read the registered value
     /// back by name.
     public static final MetricKey<LongCounter> METRIC_UNKNOWN_REMOTE_ADDRESS = MetricKey.of(
-                    "throttle_unknown_remote_address_total", LongCounter.class)
+                    "throttle_unknown_remote_address", LongCounter.class)
             .addCategory(BlockNodePlugin.METRICS_CATEGORY);
 
     private final LongCounter.Measurement unknownAddressCounter;
