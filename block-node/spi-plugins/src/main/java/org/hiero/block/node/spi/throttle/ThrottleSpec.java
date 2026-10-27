@@ -15,8 +15,8 @@ import java.util.Optional;
 public interface ThrottleSpec {
     /// This service's per-client rate/concurrency settings, one entry per method this service
     /// wants gated individually, keyed by method name (e.g. `"serverStatus"`). A method with no
-    /// entry here, and no [#defaultPerClientSettings], still gets [#globalConcurrencyCeiling] but
-    /// no per-client gate.
+    /// entry here, and no [#defaultPerClientSettings], gets only its [#globalConcurrencyCeilings]
+    /// entry, if any, and no per-client gate.
     ///
     /// @return the per-method settings map; may be empty
     @NonNull
@@ -32,10 +32,14 @@ public interface ThrottleSpec {
         return Optional.empty();
     }
 
-    /// This service's node-wide concurrency ceiling, read from the centrally-owned node-level
-    /// config (`GlobalThrottleConfig` in the `app` module) rather than chosen by the plugin.
-    /// Shared by every method on this service, configured or not; not split per method.
+    /// This service's node-wide concurrency ceilings, keyed by method name, read from the
+    /// centrally-owned node-level config (`GlobalThrottleConfig` in the `app` module) rather than
+    /// chosen by the plugin. Each method has its own ceiling. Every method with a per-client gate
+    /// (explicit or via [#defaultPerClientSettings]) must have an entry; a method with an entry
+    /// but no per-client gate is limited by its ceiling alone. A method in neither is not
+    /// throttled.
     ///
-    /// @return the node-wide concurrency ceiling for this service
-    int globalConcurrencyCeiling();
+    /// @return the node-wide concurrency ceiling per method name
+    @NonNull
+    Map<String, Integer> globalConcurrencyCeilings();
 }

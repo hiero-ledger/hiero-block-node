@@ -19,10 +19,11 @@ import java.util.Optional;
 /// gRPC call (unary or streaming) passes through, so the mechanism doesn't depend on which web
 /// server hosts the service.
 ///
-/// Each of `delegate`'s methods is gated independently: a method named in `perClientSettings` (or
-/// covered by `defaultPerClientSettings`) gets its own [ClientThrottle] with its own rate bucket,
-/// concurrency ceiling, and client-state table. A method with neither still gets the shared
-/// [GlobalConcurrencyGate].
+/// Each of `delegate`'s methods is gated independently. A method with per-client settings (named
+/// in `perClientSettings`, or covered by `defaultPerClientSettings`) gets its own [ClientThrottle]
+/// with its own rate bucket, concurrency ceiling, and client-state table. Each method with a
+/// node-wide ceiling gets its own [GlobalConcurrencyGate]. A method with a ceiling but no
+/// per-client settings is limited by that ceiling alone; a method with neither is not throttled.
 ///
 /// The concurrency permit is released via the *outgoing* `responses` pipeline passed into
 /// `open()`, not the pipeline `open()` returns: for a server-streaming call the returned pipeline
@@ -37,7 +38,7 @@ public final class ThrottledServiceInterface implements ServiceInterface, StaleC
     private final ServiceInterface delegate;
     private final ClientKeyExtractor keyExtractor;
     private final ThrottleMetrics throttleMetrics;
-    private final GlobalConcurrencyGate globalGate;
+    private final Map<String, GlobalConcurrencyGate> globalGates;
     private final Map<String, ClientThrottle> perMethodThrottles;
 
     /// @param delegate the real plugin service implementation to protect
@@ -45,8 +46,9 @@ public final class ThrottledServiceInterface implements ServiceInterface, StaleC
     ///     by method name, see [ThrottleSpec#perClientSettings]
     /// @param defaultPerClientSettings a fallback applied to any of {@code delegate}'s methods not
     ///     named in {@code perClientSettings}, see [ThrottleSpec#defaultPerClientSettings]
-    /// @param maxConcurrentGlobal the node-wide concurrency ceiling shared by every method on this
-    ///     service, configured or not
+    /// @param globalConcurrencyCeilings the node-wide concurrency ceiling per method name, see
+    ///     [ThrottleSpec#globalConcurrencyCeilings]; must cover every method that has per-client
+    ///     settings
     /// @param keyExtractor derives the per-client key from each call's request options
     /// @param throttleMetrics the shared, once-registered metrics this instance's calls report into
     /// @param clientStateTtl how long a client's state is kept after its last-seen call before
@@ -55,14 +57,21 @@ public final class ThrottledServiceInterface implements ServiceInterface, StaleC
             @NonNull final ServiceInterface delegate,
             @NonNull final Map<String, PerClientThrottleSettings> perClientSettings,
             @NonNull final Optional<PerClientThrottleSettings> defaultPerClientSettings,
-            final int maxConcurrentGlobal,
+            @NonNull final Map<String, Integer> globalConcurrencyCeilings,
             @NonNull final ClientKeyExtractor keyExtractor,
             @NonNull final ThrottleMetrics throttleMetrics,
             @NonNull final Duration clientStateTtl) {
         this.delegate = delegate;
         this.keyExtractor = keyExtractor;
         this.throttleMetrics = throttleMetrics;
-        this.globalGate = new GlobalConcurrencyGate(maxConcurrentGlobal);
+
+        final Map<String, GlobalConcurrencyGate> gates = new HashMap<>();
+        globalConcurrencyCeilings.forEach((method, ceiling) -> {
+            final GlobalConcurrencyGate gate = new GlobalConcurrencyGate(ceiling);
+            throttleMetrics.inFlightGaugeFor(delegate.serviceName(), method).accept(gate::inFlight);
+            gates.put(method, gate);
+        });
+        this.globalGates = Map.copyOf(gates);
 
         // Explicit per-method settings always win. Build those first so the computeIfAbsent below
         // only backfills methods with no explicit entry.
@@ -73,7 +82,7 @@ public final class ThrottledServiceInterface implements ServiceInterface, StaleC
                     method,
                     new ClientThrottle(
                             entry.getValue(),
-                            globalGate,
+                            gateFor(method),
                             throttleMetrics,
                             delegate.serviceName(),
                             method,
@@ -86,10 +95,27 @@ public final class ThrottledServiceInterface implements ServiceInterface, StaleC
                 throttles.computeIfAbsent(
                         method.name(),
                         name -> new ClientThrottle(
-                                defaults, globalGate, throttleMetrics, delegate.serviceName(), name, clientStateTtl));
+                                defaults,
+                                gateFor(name),
+                                throttleMetrics,
+                                delegate.serviceName(),
+                                name,
+                                clientStateTtl));
             }
         });
         this.perMethodThrottles = Map.copyOf(throttles);
+    }
+
+    /// @return the ceiling gate for `method`, failing fast at construction if a per-client gate was
+    ///     configured for a method with no node-wide ceiling
+    @NonNull
+    private GlobalConcurrencyGate gateFor(@NonNull final String method) {
+        final GlobalConcurrencyGate gate = globalGates.get(method);
+        if (gate == null) {
+            throw new IllegalArgumentException(
+                    "No node-wide concurrency ceiling configured for " + delegate.serviceName() + "." + method);
+        }
+        return gate;
     }
 
     @NonNull
@@ -117,9 +143,13 @@ public final class ThrottledServiceInterface implements ServiceInterface, StaleC
             @NonNull final RequestOptions options,
             @NonNull final Pipeline<? super Bytes> replies) {
         final ClientThrottle configured = perMethodThrottles.get(method.name());
+        final GlobalConcurrencyGate gate = globalGates.get(method.name());
+        if (configured == null && gate == null) {
+            return delegate.open(method, options, replies);
+        }
         final AdmissionResult result = (configured != null)
                 ? configured.tryAdmit(keyExtractor.extractKey(options), System.nanoTime())
-                : globalOnlyAdmit(method.name());
+                : globalOnlyAdmit(gate, method.name());
         if (!result.admitted()) {
             replies.onError(new GrpcException(GrpcStatus.RESOURCE_EXHAUSTED, result.rejectionReason()));
             return Pipelines.noop();
@@ -128,10 +158,10 @@ public final class ThrottledServiceInterface implements ServiceInterface, StaleC
     }
 
     /// Admits a call to a method with no per-client gate configured, see
-    /// [ThrottleSpec#perClientSettings]. Only the shared node-wide concurrency ceiling applies.
+    /// [ThrottleSpec#perClientSettings]. Only the method's node-wide concurrency ceiling applies.
     @NonNull
-    private AdmissionResult globalOnlyAdmit(@NonNull final String method) {
-        final AdmissionResult result = globalGate.tryAdmit(delegate.serviceName() + "." + method);
+    private AdmissionResult globalOnlyAdmit(@NonNull final GlobalConcurrencyGate gate, @NonNull final String method) {
+        final AdmissionResult result = gate.tryAdmit(delegate.serviceName() + "." + method);
         throttleMetrics.recordCall(
                 delegate.serviceName(),
                 method,
@@ -149,5 +179,25 @@ public final class ThrottledServiceInterface implements ServiceInterface, StaleC
             evicted += throttle.sweepStaleClients(nowNanos);
         }
         return evicted;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public int reapExpiredPermits(final long nowNanos) {
+        int reaped = 0;
+        for (final ClientThrottle throttle : perMethodThrottles.values()) {
+            reaped += throttle.reapExpiredPermits(nowNanos);
+        }
+        return reaped;
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public int smallestPermitHoldSeconds() {
+        return perMethodThrottles.values().stream()
+                .mapToInt(ClientThrottle::permitHoldSeconds)
+                .filter(seconds -> seconds > 0)
+                .min()
+                .orElse(0);
     }
 }

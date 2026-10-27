@@ -5,10 +5,10 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/// The node-wide concurrency ceiling for one throttled service, shared by every method on that
-/// service whether or not it also has its own per-client gate ([ClientThrottle]). Kept as one pool
-/// rather than fragmented per method, since it represents one allocation of the node's total
-/// shared capacity and per-method copies would silently multiply it.
+/// The node-wide concurrency ceiling for one throttled method, shared by every client of that
+/// method, whether or not the method also has its own per-client gate ([ClientThrottle]). Each
+/// method has its own ceiling, since each represents its own allocation of the node's shared
+/// capacity.
 ///
 /// [#tryReserve] is a lock-free CAS loop (like [GcraLimiter]) so concurrent callers can never
 /// collectively overshoot the ceiling. [ClientThrottle] reserves this gate first and rolls back
@@ -38,6 +38,11 @@ final class GlobalConcurrencyGate {
                 return true;
             }
         }
+    }
+
+    /// @return the number of permits currently held, for the in-flight gauge
+    int inFlight() {
+        return inFlight.get();
     }
 
     /// Releases a permit previously committed via [#tryReserve].

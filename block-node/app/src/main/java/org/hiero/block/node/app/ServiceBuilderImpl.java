@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app;
 
+import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 
@@ -28,6 +29,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.node.app.config.GlobalThrottleConfig;
 import org.hiero.block.node.app.config.ServerConfig;
@@ -68,8 +70,12 @@ public class ServiceBuilderImpl implements ServiceBuilder {
 
     /** Every throttled service this instance has created, for the periodic stale-client sweep. */
     private final List<StaleClientSweepable> throttledServices = new ArrayList<>();
-    /** Lazily created on the first throttled registration; runs the stale-client-state sweep. */
+    /** Lazily created on the first throttled registration; runs the stale-client-state sweep and permit reaper. */
     private ScheduledExecutorService clientStateSweepExecutor;
+    /** The permit reaper's schedule, or null while no registered service reaps. */
+    private ScheduledFuture<?> permitReaperFuture;
+    /** The permit reaper's current period, 0 while it is not scheduled. */
+    private long permitReaperPeriodMillis;
     /** The throttle mechanism's shared, once-registered metrics; see {@link ThrottleMetrics}. */
     private final ThrottleMetrics throttleMetrics;
     /** Shared across every throttled registration; see its own constructor for why. */
@@ -137,12 +143,13 @@ public class ServiceBuilderImpl implements ServiceBuilder {
                 service,
                 spec.perClientSettings(),
                 spec.defaultPerClientSettings(),
-                spec.globalConcurrencyCeiling(),
+                spec.globalConcurrencyCeilings(),
                 keyExtractor,
                 throttleMetrics,
                 Duration.ofMinutes(globalThrottleConfig.clientStateTtlMinutes()));
         throttledServices.add(throttled);
         ensureClientStateSweepStarted();
+        ensurePermitReaperScheduled(throttled.smallestPermitHoldSeconds());
         grpcBuilders.computeIfAbsent(resolve(port), k -> PbjRouting.builder()).service(throttled);
     }
 
@@ -157,6 +164,40 @@ public class ServiceBuilderImpl implements ServiceBuilder {
         final long intervalMinutes = globalThrottleConfig.clientStateSweepIntervalMinutes();
         clientStateSweepExecutor.scheduleAtFixedRate(
                 this::sweepAllThrottledServices, intervalMinutes, intervalMinutes, TimeUnit.MINUTES);
+    }
+
+    /// Schedules, or tightens, the permit reaper so it runs about twice per smallest permit hold
+    /// limit across all registered services, never faster than once per second. The period follows
+    /// the operator's configured limits, so it needs no setting of its own. A service that does not
+    /// reap (`smallestPermitHoldSeconds == 0`) leaves the reaper as it is.
+    ///
+    /// @param smallestPermitHoldSeconds the newly registered service's smallest hold limit, or 0
+    private void ensurePermitReaperScheduled(final int smallestPermitHoldSeconds) {
+        if (smallestPermitHoldSeconds <= 0) {
+            return;
+        }
+        final long periodMillis = Math.max(1_000L, smallestPermitHoldSeconds * 1_000L / 2);
+        if (permitReaperFuture != null && periodMillis >= permitReaperPeriodMillis) {
+            return;
+        }
+        if (permitReaperFuture != null) {
+            permitReaperFuture.cancel(false);
+        }
+        permitReaperPeriodMillis = periodMillis;
+        permitReaperFuture = clientStateSweepExecutor.scheduleAtFixedRate(
+                this::reapAllExpiredPermits, periodMillis, periodMillis, TimeUnit.MILLISECONDS);
+    }
+
+    /// Runs one permit-reaper pass across every throttled service registered so far.
+    private void reapAllExpiredPermits() {
+        final long now = System.nanoTime();
+        int totalReaped = 0;
+        for (final StaleClientSweepable throttled : throttledServices) {
+            totalReaped += throttled.reapExpiredPermits(now);
+        }
+        if (totalReaped > 0) {
+            LOGGER.log(DEBUG, "Permit reaper force-released {0} expired concurrency permits", totalReaped);
+        }
     }
 
     /// Runs one stale-client-state sweep across every throttled service registered so far.

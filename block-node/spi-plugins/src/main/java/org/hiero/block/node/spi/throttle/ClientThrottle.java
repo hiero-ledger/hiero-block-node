@@ -3,6 +3,7 @@ package org.hiero.block.node.spi.throttle;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.time.Duration;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -13,14 +14,18 @@ import java.util.concurrent.atomic.AtomicInteger;
 ///
 /// [#tryAdmit] checks in order, first rejection wins: global concurrency, per-client concurrency,
 /// then the GCRA rate check last since it's the only state-mutating check.
-final class ClientThrottle implements StaleClientSweepable {
+final class ClientThrottle {
     private final PerClientThrottleSettings settings;
     private final GlobalConcurrencyGate globalGate;
     private final ThrottleMetrics throttleMetrics;
     private final String service;
     private final String method;
     private final long clientStateTtlNanos;
+    private final long maxPermitHoldNanos;
     private final ConcurrentHashMap<String, ClientState> clientStates = new ConcurrentHashMap<>();
+    /// Permits admitted and not yet released. Membership ends on release, so the set is bounded by
+    /// in-flight calls, never by traffic; [#reapExpiredPermits] scans it for permits held too long.
+    private final Set<Permit> livePermits = ConcurrentHashMap.newKeySet();
 
     /// @param settings this instance's per-client rate/concurrency settings
     /// @param globalGate the shared node-wide concurrency gate for this service, possibly shared
@@ -45,8 +50,11 @@ final class ClientThrottle implements StaleClientSweepable {
         this.service = service;
         this.method = method;
         this.clientStateTtlNanos = clientStateTtl.toNanos();
+        this.maxPermitHoldNanos =
+                Duration.ofSeconds(settings.maxPermitHoldSeconds()).toNanos();
 
         throttleMetrics.gaugeFor(service, method).accept(clientStates::mappingCount);
+        throttleMetrics.clientsInFlightGaugeFor(service, method).accept(this::clientsInFlight);
     }
 
     /// Attempts to admit a call from `clientKey`, applying the decision order described in the
@@ -97,14 +105,42 @@ final class ClientThrottle implements StaleClientSweepable {
         }
 
         throttleMetrics.recordCall(service, method, ThrottleMetrics.Outcome.ADMITTED);
-        final AtomicBoolean released = new AtomicBoolean(false);
-        final Runnable releasePermit = () -> {
-            if (released.compareAndSet(false, true)) {
-                globalGate.release();
-                state.inFlight.decrementAndGet();
+        final Permit permit = new Permit(state, nowNanos);
+        livePermits.add(permit);
+        return AdmissionResult.admitted(permit::release);
+    }
+
+    /// Force-releases every live permit held for at least `maxPermitHoldSeconds`, a no-op when
+    /// that setting is `0`. See [StaleClientSweepable#reapExpiredPermits].
+    ///
+    /// @param nowNanos the current time from a monotonic clock (e.g. [System#nanoTime()])
+    /// @return the number of permits force-released
+    int reapExpiredPermits(final long nowNanos) {
+        if (maxPermitHoldNanos <= 0) {
+            return 0;
+        }
+        int reaped = 0;
+        for (final Permit permit : livePermits) {
+            if (nowNanos - permit.admittedAtNanos >= maxPermitHoldNanos && permit.release()) {
+                reaped++;
             }
-        };
-        return AdmissionResult.admitted(releasePermit);
+        }
+        if (reaped > 0) {
+            throttleMetrics.recordReaped(service, method, reaped);
+        }
+        return reaped;
+    }
+
+    /// @return this method's configured permit hold limit in seconds, `0` if it never reaps
+    int permitHoldSeconds() {
+        return settings.maxPermitHoldSeconds();
+    }
+
+    /// @return how many distinct clients currently hold at least one in-flight call
+    private long clientsInFlight() {
+        return clientStates.values().stream()
+                .filter(state -> state.inFlight.get() > 0)
+                .count();
     }
 
     /// Atomically reserves a slot on `counter` if below `max`, the per-client equivalent of
@@ -121,9 +157,11 @@ final class ClientThrottle implements StaleClientSweepable {
         }
     }
 
-    /// {@inheritDoc}
-    @Override
-    public int sweepStaleClients(final long nowNanos) {
+    /// Removes idle, not-in-flight client-state entries; see [StaleClientSweepable#sweepStaleClients].
+    ///
+    /// @param nowNanos the current time from a monotonic clock (e.g. [System#nanoTime()])
+    /// @return the number of entries evicted
+    int sweepStaleClients(final long nowNanos) {
         final AtomicInteger evictedCount = new AtomicInteger();
         clientStates.entrySet().removeIf(entry -> {
             final ClientState state = entry.getValue();
@@ -134,6 +172,30 @@ final class ClientThrottle implements StaleClientSweepable {
             return evict;
         });
         return evictedCount.get();
+    }
+
+    /// One admitted call's hold on the node-wide and per-client concurrency slots. [#release] is
+    /// idempotent, so a real completion racing or following a reap releases at most once.
+    private final class Permit {
+        private final ClientState state;
+        private final long admittedAtNanos;
+        private final AtomicBoolean released = new AtomicBoolean(false);
+
+        private Permit(final ClientState state, final long admittedAtNanos) {
+            this.state = state;
+            this.admittedAtNanos = admittedAtNanos;
+        }
+
+        /// @return `true` if this call released the permit, `false` if it was already released
+        private boolean release() {
+            if (!released.compareAndSet(false, true)) {
+                return false;
+            }
+            livePermits.remove(this);
+            globalGate.release();
+            state.inFlight.decrementAndGet();
+            return true;
+        }
     }
 
     private boolean isStale(@NonNull final ClientState state, final long nowNanos) {
