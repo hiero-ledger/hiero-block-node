@@ -282,6 +282,38 @@ for the JSON schema.
 |:-------------------|:-------------------------------------------------------------------------------------------------|--------:|
 | SERVER_STATUS_PORT | Dedicated port for the server-status gRPC service. When unset, the service shares `SERVER_PORT`. | (unset) |
 
+### Throttle Configuration
+
+The `serverStatus` and `serverStatusDetail` gRPC methods are throttled per client and node-wide. All keys have defaults.
+
+#### Global limits (prefix `throttle.global.`)
+
+| Config Key                      | Description                                                                                                           | Default |
+|:--------------------------------|:----------------------------------------------------------------------------------------------------------------------|--------:|
+| serverStatusMaxConcurrent       | Node-wide ceiling on concurrent in-flight `serverStatus` calls across all clients.                                    |   1,000 |
+| serverStatusDetailMaxConcurrent | Node-wide ceiling on concurrent in-flight `serverStatusDetail` calls across all clients.                              |   1,000 |
+| clientStateTtlMinutes           | How long a throttled method keeps a client's rate and concurrency state after its last call before it can be evicted. |      30 |
+| clientStateSweepIntervalMinutes | How often the sweep that evicts stale client state runs.                                                              |       5 |
+
+#### Per-method limits (prefixes `throttle.serverStatus.` and `throttle.serverStatusDetail.`)
+
+The same four keys apply under each prefix.
+
+| Config Key             | Description                                                                                                                                                                                                                                                                                                          |                                        Default |
+|:-----------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------:|
+| ratePerSecond          | Sustained requests per second allowed per client.                                                                                                                                                                                                                                                                    |                                             50 |
+| burstTolerance         | How many pacing intervals early a request may arrive and still be admitted.                                                                                                                                                                                                                                          |                                             20 |
+| maxConcurrentPerClient | Concurrent in-flight calls allowed per client.                                                                                                                                                                                                                                                                       |                                              5 |
+| maxPermitHoldSeconds   | Age after which a concurrency permit that is still held is force-released by a background sweep. This only corrects the throttle's accounting for calls whose connection dropped before completing. It never terminates a call. The sweep runs about every half of the smallest configured value (minimum 1 second). | 10 (`serverStatus`), 60 (`serverStatusDetail`) |
+
+#### When a client is rejected
+
+The client receives gRPC status `RESOURCE_EXHAUSTED` with a reason string: rate limit exceeded, per-client concurrency limit reached, or node-wide concurrency limit reached. The matching `outcome` label on the `throttle_calls` metric increments. See [metrics](./metrics.md).
+
+#### Operator note: client identity
+
+Client identity is the remote IP address. Behind a Kubernetes LoadBalancer Service with the default `externalTrafficPolicy: Cluster`, source IPs are SNATed, so all external clients share one key and therefore one per-client budget. Set `externalTrafficPolicy: Local` or raise the per-client limits. The helm chart has no setting for this today.
+
 ### Publisher Plugin Configuration
 
 | ENV Variable                                 | Description                                                                                                                                                                                                                                                                                                                                                                     |                   Default |
