@@ -454,6 +454,90 @@ class LiveStreamPublisherManagerTest {
                 assertThat(embManager.getNextUnstreamed()).isEqualTo(51L);
                 assertThat(testApplicationState.nextExpectedBlock()).isEqualTo(-1L);
             }
+
+            /// Creates a fresh manager with `earliestManagedBlock=100`, no stored blocks, and one
+            /// registered handler (id `0`), then accepts [#PRE_EMB_BLOCK] via the pre-EMB path in
+            /// `streamBeforeEmbOrElse` and registers its queue. Afterwards next-unstreamed is
+            /// `PRE_EMB_BLOCK + 1`, which is below `earliestManagedBlock`.
+            private LiveStreamPublisherManager managerWithAcceptedPreEmbBlock() {
+                final Configuration embConfig = TestStreamPublisherManager.createTestConfiguration(
+                        Map.of("block.node.earliestManagedBlock", "100"));
+                final SimpleInMemoryHistoricalBlockFacility embHistorical = new SimpleInMemoryHistoricalBlockFacility();
+                final BlockNodeContext embContext =
+                        generateContext(embHistorical, threadPoolManager, messagingFacility, embConfig);
+                embHistorical.init(embContext, null);
+                final LiveStreamPublisherManager embManager =
+                        new LiveStreamPublisherManager(embContext, generateManagerMetrics(), List.of());
+                embManager.addHandler(new TestResponsePipeline<>(), sharedHandlerMetrics, null);
+                assertThat(embManager.getActionForBlock(PRE_EMB_BLOCK, null, PRE_EMB_HANDLER_ID))
+                        .isEqualTo(BlockAction.ACCEPT);
+                assertThat(embManager.getNextUnstreamed()).isEqualTo(PRE_EMB_BLOCK + 1L);
+                embManager.registerQueueForBlock(PRE_EMB_HANDLER_ID, new ConcurrentLinkedDeque<>(), PRE_EMB_BLOCK);
+                return embManager;
+            }
+
+            private static final long PRE_EMB_BLOCK = 50L;
+            private static final long PRE_EMB_HANDLER_ID = 0L; // first handler on the fresh manager
+
+            /// After a restart, a block below `earliestManagedBlock` can be accepted via the
+            /// pre-EMB path in `streamBeforeEmbOrElse`, which leaves next-unstreamed (block + 1)
+            /// below `earliestManagedBlock`. Blocks below `earliestManagedBlock` are not managed
+            /// by this node, so if the handler drops mid-block no resend may be scheduled for it.
+            ///
+            /// This test is expected to FAIL until resends are suppressed for blocks below
+            /// `earliestManagedBlock`.
+            @Test
+            @DisplayName("No resend is scheduled for a mid-block drop of a block below earliestManagedBlock")
+            void noResendForPreEarliestManagedBlockAfterMidBlockDrop() {
+                final LiveStreamPublisherManager embManager = managerWithAcceptedPreEmbBlock();
+
+                // The handler drops mid-block (no end-of-block was received).
+                embManager.blockIsEnding(PRE_EMB_BLOCK, PRE_EMB_HANDLER_ID);
+
+                // Completing a different block is where a pending resend would be offered.
+                final ActionForBlock action = embManager.endOfBlock(PRE_EMB_BLOCK + 1L);
+                assertThat(action.action()).isNotEqualTo(BlockAction.RESEND);
+            }
+
+            /// Same restart edge case as above, but the block fails verification. A failure
+            /// type that normally schedules a resend (`UNABLE_TO_PARSE`) must not do so for a
+            /// block below `earliestManagedBlock`.
+            ///
+            /// This test is expected to FAIL until resends are suppressed for blocks below
+            /// `earliestManagedBlock`.
+            @Test
+            @DisplayName("No resend is scheduled for a verification failure of a block below earliestManagedBlock")
+            void noResendForPreEarliestManagedBlockAfterVerificationFailure() {
+                final LiveStreamPublisherManager embManager = managerWithAcceptedPreEmbBlock();
+
+                embManager.handleVerification(new VerificationNotification(
+                        false,
+                        FailureInfo.standard(FailureType.UNABLE_TO_PARSE),
+                        PRE_EMB_BLOCK,
+                        null,
+                        null,
+                        BlockSource.PUBLISHER));
+
+                final ActionForBlock action = embManager.endOfBlock(PRE_EMB_BLOCK + 1L);
+                assertThat(action.action()).isNotEqualTo(BlockAction.RESEND);
+            }
+
+            /// Same restart edge case as above, but the handler goes silent: the accepted block
+            /// never ends while later blocks complete past `MaxFutureBlocksBeforeStalled` (default
+            /// `3`). Stall detection must not schedule a resend for a block below
+            /// `earliestManagedBlock`.
+            ///
+            /// This test is expected to FAIL until resends are suppressed for blocks below
+            /// `earliestManagedBlock`.
+            @Test
+            @DisplayName("No resend is scheduled for a stalled block below earliestManagedBlock")
+            void noResendForPreEarliestManagedBlockAfterStall() {
+                final LiveStreamPublisherManager embManager = managerWithAcceptedPreEmbBlock();
+
+                // Complete a block more than MaxFutureBlocksBeforeStalled past the stalled block.
+                final ActionForBlock action = embManager.endOfBlock(PRE_EMB_BLOCK + 10L);
+                assertThat(action.action()).isNotEqualTo(BlockAction.RESEND);
+            }
         }
 
         @Nested
