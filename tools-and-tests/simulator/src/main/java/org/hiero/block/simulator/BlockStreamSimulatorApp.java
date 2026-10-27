@@ -123,17 +123,25 @@ public class BlockStreamSimulatorApp {
      * service. This method ensures proper cleanup of resources and termination of
      * streaming operations.
      *
+     * <p>The metrics service is closed even if stopping the mode handler fails, so
+     * the metrics export endpoint never outlives the simulator. Closing only stops
+     * the exporter; metric values (e.g. via {@link #getStreamStatus()}) remain
+     * readable afterwards.
+     *
      * @throws InterruptedException if the shutdown process is interrupted
      */
     public void stop() throws InterruptedException {
         // @todo(322) Add real lifecycle to the simulator
-        simulatorModeHandler.stop();
         try {
-            metricsService.close();
-        } catch (final IOException e) {
-            LOGGER.log(ERROR, "Failed to close metrics service", e);
+            simulatorModeHandler.stop();
+        } finally {
+            try {
+                metricsService.close();
+            } catch (final IOException e) {
+                LOGGER.log(ERROR, "Failed to close metrics service", e);
+            }
+            isRunning.set(false);
         }
-        isRunning.set(false);
 
         LOGGER.log(INFO, "Block Stream Simulator has stopped");
     }

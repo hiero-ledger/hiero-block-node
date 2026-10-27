@@ -6,9 +6,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertIterableEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -227,6 +229,47 @@ class BlockStreamSimulatorTest {
         assertDoesNotThrow(() -> blockStreamSimulator.stop());
         assertFalse(blockStreamSimulator.isRunning());
         verify(consumerStreamGrpcClient, atLeast(1)).completeStreaming();
+    }
+
+    @Test
+    void stop_closesMetricsServiceWhenModeHandlerStopFails() throws InterruptedException, IOException {
+        final SimulatorModeHandler failingModeHandler = mock(SimulatorModeHandler.class);
+        final MetricsService metricsServiceMock = mock(MetricsService.class);
+        doThrow(new IllegalStateException("stop failed"))
+                .when(failingModeHandler)
+                .stop();
+        final BlockStreamSimulatorApp simulator = new BlockStreamSimulatorApp(
+                TestUtils.getTestConfiguration(),
+                blockStreamManager,
+                publishStreamGrpcClient,
+                publishStreamGrpcServer,
+                consumerStreamGrpcClient,
+                failingModeHandler,
+                configurationLoggingMock,
+                metricsServiceMock);
+
+        assertThrows(IllegalStateException.class, simulator::stop);
+        verify(metricsServiceMock).close();
+        assertFalse(simulator.isRunning());
+    }
+
+    @Test
+    void stop_doesNotThrowWhenMetricsServiceCloseFails() throws InterruptedException, IOException {
+        final MetricsService metricsServiceMock = mock(MetricsService.class);
+        doThrow(new IOException("close failed")).when(metricsServiceMock).close();
+        final BlockStreamSimulatorApp simulator = new BlockStreamSimulatorApp(
+                TestUtils.getTestConfiguration(),
+                blockStreamManager,
+                publishStreamGrpcClient,
+                publishStreamGrpcServer,
+                consumerStreamGrpcClient,
+                mock(SimulatorModeHandler.class),
+                configurationLoggingMock,
+                metricsServiceMock);
+
+        assertDoesNotThrow(simulator::stop);
+        verify(metricsServiceMock).close();
+        assertFalse(simulator.isRunning());
     }
 
     @Test

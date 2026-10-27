@@ -4,6 +4,7 @@ package org.hiero.block.simulator.metrics;
 import static org.hiero.block.simulator.fixtures.TestUtils.getTestConfiguration;
 import static org.hiero.block.simulator.metrics.SimulatorMetricsProvider.LIVE_BLOCKS_SENT_KEY;
 import static org.hiero.block.simulator.metrics.SimulatorMetricsProvider.LIVE_BLOCK_ITEMS_SENT_KEY;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.io.IOException;
@@ -43,5 +44,15 @@ public class MetricsServiceTest {
         }
 
         assertEquals(10, metricsService.getCounterNoLabelsValue(LIVE_BLOCKS_SENT_KEY));
+    }
+
+    @Test
+    void MetricsService_closeIsIdempotentAndKeepsValuesReadable() throws IOException {
+        metricsService.incrementCounterNoLabels(LIVE_BLOCKS_SENT_KEY);
+
+        metricsService.close();
+        assertDoesNotThrow(metricsService::close);
+
+        assertEquals(1, metricsService.getCounterNoLabelsValue(LIVE_BLOCKS_SENT_KEY));
     }
 }

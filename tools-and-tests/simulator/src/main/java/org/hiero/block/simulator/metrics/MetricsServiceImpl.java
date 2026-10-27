@@ -4,6 +4,7 @@ package org.hiero.block.simulator.metrics;
 import com.swirlds.config.api.Configuration;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import javax.inject.Inject;
 import org.hiero.block.simulator.config.data.BlockStreamConfig;
 import org.hiero.metrics.core.Label;
@@ -24,6 +25,7 @@ import org.hiero.metrics.core.MetricRegistry;
 public class MetricsServiceImpl implements MetricsService {
 
     private final MetricRegistry metricRegistry;
+    private final AtomicBoolean closed = new AtomicBoolean(false);
 
     /**
      * Creates and initializes the metrics service.
@@ -61,9 +63,15 @@ public class MetricsServiceImpl implements MetricsService {
     /**
      * Closes the underlying metric registry, which also closes the metrics exporter (stopping the
      * Prometheus HTTP server if one was started).
+     *
+     * <p>Idempotent: only the first call closes the registry, so both
+     * {@link org.hiero.block.simulator.BlockStreamSimulatorApp#stop()} and the JVM shutdown hook can
+     * call it. Metric values remain readable after closing; only the export endpoint is stopped.
      */
     @Override
     public void close() throws IOException {
-        metricRegistry.close();
+        if (closed.compareAndSet(false, true)) {
+            metricRegistry.close();
+        }
     }
 }

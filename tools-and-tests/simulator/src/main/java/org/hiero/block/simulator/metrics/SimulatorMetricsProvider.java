@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.metrics;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.Collection;
 import java.util.List;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.core.Metric;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricsRegistrationProvider;
-import org.jspecify.annotations.NonNull;
 
 /// Provides the metrics to be registered for the Block Stream Simulator.
 ///
