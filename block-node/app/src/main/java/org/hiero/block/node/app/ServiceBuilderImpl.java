@@ -3,7 +3,6 @@ package org.hiero.block.node.app;
 
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
-import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
@@ -121,8 +120,8 @@ public class ServiceBuilderImpl implements ServiceBuilder {
                         service.serviceName());
             } else {
                 LOGGER.log(
-                        WARNING,
-                        "Registered gRPC service {0}: NOT throttled, and not marked exempt via ThrottleExempt — "
+                        INFO,
+                        "Registered gRPC service {0}: NOT throttled, and not marked exempt via ThrottleExempt; "
                                 + "confirm this is intentional",
                         service.serviceName());
             }
