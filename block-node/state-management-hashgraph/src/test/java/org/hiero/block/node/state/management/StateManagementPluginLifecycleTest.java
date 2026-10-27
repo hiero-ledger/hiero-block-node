@@ -151,7 +151,9 @@ class StateManagementPluginLifecycleTest {
         // self-consistency check must catch this disagreement and halt.
         seedBlockStreamInfo(seedManager.getMutableState(), 7L);
         seedManager.copyMutableState();
-        seedManager.createSnapshot(seedManager.getLatestImmutableState(), recentRoot.resolve("5"));
+        final VirtualMapState sealed = seedManager.getLatestImmutableState();
+        sealed.getRoot().getHash(); // block until hashed; createSnapshot requires a hashed copy
+        seedManager.createSnapshot(sealed, recentRoot.resolve("5"));
 
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
         final var configuration = ConfigurationBuilder.create()
@@ -237,7 +239,7 @@ class StateManagementPluginLifecycleTest {
         final Logger julLogger = Logger.getLogger(StateManagementPlugin.class.getName());
         julLogger.addHandler(logHandler);
         try {
-            // A 32-byte (SHA-256-sized) start hash against this build's 48-byte (SHA-384)
+            // A 48-byte (SHA-384-sized) start hash against this build's 32-byte (SHA-256)
             // genesis hash: a digest algorithm mismatch, not state divergence — the log must
             // say so rather than reading as corruption.
             facility.sendBlockVerification(new VerificationNotification(
@@ -245,7 +247,7 @@ class StateManagementPluginLifecycleTest {
                     null,
                     0L,
                     Bytes.fromHex("aabb"),
-                    buildBlock(0L, 0L, Bytes.fromHex("ab".repeat(32))),
+                    buildBlock(0L, 0L, Bytes.fromHex("ab".repeat(48))),
                     BlockSource.PUBLISHER));
             plugin.applyPending();
         } finally {
