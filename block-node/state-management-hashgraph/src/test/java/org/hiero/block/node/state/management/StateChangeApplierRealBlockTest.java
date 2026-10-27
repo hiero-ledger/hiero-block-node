@@ -31,11 +31,11 @@ import org.junit.jupiter.api.io.TempDir;
 class StateChangeApplierRealBlockTest {
 
     @Test
-    @Disabled("CN_11_12_TSS_SCHNORR's footer now carries a 32-byte (SHA-256) state root hash, but the "
-            + "published base-crypto/swirlds-state-impl libraries (hederaVersion=0.80.0-alpha.2) still "
-            + "hardcode Cryptography.DEFAULT_DIGEST_TYPE=SHA_384 for state-tree hashing, with no config "
-            + "override — CN's SHA-256 state-hashing migration is still on an unreleased branch")
-    // @todo re-enable once CN tags a release with SHA-256 state hashing wired in, see #3920
+    @Disabled("CN v0.80.0-alpha.4 flips Cryptography.DEFAULT_DIGEST_TYPE to SHA-256 (CN#27364), but its "
+            + "swirlds-state-impl compiles against pbj-runtime 0.16.2 while this repo pins pbj-compiler/"
+            + "pbj-runtime at 0.15.10, so bumping hederaVersion alone throws IncompatibleClassChangeError "
+            + "on com.swirlds.state.binary.QueueState$QueueStateCodec. See #3920.")
+    // @todo re-enable once hederaVersion and pbj-compiler/pbj-runtime can be bumped together, see #3920
     void appliedBlockRootHashMatchesNextBlocksFooter(@TempDir final Path tmp) throws Exception {
         final BlockUnparsed block0 = loadBlock("CN_11_12_TSS_SCHNORR/0.blk.gz");
         final BlockUnparsed block1 = loadBlock("CN_11_12_TSS_SCHNORR/1.blk.gz");
