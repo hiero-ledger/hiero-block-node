@@ -227,7 +227,10 @@ message ServerStatusDetailResponse {
 ```
 
 **`ApplicationStateFacility` extension:** The `updateAddressBookHistory(RangedAddressBookHistory)` method:
-- Ignores a history equal to the one already stored (returns `false`).
+- Merges adjacent eras with the same address book into one era. Mirror Node derived histories start a new era whenever
+any node entry changes, so most eras repeat the previous one. Every block keeps the same address book, but the stored,
+persisted and `serverStatusDetail` history shrinks (mainnet: 238 eras, 12 MB to 69 eras, 3 MB).
+- Ignores a merged history equal to the one already stored (returns `false`).
 - Writes the bootstrap file atomically (`.tmp`-then-rename).
 - Sends an `AddressBookHistoryNotification` through `BlockMessagingFacility` to each registered
 `ApplicationStateNotificationHandler`.
