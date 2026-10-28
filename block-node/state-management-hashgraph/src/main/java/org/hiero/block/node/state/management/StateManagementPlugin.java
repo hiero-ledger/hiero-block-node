@@ -294,6 +294,13 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         if (!notification.success() || notification.block() == null || applyHalted.get()) {
             return;
         }
+        // At or below the last applied block (a resend, or a backfill-sourced verification):
+        // applyPending only ever removes expectedNext, so staging it would leak it forever and
+        // eventually fill pendingBlocks to the cap.
+        final long lastApplied = lastAppliedBlock;
+        if (lastApplied >= 0L && notification.blockNumber() <= lastApplied) {
+            return;
+        }
         if (pendingBlocks.size() >= config.pendingBlocksMax()
                 && !pendingBlocks.containsKey(notification.blockNumber())) {
             // Over the cap: drop rather than buffer unboundedly — backfill (scheduleGapRetry)
@@ -492,6 +499,15 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                 final boolean atGenesis = lastAppliedBlock < 0L;
                 final long expectedNext =
                         atGenesis ? pendingBlocks.firstKey() : Math.max(lastAppliedBlock, attested.blockNumber()) + 1L;
+                if (!atGenesis) {
+                    // Backstop for handleVerification's stale check (it can race an apply): drop
+                    // anything below expectedNext so it can't keep pendingBlocks non-empty and
+                    // trigger spurious gap retries.
+                    pendingBlocks.headMap(expectedNext).clear();
+                    if (pendingBlocks.isEmpty()) {
+                        return;
+                    }
+                }
                 // Peek (not remove) so a failure leaves the block for inspection, not retry.
                 final BlockUnparsed block = pendingBlocks.get(expectedNext);
                 if (block == null) {
