@@ -104,7 +104,8 @@ class SubscriberServicePluginTest {
 
             final BlockReadBulkhead bulkhead = webserviceBuilder.blockReadBulkhead();
             for (int i = 0; i < bulkhead.totalPermits(); i++) {
-                assertThat(bulkhead.tryAcquire()).isTrue();
+                assertThat(bulkhead.tryAcquire(BlockReadBulkhead.Method.GET_BLOCK))
+                        .isTrue();
             }
             try {
                 final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()

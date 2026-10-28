@@ -1646,7 +1646,8 @@ class BlockStreamSubscriberSessionTest {
 
                     // If the storage-read permit were still held through the now-blocked send, this
                     // single-permit bulkhead would have nothing left to give.
-                    final boolean acquiredWhileSendStalled = singlePermitBulkhead.tryAcquire();
+                    final boolean acquiredWhileSendStalled =
+                            singlePermitBulkhead.tryAcquire(BlockReadBulkhead.Method.GET_BLOCK);
                     if (acquiredWhileSendStalled) {
                         singlePermitBulkhead.release();
                     }

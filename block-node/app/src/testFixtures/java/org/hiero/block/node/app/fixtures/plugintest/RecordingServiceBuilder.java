@@ -94,6 +94,7 @@ public final class RecordingServiceBuilder implements ServiceBuilder {
     /// Lazily created on first use; a self-contained, no-op-exported [MetricRegistry] is enough since
     /// this fixture never opens a socket and has no shared "real" registry to reuse.
     private BlockReadBulkhead blockReadBulkhead;
+    private MetricRegistry blockReadBulkheadMetrics;
 
     /** Every {@link #registerHttpService} invocation, in call order. */
     private final List<HttpServiceRegistration> httpServiceRegistrations = new ArrayList<>();
@@ -151,15 +152,26 @@ public final class RecordingServiceBuilder implements ServiceBuilder {
 
     /// {@inheritDoc}
     /// Lazily creates a single shared [BlockReadBulkhead]. Tests exercising bulkhead denial can
-    /// call this accessor directly and drain permits with {@link BlockReadBulkhead#tryAcquire()}.
+    /// call this accessor directly and drain permits with {@link
+    // BlockReadBulkhead#tryAcquire(BlockReadBulkhead.Method)}.
     @NonNull
     @Override
     public BlockReadBulkhead blockReadBulkhead() {
         if (blockReadBulkhead == null) {
-            final MetricRegistry metricRegistry = MetricRegistry.builder().build();
-            blockReadBulkhead = new BlockReadBulkhead(DEFAULT_BLOCK_READ_BULKHEAD_PERMITS, metricRegistry);
+            blockReadBulkheadMetrics = MetricRegistry.builder().build();
+            blockReadBulkhead = new BlockReadBulkhead(DEFAULT_BLOCK_READ_BULKHEAD_PERMITS, blockReadBulkheadMetrics);
         }
         return blockReadBulkhead;
+    }
+
+    /// The registry holding the metrics of the bulkhead returned by [#blockReadBulkhead()], so tests
+    /// can assert on them.
+    ///
+    /// @return the bulkhead's metric registry
+    @NonNull
+    public MetricRegistry blockReadBulkheadMetrics() {
+        blockReadBulkhead();
+        return blockReadBulkheadMetrics;
     }
 
     /// {@inheritDoc}
