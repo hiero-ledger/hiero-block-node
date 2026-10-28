@@ -4,6 +4,7 @@ package org.hiero.block.node.app.state;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 
@@ -20,6 +21,7 @@ import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Random;
@@ -472,6 +474,94 @@ class ApplicationStateUtilityTest {
         void sameLastStartBlockFewerErasIsNotNewer() {
             assertFalse(
                     ApplicationStateUtility.isNewerHistory(historyWithLastBlock(100L), historyWithTwoEras(0L, 100L)));
+        }
+    }
+
+    // ---- mergeDuplicateEras ---------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("mergeDuplicateEras")
+    class MergeDuplicateEras {
+
+        private static NodeAddress node(final long nodeId, final String rsaKey) {
+            return NodeAddress.newBuilder().nodeId(nodeId).rsaPubKey(rsaKey).build();
+        }
+
+        private static RangedNodeAddressBook era(final long start, final long end, final NodeAddress... nodes) {
+            return RangedNodeAddressBook.newBuilder()
+                    .addressBook(NodeAddressBook.newBuilder().nodeAddress(nodes).build())
+                    .startBlock(start)
+                    .endBlock(end)
+                    .build();
+        }
+
+        private static RangedAddressBookHistory history(final RangedNodeAddressBook... eras) {
+            return RangedAddressBookHistory.newBuilder().addressBooks(eras).build();
+        }
+
+        /// The nodes covering {@code block}, sorted by node id so that node order does not matter.
+        private static List<NodeAddress> nodesAt(final RangedAddressBookHistory history, final long block) {
+            final NodeAddressBook book = AddressBookHistoryLookup.findAddressBookForBlock(
+                    AddressBookHistoryLookup.buildIndex(history), block);
+            return book.nodeAddress().stream()
+                    .sorted(Comparator.comparingLong(NodeAddress::nodeId))
+                    .toList();
+        }
+
+        @Test
+        @DisplayName("contiguous eras with the same book are merged, node order ignored, keeping the later book")
+        void mergesContiguousDuplicateEras() {
+            final RangedAddressBookHistory original = history(
+                    era(0, 9, node(3, "a3"), node(4, "a4")),
+                    era(10, 19, node(4, "a4"), node(3, "a3")),
+                    era(20, 29, node(3, "b3"), node(5, "b5")),
+                    era(30, 39, node(3, "b3"), node(5, "b5")),
+                    era(40, -1, node(3, "b3"), node(5, "b5")));
+
+            final RangedAddressBookHistory merged = ApplicationStateUtility.mergeDuplicateEras(original);
+
+            assertEquals(
+                    List.of(era(0, 19, node(4, "a4"), node(3, "a3")), era(20, -1, node(3, "b3"), node(5, "b5"))),
+                    merged.addressBooks());
+            for (final RangedNodeAddressBook era : original.addressBooks()) {
+                for (final long block : new long[] {era.startBlock(), era.endBlock() == -1 ? 1_000 : era.endBlock()}) {
+                    assertEquals(nodesAt(original, block), nodesAt(merged, block), "block " + block);
+                }
+            }
+        }
+
+        @Test
+        @DisplayName("a history without contiguous duplicate eras is returned unchanged")
+        void historyWithoutDuplicatesIsReturnedUnchanged() {
+            final List<RangedAddressBookHistory> unchanged = List.of(
+                    RangedAddressBookHistory.newBuilder().build(),
+                    history(era(0, -1, node(3, "a3"))),
+                    // different keys
+                    history(era(0, 9, node(3, "a3")), era(10, -1, node(3, "b3"))),
+                    // same keys but a different non-key field
+                    history(
+                            era(0, 9, node(3, "a3")),
+                            era(
+                                    10,
+                                    -1,
+                                    node(3, "a3")
+                                            .copyBuilder()
+                                            .description("changed")
+                                            .build())),
+                    // a gap between identical eras is preserved
+                    history(era(0, 9, node(3, "a3")), era(11, -1, node(3, "a3"))),
+                    // an open-ended era that is not last is never extended
+                    history(era(0, -1, node(3, "a3")), era(10, -1, node(3, "a3"))),
+                    // an era without an address book does not merge with one that has a book
+                    history(
+                            RangedNodeAddressBook.newBuilder()
+                                    .startBlock(0)
+                                    .endBlock(9)
+                                    .build(),
+                            era(10, -1, node(3, "a3"))));
+            for (final RangedAddressBookHistory history : unchanged) {
+                assertSame(history, ApplicationStateUtility.mergeDuplicateEras(history), history.toString());
+            }
         }
     }
 
