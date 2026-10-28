@@ -2,7 +2,10 @@
 package org.hiero.block.tools.blocks;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.hapi.node.base.AccountID;
@@ -12,7 +15,9 @@ import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -457,7 +462,214 @@ class ConvertAddressBookHistoryCommandTest {
         }
     }
 
+    @Nested
+    @DisplayName("Legacy eras without node ids (#3955)")
+    class LegacyNodeIds {
+
+        @Test
+        @DisplayName("Memo-only genesis era gets distinct ids from the node accounts (accountNum - 3)")
+        void memoOnlyEraDerivesIds() throws IOException {
+            final List<Instant> instants = blockInstants(new long[] {100});
+            writeHistory(inputFile, List.of(dated(instants.get(0), legacyMemoOnly(3, 13))));
+
+            assertEquals(0, execute());
+
+            assertEquals(List.of(0L, 1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L, 10L, 11L, 12L), nodeIds(readOutput(), 0));
+        }
+
+        @Test
+        @DisplayName("Ids follow the memo account of each node, not its position in the book")
+        void idsFollowTheAccountNotThePosition() throws IOException {
+            final List<Instant> instants = blockInstants(new long[] {100});
+            final NodeAddressBook shuffled = new NodeAddressBook(
+                    List.of(legacyNode("0.0.7", "aa"), legacyNode("0.0.3", "bb"), legacyNode("0.0.5", "cc")));
+            writeHistory(inputFile, List.of(dated(instants.get(0), shuffled)));
+
+            assertEquals(0, execute());
+
+            assertEquals(List.of(4L, 0L, 2L), nodeIds(readOutput(), 0));
+        }
+
+        @Test
+        @DisplayName("Account-only nodes (no memo) derive their ids from nodeAccountId")
+        void accountOnlyEraDerivesIds() throws IOException {
+            final List<Instant> instants = blockInstants(new long[] {100});
+            final List<NodeAddress> nodes = new ArrayList<>();
+            for (int account = 3; account <= 6; account++) {
+                nodes.add(NodeAddress.newBuilder()
+                        .rsaPubKey("ab" + account)
+                        .nodeAccountId(
+                                AccountID.newBuilder().accountNum(account).build())
+                        .build());
+            }
+            writeHistory(inputFile, List.of(dated(instants.get(0), new NodeAddressBook(nodes))));
+
+            assertEquals(0, execute());
+
+            assertEquals(List.of(0L, 1L, 2L, 3L), nodeIds(readOutput(), 0));
+        }
+
+        @Test
+        @DisplayName("An era with unique, non-sequential ids is left untouched even if its accounts differ")
+        void uniqueIdsAreNotRederived() throws IOException {
+            final List<Instant> instants = blockInstants(new long[] {100});
+            // ids 0, 1, 4, 5 on accounts 10..13: deriving would give 7, 8, 9, 10
+            final List<NodeAddress> nodes = new ArrayList<>();
+            final long[] ids = {0, 1, 4, 5};
+            for (int i = 0; i < ids.length; i++) {
+                nodes.add(NodeAddress.newBuilder()
+                        .nodeId(ids[i])
+                        .rsaPubKey("cd0" + i)
+                        .nodeAccountId(AccountID.newBuilder().accountNum(10 + i).build())
+                        .build());
+            }
+            writeHistory(inputFile, List.of(dated(instants.get(0), new NodeAddressBook(nodes))));
+
+            assertEquals(0, execute());
+
+            assertEquals(List.of(0L, 1L, 4L, 5L), nodeIds(readOutput(), 0));
+        }
+
+        @Test
+        @DisplayName("A real node 0 in an era with unique ids stays node 0")
+        void realNodeZeroIsKept() throws IOException {
+            final List<Instant> instants = blockInstants(new long[] {100});
+            final NodeAddressBook book = new NodeAddressBook(List.of(
+                    NodeAddress.newBuilder()
+                            .nodeId(0)
+                            .rsaPubKey("e0")
+                            .nodeAccountId(AccountID.newBuilder().accountNum(20).build())
+                            .build(),
+                    NodeAddress.newBuilder()
+                            .nodeId(2)
+                            .rsaPubKey("e1")
+                            .nodeAccountId(AccountID.newBuilder().accountNum(21).build())
+                            .build()));
+            writeHistory(inputFile, List.of(dated(instants.get(0), book)));
+
+            assertEquals(0, execute());
+
+            assertEquals(List.of(0L, 2L), nodeIds(readOutput(), 0));
+        }
+
+        @Test
+        @DisplayName("Legacy era 0 plus a normal era 1: era 0 is derived, era 1 is unchanged")
+        void mixedHistory() throws IOException {
+            final List<Instant> instants = blockInstants(new long[] {100, 5000});
+            writeHistory(
+                    inputFile,
+                    List.of(
+                            dated(instants.get(0), legacyMemoOnly(3, 13)),
+                            dated(instants.get(1), addressBook(4, 3, "ff"))));
+
+            assertEquals(0, execute());
+
+            final RangedAddressBookHistory out = readOutput();
+            assertEquals(List.of(0L, 1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L, 10L, 11L, 12L), nodeIds(out, 0));
+            assertEquals(List.of(4L, 5L, 6L), nodeIds(out, 1));
+        }
+
+        @Test
+        @DisplayName("Era still duplicated after deriving fails with exit 1, names the era and writes nothing")
+        void stillDuplicateFailsWithoutOutput() throws IOException {
+            final List<Instant> instants = blockInstants(new long[] {100});
+            final NodeAddressBook book = new NodeAddressBook(
+                    List.of(legacyNode("0.0.5", "aa"), legacyNode("0.0.5", "bb"), legacyNode("0.0.6", "cc")));
+            writeHistory(inputFile, List.of(dated(instants.get(0), book)));
+
+            final ExecResult result = executeCapturingStderr();
+
+            assertEquals(1, result.exit());
+            assertTrue(result.stderr().contains("era 0"), result.stderr());
+            assertTrue(result.stderr().contains("not unique"), result.stderr());
+            assertFalse(Files.exists(outputFile), "no output may be written when an era cannot be resolved");
+        }
+
+        @Test
+        @DisplayName("Unparsable memo in a duplicate era fails with exit 1 and writes nothing")
+        void unparsableMemoFailsWithoutOutput() throws IOException {
+            final List<Instant> instants = blockInstants(new long[] {100});
+            final NodeAddressBook book =
+                    new NodeAddressBook(List.of(legacyNode("not-an-account", "aa"), legacyNode("0.0.4", "bb")));
+            writeHistory(inputFile, List.of(dated(instants.get(0), book)));
+
+            final ExecResult result = executeCapturingStderr();
+
+            assertEquals(1, result.exit());
+            assertTrue(result.stderr().contains("era 0"), result.stderr());
+            assertFalse(Files.exists(outputFile));
+        }
+
+        @Test
+        @DisplayName("A bad era later in the history still leaves no output, even if era 0 resolved")
+        void badLaterEraWritesNothing() throws IOException {
+            final List<Instant> instants = blockInstants(new long[] {100, 5000});
+            final NodeAddressBook bad =
+                    new NodeAddressBook(List.of(legacyNode("0.0.5", "aa"), legacyNode("0.0.5", "bb")));
+            writeHistory(inputFile, List.of(dated(instants.get(0), legacyMemoOnly(3, 4)), dated(instants.get(1), bad)));
+
+            final ExecResult result = executeCapturingStderr();
+
+            assertEquals(1, result.exit());
+            assertTrue(result.stderr().contains("era 1"), result.stderr());
+            assertFalse(Files.exists(outputFile));
+        }
+
+        @Test
+        @DisplayName("resolveNodeIds returns the same book when ids are already unique")
+        void resolveReturnsSameInstanceWhenUnique() {
+            final NodeAddressBook unique = addressBook(0, 3, "aa");
+
+            assertSame(unique, ConvertAddressBookHistoryCommand.resolveNodeIds(unique));
+        }
+
+        @Test
+        @DisplayName("resolveNodeIds rejects an account below the node account offset")
+        void resolveRejectsNegativeId() {
+            final NodeAddressBook book =
+                    new NodeAddressBook(List.of(legacyNode("0.0.2", "aa"), legacyNode("0.0.3", "bb")));
+
+            assertThrows(IllegalArgumentException.class, () -> ConvertAddressBookHistoryCommand.resolveNodeIds(book));
+        }
+    }
+
     // ----- helpers -----
+
+    private record ExecResult(int exit, String stderr) {}
+
+    private ExecResult executeCapturingStderr() {
+        final PrintStream originalErr = System.err;
+        final ByteArrayOutputStream captured = new ByteArrayOutputStream();
+        System.setErr(new PrintStream(captured, true, StandardCharsets.UTF_8));
+        try {
+            final int exit = execute();
+            return new ExecResult(exit, captured.toString(StandardCharsets.UTF_8));
+        } finally {
+            System.setErr(originalErr);
+        }
+    }
+
+    private static List<Long> nodeIds(RangedAddressBookHistory history, int era) {
+        return history.addressBooks().get(era).addressBook().nodeAddress().stream()
+                .map(NodeAddress::nodeId)
+                .toList();
+    }
+
+    /** A legacy genesis style node: only the account memo (for example "0.0.7"), no nodeId. */
+    private static NodeAddress legacyNode(String memo, String rsaPubKey) {
+        return NodeAddress.newBuilder()
+                .memo(Bytes.wrap(memo.getBytes(StandardCharsets.UTF_8)))
+                .rsaPubKey(rsaPubKey)
+                .build();
+    }
+
+    private static NodeAddressBook legacyMemoOnly(int firstAccount, int count) {
+        final List<NodeAddress> nodes = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            nodes.add(legacyNode("0.0." + (firstAccount + i), String.format("a1%02x", i)));
+        }
+        return new NodeAddressBook(nodes);
+    }
 
     private int execute() {
         return new CommandLine(new ConvertAddressBookHistoryCommand())
