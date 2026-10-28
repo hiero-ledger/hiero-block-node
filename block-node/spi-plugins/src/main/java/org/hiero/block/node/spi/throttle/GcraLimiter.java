@@ -25,22 +25,25 @@ public final class GcraLimiter {
     /// nanoseconds.
     private final long toleranceNanos;
 
-    /// The theoretical arrival time, in the same units as the caller's monotonic clock. Starts at
-    /// zero; the first call on a fresh limiter is always admitted since only differences between
-    /// calls are compared, not the clock's absolute origin.
-    private final AtomicLong theoreticalArrivalTimeNanos = new AtomicLong(0L);
+    /// The theoretical arrival time, in the same units as the caller's monotonic clock. Seeded with
+    /// the creation time, not zero: [System#nanoTime()] has an arbitrary origin and may be negative,
+    /// and a zero seed would then reject every call until the clock passed zero.
+    private final AtomicLong theoreticalArrivalTimeNanos;
 
     /// Creates a new limiter for one client's rate on one method.
     ///
     /// @param ratePerSecond the sustained rate to allow, in requests per second; must be positive
     /// @param burstTolerance how many pacing intervals early a request may arrive and still be
     ///     admitted; zero means no burst tolerance beyond exact pacing
-    public GcraLimiter(final int ratePerSecond, final int burstTolerance) {
+    /// @param nowNanos the creation time from the same monotonic clock later passed to
+    ///     [#tryAcquire]; a call at or after this time on a fresh limiter is always admitted
+    public GcraLimiter(final int ratePerSecond, final int burstTolerance, final long nowNanos) {
         if (ratePerSecond <= 0) {
             throw new IllegalArgumentException("ratePerSecond must be positive, was " + ratePerSecond);
         }
         this.intervalNanos = Math.max(1L, 1_000_000_000L / ratePerSecond);
         this.toleranceNanos = Math.max(0, burstTolerance) * intervalNanos;
+        this.theoreticalArrivalTimeNanos = new AtomicLong(nowNanos);
     }
 
     /// Attempts to admit a request arriving at the given monotonic time.

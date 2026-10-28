@@ -13,15 +13,16 @@ class GcraLimiterTest {
     @Test
     @DisplayName("First call on a fresh limiter is always admitted")
     void firstCallAdmitted() {
-        final GcraLimiter limiter = new GcraLimiter(10, 0);
-        assertTrue(limiter.tryAcquire(System.nanoTime()));
+        final long now = System.nanoTime();
+        final GcraLimiter limiter = new GcraLimiter(10, 0, now);
+        assertTrue(limiter.tryAcquire(now));
     }
 
     @Test
     @DisplayName("Calls faster than the configured rate, beyond burst tolerance, are rejected")
     void tooFastRejected() {
-        final GcraLimiter limiter = new GcraLimiter(1, 0);
         final long now = System.nanoTime();
+        final GcraLimiter limiter = new GcraLimiter(1, 0, now);
         assertTrue(limiter.tryAcquire(now));
         assertFalse(limiter.tryAcquire(now + 1_000_000L)); // +1ms, far short of the 1s interval
     }
@@ -29,8 +30,8 @@ class GcraLimiterTest {
     @Test
     @DisplayName("A call spaced out beyond the pacing interval is admitted")
     void spacedOutCallAdmitted() {
-        final GcraLimiter limiter = new GcraLimiter(10, 0); // 100ms interval
         final long now = System.nanoTime();
+        final GcraLimiter limiter = new GcraLimiter(10, 0, now); // 100ms interval
         assertTrue(limiter.tryAcquire(now));
         assertTrue(limiter.tryAcquire(now + 200_000_000L)); // +200ms, beyond the 100ms interval
     }
@@ -39,8 +40,8 @@ class GcraLimiterTest {
     @DisplayName("Burst tolerance allows a bounded number of early arrivals")
     void burstToleranceAllowsEarlyArrivals() {
         // 10/s => 100ms interval; burst tolerance of 2 intervals.
-        final GcraLimiter limiter = new GcraLimiter(10, 2);
         final long now = System.nanoTime();
+        final GcraLimiter limiter = new GcraLimiter(10, 2, now);
         assertTrue(limiter.tryAcquire(now)); // TAT -> now + 100ms
         // Arriving immediately after (0ms later) is within the 200ms tolerance window.
         assertTrue(limiter.tryAcquire(now)); // TAT -> now + 200ms
@@ -52,7 +53,7 @@ class GcraLimiterTest {
     @Test
     @DisplayName("Rejects non-positive rates at construction")
     void rejectsNonPositiveRate() {
-        assertThrows(IllegalArgumentException.class, () -> new GcraLimiter(0, 0));
-        assertThrows(IllegalArgumentException.class, () -> new GcraLimiter(-5, 0));
+        assertThrows(IllegalArgumentException.class, () -> new GcraLimiter(0, 0, 0L));
+        assertThrows(IllegalArgumentException.class, () -> new GcraLimiter(-5, 0, 0L));
     }
 }

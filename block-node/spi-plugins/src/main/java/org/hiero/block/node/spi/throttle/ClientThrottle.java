@@ -74,10 +74,10 @@ final class ClientThrottle {
         // Reuse a live entry or replace a stale, unused one with a fresh limiter. Stamp lastSeenNanos
         // inside this callback so a concurrent sweep can't see an unstamped fresh entry.
         final ClientState state = clientStates.compute(clientKey, (ignoredKey, existing) -> {
-            final ClientState current =
-                    (existing != null && !(isStale(existing, nowNanos) && existing.inFlight.get() == 0))
-                            ? existing
-                            : new ClientState(new GcraLimiter(settings.ratePerSecond(), settings.burstTolerance()));
+            final ClientState current = (existing != null
+                            && !(isStale(existing, nowNanos) && existing.inFlight.get() == 0))
+                    ? existing
+                    : new ClientState(new GcraLimiter(settings.ratePerSecond(), settings.burstTolerance(), nowNanos));
             current.lastSeenNanos = nowNanos;
             return current;
         });
