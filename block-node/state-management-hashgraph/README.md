@@ -17,7 +17,7 @@ The apply pipeline runs each block through three state versions, one block behin
 |   Step    |                                                                                            What happens                                                                                             |
 |-----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | Subscribe | Registers as a `BlockNotificationHandler`; only `VerificationNotification.success == true` blocks are staged.                                                                                       |
-| Catch up  | One-shot on `start()`: fills the gap between the attested block and `historicalBlockProvider`'s latest, in batches.                                                                                 |
+| Catch up  | One-shot on `start()`: fills the gap between the attested block and `historicalBlockProvider`'s latest, in batches. Ready only once the latest block is reached; a stalled sweep retries.           |
 | Apply     | A single apply-worker thread drains staged blocks in order the moment one arrives, no timer.                                                                                                        |
 | Restore   | On `start()`, scans `snapshotRecentPath` for the highest-numbered directory, loads it, then checks the loaded state's `BlockStreamInfo.block_number` against the directory name before trusting it. |
 
@@ -42,15 +42,19 @@ classpath; opt-in lives in the deployment manifest.
 
 ## Failure modes
 
-|                                Failure                                |                                                 Behaviour                                                 |
-|-----------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|
-| No snapshot directories at startup                                    | Genesis; this is the normal first boot, not a failure.                                                    |
-| Highest snapshot directory unreadable, or fails its self-check        | Halt.                                                                                                     |
-| Footer hash mismatch (`startOfBlockStateRootHash`)                    | Halt; `hashMismatchTotal` incremented.                                                                    |
-| Digest-length mismatch (e.g. SHA-256 footer vs. this build's SHA-384) | Halt, logged distinctly from a genuine divergence.                                                        |
-| Legacy field-2 token-association encoding                             | Halt with a distinct error, not a generic hash mismatch.                                                  |
-| Malformed `state_changes` item                                        | That block's apply aborts; plugin does not advance past it.                                               |
-| Gap in `pendingBlocks`                                                | Retried from `historicalBlockProvider` after `gapRetryDelaySeconds`; buffer capped at `pendingBlocksMax`. |
+|                                  Failure                                   |                                                 Behaviour                                                 |
+|----------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|
+| No snapshot directories at startup                                         | Genesis; this is the normal first boot, not a failure.                                                    |
+| Snapshot root unlistable, highest directory unreadable or fails self-check | Halt.                                                                                                     |
+| Footer hash mismatch (`startOfBlockStateRootHash`)                         | Halt; `hashMismatchTotal` incremented.                                                                    |
+| Digest-length mismatch (e.g. SHA-256 footer vs. this build's SHA-384)      | Halt, logged distinctly from a genuine divergence.                                                        |
+| Legacy field-2 token-association encoding                                  | Halt with a distinct error, not a generic hash mismatch.                                                  |
+| Malformed `state_changes` item                                             | That block's apply aborts; plugin does not advance past it.                                               |
+| Gap in `pendingBlocks`                                                     | Retried from `historicalBlockProvider` after `gapRetryDelaySeconds`; buffer capped at `pendingBlocksMax`. |
+
+A restored snapshot is trusted as a previously stored attested state. Its root hash is first
+checked against the chain by the next block's footer, so a node that restores state but ingests
+no further blocks relies on snapshot integrity (`docs/design/state/live-state.md` §6.2).
 
 All halts are terminal: recovery is a restart from the last good snapshot, not a live retry.
 Full table and recovery semantics: `docs/design/state/live-state.md` §10.
