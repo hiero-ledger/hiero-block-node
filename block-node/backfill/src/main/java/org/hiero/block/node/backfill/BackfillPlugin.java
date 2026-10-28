@@ -222,16 +222,6 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         Thread.UncaughtExceptionHandler handler =
                 (thread, e) -> LOGGER.log(INFO, "Uncaught exception in thread: " + thread.getName(), e);
 
-        autonomousExecutor =
-                context.threadPoolManager().createSingleThreadScheduledExecutor("BackfillPluginRunner", handler);
-
-        // Schedule periodic gap detection task using autonomous executor
-        autonomousExecutor.scheduleAtFixedRate(
-                this::detectAndScheduleGaps,
-                backfillConfiguration.initialDelay(),
-                backfillConfiguration.scanInterval(),
-                TimeUnit.MILLISECONDS);
-
         // Create dedicated platform thread executors for backfill tasks
         historicalExecutor =
                 context.threadPoolManager().createSingleThreadScheduledExecutor("BackfillHistoricalExecutor", handler);
@@ -255,6 +245,26 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 initializedSchedulersMsg,
                 backfillConfiguration.historicalQueueCapacity(),
                 backfillConfiguration.liveTailQueueCapacity());
+
+        // Schedule the periodic gap scan last: the scan uses the fetcher and schedulers created above,
+        // and submitting to the executor publishes them to the scan thread.
+        autonomousExecutor =
+                context.threadPoolManager().createSingleThreadScheduledExecutor("BackfillPluginRunner", handler);
+        autonomousExecutor.scheduleAtFixedRate(
+                this::runGapScan,
+                backfillConfiguration.initialDelay(),
+                backfillConfiguration.scanInterval(),
+                TimeUnit.MILLISECONDS);
+    }
+
+    /// Runs one gap scan. A failed scan is logged and retried at the next interval, because an exception
+    /// escaping a fixed-rate task cancels every later run.
+    private void runGapScan() {
+        try {
+            detectAndScheduleGaps();
+        } catch (RuntimeException e) {
+            LOGGER.log(WARNING, "Backfill gap scan failed, retrying at the next scan interval", e);
+        }
     }
 
     /// @return the metrics holder, may be `null` if the plugin was not initialized or the configuration was invalid.

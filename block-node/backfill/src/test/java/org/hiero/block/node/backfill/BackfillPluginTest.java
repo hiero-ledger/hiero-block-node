@@ -24,6 +24,7 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.internal.BlockNodeSource;
 import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
@@ -32,6 +33,7 @@ import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.app.fixtures.server.TestBlockNodeServer;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
@@ -40,6 +42,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.junit.jupiter.api.AfterEach;
@@ -391,16 +394,16 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 .initialDelay(50)
                 .build();
 
-        // BN2 is brand new with no history
-        start(new BackfillPlugin(), new SimpleInMemoryHistoricalBlockFacility(), configOverride);
-
         int expectedBlocks = 201; // 500..700 inclusive
         CountDownLatch latch = new CountDownLatch(expectedBlocks);
         registerDefaultTestBackfillHandler();
         registerDefaultTestVerificationHandler(latch);
 
+        // BN2 is brand new with no history
+        start(new BackfillPlugin(), new SimpleInMemoryHistoricalBlockFacility(), configOverride);
+
         assertTrue(
-                latch.await(10, TimeUnit.SECONDS),
+                latch.await(25, TimeUnit.SECONDS),
                 "Greedy backfill should start at backfill.startBlock even when local store is empty");
         assertEquals(
                 expectedBlocks,
@@ -437,16 +440,16 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 .initialDelay(50)
                 .build();
 
-        // BN2 is brand new with no history
-        start(new BackfillPlugin(), new SimpleInMemoryHistoricalBlockFacility(), configOverride);
-
         int expectedBlocks = 301; // 400..700 inclusive
         CountDownLatch latch = new CountDownLatch(expectedBlocks);
         registerDefaultTestBackfillHandler();
         registerDefaultTestVerificationHandler(latch);
 
+        // BN2 is brand new with no history
+        start(new BackfillPlugin(), new SimpleInMemoryHistoricalBlockFacility(), configOverride);
+
         assertTrue(
-                latch.await(10, TimeUnit.SECONDS),
+                latch.await(25, TimeUnit.SECONDS),
                 "Greedy backfill should start at the peer's earliest block when startBlock is unset");
         assertEquals(
                 expectedBlocks,
@@ -1389,12 +1392,11 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
 
         // Plugin store has blocks 100-200, so gap 0-99 needs backfill (100 blocks)
         final SimpleInMemoryHistoricalBlockFacility pluginStore = getHistoricalBlockFacility(100, 200);
-        start(new BackfillPlugin(), pluginStore, configOverride);
 
         // We expect exactly 100 blocks (0-99) to be backfilled
-        // If deduplication fails, we'd see more than 100 persisted notifications
         int expectedBlocks = 100;
         CountDownLatch latch = new CountDownLatch(expectedBlocks);
+        AtomicLong gapsSubmittedWhileRunning = new AtomicLong(-1);
 
         registerDefaultTestBackfillHandler();
         this.blockMessaging.registerBlockNotificationHandler(
@@ -1405,6 +1407,13 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                                 .blockMessaging()
                                 .sendBlockPersisted(new PersistedNotification(
                                         notification.blockNumber(), true, 10, notification.source()));
+                        if (notification.blockNumber() == expectedBlocks - 1) {
+                            // Dispatch is synchronous, so the historical scheduler is still running here:
+                            // this counts every submission made while it was busy with the gap.
+                            gapsSubmittedWhileRunning.set(plugin.metricsHolder()
+                                    .backfillGapsSubmitted()
+                                    .get());
+                        }
                         latch.countDown();
                         // Update the store so next scan sees progress
                         SimpleBlockRangeSet newRange = ((SimpleBlockRangeSet) pluginStore.availableBlocks());
@@ -1419,17 +1428,13 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 false,
                 "test-historical-skip-handler");
 
-        // Wait for backfill to complete
-        assertTrue(latch.await(30, TimeUnit.SECONDS), "Should complete backfill within timeout");
+        start(new BackfillPlugin(), pluginStore, configOverride);
 
-        // Allow additional time for any duplicate submissions to process
-        Thread.sleep(1000);
-
-        // Verify exactly 100 blocks were persisted (no duplicates from re-submitted gaps)
+        assertTrue(latch.await(25, TimeUnit.SECONDS), "Should complete backfill within timeout");
         assertEquals(
-                expectedBlocks,
-                blockMessaging.getSentPersistedNotifications().size(),
-                "Should persist exactly 100 blocks without duplicates from re-detected historical gaps");
+                1,
+                gapsSubmittedWhileRunning.get(),
+                "Scans during the backfill should not resubmit the historical gap the scheduler is processing");
     }
 
     @Test
@@ -1597,7 +1602,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
 
     @Test
     @DisplayName("Backfill exponentially backs off a gap that keeps reappearing after eviction")
-    void testBackfillBacksOffReappearingGap() {
+    void testBackfillBacksOffReappearingGap() throws InterruptedException {
         // Peer serves the full history 0..100.
         final HistoricalBlockFacility serverFacility = getHistoricalBlockFacility(0, 100);
         final TestBlockNodeServer server = new TestBlockNodeServer(0, serverFacility);
@@ -1612,7 +1617,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         final String backfillSourcePath = testTempDir + "/backfill-source-backoff.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
 
-        // Fast scan (200ms). Without backoff this small gap would be re-submitted on every scan.
+        // Fast scan (200ms). Without backoff this small gap is re-submitted whenever the scheduler is idle.
         final int scanIntervalMs = 200;
         Map<String, String> config = BackfillConfigBuilder.NewBuilder()
                 .backfillSourcePath(backfillSourcePath)
@@ -1621,25 +1626,30 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 .scanInterval(scanIntervalMs)
                 .build();
 
-        // Recent tier holds only 5..100 (gap 0..4). Nothing ever records 0..4 as stored (no cloud archive)
-        // and the default handlers do not add backfilled blocks back to the available set, so the gap
-        // reappears every scan — exactly the retention-eviction scenario. Backoff must throttle the retries.
-        final HistoricalBlockFacility pluginStore = getHistoricalBlockFacility(5, 100);
-        BackfillPlugin plugin = new BackfillPlugin();
-        start(plugin, pluginStore, config);
-
         registerDefaultTestBackfillHandler();
         registerDefaultTestVerificationHandler(new CountDownLatch(1));
 
-        // Let ~12 scan intervals elapse. Exponential backoff (base = scan interval, doubling per no-progress
-        // attempt) submits the gap roughly at t=50,250,650,1450ms — a handful of times — whereas a
-        // non-throttled implementation would submit it on every one of the ~12 scans.
-        parkNanos(2_500_000_000L);
+        // Recent tier holds only 5..100 (gap 0..4). Nothing ever records 0..4 as stored (no cloud archive)
+        // and the default handlers do not add backfilled blocks back to the available set, so the gap
+        // reappears every scan — exactly the retention-eviction scenario. Backoff must throttle the retries.
+        final int scansToObserve = 24;
+        final CountDownLatch scansObserved = new CountDownLatch(scansToObserve);
+        final ScanObservingHistoricalBlockFacility pluginStore =
+                new ScanObservingHistoricalBlockFacility(scansObserved);
+        addBlocks(pluginStore, 5, 100);
+        BackfillPlugin plugin = new BackfillPlugin();
+        start(plugin, pluginStore, config);
+
+        // Exponential backoff (base = scan interval, doubling per no-progress attempt) submits the gap on
+        // roughly scans 1, 2, 4, 8 and 16 of 24, and about 7 times even when a loaded runner slows scans to
+        // one per second. Without backoff it is resubmitted on about every other scan (~12). Counting scans
+        // rather than wall-clock time keeps that separation independent of runner speed.
+        assertTrue(scansObserved.await(25, TimeUnit.SECONDS), "Gap scans should keep running");
 
         long submissions = plugin.metricsHolder().backfillGapsSubmitted().get();
         assertTrue(submissions >= 2, "Gap should still be retried (backoff must not hard-stop): " + submissions);
         assertTrue(
-                submissions <= 6,
+                submissions <= 8,
                 "Exponential backoff should throttle retries well below one per scan: " + submissions);
     }
 
@@ -1961,6 +1971,74 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         assertFalse(successorFetchedTooEarly.get(), "No block should be fetched before block 0 has persisted");
     }
 
+    @Test
+    @DisplayName("The first gap scan backfills when scheduler creation is slow")
+    void firstGapScanBackfillsWhenSchedulerCreationIsSlow() throws InterruptedException {
+        final TestBlockNodeServer server = new TestBlockNodeServer(0, getHistoricalBlockFacility(0, 100));
+        testBlockNodeServers.add(server);
+        final String backfillSourcePath = testTempDir + "/backfill-source-slow-scheduler.json";
+        createTestBlockNodeSourcesFile(singleSource(server), backfillSourcePath);
+
+        // Only the first scan can do the work within the latch timeout.
+        final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(backfillSourcePath)
+                .fetchBatchSize(25)
+                .initialDelay(5)
+                .scanInterval(60_000)
+                .build();
+
+        // Scheduler creation waits for the first scan, the slow-startup ordering seen on loaded runners.
+        final CountDownLatch scanStarted = new CountDownLatch(1);
+        blockMessaging = new SchedulerCreationGatedMessagingFacility(scanStarted);
+        final int expectedBlocks = 50; // 0..49
+        final CountDownLatch latch = new CountDownLatch(expectedBlocks);
+        registerDefaultTestBackfillHandler();
+        registerDefaultTestVerificationHandler(latch);
+
+        final ScanObservingHistoricalBlockFacility pluginStore = new ScanObservingHistoricalBlockFacility(scanStarted);
+        addBlocks(pluginStore, 50, 100);
+        start(new BackfillPlugin(), pluginStore, configOverride);
+
+        assertTrue(latch.await(10, TimeUnit.SECONDS), "The first gap scan should backfill blocks 0..49");
+    }
+
+    @Test
+    @DisplayName("A failed gap scan does not stop later scans")
+    void failedGapScanDoesNotStopLaterScans() throws InterruptedException {
+        final TestBlockNodeServer server = new TestBlockNodeServer(0, getHistoricalBlockFacility(0, 100));
+        testBlockNodeServers.add(server);
+        final String backfillSourcePath = testTempDir + "/backfill-source-failed-scan.json";
+        createTestBlockNodeSourcesFile(singleSource(server), backfillSourcePath);
+
+        final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(backfillSourcePath)
+                .fetchBatchSize(25)
+                .initialDelay(50)
+                .scanInterval(200)
+                .build();
+
+        final int expectedBlocks = 50; // 0..49
+        final CountDownLatch latch = new CountDownLatch(expectedBlocks);
+        registerDefaultTestBackfillHandler();
+        registerDefaultTestVerificationHandler(latch);
+
+        final FirstScanFailingHistoricalBlockFacility pluginStore = new FirstScanFailingHistoricalBlockFacility();
+        addBlocks(pluginStore, 50, 100);
+        start(new BackfillPlugin(), pluginStore, configOverride);
+
+        assertTrue(latch.await(10, TimeUnit.SECONDS), "A scan after the failed one should backfill blocks 0..49");
+    }
+
+    private static BlockNodeSource singleSource(TestBlockNodeServer server) {
+        return BlockNodeSource.newBuilder()
+                .nodes(BlockNodeSourceConfig.newBuilder()
+                        .address("localhost")
+                        .port(server.port())
+                        .priority(1)
+                        .build())
+                .build();
+    }
+
     private void createTestBlockNodeSourcesFile(BlockNodeSource backfillSource, String configPath) {
         String jsonString = BlockNodeSource.JSON.toJSON(backfillSource);
         // Write the JSON string to the specified file path
@@ -1974,11 +2052,77 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     private SimpleInMemoryHistoricalBlockFacility getHistoricalBlockFacility(long startBlock, long endBlock) {
         // Create a new historical block facility with the specified start and end blocks
         SimpleInMemoryHistoricalBlockFacility historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
+        addBlocks(historicalBlockFacility, startBlock, endBlock);
+        return historicalBlockFacility;
+    }
+
+    private static void addBlocks(
+            SimpleInMemoryHistoricalBlockFacility historicalBlockFacility, long startBlock, long endBlock) {
         for (long i = startBlock; i <= endBlock; i++) {
             final TestBlock block = TestBlockBuilder.generateBlockWithNumber(i);
             historicalBlockFacility.handleBlockItemsReceived(block.asBlockItems(), false);
         }
-        return historicalBlockFacility;
+    }
+
+    /**
+     * Counts down a latch each time the plugin's gap scan reads the store. The scan runs on the virtual threads
+     * of the test scheduled executor; the test thread also reads the store, so only virtual-thread reads count.
+     */
+    private static final class ScanObservingHistoricalBlockFacility extends SimpleInMemoryHistoricalBlockFacility {
+        private final CountDownLatch scans;
+
+        private ScanObservingHistoricalBlockFacility(CountDownLatch scans) {
+            this.scans = scans;
+        }
+
+        @Override
+        public BlockRangeSet availableBlocks() {
+            if (Thread.currentThread().isVirtual()) {
+                scans.countDown();
+            }
+            return super.availableBlocks();
+        }
+    }
+
+    /**
+     * Fails the plugin's first gap scan by throwing from the first store read on a scan thread.
+     */
+    private static final class FirstScanFailingHistoricalBlockFacility extends SimpleInMemoryHistoricalBlockFacility {
+        private final AtomicBoolean failed = new AtomicBoolean(false);
+
+        @Override
+        public BlockRangeSet availableBlocks() {
+            if (Thread.currentThread().isVirtual() && failed.compareAndSet(false, true)) {
+                throw new IllegalStateException("Simulated failure in the first gap scan");
+            }
+            return super.availableBlocks();
+        }
+    }
+
+    /**
+     * Holds creation of the historical backfill scheduler until the first gap scan has started (bounded),
+     * so a scan scheduled before the schedulers exist observes them missing.
+     */
+    private static final class SchedulerCreationGatedMessagingFacility extends TestBlockMessagingFacility {
+        private static final String HISTORICAL_AWAITER_NAME = "BackfillPersistenceAwaiter-Historical";
+        private final CountDownLatch scanStarted;
+
+        private SchedulerCreationGatedMessagingFacility(CountDownLatch scanStarted) {
+            this.scanStarted = scanStarted;
+        }
+
+        @Override
+        public void registerBlockNotificationHandler(
+                BlockNotificationHandler handler, boolean cpuIntensiveHandler, String handlerName) {
+            if (HISTORICAL_AWAITER_NAME.equals(handlerName)) {
+                try {
+                    scanStarted.await(2, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            super.registerBlockNotificationHandler(handler, cpuIntensiveHandler, handlerName);
+        }
     }
 
     private void registerDefaultTestBackfillHandler() {
