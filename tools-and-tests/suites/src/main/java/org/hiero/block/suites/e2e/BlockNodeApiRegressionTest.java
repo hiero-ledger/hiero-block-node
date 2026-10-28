@@ -238,7 +238,12 @@ public class BlockNodeApiRegressionTest {
      * continues with blocks 7–8.
      *
      * <p>With the fix, the forwarder respects sequential ordering: block 2 is forwarded before
-     * blocks 3–6, ACK(2) is sent before ACK(3), and all blocks reach storage without gaps.
+     * blocks 3–6, nothing at or above block 2 is acknowledged before block 2 is re-delivered, and
+     * all blocks reach storage without gaps.
+     *
+     * <p>Acknowledgements are cumulative: ACK(N) acknowledges every block up to and including N.
+     * Once the gap is filled, blocks 2–6 may persist together and be covered by a single ACK(6),
+     * so the test asserts a covering ACK rather than a discrete ACK(2).
      *
      * <p>Cross-connection synchronization: publisher 1's block 2 header and publisher 2's block 3
      * are on different gRPC connections with no guaranteed ordering. Publisher 2 retries block 3
@@ -301,7 +306,8 @@ public class BlockNodeApiRegressionTest {
 
         awaitLatch(resendLatch, "RESEND_BLOCK(2) from stall detection", publisher2Observer);
 
-        // Fill the gap: send complete block 2.
+        // Fill the gap: send complete block 2. Responses recorded before this point precede the re-delivery.
+        final int responsesBeforeGapFilled = publisher2Observer.getOnNextCalls().size();
         final AtomicReference<CountDownLatch> ack2Latch = publisher2Observer.setAndGetOnMatchLatch(
                 response -> response.response().kind() == PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT
                         && Objects.requireNonNull(response.acknowledgement()).blockNumber() >= 2L);
@@ -309,7 +315,7 @@ public class BlockNodeApiRegressionTest {
         publisher2Stream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(2L, hash1)));
         endBlock(2L, publisher2Stream);
 
-        awaitLatch(ack2Latch, "ACK(>=2) — block 2 persisted after RESEND");
+        awaitLatch(ack2Latch, "ACK(>=2) covering block 2 — block 2 persisted after RESEND");
 
         // Terminal signal: blocks 7–8 confirm the full chain is flowing.
         final AtomicReference<CountDownLatch> terminalLatch = publisher2Observer.setAndGetOnMatchLatch(
@@ -343,20 +349,18 @@ public class BlockNodeApiRegressionTest {
                     .isEqualTo(BlockResponse.Code.SUCCESS);
         }
 
-        // Verify ACK ordering: ACK(2) must arrive before any ACK for a higher block.
-        final List<Long> ackBlockNumbers = publisher2Observer.getOnNextCalls().stream()
-                .filter(response ->
-                        response.response().kind() == PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT)
-                .map(response ->
-                        Objects.requireNonNull(response.acknowledgement()).blockNumber())
-                .toList();
+        // Verify ACK ordering. ACKs are cumulative, so block 2 may be covered by a higher ACK.
+        final List<PublishStreamResponse> responses = publisher2Observer.getOnNextCalls();
+        final List<Long> acksBeforeGapFilled = ackBlockNumbers(responses.subList(0, responsesBeforeGapFilled));
+        final List<Long> allAcks = ackBlockNumbers(responses);
 
-        assertThat(ackBlockNumbers).as("ACK(2) must be present").contains(2L);
-
-        final int ack2Index = ackBlockNumbers.indexOf(2L);
-        assertThat(ackBlockNumbers.subList(0, ack2Index))
-                .as("no ACK for a block higher than 2 may arrive before ACK(2)")
-                .allSatisfy(blockNumber -> assertThat(blockNumber).isLessThanOrEqualTo(2L));
+        assertThat(acksBeforeGapFilled)
+                .as("no ACK may cover block 2 or later before block 2 is re-delivered")
+                .allSatisfy(blockNumber -> assertThat(blockNumber).isLessThan(2L));
+        assertThat(allAcks)
+                .as("an ACK must cover block 2 once the gap is filled")
+                .anySatisfy(blockNumber -> assertThat(blockNumber).isGreaterThanOrEqualTo(2L));
+        assertThat(allAcks).as("ACKs must never move backwards").isSorted();
 
         publisher1Client.close();
         publisher2Client.close();
@@ -395,6 +399,15 @@ public class BlockNodeApiRegressionTest {
         requestStream.onNext(PublishStreamRequest.newBuilder()
                 .endOfBlock(BlockEnd.newBuilder().blockNumber(blockNumber).build())
                 .build());
+    }
+
+    private static List<Long> ackBlockNumbers(final List<PublishStreamResponse> responses) {
+        return responses.stream()
+                .filter(response ->
+                        response.response().kind() == PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT)
+                .map(response ->
+                        Objects.requireNonNull(response.acknowledgement()).blockNumber())
+                .toList();
     }
 
     /**
