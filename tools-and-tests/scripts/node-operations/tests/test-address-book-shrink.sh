@@ -112,6 +112,36 @@ expect_reject "legacy single address book file" "$f" "addressBooks missing" "$f"
 f="$WORK/notjson.json"; echo 'not json' > "$f"
 expect_reject "invalid JSON" "$f" "addressBooks missing" "$f"
 
+# --- verification safety net -----------------------------------------------------------------
+# A correct merge never trips the verification, so a fake jq first on PATH stands in for a faulty
+# one: it runs the real jq and applies $CORRUPT to the output of the shrink step only (the call
+# whose filter merges with "reduce"). Every other jq call is passed through unchanged.
+mkdir -p "$WORK/fake-jq"
+cat > "$WORK/fake-jq/jq" <<EOF
+#!/usr/bin/env bash
+for arg in "\$@"; do
+  if [[ "\$arg" == *"reduce .[] as \\\$e"* ]]; then
+    "$(command -v jq)" "\$@" | "$(command -v jq)" "\$CORRUPT"
+    exit "\${PIPESTATUS[0]}"
+  fi
+done
+exec "$(command -v jq)" "\$@"
+EOF
+chmod +x "$WORK/fake-jq/jq"
+
+f="$WORK/safety-key.json"; fixture "$f"
+PATH="$WORK/fake-jq:$PATH" CORRUPT='.addressBooks[-1].addressBook.nodeAddress[0].RSAPubKey = "x"' \
+  expect_reject "verification rejects a changed RSA key" "$f" "Verification failed" "$f"
+f="$WORK/safety-dropped.json"; fixture "$f"
+PATH="$WORK/fake-jq:$PATH" CORRUPT='.addressBooks |= .[1:]' \
+  expect_reject "verification rejects a dropped era" "$f" "Verification failed" "$f" 0
+f="$WORK/safety-shortened.json"; fixture "$f"
+PATH="$WORK/fake-jq:$PATH" CORRUPT='.addressBooks[0].endBlock = "15"' \
+  expect_reject "verification rejects a shortened era" "$f" "Verification failed" "$f" 5
+f="$WORK/safety-control.json"; fixture "$f"
+PATH="$WORK/fake-jq:$PATH" CORRUPT='.' expect_ranges "fake jq passes a correct merge through" \
+  "$f" '["0-20","21--1"]'
+
 "$SCRIPT" --help | grep -qF "address-book-shrink.sh <address-book-file> [block-height]"
 check "--help prints usage" $? "usage missing"
 
