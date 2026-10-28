@@ -12,8 +12,9 @@ import com.swirlds.merkledb.config.MerkleDbConfig;
 import com.swirlds.virtualmap.config.VirtualMapConfig;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.nio.file.Path;
-import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.LongStream;
 import java.util.stream.Stream;
 import org.hiero.block.internal.BlockItemUnparsed;
@@ -224,11 +225,104 @@ class StateManagementCatchUpTest {
     }
 
     @Test
+    void notReadyUntilSweepReachesTipThenReadyOnceHoleFills(@TempDir final Path tmp) throws Exception {
+        final ChainHashes hashes = chainHashes(tmp);
+        // Block 1 is missing from history; once block 0 is applied, the retry sweep stages block 2
+        // (same batch as the hole) and stalls.
+        final InMemoryHistoricalBlockFacility historic = new InMemoryHistoricalBlockFacility();
+        historic.put(0L, buildBlock(0L, 0L, hashes.genesis()));
+        historic.put(2L, buildBlock(2L, 2L, hashes.afterBlock0()));
+        historic.put(3L, buildBlock(3L, 3L, hashes.afterBlock0()));
+        final StateManagementPlugin plugin =
+                startPlugin(tmp.resolve("run"), historic, new TestBlockMessagingFacility(), 1);
+
+        awaitPendingBlocks(plugin, 1);
+        assertThat(plugin.isReady()).as("sweep stopped at the hole in history").isFalse();
+        assertThat(plugin.isApplyHalted()).isFalse();
+
+        historic.put(1L, buildBlock(1L, 1L, hashes.afterBlock0()));
+        assertThat(StateManagementPluginTestSupport.awaitReady(plugin, 6_000L))
+                .as("the gap retry must finish catch-up once the hole fills")
+                .isTrue();
+        assertThat(plugin.attested().blockNumber()).isEqualTo(2L); // lag-1: applied through 3
+        plugin.stop();
+    }
+
+    @Test
+    void notReadyWhenWholeBatchIsMissingThenRetriesWithNothingPending(@TempDir final Path tmp) throws Exception {
+        final ChainHashes hashes = chainHashes(tmp);
+        // Blocks 1-3 are absent, so the first batch after 0 stages nothing: pendingBlocks stays
+        // empty and applyPending schedules no retry. Only the sweep's own retry recovers this.
+        final InMemoryHistoricalBlockFacility historic = new InMemoryHistoricalBlockFacility();
+        historic.put(0L, buildBlock(0L, 0L, hashes.genesis()));
+        historic.put(4L, buildBlock(4L, 4L, hashes.afterBlock0()));
+        final StateManagementPlugin plugin =
+                startPlugin(tmp.resolve("run"), historic, new TestBlockMessagingFacility(), 1);
+
+        awaitSweepSettled();
+        assertThat(plugin.isReady()).isFalse();
+
+        for (long blockNumber = 1L; blockNumber <= 3L; blockNumber++) {
+            historic.put(blockNumber, buildBlock(blockNumber, blockNumber, hashes.afterBlock0()));
+        }
+        assertThat(StateManagementPluginTestSupport.awaitReady(plugin, 6_000L)).isTrue();
+        assertThat(plugin.attested().blockNumber()).isEqualTo(3L);
+        plugin.stop();
+    }
+
+    @Test
+    void sweepFailureLeavesPluginNotReadyThenRecovers(@TempDir final Path tmp) throws Exception {
+        final ChainHashes hashes = chainHashes(tmp);
+        final InMemoryHistoricalBlockFacility historic = new InMemoryHistoricalBlockFacility();
+        historic.put(0L, buildBlock(0L, 0L, hashes.genesis()));
+        historic.failNextBlockCalls(1);
+        final StateManagementPlugin plugin =
+                startPlugin(tmp.resolve("run"), historic, new TestBlockMessagingFacility(), 1);
+
+        // The first sweep throws on its first block fetch; the plugin must not claim readiness.
+        assertThat(plugin.isReady()).isFalse();
+        assertThat(StateManagementPluginTestSupport.awaitReady(plugin, 6_000L)).isTrue();
+        assertThat(plugin.isApplyHalted()).isFalse();
+        plugin.stop();
+    }
+
+    @Test
     void noHistoricalFacilityIsHandledGracefully(@TempDir final Path tmp) throws Exception {
         final StateManagementPlugin plugin = startPlugin(tmp, null);
         assertThat(StateManagementPluginTestSupport.awaitReady(plugin, 5_000L)).isTrue();
         assertThat(plugin.attested().state()).isNull();
         plugin.stop();
+    }
+
+    private record ChainHashes(Bytes genesis, Bytes afterBlock0) {}
+
+    /// Genesis and post-block-0 staged hashes, read from a throwaway plugin so tests can
+    /// pre-populate history before the plugin under test starts.
+    private static ChainHashes chainHashes(final Path tmp) throws Exception {
+        final InMemoryHistoricalBlockFacility historic = new InMemoryHistoricalBlockFacility();
+        final StateManagementPlugin probe = startPlugin(tmp.resolve("probe"), historic);
+        final Bytes genesis = probe.stagedStateRootHash();
+        historic.put(0L, buildBlock(0L, 0L, genesis));
+        probe.catchUpFromHistoricalBlocks();
+        final Bytes afterBlock0 = probe.stagedStateRootHash();
+        probe.stop();
+        return new ChainHashes(genesis, afterBlock0);
+    }
+
+    private static void awaitPendingBlocks(final StateManagementPlugin plugin, final int expected)
+            throws InterruptedException {
+        final long deadline = System.currentTimeMillis() + 4_000L;
+        while (plugin.pendingBlocksSize() != expected && System.currentTimeMillis() < deadline) {
+            Thread.sleep(10L);
+        }
+        assertThat(plugin.pendingBlocksSize()).isEqualTo(expected);
+    }
+
+    /// Give the startup sweep on the apply worker time to run and stall. With nothing staged
+    /// there is no observable signal to poll, so this is a short fixed settle; a premature
+    /// "ready" would still be caught by the later assertions.
+    private static void awaitSweepSettled() throws InterruptedException {
+        Thread.sleep(300L);
     }
 
     // ── Fixtures ───────────────────────────────────────────────────────────
@@ -255,13 +349,19 @@ class StateManagementCatchUpTest {
     }
 
     /**
-     * Tiny in-tree {@link HistoricalBlockFacility} backed by a LinkedHashMap of
+     * Tiny in-tree {@link HistoricalBlockFacility} backed by a map of
      * {@code blockNumber → BlockUnparsed}. The plugin's catch-up only reads
      * {@code block(n)} and {@code availableBlocks()}, so the other facility methods are
      * unimplemented.
      */
     private static final class InMemoryHistoricalBlockFacility implements HistoricalBlockFacility {
-        private final Map<Long, BlockUnparsed> blocks = new LinkedHashMap<>();
+        private final Map<Long, BlockUnparsed> blocks = new ConcurrentHashMap<>();
+        private final AtomicInteger blockFailures = new AtomicInteger();
+
+        /// Make the next `count` calls to `block(n)` throw, to simulate a failing sweep.
+        void failNextBlockCalls(final int count) {
+            blockFailures.set(count);
+        }
 
         void put(final long blockNumber, @NonNull final BlockUnparsed block) {
             blocks.put(blockNumber, block);
@@ -269,6 +369,9 @@ class StateManagementCatchUpTest {
 
         @Override
         public BlockAccessor block(final long blockNumber) {
+            if (blockFailures.getAndUpdate(n -> Math.max(0, n - 1)) > 0) {
+                throw new IllegalStateException("simulated block fetch failure");
+            }
             final BlockUnparsed block = blocks.get(blockNumber);
             return block == null ? null : new InMemoryAccessor(blockNumber, block);
         }
