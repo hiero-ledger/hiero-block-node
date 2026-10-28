@@ -186,6 +186,44 @@ class StateManagementCatchUpTest {
     }
 
     @Test
+    void staleVerifiedBlockIsNotStagedAndDoesNotStarveLiveBlocks(@TempDir final Path tmp) throws Exception {
+        final InMemoryHistoricalBlockFacility historic = new InMemoryHistoricalBlockFacility();
+        final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
+        final StateManagementPlugin plugin = startPlugin(tmp, historic, facility);
+        final Bytes genesisHash = plugin.stagedStateRootHash();
+        historic.put(0L, buildBlock(0L, 0L, genesisHash));
+        plugin.catchUpFromHistoricalBlocks();
+        final Bytes stagedAfter0 = plugin.stagedStateRootHash();
+        historic.put(1L, buildBlock(1L, 1L, stagedAfter0));
+        historic.put(2L, buildBlock(2L, 2L, stagedAfter0));
+        plugin.catchUpFromHistoricalBlocks();
+        assertThat(plugin.isApplyHalted()).isFalse();
+
+        // A backfill-sourced verification for an already-applied block (1), and a resend of the
+        // last applied block (2): neither may linger in pendingBlocks, since applyPending only
+        // ever removes expectedNext.
+        facility.sendBlockVerification(new VerificationNotification(
+                true, null, 1L, Bytes.fromHex("aabb"), buildBlock(1L, 1L, stagedAfter0), BlockSource.BACKFILL));
+        facility.sendBlockVerification(new VerificationNotification(
+                true, null, 2L, Bytes.fromHex("aabb"), buildBlock(2L, 2L, stagedAfter0), BlockSource.PUBLISHER));
+        assertThat(plugin.pendingBlocksSize())
+                .as("blocks at or below the last applied block must not be staged")
+                .isZero();
+
+        // The next live block still applies and leaves nothing behind that would keep
+        // pendingBlocks non-empty (which would schedule a gap retry for every later drain).
+        facility.sendBlockVerification(new VerificationNotification(
+                true, null, 3L, Bytes.fromHex("aabb"), buildBlock(3L, 3L, stagedAfter0), BlockSource.PUBLISHER));
+        final long deadline = System.currentTimeMillis() + 4_000L;
+        while (plugin.attested().blockNumber() < 2L && System.currentTimeMillis() < deadline) {
+            Thread.sleep(25L);
+        }
+        assertThat(plugin.attested().blockNumber()).isEqualTo(2L); // lag-1: applying 3 exposes 2
+        assertThat(plugin.pendingBlocksSize()).isZero();
+        plugin.stop();
+    }
+
+    @Test
     void noHistoricalFacilityIsHandledGracefully(@TempDir final Path tmp) throws Exception {
         final StateManagementPlugin plugin = startPlugin(tmp, null);
         assertThat(StateManagementPluginTestSupport.awaitReady(plugin, 5_000L)).isTrue();
