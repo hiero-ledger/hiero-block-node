@@ -154,7 +154,15 @@ public final class ThrottledServiceInterface implements ServiceInterface, StaleC
             replies.onError(new GrpcException(GrpcStatus.RESOURCE_EXHAUSTED, result.rejectionReason()));
             return Pipelines.noop();
         }
-        return delegate.open(method, options, new ReleasingPipeline(replies, result.releasePermit()));
+        try {
+            return delegate.open(method, options, new ReleasingPipeline(replies, result.releasePermit()));
+        } catch (final RuntimeException | Error e) {
+            // PBJ answers a throwing open() itself and never completes the pipeline handed in, so the
+            // ReleasingPipeline would never release. The release is idempotent, so this is safe even
+            // if the delegate already completed `replies` before throwing.
+            result.releasePermit().run();
+            throw e;
+        }
     }
 
     /// Admits a call to a method with no per-client gate configured, see
