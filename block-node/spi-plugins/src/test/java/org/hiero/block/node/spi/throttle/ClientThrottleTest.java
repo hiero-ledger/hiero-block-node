@@ -13,7 +13,8 @@ import org.junit.jupiter.api.Test;
 
 /// Verifies the permit reaper: a permit held past `maxPermitHoldSeconds` is force-released exactly
 /// once, a young or never-reaped permit is left alone, and a later real completion after a reap is
-/// a no-op rather than a double decrement.
+/// a no-op rather than a double decrement. Also covers lazy eviction of stale client state, driven
+/// by an explicit clock.
 class ClientThrottleTest {
     private static final long NOW = 1_000_000_000L;
     private static final long SECOND = 1_000_000_000L;
@@ -105,5 +106,24 @@ class ClientThrottleTest {
         assertEquals(1, gate.inFlight());
         assertEquals(0, neverReaps.permitHoldSeconds());
         assertEquals(10, throttleWithHold("other", 1, 10).permitHoldSeconds());
+    }
+
+    @Test
+    @DisplayName("A client idle past the TTL gets a fresh rate limiter on its next call; within the TTL it does not")
+    void lazyEvictionReplacesStaleClientState() {
+        // 1/s with no burst: without eviction resetting the limiter, any second call within 1s is rejected.
+        final ClientThrottle throttle = new ClientThrottle(
+                new PerClientThrottleSettings(1, 0, 1), gate, metrics, "svc", "lazy", Duration.ofMillis(20));
+        final long ttlNanos = Duration.ofMillis(20).toNanos();
+        // Separate clients per boundary: any call, even a rejected one, refreshes the client's last-seen time.
+        throttle.tryAdmit("withinTtl", NOW).releasePermit().run();
+        throttle.tryAdmit("pastTtl", NOW).releasePermit().run();
+
+        assertFalse(
+                throttle.tryAdmit("withinTtl", NOW + ttlNanos - 1).admitted(),
+                "within the TTL the client keeps its limiter, so the 1/s rate still applies");
+        assertTrue(
+                throttle.tryAdmit("pastTtl", NOW + ttlNanos).admitted(),
+                "past the TTL the idle client's state is replaced with a fresh limiter");
     }
 }

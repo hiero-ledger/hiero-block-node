@@ -237,24 +237,6 @@ class ThrottledServiceInterfaceTest {
     }
 
     @Test
-    @DisplayName("A client idle longer than the TTL gets a fresh rate-limit history on its next call")
-    void lazyEvictionReplacesStaleClientState() throws InterruptedException {
-        // 1/s with no burst tolerance: without TTL eviction resetting state, the second call would reject.
-        final ThrottledServiceInterface throttled = throttledWith(1, 0, 100, 100, Duration.ofMillis(20));
-        throttled.open(ONLY_METHOD, optionsFor("10.0.0.1"), new CapturingPipeline());
-        recordingService.capturedReplies.onComplete(); // free the concurrency slot
-
-        Thread.sleep(50); // exceed the 20ms TTL
-
-        final CapturingPipeline secondCallReplies = new CapturingPipeline();
-        throttled.open(ONLY_METHOD, optionsFor("10.0.0.1"), secondCallReplies);
-
-        assertTrue(
-                secondCallReplies.errors.isEmpty(),
-                "a fresh rate limiter after TTL-based eviction should admit this call despite the 1/s rate");
-    }
-
-    @Test
     @DisplayName("A delegate open() that throws releases the permits on both the per-client and global-only paths")
     void throwingDelegateOpenReleasesPermits() {
         // ONLY_METHOD has per-client settings; OTHER_METHOD has only a node-wide ceiling. Every
