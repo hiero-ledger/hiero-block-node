@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Tests for address-book-shrink.sh. Plain bash plus jq: run it directly.
-#   tools-and-tests/scripts/node-operations/test-address-book-shrink.sh
+#   tools-and-tests/scripts/node-operations/tests/test-address-book-shrink.sh
 
 set -uo pipefail
 
-SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/address-book-shrink.sh"
+SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/address-book-shrink.sh"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 PASS=0 FAIL=0
