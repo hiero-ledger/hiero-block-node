@@ -11,8 +11,8 @@ public class MetricsInjectionModuleTest {
 
     @Test
     void testBindMetricsService() throws IOException {
-        MetricsService metricsService = new MetricsServiceImpl(getTestConfiguration());
-
-        assertNotNull(metricsService);
+        try (MetricsService metricsService = new MetricsServiceImpl(getTestConfiguration())) {
+            assertNotNull(metricsService);
+        }
     }
 }

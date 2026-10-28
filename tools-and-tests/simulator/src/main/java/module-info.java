@@ -35,8 +35,8 @@ module org.hiero.block.simulator {
     requires static transitive com.google.auto.service;
     requires static java.compiler; // javax.annotation.processing.Generated
 
-    uses org.hiero.metrics.core.MetricsExporterFactory;
-
     provides com.swirlds.config.api.ConfigurationExtension with
             SimulatorConfigExtension;
+    provides org.hiero.metrics.core.MetricsRegistrationProvider with
+            org.hiero.block.simulator.metrics.SimulatorMetricsProvider;
 }

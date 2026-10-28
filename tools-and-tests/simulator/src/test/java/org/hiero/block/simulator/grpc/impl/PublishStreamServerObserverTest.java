@@ -21,6 +21,7 @@ import org.hiero.block.api.protoc.PublishStreamResponse;
 import org.hiero.block.simulator.fixtures.TestUtils;
 import org.hiero.block.simulator.metrics.MetricsService;
 import org.hiero.block.simulator.metrics.MetricsServiceImpl;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -41,6 +42,11 @@ class PublishStreamServerObserverTest {
         responseObserver = mock(StreamObserver.class);
         lastKnownStatuses = new ArrayDeque<>();
         observer = new PublishStreamServerObserver(responseObserver, metricsService, lastKnownStatuses, CAPACITY);
+    }
+
+    @AfterEach
+    void tearDown() throws IOException {
+        metricsService.close();
     }
 
     @Test

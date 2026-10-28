@@ -48,6 +48,7 @@ public class ConsumerStreamGrpcClientImplTest {
     private BlockStreamConfig blockStreamConfig;
 
     private ConsumerStreamGrpcClient consumerStreamGrpcClientImpl;
+    private MetricsService metricsService;
     private Server server;
 
     @BeforeEach
@@ -107,16 +108,17 @@ public class ConsumerStreamGrpcClientImplTest {
 
         final Configuration config = TestUtils.getTestConfiguration();
         ConsumerConfig consumerConfig = config.getConfigData(ConsumerConfig.class);
-        final MetricsService metricsService = new MetricsServiceImpl(config);
+        metricsService = new MetricsServiceImpl(config);
         consumerStreamGrpcClientImpl =
                 new ConsumerStreamGrpcClientImpl(grpcConfig, blockStreamConfig, consumerConfig, metricsService);
         consumerStreamGrpcClientImpl.init();
     }
 
     @AfterEach
-    public void tearDown() throws InterruptedException {
+    public void tearDown() throws InterruptedException, IOException {
         consumerStreamGrpcClientImpl.completeStreaming();
         server.shutdownNow();
+        metricsService.close();
     }
 
     @Test
