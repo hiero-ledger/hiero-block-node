@@ -4,6 +4,7 @@ package org.hiero.block.node.app;
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
+import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
@@ -18,7 +19,6 @@ import io.helidon.webserver.http.HttpService;
 import io.helidon.webserver.http2.Http2Config;
 import java.net.StandardSocketOptions;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
@@ -28,9 +28,11 @@ import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.function.ToIntFunction;
 import org.hiero.block.node.app.config.GlobalThrottleConfig;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -68,8 +70,11 @@ public class ServiceBuilderImpl implements ServiceBuilder {
     private WebServerResult generalWebserver;
     private final LinkedHashSet<WebServerResult> additionalWebservers;
 
-    /** Every throttled service this instance has created, for the periodic stale-client sweep. */
-    private final List<StaleClientSweepable> throttledServices = new ArrayList<>();
+    /**
+     * Every throttled service this instance has created, for the periodic stale-client sweep and permit
+     * reaper. Copy-on-write because registration adds on the startup thread while the executor iterates.
+     */
+    private final List<StaleClientSweepable> throttledServices = new CopyOnWriteArrayList<>();
     /** Lazily created on the first throttled registration; runs the stale-client-state sweep and permit reaper. */
     private ScheduledExecutorService clientStateSweepExecutor;
     /** The permit reaper's schedule, or null while no registered service reaps. */
@@ -191,10 +196,8 @@ public class ServiceBuilderImpl implements ServiceBuilder {
     /// Runs one permit-reaper pass across every throttled service registered so far.
     private void reapAllExpiredPermits() {
         final long now = System.nanoTime();
-        int totalReaped = 0;
-        for (final StaleClientSweepable throttled : throttledServices) {
-            totalReaped += throttled.reapExpiredPermits(now);
-        }
+        final int totalReaped =
+                runOnEachService(throttledServices, throttled -> throttled.reapExpiredPermits(now), "Permit reaper");
         if (totalReaped > 0) {
             LOGGER.log(DEBUG, "Permit reaper force-released {0} expired concurrency permits", totalReaped);
         }
@@ -203,11 +206,32 @@ public class ServiceBuilderImpl implements ServiceBuilder {
     /// Runs one stale-client-state sweep across every throttled service registered so far.
     private void sweepAllThrottledServices() {
         final long now = System.nanoTime();
-        int totalEvicted = 0;
-        for (final StaleClientSweepable throttled : throttledServices) {
-            totalEvicted += throttled.sweepStaleClients(now);
-        }
+        final int totalEvicted = runOnEachService(
+                throttledServices, throttled -> throttled.sweepStaleClients(now), "Stale-client sweep");
         LOGGER.log(TRACE, "Stale-client sweep evicted {0} client-state entries", totalEvicted);
+    }
+
+    /// Runs one periodic pass over each throttled service and sums the results. A failure in one
+    /// service is logged and skipped, never thrown: an exception escaping a `scheduleAtFixedRate`
+    /// task cancels every later run, and stays hidden in the task's `ScheduledFuture`.
+    ///
+    /// @param services the throttled services to visit
+    /// @param pass the per-service work, returning a count
+    /// @param passName names the pass in the failure log
+    /// @return the sum of `pass` over every service that did not throw
+    static int runOnEachService(
+            @NonNull final List<? extends StaleClientSweepable> services,
+            @NonNull final ToIntFunction<StaleClientSweepable> pass,
+            @NonNull final String passName) {
+        int total = 0;
+        for (final StaleClientSweepable throttled : services) {
+            try {
+                total += pass.applyAsInt(throttled);
+            } catch (final RuntimeException e) {
+                LOGGER.log(WARNING, passName + " failed for a throttled service; continuing with the rest", e);
+            }
+        }
+        return total;
     }
 
     /// Returns all HTTP routing builders keyed by port.
