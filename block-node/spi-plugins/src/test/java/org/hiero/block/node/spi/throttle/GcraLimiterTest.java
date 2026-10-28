@@ -11,11 +11,16 @@ import org.junit.jupiter.api.Test;
 class GcraLimiterTest {
 
     @Test
-    @DisplayName("First call on a fresh limiter is always admitted")
-    void firstCallAdmitted() {
-        final long now = System.nanoTime();
-        final GcraLimiter limiter = new GcraLimiter(10, 0, now);
-        assertTrue(limiter.tryAcquire(now));
+    @DisplayName("A fresh limiter admits its first call and full burst whatever the clock's origin, even negative")
+    void freshLimiterAdmitsRegardlessOfClockOrigin() {
+        // System.nanoTime() has an arbitrary origin and may be negative; a zero-seeded TAT would reject these.
+        for (final long origin : new long[] {System.nanoTime(), 0L, -1_000_000_000L, Long.MIN_VALUE / 2}) {
+            final GcraLimiter limiter = new GcraLimiter(10, 2, origin); // burst of 2 => 3 immediate calls
+            assertTrue(limiter.tryAcquire(origin), "first call, origin " + origin);
+            assertTrue(limiter.tryAcquire(origin), "first burst call, origin " + origin);
+            assertTrue(limiter.tryAcquire(origin), "second burst call, origin " + origin);
+            assertFalse(limiter.tryAcquire(origin), "beyond the burst, origin " + origin);
+        }
     }
 
     @Test
