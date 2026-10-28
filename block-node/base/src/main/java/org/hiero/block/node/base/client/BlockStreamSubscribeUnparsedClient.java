@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Flow;
+import java.util.concurrent.atomic.AtomicReference;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse;
 import org.hiero.block.internal.BlockItemUnparsed;
@@ -110,6 +111,8 @@ public class BlockStreamSubscribeUnparsedClient {
      * The {@link CountDownLatch} establishes happens-before from callback threads to the waiter.
      */
     private static final class RequestContext {
+        private static final Object COMPLETED = new Object();
+
         final CountDownLatch done = new CountDownLatch(1);
         final List<BlockUnparsed> blocks = new ArrayList<>();
         final long startBlock;
@@ -118,7 +121,10 @@ public class BlockStreamSubscribeUnparsedClient {
         long expectedBlockNumber;
         List<BlockItemUnparsed> currentBlockItems = new ArrayList<>();
         boolean blockStarted;
-        Throwable error;
+        /// How the request ended: [#COMPLETED] or the failure. Set once, by whichever of [#complete()]
+        /// and [#fail(Throwable)] gets there first, so a timeout failure racing with the last block
+        /// cannot be applied on top of a completed request or the other way around.
+        private final AtomicReference<Object> outcome = new AtomicReference<>();
 
         RequestContext(long startBlock, long endBlock) {
             this.startBlock = startBlock;
@@ -128,19 +134,19 @@ public class BlockStreamSubscribeUnparsedClient {
         }
 
         boolean isFinished() {
-            return done.getCount() == 0;
+            return outcome.get() != null;
         }
 
         void fail(Throwable t) {
-            if (isFinished()) {
-                return;
+            if (outcome.compareAndSet(null, t)) {
+                done.countDown();
             }
-            this.error = t;
-            done.countDown();
         }
 
         void complete() {
-            done.countDown();
+            if (outcome.compareAndSet(null, COMPLETED)) {
+                done.countDown();
+            }
         }
 
         List<BlockUnparsed> await(long timeoutMs) {
@@ -160,8 +166,8 @@ public class BlockStreamSubscribeUnparsedClient {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
-            if (error != null) {
-                throw new RuntimeException("Error fetching blocks", error);
+            if (outcome.get() instanceof Throwable failure) {
+                throw new RuntimeException("Error fetching blocks", failure);
             }
             return blocks;
         }

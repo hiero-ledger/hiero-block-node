@@ -530,12 +530,11 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 final String adjustedLiveTailGapMsg = "Adjusted live-tail gap from [{0}] to [{1}]";
                 LOGGER.log(DEBUG, adjustedLiveTailGapMsg, gap.range(), effectiveGap.range());
             }
-            final String updatedHighWaterMarkMsg = "Updated liveTailHighWaterMark to [{0}]";
-            LOGGER.log(TRACE, updatedHighWaterMarkMsg, gap.range().end());
-
             final String submittingGapMsg = "Submitting gap type=[{0}] range=[{1}] to scheduler";
             LOGGER.log(DEBUG, submittingGapMsg, effectiveGap.type(), effectiveGap.range());
             if (submitGap(effectiveGap)) {
+                final String updatedHighWaterMarkMsg = "Updated liveTailHighWaterMark to [{0}]";
+                LOGGER.log(TRACE, updatedHighWaterMarkMsg, gap.range().end());
                 return true;
             }
             // The gap never reached a scheduler, so give the range back for the next scan to rediscover.

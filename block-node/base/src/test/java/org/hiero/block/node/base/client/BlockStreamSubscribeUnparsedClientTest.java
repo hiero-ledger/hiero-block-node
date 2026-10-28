@@ -15,6 +15,7 @@ import com.hedera.pbj.runtime.grpc.GrpcCall;
 import com.hedera.pbj.runtime.grpc.GrpcClient;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import java.util.List;
+import java.util.concurrent.locks.LockSupport;
 import java.util.function.Consumer;
 import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.SubscribeStreamResponse;
@@ -135,6 +136,56 @@ class BlockStreamSubscribeUnparsedClientTest {
             });
 
             assertThat(client.getBatchOfBlocks(7, 7)).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("A failure is not overwritten by blocks that arrive after it")
+        void failureIsNotOverwrittenByLaterCompletion() {
+            final BlockStreamSubscribeUnparsedClient client = clientWithPeer(pipeline -> {
+                sendFullBlock(pipeline, 7);
+                pipeline.onError(new RuntimeException("connection reset"));
+                sendFullBlock(pipeline, 8);
+            });
+
+            assertThatThrownBy(() -> client.getBatchOfBlocks(7, 8))
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessage("Error fetching blocks")
+                    .cause()
+                    .hasMessage("connection reset");
+        }
+
+        @Test
+        @DisplayName(
+                "A timeout racing with the last block ends as either the full range or a failure, never a partial list")
+        void timeoutRacingWithCompletionNeverReturnsPartialBlocks() {
+            for (int attempt = 0; attempt < 100; attempt++) {
+                final GrpcClient grpcClient = mock(GrpcClient.class);
+                doAnswer(invocation -> {
+                            final Pipeline<SubscribeStreamResponseUnparsed> pipeline = invocation.getArgument(3);
+                            final GrpcCall<?, ?> call = mock(GrpcCall.class);
+                            doAnswer(sent -> {
+                                        sendFullBlock(pipeline, 7);
+                                        Thread.ofPlatform().daemon().start(() -> {
+                                            LockSupport.parkNanos(1_000_000L);
+                                            sendFullBlock(pipeline, 8);
+                                        });
+                                        return null;
+                                    })
+                                    .when(call)
+                                    .sendRequest(any(), anyBoolean());
+                            return call;
+                        })
+                        .when(grpcClient)
+                        .createCall(any(), any(), any(), any(), anyMap());
+                final BlockStreamSubscribeUnparsedClient client =
+                        new BlockStreamSubscribeUnparsedClient(grpcClient, 1L);
+
+                try {
+                    assertThat(client.getBatchOfBlocks(7, 8)).hasSize(2);
+                } catch (final RuntimeException timedOut) {
+                    assertThat(timedOut).hasMessage("Error fetching blocks");
+                }
+            }
         }
 
         @Test
