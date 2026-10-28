@@ -53,6 +53,8 @@ jobs:
             target: base-image
           - image: ${{ github.repository }}-solo-dev
             target: solo-dev
+          - image: ${{ github.repository }}-full
+            target: full
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
@@ -73,8 +75,8 @@ jobs:
       - name: Build
         run: ${GRADLE_EXEC} clean assemble
 
-      - name: Prepare plugin JARs for solo-dev image
-        run: ${GRADLE_EXEC} :app:prepareDockerPlugins
+      - name: Prepare plugin JARs for solo-dev and full images
+        run: ${GRADLE_EXEC} :app:prepareDockerPlugins :app:assemblePluginCatalog
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -123,6 +125,7 @@ jobs:
             SOURCE_DATE_EPOCH=${{ env.SOURCE_DATE_EPOCH }}
           build-contexts: |
             distributions=./block-node/app/build/distributions
+            catalog=./block-node/app/build/plugin-catalog
 
   publish-jars:
     timeout-minutes: 30

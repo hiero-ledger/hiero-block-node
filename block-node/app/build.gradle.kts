@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import java.lang.module.ModuleFinder
+import java.nio.file.Files
+import java.nio.file.Path
 
 plugins {
     id("org.hiero.gradle.module.library")
@@ -13,16 +15,13 @@ description = "Hiero Block Node Server App"
 // and then fix the reported issues.
 tasks.withType<JavaCompile>().configureEach { options.compilerArgs.add("-Xlint:-exports") }
 
-// Adjust the generated start scripts to use the 'lib' and 'plugins' folder for the module path.
-// The OCI image is built with only core dependencies. Plugins are downloaded at deployment time
-// into the 'plugins' folder, allowing dynamic selection of which plugins to load.
 tasks.startScripts {
+    val modulePathSnippet = layout.projectDirectory.file("start-script/module-path.sh")
+    inputs.file(modulePathSnippet)
     classpath = files()
     doLast {
         unixScript.writeText(
-            unixScript
-                .readText()
-                .replace("MODULE_PATH=\n", "MODULE_PATH=\$APP_HOME/lib/:\$APP_HOME/plugins/\n")
+            unixScript.readText().replace("MODULE_PATH=\n", modulePathSnippet.asFile.readText())
         )
     }
 }
@@ -139,6 +138,34 @@ dependencies {
     // when running the BN locally, we don't need or want to have the S3 plugins by default
     // blockNodePlugins(project(":cloud-storage-expanded"))
     // blockNodePlugins(project(":cloud-storage-archive"))
+}
+
+val catalogPluginPaths: List<String> =
+    blockNodePlugins.dependencies.withType<ProjectDependency>().map { it.path } -
+        ":hiero-dependency-versions" + ":cloud-storage-expanded"
+
+val coreRuntimeClasspath: Configuration = configurations.runtimeClasspath.get()
+
+// Resolved like runtimeClasspath so core jars can be dropped by module name.
+val pluginCatalogClasspaths: Map<String, FileCollection> = catalogPluginPaths.associate { path ->
+    val pluginName = path.substringAfterLast(":")
+    val catalogConfiguration =
+        configurations.create("pluginCatalog-$pluginName") {
+            isCanBeConsumed = false
+            coreRuntimeClasspath.attributes.keySet().forEach { key ->
+                @Suppress("UNCHECKED_CAST") val attribute = key as Attribute<Any>
+                attributes.attributeProvider(
+                    attribute,
+                    provider { coreRuntimeClasspath.attributes.getAttribute(attribute)!! },
+                )
+            }
+            shouldResolveConsistentlyWith(coreRuntimeClasspath)
+        }
+    dependencies {
+        add(catalogConfiguration.name, platform(project(":hiero-dependency-versions")))
+        add(catalogConfiguration.name, project(path))
+    }
+    pluginName to catalogConfiguration.incoming.files
 }
 
 /** Sets block node storage environment variables for the given data directory. */
@@ -290,9 +317,64 @@ val prepareDockerPlugins =
         }
     }
 
-// The solo-dev image stage bakes plugins (Dockerfile `COPY ./plugins`); prepare them before the
-// image build so it isn't shipped with an empty plugins dir. Only affects the solo-dev stage.
-createDockerImage.configure { dependsOn(prepareDockerPlugins) }
+val assemblePluginCatalog =
+    tasks.register("assemblePluginCatalog") {
+        description = "Assembles one directory per plugin with its non-core dependencies"
+        group = "docker"
+
+        val coreFiles: FileCollection = configurations.runtimeClasspath.get()
+        val pluginClasspaths: Map<String, FileCollection> = pluginCatalogClasspaths
+        val outputDir: File = layout.buildDirectory.dir("plugin-catalog").get().asFile
+
+        inputs.files(coreFiles).withPropertyName("core")
+        pluginClasspaths.forEach { (plugin, files) ->
+            inputs.files(files).withPropertyName("plugin.$plugin")
+        }
+        outputs.dir(outputDir)
+
+        doLast {
+            @Suppress("SpreadOperator")
+            val coreModules =
+                ModuleFinder.of(*coreFiles.files.map { it.toPath() }.toTypedArray()).findAll().map {
+                    it.descriptor()
+                }
+            val coreModuleNames: Set<String> = coreModules.map { it.name() }.toSet()
+            val corePackages: Set<String> = coreModules.flatMap { it.packages() }.toSet()
+            val jarByModule = mutableMapOf<String, String>()
+            val copiedJars = mutableMapOf<File, Path>()
+
+            outputDir.deleteRecursively()
+            pluginClasspaths.forEach { (plugin, files) ->
+                val pluginDir = File(outputDir, plugin).apply { mkdirs() }
+                files.files.forEach { jar ->
+                    val module = ModuleFinder.of(jar.toPath()).findAll().single().descriptor()
+                    if (module.name() in coreModuleNames) return@forEach
+                    val overlap = module.packages().intersect(corePackages)
+                    require(overlap.isEmpty()) {
+                        "$plugin: ${jar.name} (${module.name()}) contains packages already in core: $overlap"
+                    }
+                    val previous = jarByModule.putIfAbsent(module.name(), jar.name)
+                    require(previous == null || previous == jar.name) {
+                        "$plugin: module ${module.name()} resolved to both $previous and ${jar.name}"
+                    }
+                    val target = File(pluginDir, jar.name).toPath()
+                    val firstCopy = copiedJars[jar]
+                    if (firstCopy == null) {
+                        Files.copy(jar.toPath(), target)
+                        copiedJars[jar] = target
+                    } else {
+                        Files.createLink(target, firstCopy)
+                    }
+                }
+            }
+            logger.lifecycle(
+                "Assembled plugin catalog: ${pluginClasspaths.size} plugins, ${copiedJars.size} unique jars"
+            )
+        }
+    }
+
+// solo-dev bakes plugins/, full bakes plugin-catalog/
+createDockerImage.configure { dependsOn(prepareDockerPlugins, assemblePluginCatalog) }
 
 tasks.register<Exec>("startDockerContainer") {
     description = "Starts the docker container of the Block Node Server for the current version"

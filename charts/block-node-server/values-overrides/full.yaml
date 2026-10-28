@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# Full image: plugins.names selects from the image's plugin catalog, no Maven at pod start.
+image:
+  repository: ghcr.io/hiero-ledger/hiero-block-node-full
+
+plugins:
+  source: image

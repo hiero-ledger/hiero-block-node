@@ -6,3 +6,9 @@ Gradle tasks are of group `docker`
 - createDockerImage
 - startDockerContainer
 - stopDockerContainer
+
+`createDockerImage` builds three images from the `Dockerfile` stages:
+- `block-node-server` (`base-image`): core only; plugins are mounted or downloaded into `plugins/`.
+- `block-node-server-solo-dev` (`solo-dev`): every `blockNodePlugins` jar in `plugins/`, plus dev tools.
+- `block-node-server-full` (`full`): every plugin in `plugin-catalog/<plugin>/`, selected at start by
+the comma-separated `BN_PLUGINS` env var (default `all`).

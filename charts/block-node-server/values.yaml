@@ -108,6 +108,8 @@ tolerations: []
 affinity: {}
 
 plugins:
+  # maven: download plugins.names at pod start; image: select them from hiero-block-node-full's catalog
+  source: maven
   names: "backfill,block-access-service,block-verification,blocks-file-historic,blocks-file-recent,facility-messaging,health,roster-bootstrap-rsa,roster-bootstrap-tss,server-status,stream-publisher,stream-subscriber"
   # image for resolving and downloading the above plugins, should have JDK 25 and maven
   mavenImage: "maven:3-eclipse-temurin-25-alpine"

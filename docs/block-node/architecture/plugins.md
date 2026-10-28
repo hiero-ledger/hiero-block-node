@@ -75,6 +75,21 @@ their transitive dependencies are kept separate. At build time, tasks like `prep
 (for local Docker) and `prepareTestPlugins` (in the suites module) resolve the full plugin
 classpath, then filter out any jars already present in the core runtime to avoid duplicates.
 
+### Plugin Catalog (Full Image)
+
+The `assemblePluginCatalog` task builds `build/plugin-catalog/<plugin>/` for every
+`blockNodePlugins` entry plus `cloud-storage-expanded`. Each directory holds the plugin jar and
+its dependencies that are not in core. Each plugin is resolved like the core `runtimeClasspath`
+(same versions, same module patching), so core jars are removed by JPMS module name. The build
+fails if a remaining jar shares a package with core, or if one module resolves to different jars
+across plugins. Identical jars are hardlinked across directories.
+
+The `hiero-block-node-full` image ships this catalog. The start script builds the module path
+from `lib/`, then the `plugin-catalog/<plugin>/` directories listed in the comma-separated
+`BN_PLUGINS` env var (`all` selects every directory), then `plugins/`. A module present in several
+directories is loaded from the first one. With `BN_PLUGINS` unset, the module path is
+`lib/:plugins/`, as in the other images.
+
 ### How Other Projects Consume Plugins
 
 The E2E suites module ([`tools-and-tests/suites/build.gradle.kts`](https://github.com/hiero-ledger/hiero-block-node/blob/main/tools-and-tests/suites/build.gradle.kts))
@@ -89,6 +104,8 @@ directory that gets mounted into E2E test containers.
 
 The Block Node OCI image is published without plugins. Plugins are downloaded during deployment
 based on Helm chart configuration. This allows operators to select exactly which plugins to load.
+The `hiero-block-node-full` image instead ships every plugin prebuilt and selects them with
+`BN_PLUGINS`, so no download is needed at pod start (Helm `plugins.source: image`).
 
 For deployment configuration, including pre-defined profiles and custom plugin selection, see:
 - [Helm Chart Plugin Configuration](https://github.com/hiero-ledger/hiero-block-node/blob/main/charts/block-node-server/README.md#plugin-configuration)

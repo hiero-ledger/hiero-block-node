@@ -72,12 +72,14 @@ spec:
           persistentVolumeClaim:
             claimName: {{ .Values.blockNode.persistence.plugins.existingClaim }}
         {{- end }}
-      {{- if or .Values.blockNode.initContainers .Values.plugins.names .Values.blockNode.persistence.plugins.existingClaim }}
+      {{- $pluginsSource := include "hiero-block-node.pluginsSource" . }}
+      {{- $mavenPlugins := and (eq $pluginsSource "maven") .Values.plugins.names }}
+      {{- if or .Values.blockNode.initContainers $mavenPlugins .Values.blockNode.persistence.plugins.existingClaim }}
       initContainers:
         {{- with .Values.blockNode.initContainers }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-        {{- if .Values.plugins.names }}
+        {{- if $mavenPlugins }}
         - name: copy-core-modules
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           command: ["cp", "/opt/hiero/block-node/app-{{ include "hiero-block-node.appVersion" . }}/lib/.core-modules.txt", "/plugins/.core-modules.txt"]
@@ -218,6 +220,11 @@ spec:
             {{- end }}
             protocol: TCP
           {{- include "hiero-block-node.pluginContainerPorts" (dict "Values" .Values "hostPorts" $hostPorts) | nindent 10 }}
+        {{- if and (eq $pluginsSource "image") .Values.plugins.names }}
+        env:
+          - name: BN_PLUGINS
+            value: {{ .Values.plugins.names | quote }}
+        {{- end }}
         envFrom:
           - configMapRef:
               name: {{ include "hiero-block-node.fullname" . }}-config
@@ -247,7 +254,7 @@ spec:
             mountPath: {{ .Values.blockNode.backfill.path }}
             readOnly: true
           {{- end }}
-          {{- if or .Values.plugins.names .Values.blockNode.persistence.plugins.existingClaim }}
+          {{- if or $mavenPlugins .Values.blockNode.persistence.plugins.existingClaim }}
           - name: {{ default "plugins-storage" .Values.blockNode.persistence.plugins.volumeName }}
             mountPath: /opt/hiero/block-node/app-{{ include "hiero-block-node.appVersion" . }}/plugins
             readOnly: true
