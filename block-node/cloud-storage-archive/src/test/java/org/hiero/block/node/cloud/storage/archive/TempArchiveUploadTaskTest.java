@@ -37,7 +37,7 @@ import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -200,7 +200,7 @@ class TempArchiveUploadTaskTest {
         assertThat(notifications.getFirst().succeeded()).isTrue();
         assertThat(notifications.getFirst().blockSource()).isEqualTo(BlockSource.PUBLISHER);
         assertThat(asf.addedRanges).hasSize(1);
-        assertThat(asf.addedRanges.getFirst()).isEqualTo(new LongRange(0, 2));
+        assertThat(asf.addedRanges.getFirst()).isEqualTo(BlockRanges.of(0, 2));
     }
 
     /// Verifies that when [doCompleteMultipartUpload] throws, [call()] rethrows the exception,
@@ -267,7 +267,7 @@ class TempArchiveUploadTaskTest {
             assertThat(s3.listObjects(metaKey, 1)).doesNotContain(metaKey);
         }
         assertThat(asf.addedRanges).hasSize(1);
-        assertThat(asf.addedRanges.getFirst()).isEqualTo(new LongRange(0, 0));
+        assertThat(asf.addedRanges.getFirst()).isEqualTo(BlockRanges.of(0, 0));
         final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
         assertThat(notifications).hasSize(1);
         assertThat(notifications.getFirst().succeeded()).isTrue();
@@ -355,7 +355,7 @@ class TempArchiveUploadTaskTest {
         assertThat(notifications.getFirst().succeeded()).isTrue();
         assertThat(notifications.getFirst().blockSource()).isEqualTo(BlockSource.PUBLISHER);
         assertThat(asf.addedRanges).hasSize(1);
-        assertThat(asf.addedRanges.getFirst()).isEqualTo(new LongRange(0, 2));
+        assertThat(asf.addedRanges.getFirst()).isEqualTo(BlockRanges.of(0, 2));
     }
 
     /// Verifies that when [doUploadPart] throws during a mid-loop part flush, [call()] rethrows
@@ -450,7 +450,7 @@ class TempArchiveUploadTaskTest {
         assertThat(entry.firstBlock()).isZero();
         assertThat(entry.lastBlock()).isEqualTo(numBlocks - 1L);
         assertThat(asf.addedRanges).hasSize(1);
-        assertThat(asf.addedRanges.getFirst()).isEqualTo(new LongRange(0, numBlocks - 1L));
+        assertThat(asf.addedRanges.getFirst()).isEqualTo(BlockRanges.of(0, numBlocks - 1L));
         final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
         assertThat(notifications).hasSize(1);
         assertThat(notifications.getFirst().blockNumber()).isEqualTo(numBlocks - 1L);
@@ -657,7 +657,7 @@ class TempArchiveUploadTaskTest {
     }
 
     private static final class TrackingApplicationStateFacility implements ApplicationStateFacility {
-        final List<LongRange> addedRanges = new ArrayList<>();
+        final List<BlockRange> addedRanges = new ArrayList<>();
 
         private volatile long nextExpectedBlock = -1L;
 
@@ -680,7 +680,7 @@ class TempArchiveUploadTaskTest {
         }
 
         @Override
-        public void addStoredBlockRange(LongRange blockRange) {
+        public void addStoredBlockRange(BlockRange blockRange) {
             addedRanges.add(blockRange);
         }
 

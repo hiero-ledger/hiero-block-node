@@ -29,7 +29,7 @@ import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
@@ -494,7 +494,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                     for (final TempArchiveEntry entry : result.tempArchives()) {
                         tempArchiveTracker.put(entry.firstBlock(), entry);
                         context.applicationStateFacility()
-                                .addStoredBlockRange(new LongRange(entry.firstBlock(), entry.lastBlock()));
+                                .addStoredBlockRange(BlockRanges.of(entry.firstBlock(), entry.lastBlock()));
                     }
                     LOGGER.log(
                             TRACE,
@@ -524,7 +524,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                         if (result.completedRanges() == null && nextBlockToQueue > 0) {
                             // Case 2 (resume): completed archives unknown; fall back to broad range
                             context.applicationStateFacility()
-                                    .addStoredBlockRange(new LongRange(0, nextBlockToQueue - 1));
+                                    .addStoredBlockRange(BlockRanges.of(0, nextBlockToQueue - 1));
                         }
                         currentBlockQueue = new LinkedBlockingQueue<>();
                         currentUploadFuture = virtualThreadExecutor.submit(new BlockUploadTask(

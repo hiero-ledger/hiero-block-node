@@ -42,7 +42,7 @@ import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.health.HealthFacility;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 import org.hiero.block.node.spi.module.SemanticVersionUtility;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.hiero.metrics.LongGauge;
@@ -308,7 +308,7 @@ public class BlockNodeApp implements HealthFacility {
                 historicalBlockFacility
                         .availableBlocks()
                         .streamRanges()
-                        .map(LongRange::toString)
+                        .map(BlockRanges::toString)
                         .collect(Collectors.joining(", ")));
         // Publish a metric with the full version in a label,
         // and the major version as the value.

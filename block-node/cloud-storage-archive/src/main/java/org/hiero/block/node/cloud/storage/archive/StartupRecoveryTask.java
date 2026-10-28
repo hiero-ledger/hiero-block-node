@@ -19,7 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
-import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
+import org.hiero.block.node.base.ranges.ConcurrentBlockRangeSet;
 
 /// Determines where [CloudStorageArchivePlugin] should resume uploading after a restart.
 ///
@@ -141,11 +141,11 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
         final List<String> allTarKeys = findAllTarKeys(s3);
         if (allTarKeys.isEmpty()) {
             LOGGER.log(TRACE, "No prior state found in S3 bucket, starting fresh");
-            recoveryResult =
-                    new RecoveryResult(-1, null, null, 0, null, List.of(), List.of(), -1, new ConcurrentLongRangeSet());
+            recoveryResult = new RecoveryResult(
+                    -1, null, null, 0, null, List.of(), List.of(), -1, new ConcurrentBlockRangeSet());
         } else {
             final long groupSize = Math.powExact(10, config.groupingLevel());
-            final ConcurrentLongRangeSet completedRanges = new ConcurrentLongRangeSet();
+            final ConcurrentBlockRangeSet completedRanges = new ConcurrentBlockRangeSet();
             long maxGroupStart = -1;
             for (final String key : allTarKeys) {
                 final long groupStart = ArchiveKey.parse(key, config.groupingLevel(), config.objectKeyPrefix());
@@ -163,7 +163,7 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
                 // Every listed key was a foreign object; there is no prior archive state.
                 LOGGER.log(TRACE, "No valid archive objects found in S3 bucket, starting fresh");
                 recoveryResult = new RecoveryResult(
-                        -1, null, null, 0, null, List.of(), List.of(), -1, new ConcurrentLongRangeSet());
+                        -1, null, null, 0, null, List.of(), List.of(), -1, new ConcurrentBlockRangeSet());
             } else {
                 LOGGER.log(
                         TRACE,

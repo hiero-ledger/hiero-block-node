@@ -31,8 +31,8 @@ import org.hiero.block.api.NetworkConnection.IpProtocol;
 import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
-import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.block.node.base.ranges.ConcurrentBlockRangeSet;
+import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -484,7 +484,7 @@ class ApplicationStateUtilityTest {
         @Test
         @DisplayName("both empty yields empty list")
         void bothEmptyYieldsEmpty() {
-            assertTrue(ApplicationStateUtility.mergeRanges(new ConcurrentLongRangeSet(), new ConcurrentLongRangeSet())
+            assertTrue(ApplicationStateUtility.mergeRanges(new ConcurrentBlockRangeSet(), new ConcurrentBlockRangeSet())
                     .isEmpty());
         }
 
@@ -492,7 +492,7 @@ class ApplicationStateUtilityTest {
         @DisplayName("only storedBlocks has a range")
         void onlyStoredBlocksHasRange() {
             final List<BlockRange> result = ApplicationStateUtility.mergeRanges(
-                    new ConcurrentLongRangeSet(0, 99), new ConcurrentLongRangeSet());
+                    new ConcurrentBlockRangeSet(0, 99), new ConcurrentBlockRangeSet());
             assertEquals(1, result.size());
             assertEquals(0L, result.getFirst().rangeStart());
             assertEquals(99L, result.getFirst().rangeEnd());
@@ -502,7 +502,7 @@ class ApplicationStateUtilityTest {
         @DisplayName("only availableBlocks has a range")
         void onlyAvailableBlocksHasRange() {
             final List<BlockRange> result = ApplicationStateUtility.mergeRanges(
-                    new ConcurrentLongRangeSet(), new ConcurrentLongRangeSet(100, 199));
+                    new ConcurrentBlockRangeSet(), new ConcurrentBlockRangeSet(100, 199));
             assertEquals(1, result.size());
             assertEquals(100L, result.getFirst().rangeStart());
             assertEquals(199L, result.getFirst().rangeEnd());
@@ -511,8 +511,8 @@ class ApplicationStateUtilityTest {
         @Test
         @DisplayName("disjoint ranges from both sets appear as separate entries")
         void disjointRangesAppearSeparately() {
-            final ConcurrentLongRangeSet stored = new ConcurrentLongRangeSet(0, 49);
-            final ConcurrentLongRangeSet available = new ConcurrentLongRangeSet(100, 149);
+            final ConcurrentBlockRangeSet stored = new ConcurrentBlockRangeSet(0, 49);
+            final ConcurrentBlockRangeSet available = new ConcurrentBlockRangeSet(100, 149);
             final List<BlockRange> result = ApplicationStateUtility.mergeRanges(stored, available);
             assertEquals(2, result.size());
             assertEquals(0L, result.get(0).rangeStart());
@@ -525,7 +525,7 @@ class ApplicationStateUtilityTest {
         @DisplayName("overlapping ranges from both sets merge into one")
         void overlappingRangesMerge() {
             final List<BlockRange> result = ApplicationStateUtility.mergeRanges(
-                    new ConcurrentLongRangeSet(0, 100), new ConcurrentLongRangeSet(50, 200));
+                    new ConcurrentBlockRangeSet(0, 100), new ConcurrentBlockRangeSet(50, 200));
             assertEquals(1, result.size());
             assertEquals(0L, result.getFirst().rangeStart());
             assertEquals(200L, result.getFirst().rangeEnd());
@@ -535,7 +535,7 @@ class ApplicationStateUtilityTest {
         @DisplayName("identical ranges in both sets appear exactly once")
         void identicalRangesAppearOnce() {
             final List<BlockRange> result = ApplicationStateUtility.mergeRanges(
-                    new ConcurrentLongRangeSet(0, 99), new ConcurrentLongRangeSet(0, 99));
+                    new ConcurrentBlockRangeSet(0, 99), new ConcurrentBlockRangeSet(0, 99));
             assertEquals(1, result.size());
             assertEquals(0L, result.getFirst().rangeStart());
             assertEquals(99L, result.getFirst().rangeEnd());
@@ -545,7 +545,7 @@ class ApplicationStateUtilityTest {
         @DisplayName("adjacent ranges from both sets merge into one")
         void adjacentRangesMerge() {
             final List<BlockRange> result = ApplicationStateUtility.mergeRanges(
-                    new ConcurrentLongRangeSet(0, 49), new ConcurrentLongRangeSet(50, 99));
+                    new ConcurrentBlockRangeSet(0, 49), new ConcurrentBlockRangeSet(50, 99));
             assertEquals(List.of(new BlockRange(0L, 99L)), result);
         }
 
@@ -553,32 +553,32 @@ class ApplicationStateUtilityTest {
         @DisplayName("a range contained in a range of the other set is absorbed")
         void containedRangeIsAbsorbed() {
             final List<BlockRange> result = ApplicationStateUtility.mergeRanges(
-                    new ConcurrentLongRangeSet(0, 100), new ConcurrentLongRangeSet(20, 30));
+                    new ConcurrentBlockRangeSet(0, 100), new ConcurrentBlockRangeSet(20, 30));
             assertEquals(List.of(new BlockRange(0L, 100L)), result);
         }
 
         @Test
         @DisplayName("one range bridging several ranges of the other set merges them all")
         void bridgingRangeMergesMany() {
-            final ConcurrentLongRangeSet stored = new ConcurrentLongRangeSet();
-            stored.add(new LongRange(0, 9));
-            stored.add(new LongRange(20, 29));
-            stored.add(new LongRange(40, 49));
-            stored.add(new LongRange(100, 109));
+            final ConcurrentBlockRangeSet stored = new ConcurrentBlockRangeSet();
+            stored.add(BlockRanges.of(0, 9));
+            stored.add(BlockRanges.of(20, 29));
+            stored.add(BlockRanges.of(40, 49));
+            stored.add(BlockRanges.of(100, 109));
             final List<BlockRange> result =
-                    ApplicationStateUtility.mergeRanges(stored, new ConcurrentLongRangeSet(5, 45));
+                    ApplicationStateUtility.mergeRanges(stored, new ConcurrentBlockRangeSet(5, 45));
             assertEquals(List.of(new BlockRange(0L, 49L), new BlockRange(100L, 109L)), result);
         }
 
         @Test
         @DisplayName("interleaved ranges stay in ascending order")
         void interleavedRangesAreOrdered() {
-            final ConcurrentLongRangeSet stored = new ConcurrentLongRangeSet();
-            stored.add(new LongRange(0, 4));
-            stored.add(new LongRange(20, 24));
-            final ConcurrentLongRangeSet available = new ConcurrentLongRangeSet();
-            available.add(new LongRange(10, 14));
-            available.add(new LongRange(30, 34));
+            final ConcurrentBlockRangeSet stored = new ConcurrentBlockRangeSet();
+            stored.add(BlockRanges.of(0, 4));
+            stored.add(BlockRanges.of(20, 24));
+            final ConcurrentBlockRangeSet available = new ConcurrentBlockRangeSet();
+            available.add(BlockRanges.of(10, 14));
+            available.add(BlockRanges.of(30, 34));
             assertEquals(
                     List.of(
                             new BlockRange(0L, 4L),
@@ -593,66 +593,24 @@ class ApplicationStateUtilityTest {
         void matchesSetUnionForRandomInputs() {
             final Random random = new Random(3803);
             for (int round = 0; round < 200; round++) {
-                final ConcurrentLongRangeSet stored = randomRanges(random);
-                final ConcurrentLongRangeSet available = randomRanges(random);
-                final ConcurrentLongRangeSet union = new ConcurrentLongRangeSet();
+                final ConcurrentBlockRangeSet stored = randomRanges(random);
+                final ConcurrentBlockRangeSet available = randomRanges(random);
+                final ConcurrentBlockRangeSet union = new ConcurrentBlockRangeSet();
                 union.addAll(stored);
                 union.addAll(available);
-                final List<BlockRange> expected = union.streamRanges()
-                        .map(r -> new BlockRange(r.start(), r.end()))
-                        .toList();
+                final List<BlockRange> expected = union.streamRanges().toList();
                 assertEquals(expected, ApplicationStateUtility.mergeRanges(stored, available));
             }
         }
 
-        private static ConcurrentLongRangeSet randomRanges(final Random random) {
-            final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet();
+        private static ConcurrentBlockRangeSet randomRanges(final Random random) {
+            final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet();
             final int count = random.nextInt(20);
             for (int i = 0; i < count; i++) {
                 final long start = random.nextInt(300);
-                set.add(new LongRange(start, start + random.nextInt(15)));
+                set.add(BlockRanges.of(start, start + random.nextInt(15)));
             }
             return set;
-        }
-    }
-
-    // ---- toBlockRange ---------------------------------------------------------------------------
-
-    @Nested
-    @DisplayName("toBlockRange")
-    class ToBlockRange {
-
-        @Test
-        @DisplayName("empty set yields empty list")
-        void emptySetYieldsEmpty() {
-            assertTrue(ApplicationStateUtility.toBlockRange(new ConcurrentLongRangeSet())
-                    .isEmpty());
-        }
-
-        @Test
-        @DisplayName("single range converts to one BlockRange with correct bounds")
-        void singleRangeConverts() {
-            final List<BlockRange> result = ApplicationStateUtility.toBlockRange(new ConcurrentLongRangeSet(10, 20));
-            assertEquals(1, result.size());
-            assertEquals(10L, result.getFirst().rangeStart());
-            assertEquals(20L, result.getFirst().rangeEnd());
-        }
-
-        @Test
-        @DisplayName("multiple disjoint ranges each become a BlockRange in ascending order")
-        void multipleRangesConvertInOrder() {
-            final ConcurrentLongRangeSet rangeSet = new ConcurrentLongRangeSet();
-            rangeSet.add(new LongRange(0, 9));
-            rangeSet.add(new LongRange(20, 29));
-            rangeSet.add(new LongRange(50, 59));
-            final List<BlockRange> result = ApplicationStateUtility.toBlockRange(rangeSet);
-            assertEquals(3, result.size());
-            assertEquals(0L, result.get(0).rangeStart());
-            assertEquals(9L, result.get(0).rangeEnd());
-            assertEquals(20L, result.get(1).rangeStart());
-            assertEquals(29L, result.get(1).rangeEnd());
-            assertEquals(50L, result.get(2).rangeStart());
-            assertEquals(59L, result.get(2).rangeEnd());
         }
     }
 

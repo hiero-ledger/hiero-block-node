@@ -35,7 +35,7 @@ import java.util.stream.Stream;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.CompressionType;
-import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
+import org.hiero.block.node.base.ranges.ConcurrentBlockRangeSet;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
@@ -124,7 +124,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
     /** The block messaging facility. */
     private BlockMessagingFacility blockMessaging;
     /** The set of available blocks. */
-    private final ConcurrentLongRangeSet availableBlocks = new ConcurrentLongRangeSet();
+    private final ConcurrentBlockRangeSet availableBlocks = new ConcurrentBlockRangeSet();
     /** Running total of bytes stored in the recent tier */
     private final AtomicLong totalBytesStored = new AtomicLong(0);
     /** The Storage Retention Policy Threshold */

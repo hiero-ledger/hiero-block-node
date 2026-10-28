@@ -57,7 +57,7 @@ import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.app.config.node.NodeConfig;
-import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
+import org.hiero.block.node.base.ranges.ConcurrentBlockRangeSet;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
@@ -148,7 +148,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// this node already holds, so no resend may be scheduled for it. Kept as ranges so a long
     /// run of blocks costs almost nothing. Entries are dropped once acknowledged, or when they
     /// fall more than {@link #staleResendPruneBuffer} behind.
-    private final ConcurrentLongRangeSet persistedAheadOfAck;
+    private final ConcurrentBlockRangeSet persistedAheadOfAck;
     private final ConcurrentSkipListMap<Long, Long> activeResendBlocks;
     /// Flow state per handler ID; created in addHandler, removed in removeHandler.
     private final ConcurrentSkipListMap<Long, HandlerFlowState> handlerFlowState;
@@ -192,7 +192,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         blockProofs = new ConcurrentSkipListMap<>();
         endBlocksReceived = new ConcurrentSkipListSet<>();
         blocksToResend = new ConcurrentSkipListSet<>();
-        persistedAheadOfAck = new ConcurrentLongRangeSet();
+        persistedAheadOfAck = new ConcurrentBlockRangeSet();
         activeResendBlocks = new ConcurrentSkipListMap<>();
         activeStreamHandlerByBlock = new ConcurrentSkipListMap<>();
         handlerFlowState = new ConcurrentSkipListMap<>();

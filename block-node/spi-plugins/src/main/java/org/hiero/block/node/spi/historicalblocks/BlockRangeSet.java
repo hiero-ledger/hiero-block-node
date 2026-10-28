@@ -5,6 +5,7 @@ import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
 import java.util.stream.LongStream;
 import java.util.stream.Stream;
+import org.hiero.block.api.BlockRange;
 
 /**
  * Interface representing a set of long block numbers stored as contiguous ranges. It provides methods to add, remove,
@@ -47,7 +48,7 @@ public interface BlockRangeSet {
         }
 
         @Override
-        public Stream<LongRange> streamRanges() {
+        public Stream<BlockRange> streamRanges() {
             return Stream.empty();
         }
     };
@@ -102,5 +103,5 @@ public interface BlockRangeSet {
      *
      * @return a stream of block number ranges
      */
-    Stream<LongRange> streamRanges();
+    Stream<BlockRange> streamRanges();
 }

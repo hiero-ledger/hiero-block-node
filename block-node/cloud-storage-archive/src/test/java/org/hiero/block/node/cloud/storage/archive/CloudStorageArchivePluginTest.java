@@ -39,6 +39,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.logging.Logger;
 import java.util.stream.Stream;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
@@ -58,8 +59,8 @@ import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureInfo;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
+import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -1640,10 +1641,10 @@ class CloudStorageArchivePluginTest {
             assertThat(plugin.metricsHolder().duplicateBlocksDiscarded().get()).isEqualTo(4L);
         }
 
-        private final List<LongRange> capturedRanges = new ArrayList<>();
+        private final List<BlockRange> capturedRanges = new ArrayList<>();
 
         @Override
-        public void addStoredBlockRange(LongRange blockRange) {
+        public void addStoredBlockRange(BlockRange blockRange) {
             super.addStoredBlockRange(blockRange);
             capturedRanges.add(blockRange);
         }
@@ -1687,7 +1688,7 @@ class CloudStorageArchivePluginTest {
             sendVerification(TestBlockBuilder.generateBlocksInRange((int) groupSize, (int) groupSize)
                     .getFirst());
 
-            assertThat(capturedRanges).containsExactly(new LongRange(0, groupSize - 1));
+            assertThat(capturedRanges).containsExactly(BlockRanges.of(0, groupSize - 1));
         }
 
         /// Verifies that `CloudStorageArchivePlugin.completeRecovery()` calls
@@ -1718,7 +1719,7 @@ class CloudStorageArchivePluginTest {
             // so nextBlockNumber=4, meaning blocks 0–3 were stored before the crash.
             sendVerification(TestBlockBuilder.generateBlocksInRange(4, 4).getFirst());
 
-            assertThat(capturedRanges).containsExactly(new LongRange(0, 3));
+            assertThat(capturedRanges).containsExactly(BlockRanges.of(0, 3));
         }
 
         /// Verifies that when `.meta` companion files for temp archives are present in S3, startup
@@ -1764,7 +1765,7 @@ class CloudStorageArchivePluginTest {
             assertThat(plugin.tempArchiveTracker.get(5L).lastBlock()).isEqualTo(9L);
             assertThat(plugin.tempArchiveTracker).containsKey(20L);
             assertThat(plugin.tempArchiveTracker.get(20L).lastBlock()).isEqualTo(29L);
-            assertThat(capturedRanges).contains(new LongRange(5, 9), new LongRange(20, 29));
+            assertThat(capturedRanges).contains(BlockRanges.of(5, 9), BlockRanges.of(20, 29));
         }
 
         /// Verifies the full resume-from-hanging-temp-archive path end-to-end: a hanging temp

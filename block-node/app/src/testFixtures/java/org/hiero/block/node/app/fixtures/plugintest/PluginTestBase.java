@@ -24,7 +24,7 @@ import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.api.TssData;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
-import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
+import org.hiero.block.node.base.ranges.ConcurrentBlockRangeSet;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -38,7 +38,6 @@ import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.block.node.spi.module.SemanticVersionUtility;
 import org.hiero.metrics.core.Metric;
 import org.hiero.metrics.core.MetricKey;
@@ -80,7 +79,7 @@ public abstract class PluginTestBase<
     /** The historical block facility used by the current test, retained for doStart(). */
     private HistoricalBlockFacility activeHistoricalBlockFacility;
     /** The stored-block set backing {@link #addStoredBlockRange} and {@link #updateStoredBlocks}. */
-    protected final ConcurrentLongRangeSet appStoredBlocks = new ConcurrentLongRangeSet();
+    protected final ConcurrentBlockRangeSet appStoredBlocks = new ConcurrentBlockRangeSet();
 
     protected List<BlockRange> storedBlocks = List.of();
     protected List<BlockRange> availableBlocks = List.of();
@@ -361,7 +360,7 @@ public abstract class PluginTestBase<
     }
 
     @Override
-    public void addStoredBlockRange(final LongRange blockRange) {
+    public void addStoredBlockRange(final BlockRange blockRange) {
         appStoredBlocks.add(blockRange);
     }
 
@@ -393,7 +392,7 @@ public abstract class PluginTestBase<
      *
      * @param blockRange the contiguous range of block numbers being reported as stored
      */
-    public void updateStoredBlocks(LongRange blockRange) {
+    public void updateStoredBlocks(BlockRange blockRange) {
         appStoredBlocks.add(blockRange);
         refreshContext();
     }
@@ -407,17 +406,12 @@ public abstract class PluginTestBase<
      * observes the change without waiting for a real notification.
      */
     protected void refreshContext() {
-        final ConcurrentLongRangeSet merged = new ConcurrentLongRangeSet();
+        final ConcurrentBlockRangeSet merged = new ConcurrentBlockRangeSet();
         merged.addAll(appStoredBlocks);
         merged.addAll(activeHistoricalBlockFacility.availableBlocks());
-        final List<BlockRange> mergedRanges = merged.streamRanges()
-                .map(r -> new BlockRange(r.start(), r.end()))
-                .toList();
-        final List<BlockRange> available = activeHistoricalBlockFacility
-                .availableBlocks()
-                .streamRanges()
-                .map(r -> new BlockRange(r.start(), r.end()))
-                .toList();
+        final List<BlockRange> mergedRanges = merged.streamRanges().toList();
+        final List<BlockRange> available =
+                activeHistoricalBlockFacility.availableBlocks().streamRanges().toList();
         storedBlocks = mergedRanges;
         blockMessaging.sendStoredBlocksUpdate(new StoredBlocksNotification(mergedRanges));
         blockMessaging.sendAvailableBlocksUpdate(new AvailableBlocksNotification(available));

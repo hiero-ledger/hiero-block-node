@@ -40,7 +40,7 @@ import org.hiero.block.api.TssData;
 import org.hiero.block.api.TssRoster;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.app.state.ApplicationStateConfig;
-import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
+import org.hiero.block.node.base.ranges.ConcurrentBlockRangeSet;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -93,10 +93,10 @@ class BlockNodeAppTest {
         plugin1 = createMockedPlugin(1, BlockNodePlugin.class);
         plugin2 = createMockedPlugin(2, BlockNodePlugin.class);
         providerPlugin1 = createMockedPlugin(1, BlockProviderPlugin.class);
-        when(providerPlugin1.availableBlocks()).thenReturn(new ConcurrentLongRangeSet(0, 10));
+        when(providerPlugin1.availableBlocks()).thenReturn(new ConcurrentBlockRangeSet(0, 10));
         when(providerPlugin1.defaultPriority()).thenReturn(1);
         providerPlugin2 = createMockedPlugin(2, BlockProviderPlugin.class);
-        when(providerPlugin2.availableBlocks()).thenReturn(new ConcurrentLongRangeSet(20, 30));
+        when(providerPlugin2.availableBlocks()).thenReturn(new ConcurrentBlockRangeSet(20, 30));
         when(providerPlugin2.defaultPriority()).thenReturn(2);
         // mock the messaging facility
         mockBlockMessagingFacility = spy(new TestBlockMessagingFacility());
@@ -619,7 +619,7 @@ class BlockNodeAppTest {
     @DisplayName("blocks reported during provider init reach a handler registered during init")
     void blocksReportedDuringProviderInitReachHandlerRegisteredDuringInit() throws Exception {
         final BlockProviderPlugin provider = createMockedPlugin(1, BlockProviderPlugin.class);
-        when(provider.availableBlocks()).thenReturn(new ConcurrentLongRangeSet(0, 10));
+        when(provider.availableBlocks()).thenReturn(new ConcurrentBlockRangeSet(0, 10));
         doAnswer(invocation -> {
                     final BlockNodeContext context = invocation.getArgument(0);
                     context.applicationStateFacility().updateAvailableBlocks();

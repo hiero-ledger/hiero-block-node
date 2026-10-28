@@ -32,7 +32,7 @@ import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.logging.TestLogHandler;
 import org.hiero.block.node.base.client.BlockNodeClient;
 import org.hiero.block.node.base.client.BlockStreamSubscribeUnparsedClient;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -116,7 +116,11 @@ class BackfillFetcherTest {
             Optional<NodeSelectionStrategy.NodeSelection> selection = client.selectNextChunk(
                     10,
                     30,
-                    Map.of(lowPriority, List.of(new LongRange(12, 30)), highPriority, List.of(new LongRange(10, 20))));
+                    Map.of(
+                            lowPriority,
+                            List.of(BlockRanges.of(12, 30)),
+                            highPriority,
+                            List.of(BlockRanges.of(10, 20))));
             assertTrue(selection.isPresent());
             assertEquals(highPriority, selection.get().nodeConfig());
             assertEquals(10, selection.get().startBlock());
@@ -132,7 +136,11 @@ class BackfillFetcherTest {
             Optional<NodeSelectionStrategy.NodeSelection> selection = client.selectNextChunk(
                     15,
                     30,
-                    Map.of(lowPriority, List.of(new LongRange(15, 25)), highPriority, List.of(new LongRange(15, 20))));
+                    Map.of(
+                            lowPriority,
+                            List.of(BlockRanges.of(15, 25)),
+                            highPriority,
+                            List.of(BlockRanges.of(15, 20))));
             assertTrue(selection.isPresent());
             assertEquals(lowPriority, selection.get().nodeConfig());
         }
@@ -144,7 +152,7 @@ class BackfillFetcherTest {
             final BackfillFetcher client = newClient(lowPriority);
 
             Optional<NodeSelectionStrategy.NodeSelection> selection =
-                    client.selectNextChunk(25, 30, Map.of(lowPriority, List.of(new LongRange(10, 20))));
+                    client.selectNextChunk(25, 30, Map.of(lowPriority, List.of(BlockRanges.of(10, 20))));
             assertTrue(selection.isEmpty());
         }
 
@@ -176,7 +184,8 @@ class BackfillFetcherTest {
             BackfillFetcher fetcher = createFetcherWithClient(nodeConfig, 3, metrics, successClient);
             assertEquals(
                     2,
-                    fetcher.fetchBlocksFromNode(nodeConfig, new LongRange(0, 1)).size());
+                    fetcher.fetchBlocksFromNode(nodeConfig, BlockRanges.of(0, 1))
+                            .size());
             assertEquals(retriesBefore, metrics.backfillRetries().get());
         }
 
@@ -189,8 +198,8 @@ class BackfillFetcherTest {
 
             BlockNodeClient mismatchClient = mockClientReturning(List.of(createTestBlock(0L)));
             BackfillFetcher fetcher = createFetcherWithClient(nodeConfig, 1, metrics, mismatchClient);
-            assertTrue(
-                    fetcher.fetchBlocksFromNode(nodeConfig, new LongRange(0, 1)).isEmpty());
+            assertTrue(fetcher.fetchBlocksFromNode(nodeConfig, BlockRanges.of(0, 1))
+                    .isEmpty());
         }
 
         @Test
@@ -203,8 +212,8 @@ class BackfillFetcherTest {
             long retriesBefore = metrics.backfillRetries().get();
             BlockNodeClient failingClient = mockClientThrowing(new RuntimeException("fail"));
             BackfillFetcher fetcher = createFetcherWithClient(nodeConfig, 2, metrics, failingClient);
-            assertTrue(
-                    fetcher.fetchBlocksFromNode(nodeConfig, new LongRange(0, 1)).isEmpty());
+            assertTrue(fetcher.fetchBlocksFromNode(nodeConfig, BlockRanges.of(0, 1))
+                    .isEmpty());
             assertEquals(retriesBefore + 1, metrics.backfillRetries().get());
         }
 
@@ -249,10 +258,10 @@ class BackfillFetcherTest {
 
             BlockNodeClient reachable = mockReachableClientWithStatus(0L, 100L);
             BackfillFetcher fetcher = createFetcherWithClient(nodeConfig, 1, createTestMetricsHolder(), reachable);
-            List<LongRange> ranges = fetcher.getNewAvailableRanges(10L);
+            List<BlockRange> ranges = fetcher.getNewAvailableRanges(10L);
             assertEquals(1, ranges.size());
-            assertEquals(11L, ranges.getFirst().start());
-            assertEquals(100L, ranges.getLast().end());
+            assertEquals(11L, ranges.getFirst().rangeStart());
+            assertEquals(100L, ranges.getLast().rangeEnd());
         }
 
         @Test
@@ -354,10 +363,10 @@ class BackfillFetcherTest {
             };
 
             // Should return range from healthy node
-            List<LongRange> ranges = fetcher.getNewAvailableRanges(10L);
+            List<BlockRange> ranges = fetcher.getNewAvailableRanges(10L);
             assertEquals(1, ranges.size());
-            assertEquals(11L, ranges.getFirst().start());
-            assertEquals(100L, ranges.getLast().end());
+            assertEquals(11L, ranges.getFirst().rangeStart());
+            assertEquals(100L, ranges.getLast().rangeEnd());
         }
     }
 
@@ -382,15 +391,15 @@ class BackfillFetcherTest {
                 }
 
                 @Override
-                protected List<LongRange> resolveAvailableRanges(BlockNodeClient node) {
-                    return List.of(new LongRange(0, 100));
+                protected List<BlockRange> resolveAvailableRanges(BlockNodeClient node) {
+                    return List.of(BlockRanges.of(0, 100));
                 }
             };
 
-            Map<BlockNodeSourceConfig, List<LongRange>> availability =
-                    fetcher.getAvailabilityForRange(new LongRange(10, 50));
+            Map<BlockNodeSourceConfig, List<BlockRange>> availability =
+                    fetcher.getAvailabilityForRange(BlockRanges.of(10, 50));
             assertFalse(availability.isEmpty());
-            assertEquals(new LongRange(10, 50), availability.get(nodeConfig).get(0));
+            assertEquals(BlockRanges.of(10, 50), availability.get(nodeConfig).get(0));
         }
 
         @Test
@@ -410,13 +419,13 @@ class BackfillFetcherTest {
                 }
 
                 @Override
-                protected List<LongRange> resolveAvailableRanges(BlockNodeClient node) {
-                    return List.of(new LongRange(0, 100));
+                protected List<BlockRange> resolveAvailableRanges(BlockNodeClient node) {
+                    return List.of(BlockRanges.of(0, 100));
                 }
             };
 
-            Map<BlockNodeSourceConfig, List<LongRange>> availability =
-                    fetcher.getAvailabilityForRange(new LongRange(200, 300));
+            Map<BlockNodeSourceConfig, List<BlockRange>> availability =
+                    fetcher.getAvailabilityForRange(BlockRanges.of(200, 300));
             assertTrue(availability.isEmpty());
         }
 
@@ -429,8 +438,8 @@ class BackfillFetcherTest {
             when(unreachable.isNodeReachable()).thenReturn(false);
             BackfillFetcher unreachableFetcher =
                     createFetcherWithClient(nodeConfig, 1, createTestMetricsHolder(), unreachable);
-            Map<BlockNodeSourceConfig, List<LongRange>> availability =
-                    unreachableFetcher.getAvailabilityForRange(new LongRange(0, 100));
+            Map<BlockNodeSourceConfig, List<BlockRange>> availability =
+                    unreachableFetcher.getAvailabilityForRange(BlockRanges.of(0, 100));
             assertTrue(availability.isEmpty());
         }
     }
@@ -467,7 +476,7 @@ class BackfillFetcherTest {
                 }
             };
 
-            fetcher.fetchBlocksFromNode(nodeConfig, new LongRange(0, 0));
+            fetcher.fetchBlocksFromNode(nodeConfig, BlockRanges.of(0, 0));
             assertTrue(fetcher.isInBackoff(nodeConfig));
             assertTrue(fetcher.healthScore(nodeConfig) >= healthPenalty);
         }
@@ -494,15 +503,15 @@ class BackfillFetcherTest {
                 }
 
                 @Override
-                protected List<LongRange> resolveAvailableRanges(BlockNodeClient node) {
-                    return List.of(new LongRange(0, 10), new LongRange(5, 15), new LongRange(16, 20));
+                protected List<BlockRange> resolveAvailableRanges(BlockNodeClient node) {
+                    return List.of(BlockRanges.of(0, 10), BlockRanges.of(5, 15), BlockRanges.of(16, 20));
                 }
             };
 
-            Map<BlockNodeSourceConfig, List<LongRange>> availability =
-                    fetcher.getAvailabilityForRange(new LongRange(0, 20));
+            Map<BlockNodeSourceConfig, List<BlockRange>> availability =
+                    fetcher.getAvailabilityForRange(BlockRanges.of(0, 20));
             assertEquals(1, availability.get(nodeConfig).size());
-            assertEquals(new LongRange(0, 20), availability.get(nodeConfig).get(0));
+            assertEquals(BlockRanges.of(0, 20), availability.get(nodeConfig).get(0));
         }
 
         @Test
@@ -522,13 +531,13 @@ class BackfillFetcherTest {
                 }
 
                 @Override
-                protected List<LongRange> resolveAvailableRanges(BlockNodeClient node) {
-                    return List.of(new LongRange(0, 10), new LongRange(50, 60));
+                protected List<BlockRange> resolveAvailableRanges(BlockNodeClient node) {
+                    return List.of(BlockRanges.of(0, 10), BlockRanges.of(50, 60));
                 }
             };
 
-            Map<BlockNodeSourceConfig, List<LongRange>> availability =
-                    fetcher.getAvailabilityForRange(new LongRange(0, 60));
+            Map<BlockNodeSourceConfig, List<BlockRange>> availability =
+                    fetcher.getAvailabilityForRange(BlockRanges.of(0, 60));
             assertEquals(2, availability.get(nodeConfig).size());
         }
     }
@@ -627,13 +636,13 @@ class BackfillFetcherTest {
                 }
 
                 @Override
-                protected List<LongRange> resolveAvailableRanges(BlockNodeClient node) {
-                    return List.of(new LongRange(0, 100));
+                protected List<BlockRange> resolveAvailableRanges(BlockNodeClient node) {
+                    return List.of(BlockRanges.of(0, 100));
                 }
             };
 
             // First call - all 3 nodes should be queried
-            fetcher.getAvailabilityForRange(new LongRange(0, 50));
+            fetcher.getAvailabilityForRange(BlockRanges.of(0, 50));
             assertEquals(3, clientCreationCount.get(), "All 3 nodes should be queried initially");
 
             // Now put node1 and node2 in backoff by marking failures
@@ -646,8 +655,8 @@ class BackfillFetcherTest {
             clientCreationCount.set(0);
 
             // Second call - only node3 should be queried (node1, node2 in backoff)
-            Map<BlockNodeSourceConfig, List<LongRange>> availability =
-                    fetcher.getAvailabilityForRange(new LongRange(0, 50));
+            Map<BlockNodeSourceConfig, List<BlockRange>> availability =
+                    fetcher.getAvailabilityForRange(BlockRanges.of(0, 50));
             assertEquals(1, clientCreationCount.get(), "Only 1 node should be queried when 2 are in backoff");
             assertTrue(availability.containsKey(node3), "node3 should be in availability");
             assertFalse(availability.containsKey(node1), "node1 should be skipped (in backoff)");
@@ -800,7 +809,7 @@ class BackfillFetcherTest {
             };
 
             // First call
-            List<LongRange> ranges = fetcher.getNewAvailableRanges(0L);
+            List<BlockRange> ranges = fetcher.getNewAvailableRanges(0L);
             assertFalse(ranges.isEmpty(), "Should get range from node2");
             assertEquals(1, node1Attempts.get(), "node1 should be attempted once");
             assertEquals(1, node2Attempts.get(), "node2 should be attempted once");

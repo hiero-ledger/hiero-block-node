@@ -22,7 +22,7 @@ import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 
 /// Archives a single contiguous batch of verified blocks into one `tar` file on S3-compatible
 /// cloud storage via a multipart upload.
@@ -274,7 +274,7 @@ public class BlockUploadTask implements Callable<UploadResult> {
                         CloudStorageArchivePlugin.CLOUD_ARCHIVE_PERSISTENCE_NOTIFICATION_PRIORITY,
                         last.getValue()));
                 final long rangeStart = blocksInBuffer.isEmpty() ? blockNum : blocksInBuffer.firstKey();
-                applicationStateFacility.addStoredBlockRange(new LongRange(rangeStart, last.getKey()));
+                applicationStateFacility.addStoredBlockRange(BlockRanges.of(rangeStart, last.getKey()));
                 metricsHolder.blocksWritten().increment(blocksInBuffer.size());
                 metricsHolder.storedBytes().increment(partSizeBytes);
                 // Reset the map so the caller starts fresh for the next part's worth of blocks.
@@ -339,7 +339,7 @@ public class BlockUploadTask implements Callable<UploadResult> {
                     true,
                     CloudStorageArchivePlugin.CLOUD_ARCHIVE_PERSISTENCE_NOTIFICATION_PRIORITY,
                     last.getValue()));
-            applicationStateFacility.addStoredBlockRange(new LongRange(blocksInBuffer.firstKey(), last.getKey()));
+            applicationStateFacility.addStoredBlockRange(BlockRanges.of(blocksInBuffer.firstKey(), last.getKey()));
             metricsHolder.blocksWritten().increment(blocksInBuffer.size());
             metricsHolder.storedBytes().increment(buffer.length);
         }

@@ -38,7 +38,6 @@ import org.hiero.block.api.TssData;
 import org.hiero.block.api.TssRoster;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 public class TestBlockNodeServer {
 
@@ -224,11 +223,11 @@ public class TestBlockNodeServer {
 
             BlockRange.Builder blockRangeBuilder = BlockRange.newBuilder();
 
-            for (LongRange longRange :
+            for (BlockRange longRange :
                     historicalBlockFacility.availableBlocks().streamRanges().toList()) {
                 blockRanges.add(blockRangeBuilder
-                        .rangeStart(longRange.start())
-                        .rangeEnd(longRange.end())
+                        .rangeStart(longRange.rangeStart())
+                        .rangeEnd(longRange.rangeEnd())
                         .build());
             }
 

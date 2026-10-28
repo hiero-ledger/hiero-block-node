@@ -9,33 +9,34 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Collections;
 import java.util.List;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.block.api.BlockRange;
+import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Unit tests for the {@link ConcurrentLongRangeSet} class.
+ * Unit tests for the {@link ConcurrentBlockRangeSet} class.
  */
-class ConcurrentLongRangeSetTest {
+class ConcurrentBlockRangeSetTest {
 
     /**
-     * Tests the creation of an empty ConcurrentLongRangeSet.
+     * Tests the creation of an empty ConcurrentBlockRangeSet.
      */
     @Test
-    @DisplayName("Constructor should create an empty ConcurrentLongRangeSet")
+    @DisplayName("Constructor should create an empty ConcurrentBlockRangeSet")
     void testConstructorEmpty() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet();
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet();
         assertEquals(0, set.size());
         assertEquals(0, set.rangeCount());
     }
 
     /**
-     * Tests the creation of a ConcurrentLongRangeSet with a single range.
+     * Tests the creation of a ConcurrentBlockRangeSet with a single range.
      */
     @Test
-    @DisplayName("Constructor should create a ConcurrentLongRangeSet with a single range")
+    @DisplayName("Constructor should create a ConcurrentBlockRangeSet with a single range")
     void testConstructorSingleRange() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet(1, 5);
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet(1, 5);
         assertEquals(5, set.size());
         assertEquals(1, set.rangeCount());
         assertTrue(set.contains(1));
@@ -45,14 +46,14 @@ class ConcurrentLongRangeSetTest {
     }
 
     /**
-     * Tests the creation of a ConcurrentLongRangeSet with multiple ranges.
+     * Tests the creation of a ConcurrentBlockRangeSet with multiple ranges.
      */
     @Test
-    @DisplayName("Constructor should create a ConcurrentLongRangeSet with multiple ranges")
+    @DisplayName("Constructor should create a ConcurrentBlockRangeSet with multiple ranges")
     void testConstructorMultipleRanges() {
-        final LongRange range1 = new LongRange(1, 5);
-        final LongRange range2 = new LongRange(10, 15);
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet(range1, range2);
+        final BlockRange range1 = BlockRanges.of(1, 5);
+        final BlockRange range2 = BlockRanges.of(10, 15);
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet(range1, range2);
         assertEquals(11, set.size());
         assertEquals(2, set.rangeCount());
         assertTrue(set.contains(1));
@@ -69,7 +70,7 @@ class ConcurrentLongRangeSetTest {
     @Test
     @DisplayName("add(long) should add a single value to the set")
     void testAddSingleValue() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet();
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet();
         set.add(5);
         assertTrue(set.contains(5));
         assertEquals(1, set.size());
@@ -82,7 +83,7 @@ class ConcurrentLongRangeSetTest {
     @Test
     @DisplayName("add(long, long) should add a range of values to the set")
     void testAddRange() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet();
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet();
         set.add(1, 5);
         assertTrue(set.contains(1));
         assertTrue(set.contains(5));
@@ -96,7 +97,7 @@ class ConcurrentLongRangeSetTest {
     @Test
     @DisplayName("remove(long) should remove a single value from the set")
     void testRemoveSingleValue() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet(1, 5);
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet(1, 5);
         set.remove(3);
         assertFalse(set.contains(3));
         assertEquals(4, set.size());
@@ -109,7 +110,7 @@ class ConcurrentLongRangeSetTest {
     @Test
     @DisplayName("remove(long, long) should remove a range of values from the set")
     void testRemoveRange() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet(1, 10);
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet(1, 10);
         set.remove(3, 7);
         assertFalse(set.contains(3));
         assertFalse(set.contains(7));
@@ -123,7 +124,7 @@ class ConcurrentLongRangeSetTest {
     @Test
     @DisplayName("size() should return the correct number of values in the set")
     void testSize() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet(1, 5);
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet(1, 5);
         assertEquals(5, set.size());
         set.add(10, 15);
         assertEquals(11, set.size());
@@ -137,7 +138,7 @@ class ConcurrentLongRangeSetTest {
     @Test
     @DisplayName("rangeCount() should return the correct number of ranges in the set")
     void testRangeCount() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet(1, 5);
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet(1, 5);
         assertEquals(1, set.rangeCount());
         set.add(10, 15);
         assertEquals(2, set.rangeCount());
@@ -151,7 +152,7 @@ class ConcurrentLongRangeSetTest {
     @Test
     @DisplayName("contains(long) should correctly determine if a value is in the set")
     void testContainsSingleValue() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet(1, 5);
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet(1, 5);
         assertTrue(set.contains(1));
         assertTrue(set.contains(5));
         assertFalse(set.contains(0));
@@ -164,7 +165,7 @@ class ConcurrentLongRangeSetTest {
     @Test
     @DisplayName("contains(long, long) should correctly determine if a range is in the set")
     void testContainsRange() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet(1, 10);
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet(1, 10);
         assertTrue(set.contains(1, 5));
         assertTrue(set.contains(5, 10));
         assertFalse(set.contains(0, 5));
@@ -177,7 +178,7 @@ class ConcurrentLongRangeSetTest {
     @Test
     @DisplayName("stream() should generate all values in the set")
     void testStream() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet(1, 5);
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet(1, 5);
         set.add(10, 15);
         final long[] values = set.stream().toArray();
         assertArrayEquals(new long[] {1, 2, 3, 4, 5, 10, 11, 12, 13, 14, 15}, values);
@@ -189,10 +190,10 @@ class ConcurrentLongRangeSetTest {
     @Test
     @DisplayName("streamRanges() should generate all ranges in the set")
     void testStreamRanges() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet(1, 5);
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet(1, 5);
         set.add(10, 15);
-        final LongRange[] ranges = set.streamRanges().toArray(LongRange[]::new);
-        assertArrayEquals(new LongRange[] {new LongRange(1, 5), new LongRange(10, 15)}, ranges);
+        final BlockRange[] ranges = set.streamRanges().toArray(BlockRange[]::new);
+        assertArrayEquals(new BlockRange[] {BlockRanges.of(1, 5), BlockRanges.of(10, 15)}, ranges);
     }
 
     /**
@@ -201,34 +202,34 @@ class ConcurrentLongRangeSetTest {
     @Test
     @DisplayName("mergeRange() should correctly handle non-overlapping ranges")
     void testMergeRangeNonOverlapping() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet();
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet();
 
         // Merge into empty list
-        List<LongRange> result = set.mergeRange(Collections.emptyList(), new LongRange(5, 10));
+        List<BlockRange> result = set.mergeRange(Collections.emptyList(), BlockRanges.of(5, 10));
         assertEquals(1, result.size());
-        assertEquals(new LongRange(5, 10), result.getFirst());
+        assertEquals(BlockRanges.of(5, 10), result.getFirst());
 
         // Merge before existing range
-        List<LongRange> existing = List.of(new LongRange(20, 30));
-        result = set.mergeRange(existing, new LongRange(5, 10));
+        List<BlockRange> existing = List.of(BlockRanges.of(20, 30));
+        result = set.mergeRange(existing, BlockRanges.of(5, 10));
         assertEquals(2, result.size());
-        assertEquals(new LongRange(5, 10), result.get(0));
-        assertEquals(new LongRange(20, 30), result.get(1));
+        assertEquals(BlockRanges.of(5, 10), result.get(0));
+        assertEquals(BlockRanges.of(20, 30), result.get(1));
 
         // Merge after existing range
-        existing = List.of(new LongRange(5, 10));
-        result = set.mergeRange(existing, new LongRange(20, 30));
+        existing = List.of(BlockRanges.of(5, 10));
+        result = set.mergeRange(existing, BlockRanges.of(20, 30));
         assertEquals(2, result.size());
-        assertEquals(new LongRange(5, 10), result.get(0));
-        assertEquals(new LongRange(20, 30), result.get(1));
+        assertEquals(BlockRanges.of(5, 10), result.get(0));
+        assertEquals(BlockRanges.of(20, 30), result.get(1));
 
         // Merge between existing ranges
-        existing = List.of(new LongRange(5, 10), new LongRange(20, 30));
-        result = set.mergeRange(existing, new LongRange(15, 17));
+        existing = List.of(BlockRanges.of(5, 10), BlockRanges.of(20, 30));
+        result = set.mergeRange(existing, BlockRanges.of(15, 17));
         assertEquals(3, result.size());
-        assertEquals(new LongRange(5, 10), result.get(0));
-        assertEquals(new LongRange(15, 17), result.get(1));
-        assertEquals(new LongRange(20, 30), result.get(2));
+        assertEquals(BlockRanges.of(5, 10), result.get(0));
+        assertEquals(BlockRanges.of(15, 17), result.get(1));
+        assertEquals(BlockRanges.of(20, 30), result.get(2));
     }
 
     /**
@@ -237,37 +238,37 @@ class ConcurrentLongRangeSetTest {
     @Test
     @DisplayName("mergeRange() should correctly merge overlapping ranges")
     void testMergeRangeOverlapping() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet();
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet();
 
         // Merge with partial overlap at beginning
-        List<LongRange> existing = List.of(new LongRange(5, 10));
-        List<LongRange> result = set.mergeRange(existing, new LongRange(3, 7));
+        List<BlockRange> existing = List.of(BlockRanges.of(5, 10));
+        List<BlockRange> result = set.mergeRange(existing, BlockRanges.of(3, 7));
         assertEquals(1, result.size());
-        assertEquals(new LongRange(3, 10), result.getFirst());
+        assertEquals(BlockRanges.of(3, 10), result.getFirst());
 
         // Merge with partial overlap at end
-        existing = List.of(new LongRange(5, 10));
-        result = set.mergeRange(existing, new LongRange(8, 15));
+        existing = List.of(BlockRanges.of(5, 10));
+        result = set.mergeRange(existing, BlockRanges.of(8, 15));
         assertEquals(1, result.size());
-        assertEquals(new LongRange(5, 15), result.getFirst());
+        assertEquals(BlockRanges.of(5, 15), result.getFirst());
 
         // Merge completely contained
-        existing = List.of(new LongRange(5, 15));
-        result = set.mergeRange(existing, new LongRange(7, 12));
+        existing = List.of(BlockRanges.of(5, 15));
+        result = set.mergeRange(existing, BlockRanges.of(7, 12));
         assertEquals(1, result.size());
-        assertEquals(new LongRange(5, 15), result.getFirst());
+        assertEquals(BlockRanges.of(5, 15), result.getFirst());
 
         // Merge completely containing
-        existing = List.of(new LongRange(7, 12));
-        result = set.mergeRange(existing, new LongRange(5, 15));
+        existing = List.of(BlockRanges.of(7, 12));
+        result = set.mergeRange(existing, BlockRanges.of(5, 15));
         assertEquals(1, result.size());
-        assertEquals(new LongRange(5, 15), result.getFirst());
+        assertEquals(BlockRanges.of(5, 15), result.getFirst());
 
         // Merge overlapping multiple ranges
-        existing = List.of(new LongRange(5, 10), new LongRange(15, 20), new LongRange(25, 30));
-        result = set.mergeRange(existing, new LongRange(8, 27));
+        existing = List.of(BlockRanges.of(5, 10), BlockRanges.of(15, 20), BlockRanges.of(25, 30));
+        result = set.mergeRange(existing, BlockRanges.of(8, 27));
         assertEquals(1, result.size());
-        assertEquals(new LongRange(5, 30), result.getFirst());
+        assertEquals(BlockRanges.of(5, 30), result.getFirst());
     }
 
     /**
@@ -276,25 +277,25 @@ class ConcurrentLongRangeSetTest {
     @Test
     @DisplayName("mergeRange() should correctly merge adjacent ranges")
     void testMergeRangeAdjacent() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet();
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet();
 
         // Merge adjacent at end
-        List<LongRange> existing = List.of(new LongRange(5, 10));
-        List<LongRange> result = set.mergeRange(existing, new LongRange(11, 15));
+        List<BlockRange> existing = List.of(BlockRanges.of(5, 10));
+        List<BlockRange> result = set.mergeRange(existing, BlockRanges.of(11, 15));
         assertEquals(1, result.size());
-        assertEquals(new LongRange(5, 15), result.getFirst());
+        assertEquals(BlockRanges.of(5, 15), result.getFirst());
 
         // Merge adjacent at beginning
-        existing = List.of(new LongRange(5, 10));
-        result = set.mergeRange(existing, new LongRange(1, 4));
+        existing = List.of(BlockRanges.of(5, 10));
+        result = set.mergeRange(existing, BlockRanges.of(1, 4));
         assertEquals(1, result.size());
-        assertEquals(new LongRange(1, 10), result.getFirst());
+        assertEquals(BlockRanges.of(1, 10), result.getFirst());
 
         // Merge adjacent between multiple ranges
-        existing = List.of(new LongRange(1, 5), new LongRange(11, 15));
-        result = set.mergeRange(existing, new LongRange(6, 10));
+        existing = List.of(BlockRanges.of(1, 5), BlockRanges.of(11, 15));
+        result = set.mergeRange(existing, BlockRanges.of(6, 10));
         assertEquals(1, result.size());
-        assertEquals(new LongRange(1, 15), result.getFirst());
+        assertEquals(BlockRanges.of(1, 15), result.getFirst());
     }
 
     /**
@@ -303,7 +304,7 @@ class ConcurrentLongRangeSetTest {
     @Test
     @DisplayName("add() should not modify the set when adding an already contained range")
     void testAddContainedRange() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet(1, 10);
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet(1, 10);
 
         // Add a completely contained range
         set.add(3, 7);
@@ -317,46 +318,46 @@ class ConcurrentLongRangeSetTest {
     }
 
     /**
-     * Tests the add(LongRange) method.
+     * Tests the add(BlockRange) method.
      */
     @Test
-    @DisplayName("add(LongRange) should add a range to the set")
+    @DisplayName("add(BlockRange) should add a range to the set")
     void testAddLongRange() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet();
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet();
 
-        set.add(new LongRange(5, 10));
+        set.add(BlockRanges.of(5, 10));
         assertTrue(set.contains(5, 10));
         assertEquals(6, set.size());
         assertEquals(1, set.rangeCount());
 
-        set.add(new LongRange(15, 20));
+        set.add(BlockRanges.of(15, 20));
         assertTrue(set.contains(15, 20));
         assertEquals(12, set.size());
         assertEquals(2, set.rangeCount());
 
         // Add an overlapping range
-        set.add(new LongRange(8, 17));
+        set.add(BlockRanges.of(8, 17));
         assertTrue(set.contains(8, 17));
         assertEquals(16, set.size());
         assertEquals(1, set.rangeCount());
     }
 
     /**
-     * Tests the addAll(LongRange...) method.
+     * Tests the addAll(BlockRange...) method.
      */
     @Test
-    @DisplayName("addAll(LongRange...) should add multiple ranges to the set")
+    @DisplayName("addAll(BlockRange...) should add multiple ranges to the set")
     void testAddAllVarArgs() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet();
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet();
 
-        set.addAll(new LongRange(5, 10), new LongRange(15, 20));
+        set.addAll(BlockRanges.of(5, 10), BlockRanges.of(15, 20));
         assertTrue(set.contains(5, 10));
         assertTrue(set.contains(15, 20));
         assertEquals(12, set.size());
         assertEquals(2, set.rangeCount());
 
         // Add overlapping ranges
-        set.addAll(new LongRange(8, 17), new LongRange(25, 30));
+        set.addAll(BlockRanges.of(8, 17), BlockRanges.of(25, 30));
         assertTrue(set.contains(5, 20));
         assertTrue(set.contains(25, 30));
         assertEquals(22, set.size());
@@ -364,15 +365,15 @@ class ConcurrentLongRangeSetTest {
     }
 
     /**
-     * Tests the addAll(Collection<LongRange>...) method.
+     * Tests the addAll(Collection<BlockRange>...) method.
      */
     @Test
-    @DisplayName("addAll(Collection<LongRange>...) should add multiple collections of ranges")
+    @DisplayName("addAll(Collection<BlockRange>...) should add multiple collections of ranges")
     void testAddAllCollections() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet();
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet();
 
-        List<LongRange> collection1 = List.of(new LongRange(5, 10), new LongRange(15, 20));
-        List<LongRange> collection2 = List.of(new LongRange(25, 30), new LongRange(35, 40));
+        List<BlockRange> collection1 = List.of(BlockRanges.of(5, 10), BlockRanges.of(15, 20));
+        List<BlockRange> collection2 = List.of(BlockRanges.of(25, 30), BlockRanges.of(35, 40));
 
         set.addAll(collection1, collection2);
 
@@ -385,13 +386,13 @@ class ConcurrentLongRangeSetTest {
     }
 
     /**
-     * Tests the addAll(ConcurrentLongRangeSet) method.
+     * Tests the addAll(ConcurrentBlockRangeSet) method.
      */
     @Test
-    @DisplayName("addAll(ConcurrentLongRangeSet) should add all ranges from another set")
+    @DisplayName("addAll(ConcurrentBlockRangeSet) should add all ranges from another set")
     void testAddAllSet() {
-        final ConcurrentLongRangeSet set1 = new ConcurrentLongRangeSet(5, 10);
-        final ConcurrentLongRangeSet set2 = new ConcurrentLongRangeSet(15, 20);
+        final ConcurrentBlockRangeSet set1 = new ConcurrentBlockRangeSet(5, 10);
+        final ConcurrentBlockRangeSet set2 = new ConcurrentBlockRangeSet(15, 20);
 
         set1.addAll(set2);
 
@@ -401,7 +402,7 @@ class ConcurrentLongRangeSetTest {
         assertEquals(2, set1.rangeCount());
 
         // Adding a set with overlapping ranges
-        final ConcurrentLongRangeSet set3 = new ConcurrentLongRangeSet();
+        final ConcurrentBlockRangeSet set3 = new ConcurrentBlockRangeSet();
         set3.add(8, 17);
 
         set1.addAll(set3);
@@ -411,28 +412,28 @@ class ConcurrentLongRangeSetTest {
     }
 
     /**
-     * Tests the contains(LongRange) method.
+     * Tests the contains(BlockRange) method.
      */
     @Test
-    @DisplayName("contains(LongRange) should correctly determine if a range is in the set")
+    @DisplayName("contains(BlockRange) should correctly determine if a range is in the set")
     void testContainsLongRange() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet(1, 10);
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet(1, 10);
 
-        assertTrue(set.contains(new LongRange(1, 10)));
-        assertTrue(set.contains(new LongRange(3, 7)));
-        assertFalse(set.contains(new LongRange(0, 5)));
-        assertFalse(set.contains(new LongRange(5, 15)));
+        assertTrue(set.contains(BlockRanges.of(1, 10)));
+        assertTrue(set.contains(BlockRanges.of(3, 7)));
+        assertFalse(set.contains(BlockRanges.of(0, 5)));
+        assertFalse(set.contains(BlockRanges.of(5, 15)));
     }
 
     /**
-     * Tests the remove(LongRange) method.
+     * Tests the remove(BlockRange) method.
      */
     @Test
-    @DisplayName("remove(LongRange) should remove a range from the set")
+    @DisplayName("remove(BlockRange) should remove a range from the set")
     void testRemoveLongRange() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet(1, 10);
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet(1, 10);
 
-        set.remove(new LongRange(3, 7));
+        set.remove(BlockRanges.of(3, 7));
         assertFalse(set.contains(5));
         assertTrue(set.contains(1));
         assertTrue(set.contains(10));
@@ -441,14 +442,14 @@ class ConcurrentLongRangeSetTest {
     }
 
     /**
-     * Tests the removeAll(LongRange...) method.
+     * Tests the removeAll(BlockRange...) method.
      */
     @Test
-    @DisplayName("removeAll(LongRange...) should remove multiple ranges from the set")
+    @DisplayName("removeAll(BlockRange...) should remove multiple ranges from the set")
     void testRemoveAllVarArgs() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet(1, 20);
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet(1, 20);
 
-        set.removeAll(new LongRange(3, 7), new LongRange(12, 15));
+        set.removeAll(BlockRanges.of(3, 7), BlockRanges.of(12, 15));
         assertFalse(set.contains(5));
         assertFalse(set.contains(14));
         assertTrue(set.contains(1));
@@ -459,15 +460,15 @@ class ConcurrentLongRangeSetTest {
     }
 
     /**
-     * Tests the removeAll(Collection<LongRange>...) method.
+     * Tests the removeAll(Collection<BlockRange>...) method.
      */
     @Test
-    @DisplayName("removeAll(Collection<LongRange>...) should remove multiple collections of ranges")
+    @DisplayName("removeAll(Collection<BlockRange>...) should remove multiple collections of ranges")
     void testRemoveAllCollections() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet(1, 30);
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet(1, 30);
 
-        List<LongRange> collection1 = List.of(new LongRange(3, 7), new LongRange(12, 15));
-        List<LongRange> collection2 = List.of(new LongRange(20, 25));
+        List<BlockRange> collection1 = List.of(BlockRanges.of(3, 7), BlockRanges.of(12, 15));
+        List<BlockRange> collection2 = List.of(BlockRanges.of(20, 25));
 
         set.removeAll(collection1, collection2);
 
@@ -482,13 +483,13 @@ class ConcurrentLongRangeSetTest {
     }
 
     /**
-     * Tests the removeAll(ConcurrentLongRangeSet) method.
+     * Tests the removeAll(ConcurrentBlockRangeSet) method.
      */
     @Test
-    @DisplayName("removeAll(ConcurrentLongRangeSet) should remove all ranges from the set")
+    @DisplayName("removeAll(ConcurrentBlockRangeSet) should remove all ranges from the set")
     void testRemoveAllSet() {
-        final ConcurrentLongRangeSet set1 = new ConcurrentLongRangeSet(1, 30);
-        final ConcurrentLongRangeSet set2 = new ConcurrentLongRangeSet();
+        final ConcurrentBlockRangeSet set1 = new ConcurrentBlockRangeSet(1, 30);
+        final ConcurrentBlockRangeSet set2 = new ConcurrentBlockRangeSet();
         set2.add(3, 7);
         set2.add(12, 15);
         set2.add(20, 25);
@@ -511,7 +512,7 @@ class ConcurrentLongRangeSetTest {
     @Test
     @DisplayName("Boundary conditions should be handled correctly")
     void testBoundaryConditions() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet();
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet();
 
         // Test with values at 0
         set.add(0, 10);
@@ -539,8 +540,8 @@ class ConcurrentLongRangeSetTest {
     @Test
     @DisplayName("Operations with empty sets should behave correctly")
     void testEmptySetOperations() {
-        final ConcurrentLongRangeSet emptySet = new ConcurrentLongRangeSet();
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet(1, 5);
+        final ConcurrentBlockRangeSet emptySet = new ConcurrentBlockRangeSet();
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet(1, 5);
 
         // Adding empty set to a set
         set.addAll(emptySet);
@@ -553,17 +554,17 @@ class ConcurrentLongRangeSetTest {
         assertEquals(1, emptySet.rangeCount());
 
         // Removing empty set from a set
-        set.removeAll(new ConcurrentLongRangeSet());
+        set.removeAll(new ConcurrentBlockRangeSet());
         assertEquals(5, set.size());
 
         // Removing a set from empty set
-        final ConcurrentLongRangeSet anotherEmptySet = new ConcurrentLongRangeSet();
+        final ConcurrentBlockRangeSet anotherEmptySet = new ConcurrentBlockRangeSet();
         anotherEmptySet.removeAll(set);
         assertEquals(0, anotherEmptySet.size());
         assertEquals(0, anotherEmptySet.rangeCount());
 
         // Adding and removing from empty set
-        final ConcurrentLongRangeSet testSet = new ConcurrentLongRangeSet();
+        final ConcurrentBlockRangeSet testSet = new ConcurrentBlockRangeSet();
         testSet.add(5, 10);
         testSet.remove(5, 10);
         assertEquals(0, testSet.size());
@@ -576,7 +577,7 @@ class ConcurrentLongRangeSetTest {
     @Test
     @DisplayName("Operations with single-value ranges should behave correctly")
     void testSingleValueRanges() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet();
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet();
 
         // Add single values
         set.add(5);
@@ -616,7 +617,7 @@ class ConcurrentLongRangeSetTest {
     @Test
     @DisplayName("Complex scenarios with multiple operations should work correctly")
     void testComplexScenarios() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet();
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet();
 
         // Build a complex set
         set.add(1, 10);
@@ -661,7 +662,7 @@ class ConcurrentLongRangeSetTest {
     @Test
     @DisplayName("min() should return the minimum value in the set")
     void testMin() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet(10, 20);
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet(10, 20);
         assertEquals(10, set.min());
 
         set.add(5, 8);
@@ -677,7 +678,7 @@ class ConcurrentLongRangeSetTest {
     @Test
     @DisplayName("max() should return the maximum value in the set")
     void testMax() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet(10, 20);
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet(10, 20);
         assertEquals(20, set.max());
 
         set.add(25, 30);
@@ -693,8 +694,44 @@ class ConcurrentLongRangeSetTest {
     @Test
     @DisplayName("min() and max() should throw IllegalStateException for an empty set")
     void testMinMaxEmptySet() {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet();
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet();
         assertEquals(UNKNOWN_BLOCK_NUMBER, set.min());
         assertEquals(UNKNOWN_BLOCK_NUMBER, set.max());
+    }
+
+    /**
+     * Tests that the varargs constructor merges unordered, overlapping and adjacent ranges.
+     */
+    @Test
+    @DisplayName("constructor should sort and merge unordered overlapping and adjacent ranges")
+    void testConstructorMergesUnorderedRanges() {
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet(
+                BlockRanges.of(50, 60),
+                BlockRanges.of(11, 20),
+                BlockRanges.of(0, 10),
+                BlockRanges.of(55, 70),
+                BlockRanges.of(100, 100));
+        assertEquals(List.of(BlockRanges.of(0, 20), BlockRanges.of(50, 70), BlockRanges.of(100, 100)), set.toList());
+    }
+
+    /**
+     * Tests that bulk adds from unordered collections and other sets merge correctly.
+     */
+    @Test
+    @DisplayName("addAll variants should merge unordered input with existing ranges")
+    void testAddAllMergesUnorderedInput() {
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet(BlockRanges.of(10, 20), BlockRanges.of(40, 50));
+        set.addAll(List.of(BlockRanges.of(60, 70), BlockRanges.of(21, 30), BlockRanges.of(0, 5)));
+        assertEquals(
+                List.of(BlockRanges.of(0, 5), BlockRanges.of(10, 30), BlockRanges.of(40, 50), BlockRanges.of(60, 70)),
+                set.toList());
+
+        set.addAll(new ConcurrentBlockRangeSet(BlockRanges.of(6, 9), BlockRanges.of(31, 39)));
+        assertEquals(List.of(BlockRanges.of(0, 50), BlockRanges.of(60, 70)), set.toList());
+
+        // adding nothing, or ranges already contained, leaves the set unchanged
+        set.addAll(new ConcurrentBlockRangeSet());
+        set.addAll(BlockRanges.of(5, 10), BlockRanges.of(62, 65));
+        assertEquals(List.of(BlockRanges.of(0, 50), BlockRanges.of(60, 70)), set.toList());
     }
 }

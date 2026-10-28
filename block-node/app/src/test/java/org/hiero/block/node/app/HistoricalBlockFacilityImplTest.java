@@ -11,7 +11,7 @@ import static org.mockito.Mockito.when;
 
 import java.util.List;
 import java.util.stream.Stream;
-import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
+import org.hiero.block.node.base.ranges.ConcurrentBlockRangeSet;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
@@ -249,8 +249,8 @@ class HistoricalBlockFacilityImplTest {
         BlockProviderPlugin provider2 = mock(BlockProviderPlugin.class, "MockProvider2");
 
         // Set up mock block range set
-        when(provider1.availableBlocks()).thenReturn(new ConcurrentLongRangeSet(1, 10));
-        when(provider2.availableBlocks()).thenReturn(new ConcurrentLongRangeSet(11, 20));
+        when(provider1.availableBlocks()).thenReturn(new ConcurrentBlockRangeSet(1, 10));
+        when(provider2.availableBlocks()).thenReturn(new ConcurrentBlockRangeSet(11, 20));
 
         // Create the facility with mocked providers
         HistoricalBlockFacilityImpl testFacility = new HistoricalBlockFacilityImpl(List.of(provider1, provider2));

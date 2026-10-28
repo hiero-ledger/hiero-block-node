@@ -31,10 +31,11 @@ import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Pattern;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.BlockFile;
-import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
+import org.hiero.block.node.base.ranges.ConcurrentBlockRangeSet;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
@@ -45,7 +46,7 @@ import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessorBatch;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.ObservableGauge;
 import org.hiero.metrics.core.MetricKey;
@@ -88,11 +89,11 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     /** The number of blocks per zip file. */
     private long numberOfBlocksPerZipFile;
     /** The set of available blocks. */
-    private final ConcurrentLongRangeSet availableBlocks = new ConcurrentLongRangeSet();
+    private final ConcurrentBlockRangeSet availableBlocks = new ConcurrentBlockRangeSet();
     /** The set of available temporary blocks (not yet zipped). */
-    private final ConcurrentLongRangeSet availableStagedBlocks = new ConcurrentLongRangeSet();
+    private final ConcurrentBlockRangeSet availableStagedBlocks = new ConcurrentBlockRangeSet();
     /** List of all zip ranges that are in progress, so we do not start a duplicate job. */
-    private final Deque<LongRange> inProgressZipRanges = new ConcurrentLinkedDeque<>();
+    private final Deque<BlockRange> inProgressZipRanges = new ConcurrentLinkedDeque<>();
     /** Running total of bytes stored in the historic tier */
     private final AtomicLong totalBytesStored = new AtomicLong(0);
     /** The total number of zip files stored in the historic tier */
@@ -494,7 +495,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             final boolean blocksAvailablePreCheck = availableStagedBlocks.contains(minBlockNumber, maxBlockNumber);
 
             if (isValidStart && blocksAvailablePreCheck) {
-                final LongRange batchRange = new LongRange(minBlockNumber, maxBlockNumber);
+                final BlockRange batchRange = BlockRanges.of(minBlockNumber, maxBlockNumber);
                 // move the batch of blocks to a zip file
                 startMovingBatchOfBlocksToZipFile(batchRange);
             }
@@ -563,12 +564,12 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
      *
      * @param batchRange The range of blocks to move to zip file.
      */
-    private void startMovingBatchOfBlocksToZipFile(final LongRange batchRange) {
+    private void startMovingBatchOfBlocksToZipFile(final BlockRange batchRange) {
         // check if the batch of blocks is already in progress
         if (inProgressZipRanges.contains(batchRange)) {
             // if the batch is in progress, we must not submit a task
             final String message = "Batch of blocks[{0} -> {1}] is already in progress";
-            LOGGER.log(DEBUG, message, batchRange.start(), batchRange.end());
+            LOGGER.log(DEBUG, message, batchRange.rangeStart(), batchRange.rangeEnd());
         } else {
             // if the batch is not in progress, we must submit a task
             // add the batch of blocks to the in progress ranges
@@ -584,10 +585,10 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
      */
     private static final class BatchToZipFileMover implements Runnable {
 
-        private final LongRange batchRange;
+        private final BlockRange batchRange;
         private final BlockFileHistoricPlugin plugin;
 
-        BatchToZipFileMover(final LongRange batchRange, BlockFileHistoricPlugin plugin) {
+        BatchToZipFileMover(final BlockRange batchRange, BlockFileHistoricPlugin plugin) {
             this.batchRange = batchRange;
             this.plugin = plugin;
         }
@@ -595,8 +596,8 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
         @Override
         public void run() {
             // first off, let's create our batch of blocks
-            final long batchFirstBlockNumber = batchRange.start();
-            final long batchLastBlockNumber = batchRange.end();
+            final long batchFirstBlockNumber = batchRange.rangeStart();
+            final long batchLastBlockNumber = batchRange.rangeEnd();
             try (final BlockAccessorBatch blockAccessors =
                     gatherAccessors(batchFirstBlockNumber, batchLastBlockNumber)) {
                 if (blockAccessors.isEmpty()) {

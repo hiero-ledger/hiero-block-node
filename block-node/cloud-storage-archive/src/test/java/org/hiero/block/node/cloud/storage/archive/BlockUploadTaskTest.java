@@ -43,7 +43,7 @@ import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.block.node.spi.historicalblocks.BlockRanges;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -528,7 +528,7 @@ class BlockUploadTaskTest {
         assertThat(task.call()).isEqualTo(UploadResult.SUCCESS);
 
         assertThat(asf.storedRanges).hasSize(1);
-        assertThat(asf.storedRanges.getFirst()).isEqualTo(new LongRange(0, groupSize - 1));
+        assertThat(asf.storedRanges.getFirst()).isEqualTo(BlockRanges.of(0, groupSize - 1));
     }
 
     /// Verifies that [ApplicationStateFacility#addStoredBlockRange] is called once per flushed part
@@ -572,11 +572,11 @@ class BlockUploadTaskTest {
 
         assertThat(asf.storedRanges).hasSizeGreaterThan(1);
         // Ranges must be contiguous and together cover all blocks from 0 to groupSize-1.
-        assertThat(asf.storedRanges.getFirst().start()).isZero();
-        assertThat(asf.storedRanges.getLast().end()).isEqualTo(groupSize - 1L);
+        assertThat(asf.storedRanges.getFirst().rangeStart()).isZero();
+        assertThat(asf.storedRanges.getLast().rangeEnd()).isEqualTo(groupSize - 1L);
         for (int i = 1; i < asf.storedRanges.size(); i++) {
-            assertThat(asf.storedRanges.get(i).start())
-                    .isEqualTo(asf.storedRanges.get(i - 1).end() + 1);
+            assertThat(asf.storedRanges.get(i).rangeStart())
+                    .isEqualTo(asf.storedRanges.get(i - 1).rangeEnd() + 1);
         }
     }
 
@@ -763,7 +763,7 @@ class BlockUploadTaskTest {
 
     /// [ApplicationStateFacility] implementation that records every stored range.
     private static final class TrackingApplicationStateFacility implements ApplicationStateFacility {
-        final List<LongRange> storedRanges = new ArrayList<>();
+        final List<BlockRange> storedRanges = new ArrayList<>();
         volatile long nextExpectedBlock = -1L;
 
         @Override
@@ -789,7 +789,7 @@ class BlockUploadTaskTest {
         }
 
         @Override
-        public void addStoredBlockRange(LongRange blockRange) {
+        public void addStoredBlockRange(BlockRange blockRange) {
             storedRanges.add(blockRange);
         }
 
