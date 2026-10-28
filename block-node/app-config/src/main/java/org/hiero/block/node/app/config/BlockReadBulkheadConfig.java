@@ -3,6 +3,7 @@ package org.hiero.block.node.app.config;
 
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
+import com.swirlds.config.api.validation.annotation.Max;
 import com.swirlds.config.api.validation.annotation.Min;
 import org.hiero.block.node.base.Loggable;
 
@@ -12,5 +13,5 @@ import org.hiero.block.node.base.Loggable;
 /// @param permits the fixed size of the bulkhead's permit pool
 @ConfigData("blockReadBulkhead")
 public record BlockReadBulkheadConfig(
-        @Loggable @ConfigProperty(defaultValue = "50") @Min(1)
+        @Loggable @ConfigProperty(defaultValue = "50") @Min(1) @Max(1_000)
         int permits) {}

@@ -78,6 +78,20 @@ Observes the block access service that serves requests for blocks.
 
 ---
 
+### Read Bulkhead
+
+**Plugin:** shared SPI (`spi-plugins`), used by `block-access [block-access-service]` and `subscriber [stream-subscriber]`
+Observes the shared bulkhead that caps concurrent block-storage reads. See [Block Read Bulkhead Configuration](configuration.md#block-read-bulkhead-configuration) for sizing.
+
+|  Type   |           Name           |                                                 Labels                                                 |                                                                 Description                                                                 |
+|---------|--------------------------|--------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
+| Gauge   | `bulkhead_read_in_use`   | `resource` (`block`)                                                                                   | Permits currently held                                                                                                                      |
+| Counter | `bulkhead_read_requests` | `resource` (`block`), `method` (`get_block`, `subscriber_catch_up`), `status` (`acquired`, `rejected`) | Acquire attempts. A `rejected` `get_block` is returned to the client as `RESOURCE_EXHAUSTED`; a `rejected` `subscriber_catch_up` is retried |
+
+Saturation is `bulkhead_read_in_use` divided by the configured permits.
+
+---
+
 ### Block Messaging
 
 **Plugin:** `messaging [facility-messaging]`

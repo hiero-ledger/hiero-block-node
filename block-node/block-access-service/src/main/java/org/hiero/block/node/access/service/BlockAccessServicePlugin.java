@@ -125,7 +125,7 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
                 return new BlockResponseUnparsed(Code.NOT_AVAILABLE, null);
             }
             // A single request/response exchange: reject immediately if exhausted, rather than queuing.
-            if (!blockReadBulkhead.tryAcquire()) {
+            if (!blockReadBulkhead.tryAcquire(BlockReadBulkhead.Method.GET_BLOCK)) {
                 throw new GrpcException(GrpcStatus.RESOURCE_EXHAUSTED, "block storage read capacity exhausted");
             }
             try {

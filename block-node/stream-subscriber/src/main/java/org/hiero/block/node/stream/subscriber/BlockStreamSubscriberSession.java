@@ -483,7 +483,8 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         while (isHistoryPermitted()) {
             // Unlike getBlock's immediate rejection, this waits briefly and retries rather than
             // disconnecting the session.
-            if (!sessionContext.blockReadBulkhead.tryAcquire(HISTORICAL_READ_PERMIT_WAIT)) {
+            if (!sessionContext.blockReadBulkhead.tryAcquire(
+                    BlockReadBulkhead.Method.SUBSCRIBER_CATCH_UP, HISTORICAL_READ_PERMIT_WAIT)) {
                 awaitNewLiveEntries();
                 break;
             }
