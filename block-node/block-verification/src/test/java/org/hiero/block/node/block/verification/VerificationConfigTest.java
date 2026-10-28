@@ -20,34 +20,35 @@ class VerificationConfigTest {
     @DisplayName("Active Sessions Buffer Size")
     class ActiveSessionsBufferSize {
         /// This test aims to assert that the active sessions buffer size defaults to
-        /// 100 when it is not configured.
+        /// 101, a prime as recommended for the limit, when it is not configured.
         @Test
-        @DisplayName("activeSessionsBufferSize defaults to 100")
-        void testActiveSessionsBufferSizeDefaultsToOneHundred() {
+        @DisplayName("activeSessionsBufferSize defaults to 101")
+        void testActiveSessionsBufferSizeDefaultsToOneHundredAndOne() {
             final VerificationConfig config = new TestConfigurationBuilder()
                     .withConfigDataType(VerificationConfig.class)
                     .getOrCreateConfig()
                     .getConfigData(VerificationConfig.class);
-            assertThat(config.activeSessionsBufferSize()).isEqualTo(100);
+            assertThat(config.activeSessionsBufferSize()).isEqualTo(101);
         }
 
         /// This test aims to assert that the smallest valid active sessions buffer
-        /// size, 1, is accepted.
+        /// size, 13, is accepted.
         @Test
-        @DisplayName("activeSessionsBufferSize accepts 1")
-        void testAcceptsAnActiveSessionsBufferSizeOfOne() {
+        @DisplayName("activeSessionsBufferSize accepts 13")
+        void testAcceptsAnActiveSessionsBufferSizeOfThirteen() {
             final VerificationConfig config =
-                    builderWithBufferSize("1").getOrCreateConfig().getConfigData(VerificationConfig.class);
-            assertThat(config.activeSessionsBufferSize()).isEqualTo(1);
+                    builderWithBufferSize("13").getOrCreateConfig().getConfigData(VerificationConfig.class);
+            assertThat(config.activeSessionsBufferSize()).isEqualTo(13);
         }
 
-        /// This test aims to assert that an active sessions buffer size below 1 is
-        /// rejected when the configuration is built, since a buffer whose limit is
-        /// below one session would consult the eviction policy on every admission.
+        /// This test aims to assert that an active sessions buffer size below 13 is
+        /// rejected when the configuration is built: the minimum keeps a full buffer
+        /// large enough that the backup position of the eviction policy, at least the
+        /// third session from the highest block down, has sessions on both sides of it.
         @ParameterizedTest
-        @ValueSource(strings = {"0", "-1"})
-        @DisplayName("activeSessionsBufferSize below 1 is rejected")
-        void testRejectsAnActiveSessionsBufferSizeBelowOne(final String bufferSize) {
+        @ValueSource(strings = {"12", "0", "-1"})
+        @DisplayName("activeSessionsBufferSize below 13 is rejected")
+        void testRejectsAnActiveSessionsBufferSizeBelowThirteen(final String bufferSize) {
             final TestConfigurationBuilder builder = builderWithBufferSize(bufferSize);
             assertThatExceptionOfType(ConfigViolationException.class).isThrownBy(builder::getOrCreateConfig);
         }
