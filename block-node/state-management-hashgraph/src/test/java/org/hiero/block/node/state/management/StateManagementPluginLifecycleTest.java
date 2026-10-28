@@ -2,6 +2,7 @@
 package org.hiero.block.node.state.management;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.hedera.hapi.block.stream.input.RoundHeader;
 import com.hedera.hapi.block.stream.output.BlockFooter;
@@ -17,6 +18,7 @@ import com.swirlds.state.merkle.VirtualMapStateLifecycleManager;
 import com.swirlds.virtualmap.config.VirtualMapConfig;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.logging.Logger;
 import org.hiero.base.file.FileSystemManager;
 import org.hiero.block.internal.BlockItemUnparsed;
@@ -89,6 +91,47 @@ class StateManagementPluginLifecycleTest {
         assertThat(plugin.isApplyHalted()).isTrue();
         assertThat(plugin.attested().state()).isNull();
         plugin.stop();
+    }
+
+    @Test
+    void unlistableSnapshotRootHaltsRatherThanFallingBackToGenesis(@TempDir final Path tmp) throws Exception {
+        final Path recentRoot = tmp.resolve("recent");
+        final var configuration = ConfigurationBuilder.create()
+                .withConfigDataType(StateManagementConfig.class)
+                .withConfigDataType(MerkleDbConfig.class)
+                .withConfigDataType(VirtualMapConfig.class)
+                .withValue("state.management.snapshotRecentPath", recentRoot.toString())
+                .build();
+        final BlockNodeContext context = new BlockNodeContext(
+                configuration,
+                MetricRegistry.builder().build(),
+                null,
+                new TestBlockMessagingFacility(),
+                null,
+                null,
+                null,
+                StateManagementPluginTestSupport.newThreadPoolManager(),
+                null);
+        final StateManagementPlugin plugin = new StateManagementPlugin();
+        plugin.init(context, NOOP_SERVICE_BUILDER);
+
+        // The root exists (snapshots may be inside) but cannot be listed. Skipped where
+        // permissions are not enforced (e.g. running as root, non-POSIX filesystems).
+        Files.createDirectories(recentRoot);
+        try {
+            Files.setPosixFilePermissions(recentRoot, PosixFilePermissions.fromString("-wx------"));
+            assumeTrue(!Files.isReadable(recentRoot), "directory permissions are not enforced here");
+            plugin.start();
+
+            assertThat(plugin.isApplyHalted()).isTrue();
+            assertThat(plugin.attested().state()).isNull();
+            assertThat(plugin.stagedStateRootHash())
+                    .as("genesis state must not be seeded after a failed snapshot scan")
+                    .isEqualTo(Bytes.EMPTY);
+        } finally {
+            Files.setPosixFilePermissions(recentRoot, PosixFilePermissions.fromString("rwx------"));
+            plugin.stop();
+        }
     }
 
     @Test
