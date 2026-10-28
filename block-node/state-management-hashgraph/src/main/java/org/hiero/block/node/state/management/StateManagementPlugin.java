@@ -27,6 +27,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
+import org.hiero.base.crypto.Hash;
 import org.hiero.base.file.FileSystemManager;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
@@ -395,12 +396,18 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         if (restoreCandidate >= 0L) {
             final Path snapshotDir = recentSnapshotDirectoryFor(restoreCandidate);
             try {
-                lifecycleManager.loadSnapshot(snapshotDir);
+                final Hash loadedHash = lifecycleManager.loadSnapshot(snapshotDir);
                 final long loadedBlockNumber = blockNumberOf(lifecycleManager.getLatestImmutableState());
                 if (loadedBlockNumber == restoreCandidate) {
                     snapshotLoaded = true;
                     lastAppliedBlock = restoreCandidate;
-                    LOGGER.log(System.Logger.Level.INFO, "Loaded state snapshot from {0}", snapshotDir);
+                    // Logged so operators can compare it with an external value: nothing in the
+                    // chain attests this hash until the next block's footer arrives.
+                    LOGGER.log(
+                            System.Logger.Level.INFO,
+                            "Loaded state snapshot from {0} (root hash {1})",
+                            snapshotDir,
+                            loadedHash.toHex());
                 } else {
                     // The loaded state disagrees with the name of the directory it came from —
                     // unrecoverable in place, same as a block-apply hash mismatch: halt rather

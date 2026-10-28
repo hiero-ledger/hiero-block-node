@@ -160,8 +160,20 @@ class StateManagementPluginLifecycleTest {
         seedManager.createSnapshot(sealed, recentRoot.resolve("5"));
 
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
-        final StateManagementPlugin plugin = startPlugin(recentRoot, facility);
+        final TestLogHandler logHandler = new TestLogHandler();
+        final Logger julLogger = Logger.getLogger(StateManagementPlugin.class.getName());
+        julLogger.addHandler(logHandler);
+        final StateManagementPlugin plugin;
+        try {
+            plugin = startPlugin(recentRoot, facility);
+        } finally {
+            julLogger.removeHandler(logHandler);
+        }
 
+        // The capture handler sees the raw message template, not the formatted parameters.
+        assertThat(logHandler.countContaining("Loaded state snapshot from {0} (root hash {1})"))
+                .as("restore logs the loaded root hash so operators can compare it externally")
+                .isEqualTo(1);
         assertThat(plugin.attested().blockNumber()).isEqualTo(5L);
         assertThat(plugin.attested().roundNumber())
                 .as("round number isn't persisted; it's unknown until the next applied block's RoundHeader")
