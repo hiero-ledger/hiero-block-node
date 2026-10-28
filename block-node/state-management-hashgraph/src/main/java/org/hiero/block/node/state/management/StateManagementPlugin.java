@@ -377,7 +377,20 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// silently falling back to genesis would discard the operator's recorded intent — see
     /// `docs/design/state/live-state.md` §6.2.
     private void loadPersistedState() {
-        final long restoreCandidate = highestNumberedSnapshotDirectory();
+        long restoreCandidate = -1L;
+        try {
+            restoreCandidate = highestNumberedSnapshotDirectory();
+        } catch (final IOException e) {
+            // Snapshots may exist but cannot be listed: same policy as an unreadable snapshot,
+            // halt rather than start from genesis and later report a hash mismatch that looks
+            // like divergence.
+            LOGGER.log(
+                    System.Logger.Level.ERROR,
+                    "Unable to scan {0} for snapshot directories; halting rather than silently starting from genesis",
+                    config.snapshotRecentPath(),
+                    e);
+            applyHalted.set(true);
+        }
         boolean snapshotLoaded = false;
         if (restoreCandidate >= 0L) {
             final Path snapshotDir = recentSnapshotDirectoryFor(restoreCandidate);
@@ -440,7 +453,8 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// highest one.
     ///
     /// @return the highest-numbered snapshot directory's block number, or `-1` if none exist
-    private long highestNumberedSnapshotDirectory() {
+    /// @throws IOException if the snapshot root exists but cannot be listed
+    private long highestNumberedSnapshotDirectory() throws IOException {
         final Path root = Path.of(config.snapshotRecentPath());
         if (!Files.isDirectory(root)) {
             return -1L;
@@ -452,13 +466,6 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                     .mapToLong(Long::parseLong)
                     .max()
                     .orElse(-1L);
-        } catch (final IOException e) {
-            LOGGER.log(
-                    System.Logger.Level.WARNING,
-                    "Unable to scan {0} for snapshot directories; treating as genesis",
-                    root,
-                    e);
-            return -1L;
         }
     }
 
