@@ -103,7 +103,7 @@ used for `swirlds-config-*`.
 | `snapshotRecentRetentionCount` | `3`                                                | Recent snapshot dirs kept on disk (oldest pruned).                                                                                                                                                                                                    |
 | `port`                         | `null` (share `server.port`)                       | Dedicated port for the `StateService` gRPC API; `null` shares the default server port.                                                                                                                                                                |
 | `maxQueueRangeSize`            | `1000`                                             | Largest number of queue elements `getQueue` will serve in one call (§8), whether requested as a `queue_range` or as a full-queue read; anything larger is `INVALID_REQUEST`. Operator-adjustable to allow raising it over time without a code change. |
-| `gapRetryDelaySeconds`         | `5`                                                | Delay before retrying a missing block in `pendingBlocks` from `historicalBlockProvider` (§6.3).                                                                                  |
+| `gapRetryDelaySeconds`         | `5`                                                | Delay before retrying a missing block in `pendingBlocks` from `historicalBlockProvider` (§6.3).                                                                                                                                                       |
 
 There is no apply-interval setting: state changes are applied the moment a verified block arrives (see §6.5).
 
