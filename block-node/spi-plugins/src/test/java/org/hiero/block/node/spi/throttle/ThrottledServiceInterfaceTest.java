@@ -255,6 +255,35 @@ class ThrottledServiceInterfaceTest {
     }
 
     @Test
+    @DisplayName("A delegate open() that throws releases the permits on both the per-client and global-only paths")
+    void throwingDelegateOpenReleasesPermits() {
+        // ONLY_METHOD has per-client settings; OTHER_METHOD has only a node-wide ceiling. Every
+        // ceiling is 1, so a leaked permit would reject the follow-up call.
+        final ThrottledServiceInterface throttled = new ThrottledServiceInterface(
+                recordingService,
+                Map.of(ONLY_METHOD.name(), new PerClientThrottleSettings(100, 10, 1)),
+                Optional.empty(),
+                Map.of(ONLY_METHOD.name(), 1, OTHER_METHOD.name(), 1),
+                new RemoteAddressKeyExtractor(metricRegistry),
+                throttleMetrics,
+                Duration.ofDays(1));
+
+        for (final ServiceInterface.Method method : List.of(ONLY_METHOD, OTHER_METHOD)) {
+            final GrpcException failure = new GrpcException(GrpcStatus.INVALID_ARGUMENT, "simulated");
+            recordingService.failNextOpen = failure;
+            final GrpcException thrown = assertThrows(
+                    GrpcException.class, () -> throttled.open(method, optionsFor("10.0.0.1"), new CapturingPipeline()));
+            assertEquals(failure, thrown, "the delegate's exception must be rethrown unchanged");
+
+            final CapturingPipeline nextCallReplies = new CapturingPipeline();
+            throttled.open(method, optionsFor("10.0.0.1"), nextCallReplies);
+            assertTrue(
+                    nextCallReplies.errors.isEmpty(),
+                    method.name() + ": the permit taken by the failed open() must have been released");
+        }
+    }
+
+    @Test
     @DisplayName("sweepStaleClients evicts idle entries but never one with a call still in flight")
     void sweepStaleClientsRespectsInFlightCalls() {
         final ThrottledServiceInterface throttled = throttledWith(100, 10, 5, 5, Duration.ofMillis(10));
@@ -497,6 +526,8 @@ class ThrottledServiceInterfaceTest {
     private static final class RecordingService implements ServiceInterface {
         private int openCalls;
         private Pipeline<? super Bytes> capturedReplies;
+        /// When set, the next `open()` throws this instead of returning, then clears it.
+        private RuntimeException failNextOpen;
 
         @Override
         public String serviceName() {
@@ -518,6 +549,11 @@ class ThrottledServiceInterfaceTest {
                 final Method method, final RequestOptions options, final Pipeline<? super Bytes> replies) {
             openCalls++;
             this.capturedReplies = replies;
+            if (failNextOpen != null) {
+                final RuntimeException failure = failNextOpen;
+                failNextOpen = null;
+                throw failure;
+            }
             return new InertPipeline();
         }
     }
