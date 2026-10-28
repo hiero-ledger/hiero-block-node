@@ -13,7 +13,7 @@ Initial scope (#196):
 2. Persistence of on disk state snapshots under `${snapshotRecentPath}/<blockNumber>` matching the consensus-node
    `data/state/` spec (see `hiero-consensus-node/platform-sdk/swirlds-state-api/docs/state-snapshot-spec.md`).
 3. New protobuf surface: `StateQuery`, `StateResponse`, and three `get*` RPCs on `StateService`. `StateResponse` carries
-   the attested `block_number` on every response so a client can see which block the latest state corresponds to (§5.1).
+   the attested `block_number` on every response except `NOT_READY` so a client can see which block the latest state corresponds to (§5.1).
 
 Explicitly out of scope:
 
@@ -95,14 +95,14 @@ used for `swirlds-config-*`.
 
 ## 4. Configuration (`@ConfigData("state.management")`)
 
-|            Property            |                      Default                       |                                                                                      Notes                                                                                       |
-|--------------------------------|----------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `snapshotRecentPath`           | `/opt/hiero/block-node/data/state/snapshot/recent` | Directory for live snapshot dirs (`<blockNumber>/`). The block number is recovered on restart by scanning this directory for the highest-numbered entry (§6.2).                  |
-| `snapshotIntervalMillis`       | `900000` (15m)                                     | Periodic snapshot cadence.                                                                                                                                                       |
-| `historicCatchUpBatchSize`     | `64`                                               | Blocks pulled per catch-up loop iteration.                                                                                                                                       |
-| `snapshotRecentRetentionCount` | `3`                                                | Recent snapshot dirs kept on disk (oldest pruned).                                                                                                                               |
-| `port`                         | `null` (share `server.port`)                       | Dedicated port for the `StateService` gRPC API; `null` shares the default server port.                                                                                           |
-| `maxQueueRangeSize`            | `1000`                                             | Largest `queue_range` width `getQueue` will serve in one call (§8); a wider range is `INVALID_REQUEST`. Operator-adjustable to allow raising it over time without a code change. |
+|            Property            |                      Default                       |                                                                                                                         Notes                                                                                                                         |
+|--------------------------------|----------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `snapshotRecentPath`           | `/opt/hiero/block-node/data/state/snapshot/recent` | Directory for live snapshot dirs (`<blockNumber>/`). The block number is recovered on restart by scanning this directory for the highest-numbered entry (§6.2).                                                                                       |
+| `snapshotIntervalMillis`       | `900000` (15m)                                     | Periodic snapshot cadence.                                                                                                                                                                                                                            |
+| `historicCatchUpBatchSize`     | `64`                                               | Blocks pulled per catch-up loop iteration.                                                                                                                                                                                                            |
+| `snapshotRecentRetentionCount` | `3`                                                | Recent snapshot dirs kept on disk (oldest pruned).                                                                                                                                                                                                    |
+| `port`                         | `null` (share `server.port`)                       | Dedicated port for the `StateService` gRPC API; `null` shares the default server port.                                                                                                                                                                |
+| `maxQueueRangeSize`            | `1000`                                             | Largest number of queue elements `getQueue` will serve in one call (§8), whether requested as a `queue_range` or as a full-queue read; anything larger is `INVALID_REQUEST`. Operator-adjustable to allow raising it over time without a code change. |
 
 There is no apply-interval setting: state changes are applied the moment a verified block arrives (see §6.5).
 
@@ -157,11 +157,11 @@ message StateResponse {
     SUCCESS          = 1;
     INVALID_REQUEST  = 2;
     NOT_FOUND        = 3;       // requested key or queue index/range absent from the attested state
-    NOT_READY        = 4;       // nothing attested yet (true genesis); never returned again after the first attestation
+    NOT_READY        = 4;       // no snapshot restored and nothing attested (true genesis); never returned again once a state is held. block_number is -1 (uint64 max) here
     NOT_AVAILABLE    = 5;       // block_number isn't the attested block (no historical retention)
   }
   Code   status       = 1;
-  uint64 block_number = 2;      // attested block, read from BlockStreamInfo — never a separate copy
+  uint64 block_number = 2;      // attested block, read from BlockStreamInfo — never a separate copy; -1 (uint64 max) on NOT_READY
   oneof payload {
     bytes       kv_bytes        = 3;
     bytes       singleton_bytes = 4;
@@ -187,7 +187,7 @@ is `NOT_AVAILABLE`, never `NOT_FOUND` (`NOT_FOUND` is reserved for "the attested
 have this key or queue index/range"). Whether apply has halted is an internal detail, not a
 query concern: `retrieve_latest` or a `block_number` matching the attested block still answers
 `SUCCESS` from that (now-frozen) state even while halted, since that state is still valid — only
-requests for a block the node hasn't (or will never) reach are affected.
+requests for a block other than the attested one (older or newer) are affected.
 
 RPC service updates on `state_service.proto`:
 
@@ -220,7 +220,10 @@ service StateService {
    with the on-disk state. Then read `BlockStreamInfo.block_number` back out of the just-loaded
    state and assert it equals `N` — a **self**-consistency check (does the loaded state agree
    with the name of the directory it came from?) rather than a cross-check against a separate
-   file. If the directory is unreadable, fails to load, or its self-check fails, **halt**
+   file. A snapshot is only ever written from `attested.state()` (§6.6), so once this check
+   passes the restored state is published as the initial `AttestedSnapshot` with
+   `blockNumber = N`, before the plugin accepts queries. Queries are then served from it
+   immediately, even while catch-up is still running. If the directory is unreadable, fails to load, or its self-check fails, **halt**
    (`applyHalted=true`) rather than silently falling back to genesis or an older directory — a
    snapshot directory existing is the operator's recorded intent, and discarding it quietly would
    only surface later as a confusing hash mismatch on some unrelated block. The plugin still
@@ -357,8 +360,8 @@ mutable, but only exposed once the *next* block's footer attests its root hash.
 Reference counting: `attested.state()` is held across applies by reserving its root
 (`copyMutableState()` releases the lifecycle manager's own reference to the superseded
 version); the previously-held attested state is released when a new one is adopted. A node that
-has applied only genesis has nothing attested (`attested.state() == null`) and reports
-NOT_READY. Snapshots capture `attested.state()`.
+has neither restored a snapshot nor attested a block (`attested.state() == null`) reports
+NOT_READY; a node that restored a snapshot (§6.2) starts with that state attested. Snapshots capture `attested.state()`.
 
 This reservation is sufficient for the apply thread's own bookkeeping, but gives a *query*
 reader no safety by itself: nothing today takes a reservation before reading `attested.state()`
@@ -453,8 +456,8 @@ consumer doesn't reinvent it.
 registered as the gRPC service in `init`. Each RPC:
 
 1. Reads `attested` (the `AttestedSnapshot` — state and block number published together, §6.5).
-   Returns `NOT_READY` if `attested.state() == null` (nothing has been attested yet — true
-   genesis, no block fully confirmed). This is the *only* state this RPC ever reads: never the
+   Returns `NOT_READY` if `attested.state() == null` (no snapshot restored and no block attested
+   yet — a true genesis node; a restored snapshot counts as attested, §6.2). This is the *only* state this RPC ever reads: never the
    live mutable or the sealed-but-unattested `hashingImmutable`, which the apply worker is
    actively writing/sealing concurrently with no synchronization a query thread could safely
    join.
@@ -466,12 +469,18 @@ registered as the gRPC service in `init`. Each RPC:
      `0` while the other is positive;
    - `getQueue`'s `selector.queue_range` spans more elements than the configured
      `maxQueueRangeSize` (§4) — this is a unary RPC, not a streaming one, so an unbounded range
-     is rejected rather than served.
+     is rejected rather than served;
+   - `getQueue` is a full-queue read (no selector, or `start` and `end` both `0`) and the queue
+     holds more than `maxQueueRangeSize` elements. The cap applies to the full read exactly as it
+     does to an explicit range, so a client cannot bypass it by omitting the range. The plugin
+     logs a WARN naming the `state_id`, the queue size and the cap, so an operator knows the queue
+     is too large to read in one call and that the client should page with `queue_range` instead.
 3. Returns `NOT_AVAILABLE` if an explicit `block_number` was set and it doesn't match
    `attested.blockNumber()`. This holds regardless of `applyHalted`: a halted node's
    attested block is simply frozen, so requests for that exact block (or `retrieve_latest`)
-   still succeed — only a `block_number` beyond it is affected, and halting makes that
-   permanently true rather than transiently true. Block 0 is a valid, non-special `block_number`.
+   still succeed — only a `block_number` other than it (older or newer) is affected, and halting
+   makes that permanently true rather than transiently true. There is no historical retention, so
+   an older block is `NOT_AVAILABLE` just like a newer one. Block 0 is a valid, non-special `block_number`.
 4. Delegates to `getKv` / `getSingleton` / `getQueueAsList` / `peekQueue` on `attested.state()`.
    A `queue_range` spanning multiple elements reads each index in the range via the same
    `peekQueue(stateId, index)` call `getQueue` already uses for a single index — no new
@@ -480,9 +489,12 @@ registered as the gRPC service in `init`. Each RPC:
    `getQueueState`/`getQueueAsList`/`peekQueue` (which NPE on unknown
    state IDs in `VirtualMapStateImpl`) to `NOT_FOUND`; for a `queue_range`, any single index in
    the range failing this way fails the whole request — a range is never partially served.
-6. Wraps the result in `StateResponse` with `attested.blockNumber()` always populated —
-   state and block number come from the same `AttestedSnapshot` read, so a response can never
-   pair one block's data with another block's number.
+6. Wraps the result in `StateResponse` with `attested.blockNumber()` populated whenever a state
+   has been attested (every status except `NOT_READY`) — state and block number come from the same
+   `AttestedSnapshot` read, so a response can never pair one block's data with another block's
+   number. On `NOT_READY` there is no restored or attested state to read, so `block_number` is `-1`
+   (`uint64` max, `0xFFFFFFFFFFFFFFFF`) rather than `0`, which would be indistinguishable from the
+   valid genesis block. Clients still check `status` first.
 
 Reader reservation on `attested.state()`'s `VirtualMap` root is **not yet designed**: today
 nothing reads it except the apply thread itself, so `setAttested`'s reserve/release pair is
@@ -540,8 +552,8 @@ recovers from a plain restart. There is no distinct query-time signal for "halte
 `state_apply_halted` and `state_ready` are the only observable signals (see §9). Internally the
 halted/not-halted distinction doesn't change query behavior at all (§8) — a halted node still
 answers queries for its (frozen) attested block with `SUCCESS`, since that state remains valid;
-only requests for a block beyond it are affected, identically to a node that just hasn't caught
-up yet.
+only requests for a block other than it (older or newer) are affected, identically to a node that
+just hasn't caught up yet.
 
 ## 11. Acceptance tests
 

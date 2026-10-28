@@ -15,7 +15,9 @@ option java_multiple_files = true;
  * requests that inclusive range. `start > end`, or exactly one of `start`/`end` being `0`
  * while the other is positive, is an `INVALID_REQUEST`. A range wider than this Block-Node's
  * configured `maxQueueRangeSize` is also an `INVALID_REQUEST`, since this is a unary RPC, not
- * a streaming one.
+ * a streaming one. The same cap applies to a full-queue read: if the whole queue holds more than
+ * `maxQueueRangeSize` elements, the request is an `INVALID_REQUEST` and the client SHOULD page
+ * with an explicit range.
  */
 message QueueRange {
     uint64 start = 1;
@@ -41,7 +43,7 @@ message QueueRange {
  * This is independent of whether block apply has halted: a request for
  * the attested block (or `retrieve_latest`) SHALL still succeed even
  * while apply is halted, since the attested state itself remains valid —
- * only requests for a block beyond it are affected.
+ * only requests for a block other than it (older or newer) are affected.
  *
  * TODO: when a second consumer of this pattern lands, lift
  * `block_specifier` into `shared_message_types.proto` and reuse here and
@@ -143,11 +145,11 @@ message StateResponse {
         NOT_FOUND = 3;
 
         /**
-         * No state has been attested yet (true genesis — nothing has been
-         * fully confirmed). The client SHOULD retry after a short backoff.
-         * Once any state has been attested, this Block-Node answers from it
-         * even while still catching up or halted — this code is never
-         * returned again after the first attestation.
+         * This Block-Node holds no state yet: no snapshot was restored and no
+         * block has been attested (true genesis). The client SHOULD retry after
+         * a short backoff. Once a snapshot is restored or any block is
+         * attested, this Block-Node answers from it even while still catching
+         * up or halted — this code is never returned again after that.
          */
         NOT_READY = 4;
 
@@ -168,11 +170,13 @@ message StateResponse {
 
     /**
      * The block number of the attested state this response was sourced
-     * from. Populated on every response, including failures, so the client
-     * can decide whether to retry against a different Block-Node. This is
-     * read directly from the state's own `BlockStreamInfo` singleton, never
-     * tracked as a separate copy, so it can never disagree with the state
-     * it describes.
+     * from. Populated on every response except `NOT_READY`, including other
+     * failures, so the client can decide whether to retry against a different
+     * Block-Node. On `NOT_READY` no state is held, so this is `-1`
+     * (`uint64` max, `0xFFFFFFFFFFFFFFFF`), not `0`, which is the valid genesis
+     * block; clients MUST check `status` first. Otherwise this is read
+     * directly from the state's own `BlockStreamInfo` singleton, never tracked
+     * as a separate copy, so it can never disagree with the state it describes.
      */
     uint64 block_number = 2;
 
