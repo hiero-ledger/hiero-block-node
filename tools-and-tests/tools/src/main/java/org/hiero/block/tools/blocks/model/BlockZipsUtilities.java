@@ -3,6 +3,7 @@ package org.hiero.block.tools.blocks.model;
 
 import com.github.luben.zstd.ZstdInputStream;
 import com.hedera.hapi.block.stream.Block;
+import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.BufferedData;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.ByteArrayInputStream;
@@ -349,6 +350,24 @@ public final class BlockZipsUtilities {
      */
     @SuppressWarnings("unused")
     public static Block decompressAndParse(byte[] raw, boolean isZstd, boolean isGz) throws Exception {
+        return Block.PROTOBUF.parse(
+                BufferedData.wrap(decompress(raw, isZstd, isGz)),
+                true,
+                false,
+                ProtobufParsingConstants.MAX_DEPTH,
+                ProtobufParsingConstants.MAX_MESSAGE_SIZE);
+    }
+
+    /**
+     * Decompresses raw block bytes.
+     *
+     * @param raw compressed or uncompressed block bytes
+     * @param isZstd true if the bytes are zstd-compressed
+     * @param isGz true if the bytes are gzip-compressed
+     * @return the decompressed bytes, or {@code raw} itself if neither flag is set
+     * @throws IOException if decompression fails
+     */
+    public static byte[] decompress(byte[] raw, boolean isZstd, boolean isGz) throws IOException {
         final byte[] blockBytes;
         if (isZstd) {
             try (InputStream is = new ZstdInputStream(new ByteArrayInputStream(raw))) {
@@ -361,9 +380,25 @@ public final class BlockZipsUtilities {
         } else {
             blockBytes = raw;
         }
-        return Block.PROTOBUF.parse(
-                BufferedData.wrap(blockBytes), true, false, 1000, ProtobufParsingConstants.MAX_MESSAGE_SIZE);
+        return blockBytes;
     }
+
+    /**
+     * Parses decompressed block bytes as a {@link BlockUnparsed} protobuf.
+     *
+     * @param blockBytes uncompressed block bytes
+     * @return the shallow parsed Block
+     * @throws ParseException if parsing fails
+     */
+    public static BlockUnparsed partialParse(byte[] blockBytes) throws ParseException {
+        return BlockUnparsed.PROTOBUF.parse(
+                BufferedData.wrap(blockBytes),
+                true,
+                false,
+                ProtobufParsingConstants.MAX_DEPTH,
+                ProtobufParsingConstants.MAX_MESSAGE_SIZE);
+    }
+
     /**
      * Decompresses raw bytes and parses them as a {@link BlockUnparsed} protobuf. BlockUnparsed is shallow parsed so
      * block items are parsed enough to know their type and bytes but if you need more you will have to do a second
@@ -376,20 +411,7 @@ public final class BlockZipsUtilities {
      * @throws Exception if decompression or parsing fails
      */
     public static BlockUnparsed decompressAndPartialParse(byte[] raw, boolean isZstd, boolean isGz) throws Exception {
-        final byte[] blockBytes;
-        if (isZstd) {
-            try (InputStream is = new ZstdInputStream(new ByteArrayInputStream(raw))) {
-                blockBytes = is.readAllBytes();
-            }
-        } else if (isGz) {
-            try (InputStream is = new GZIPInputStream(new ByteArrayInputStream(raw))) {
-                blockBytes = is.readAllBytes();
-            }
-        } else {
-            blockBytes = raw;
-        }
-        return BlockUnparsed.PROTOBUF.parse(
-                BufferedData.wrap(blockBytes), true, false, 1000, ProtobufParsingConstants.MAX_MESSAGE_SIZE);
+        return partialParse(decompress(raw, isZstd, isGz));
     }
 
     /**

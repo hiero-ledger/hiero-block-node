@@ -2,8 +2,10 @@
 package org.hiero.block.suites.metrics;
 
 import static org.hiero.block.suites.utils.BlockSimulatorUtils.createBlockSimulator;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.github.dockerjava.api.command.CreateContainerCmd;
 import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.Future;
@@ -17,8 +19,8 @@ import org.testcontainers.containers.Container;
 import org.testcontainers.containers.GenericContainer;
 
 ///
-/// Regression guard for issue #3026: memory usage must stay below 128 MB when the block node is
-/// deployed with the nano profile (`charts/block-node-server/values-overrides/nano.yaml`).
+/// Regression guard for issue #3026: the block node must run within the nano profile's resource
+/// limits (`charts/block-node-server/values-overrides/nano.yaml`): 1 CPU and 192 MiB.
 ///
 /// The nano profile targets memory-constrained environments (minikube, laptops). Its key overrides:
 /// - `SERVER_SOCKET_RECEIVE_BUFFER_SIZE_BYTES=131072` (128 KB, vs kernel autotune in the production default)
@@ -26,14 +28,19 @@ import org.testcontainers.containers.GenericContainer;
 /// - Reduced messaging queue sizes
 /// - `MALLOC_ARENA_MAX=2`, which caps the native memory arenas of the TSS library's verification threads
 ///
-/// If anyone removes or raises the socket buffer override from nano.yaml, or increases the JVM
-/// heap, the test will fail because a 128 MB container limit is no longer achievable.
+/// The container gets the same CPU and memory limits as the nano pod. The JVM and the TSS library size
+/// their thread pools by the CPUs they see, so without the CPU limit the result depends on the size of
+/// the machine running the test. If the node needs more memory than the limit, it is OOM-killed and the
+/// test fails. That covers removing or raising the socket buffer override (an 8 MB buffer pins ~640 MB),
+/// raising the JVM limits, and dropping `MALLOC_ARENA_MAX` (60 to 130 MB with TSS block proofs).
+/// The RSS must also stay under a soft ceiling below the limit, to catch growth before it ends in an OOM kill.
+///
+/// The image's entrypoint (`app || sleep 30d`) keeps the container running after the node dies, so the
+/// test relies on the container's OOM-killed flag and checks it again after reading the RSS.
 ///
 /// The streamed blocks carry TSS block proofs, and the verification plugin loads the TSS library's
-/// native code and embedded verification key at start. Measured peak RSS of this test: 148 MB with
-/// hiero-cryptography 3.13.0; with the verifier variant of 3.21.0, 205 to 277 MB without the arena cap
-/// (the library verifies on several native threads, each growing its own malloc arena) and 145 MB with
-/// it. Removing `MALLOC_ARENA_MAX` from nano.yaml therefore also fails this test.
+/// native code and embedded verification key at start. Measured at 1 CPU: 111 MB with
+/// hiero-cryptography 3.13.0, and a ~129 MB peak with 3.22.0, which is OOM-killed at 128 MB (#3879).
 ///
 @DisplayName("Memory Regression Tests")
 public class MemoryRegressionTests extends BaseSuite {
@@ -44,11 +51,14 @@ public class MemoryRegressionTests extends BaseSuite {
     /// Metrics port for the nano-profile container.
     private static final int NANO_METRICS_PORT = 16008;
 
-    /// RSS threshold (KB) for the nano profile. Set to 200 MB to accommodate Linux RSS overhead
-    /// above the 128 MB container limit while still catching regressions (e.g. an explicit 8 MB
-    /// socket buffer instead of nano's 128 KB pins adds ~640 MB, and dropping the malloc arena cap
-    /// adds 60 to 130 MB with TSS block proofs).
-    private static final long NANO_RSS_THRESHOLD_KB = 204_800L; // 200 MB
+    /// CPU limit of the nano profile (`limits.cpu: "1"`), in units of 10^-9 CPUs.
+    private static final long NANO_CPU_LIMIT_NANO_CPUS = 1_000_000_000L;
+
+    /// Memory limit of the nano profile (`limits.memory: "192Mi"`), in bytes.
+    private static final long NANO_MEMORY_LIMIT_BYTES = 192L * 1024 * 1024;
+
+    /// Soft RSS ceiling (160 MiB), in KB: ~20% above the measured 126 to 133 MiB, below the memory limit.
+    private static final long NANO_RSS_CEILING_KB = 160L * 1024;
 
     /// Environment variable overrides mirroring `values-overrides/nano.yaml`.
     private static final Map<String, String> NANO_ENV = Map.of(
@@ -80,10 +90,11 @@ public class MemoryRegressionTests extends BaseSuite {
     }
 
     @Test
-    @DisplayName("Nano profile RSS stays under 200 MB (issue #3026 regression guard)")
-    void nanoProfileStaysUnder200MbRss() throws IOException, InterruptedException {
+    @DisplayName("Nano profile runs within its 1 CPU / 192 MiB limits (issue #3026 regression guard)")
+    void nanoProfileRunsWithinItsResourceLimits() throws IOException, InterruptedException {
         BlockNodeContainerConfig nanoConfig = new BlockNodeContainerConfig(NANO_PORT, NANO_METRICS_PORT, "", NANO_ENV);
         GenericContainer<?> nanoContainer = createContainer(nanoConfig);
+        nanoContainer.withCreateContainerCmdModifier(MemoryRegressionTests::applyNanoResourceLimits);
         nanoContainer.start();
         blockNodeContainers.add(nanoContainer);
 
@@ -91,20 +102,46 @@ public class MemoryRegressionTests extends BaseSuite {
                 Map.of("grpc.port", String.valueOf(NANO_PORT), "generator.endBlockNumber", "9999"));
         simulatorFuture = startSimulatorInThread(simulatorApp);
         Thread.sleep(30_000);
+        // Checked before stopping the simulator: stopping it fails once the node is gone.
+        assertNotOomKilled(nanoContainer);
         simulatorApp.stop();
         Thread.sleep(2_000);
 
         long rssKb = readMaxVmRssKb(nanoContainer);
-        System.out.printf(
-                "Nano profile RSS: %d KB / %.1f MB (threshold: %d KB / %.0f MB)%n",
-                rssKb, rssKb / 1024.0, NANO_RSS_THRESHOLD_KB, NANO_RSS_THRESHOLD_KB / 1024.0);
-
+        System.out.printf("Nano profile RSS: %d KB / %.1f MiB%n", rssKb, rssKb / 1024.0);
+        // Checked again: after a late OOM kill, the RSS read above only sees the entrypoint's shell.
+        assertNotOomKilled(nanoContainer);
         assertTrue(
-                rssKb < NANO_RSS_THRESHOLD_KB,
-                ("Nano profile RSS (%d KB / %.0f MB) exceeded the 200 MB threshold. "
-                                + "Check values-overrides/nano.yaml — SERVER_SOCKET_RECEIVE_BUFFER_SIZE_BYTES "
-                                + "must be 131072 (128 KB) and JAVA_OPTS must constrain heap and direct memory.")
-                        .formatted(rssKb, rssKb / 1024.0));
+                rssKb < NANO_RSS_CEILING_KB,
+                "Nano profile RSS (%d KB / %.1f MiB) exceeded the %d KB soft ceiling. Check values-overrides/nano.yaml"
+                        .formatted(rssKb, rssKb / 1024.0, NANO_RSS_CEILING_KB));
+    }
+
+    private static void assertNotOomKilled(GenericContainer<?> container) {
+        assertFalse(
+                wasOomKilled(container),
+                "The nano profile node was OOM-killed at its %d byte memory limit. Check values-overrides/nano.yaml:"
+                                .formatted(NANO_MEMORY_LIMIT_BYTES)
+                        + " SERVER_SOCKET_RECEIVE_BUFFER_SIZE_BYTES must be 131072 (128 KB), JAVA_OPTS must"
+                        + " constrain heap and direct memory, and MALLOC_ARENA_MAX must be 2.");
+    }
+
+    /// Gives the container the CPU and memory limits of the nano pod, with no swap.
+    private static void applyNanoResourceLimits(CreateContainerCmd command) {
+        command.getHostConfig()
+                .withNanoCPUs(NANO_CPU_LIMIT_NANO_CPUS)
+                .withMemory(NANO_MEMORY_LIMIT_BYTES)
+                .withMemorySwap(NANO_MEMORY_LIMIT_BYTES);
+    }
+
+    /// Whether the container was killed for exceeding its memory limit.
+    private static boolean wasOomKilled(GenericContainer<?> container) {
+        return Boolean.TRUE.equals(container
+                .getDockerClient()
+                .inspectContainerCmd(container.getContainerId())
+                .exec()
+                .getState()
+                .getOOMKilled());
     }
 
     /// Reads the maximum VmRSS (KB) across all processes in the container by scanning `/proc`.

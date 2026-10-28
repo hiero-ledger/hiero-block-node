@@ -38,7 +38,7 @@ Set environment variables that will be used throughout this guide. Replace the v
 
 ```bash
 export RELEASE="bn-release"  # bn-release is short for block-node-release
-export VERSION="0.45.0-SNAPSHOT"
+export VERSION="0.46.0-SNAPSHOT"
 ```
 
 ## Installation Options
@@ -127,23 +127,23 @@ The Block Node uses a plugin architecture where functionality is loaded dynamica
 
 #### Available Plugins
 
-|          Plugin          |                                 Description                                  |
-|--------------------------|------------------------------------------------------------------------------|
-| `facility-app-state`     | Application state facility: TSS data, address books, block ranges (required) |
-| `facility-messaging`     | Core messaging facility for inter-plugin communication (required)            |
-| `health`                 | Health check endpoints (`/healthz/livez`, `/healthz/readyz`)                 |
-| `server-status`          | Server status API and metrics                                                |
-| `block-access-service`   | gRPC API for block queries                                                   |
-| `stream-publisher`       | Publishes blocks to downstream subscribers                                   |
-| `stream-subscriber`      | Subscribes to upstream block streams                                         |
-| `block-verification`     | Cryptographic verification of blocks                                         |
-| `blocks-file-recent`     | Local storage for recent/live blocks                                         |
-| `blocks-file-historic`   | Local storage for historical blocks                                          |
-| `backfill`               | Fetches missing historical blocks from other nodes                           |
-| `cloud-storage-archive`  | Archives blocks to S3-compatible cloud storage (grouped files)               |
-| `cloud-storage-expanded` | Uploads each verified block individually to S3-compatible storage            |
-| `roster-bootstrap-rsa`   | Bootstraps the network roster from Mirror Node RSA address book              |
-| `roster-bootstrap-tss`   | Fetches TSS data (ledger ID, roster) from peer Block Nodes                   |
+|          Plugin          |                                           Description                                           |
+|--------------------------|-------------------------------------------------------------------------------------------------|
+| `facility-app-state`     | Application state facility: TSS data, address books, block ranges (required)                    |
+| `facility-messaging`     | Core messaging facility for inter-plugin communication (required)                               |
+| `health`                 | Health check endpoints (`/healthz/livez`, `/healthz/readyz`)                                    |
+| `server-status`          | Server status API and metrics                                                                   |
+| `block-access-service`   | gRPC API for block queries                                                                      |
+| `stream-publisher`       | Publishes blocks to downstream subscribers                                                      |
+| `stream-subscriber`      | Subscribes to upstream block streams                                                            |
+| `block-verification`     | Cryptographic verification of blocks                                                            |
+| `blocks-file-recent`     | Local storage for recent/live blocks                                                            |
+| `blocks-file-historic`   | Local storage for historical blocks                                                             |
+| `backfill`               | Fetches missing historical blocks from other nodes                                              |
+| `cloud-storage-archive`  | Archives blocks to S3-compatible storage, grouped into tar files                                |
+| `cloud-storage-expanded` | Uploads blocks to S3-compatible storage, one object per block                                   |
+| `roster-bootstrap-rsa`   | Loads the RSA address-book history at startup, fetching it from a peer or Mirror Node if absent |
+| `roster-bootstrap-tss`   | Obtains the latest TSS data (ledger ID, WRAPS verification key) and publishes it to the node    |
 
 #### Pre-defined Profiles
 
@@ -156,21 +156,21 @@ Installs the solo-dev docker image that contains all the plugins.
 ##### plugin-profile-all.yaml
 
 Full functionality for development and testing.
-* `facility-app-state`
-* `facility-messaging`
+* `backfill`
 * `block-access-service`
-* `health`
-* `server-status`
-* `stream-publisher`
-* `stream-subscriber`
 * `block-verification`
 * `blocks-file-historic`
 * `blocks-file-recent`
-* `backfill`
 * `cloud-storage-archive`
 * `cloud-storage-expanded`
+* `facility-app-state`
+* `facility-messaging`
+* `health`
 * `roster-bootstrap-rsa`
 * `roster-bootstrap-tss`
+* `server-status`
+* `stream-publisher`
+* `stream-subscriber`
 
 ##### plugin-profile-minimal.yaml
 
@@ -184,37 +184,40 @@ Minimal functional node for development and testing.
 ##### plugin-profile-lfh.yaml
 
 Local File History - stores all blocks on local persistent volumes (same as default).
-* `facility-app-state`
-* `facility-messaging`
+* `backfill`
 * `block-access-service`
-* `health`
-* `server-status`
-* `stream-publisher`
-* `stream-subscriber`
 * `block-verification`
 * `blocks-file-historic`
 * `blocks-file-recent`
-* `backfill`
-* `roster-bootstrap-rsa`
-* `roster-bootstrap-tss`
-
-##### plugin-profile-rfh.yaml
-
-Remote File History - archives blocks to S3-compatible cloud storage.
 * `facility-app-state`
 * `facility-messaging`
 * `health`
+* `roster-bootstrap-rsa`
+* `roster-bootstrap-tss`
 * `server-status`
+* `stream-publisher`
+* `stream-subscriber`
+
+##### plugin-profile-rfh.yaml
+
+Remote File History - stores blocks in S3-compatible storage. No local block-storage plugins,
+and no `block-access-service`, `stream-publisher` or `stream-subscriber`.
+* `backfill`
 * `block-verification`
 * `cloud-storage-archive`
 * `cloud-storage-expanded`
+* `facility-app-state`
+* `facility-messaging`
+* `health`
 * `roster-bootstrap-rsa`
 * `roster-bootstrap-tss`
-* `backfill`
+* `server-status`
 
 ##### plugin-profile-cloud.yaml
 
-Cloud storage only - archives blocks to cloud storage without local block storage. Blocks arrive via backfill; no live stream from a Consensus Node.
+Cloud storage archiving only. No local block-storage plugins, and no
+`stream-publisher`/`stream-subscriber`: such a node takes no live stream from a Consensus Node
+and serves no downstream client, so blocks arrive solely via backfill.
 * `facility-app-state`
 * `facility-messaging`
 * `health`
@@ -393,6 +396,25 @@ blockNode:
     metrics: 16007  # binds the metrics container port to the host
 ```
 
+### Use Pre-Provisioned Host Storage (hostPath / local)
+
+Set `pv.path` on a volume (`archive`, `live`, `logging`, `applicationState` or `plugins`) to have the chart render a `PersistentVolume` and a bound `PersistentVolumeClaim` instead of a `volumeClaimTemplate`:
+
+```yaml
+blockNode:
+  persistence:
+    live:
+      size: 6Ti
+      pv:
+        type: hostPath  # hostPath | local (local requires nodeAffinity)
+        path: /mnt/fast-storage/block-node/live
+```
+
+See `values.yaml` for all `pv` options. Notes:
+- The volume's `subPath` (`archive-data`, `live-data` by default) still applies, so data lands under `<path>/<subPath>`. Set `subPath: ""` to use `path` directly.
+- `hostPath` volumes are not tied to a node unless you set `pv.nodeAffinity` (or a pod `nodeSelector`). On multi-node clusters, set one, otherwise a rescheduled pod gets an empty directory.
+- Switching an existing release between `volumeClaimTemplates` and `pv.path` changes the StatefulSet `volumeClaimTemplates`, which Kubernetes does not allow in place. Uninstall and reinstall the release (data on the host path is kept, `reclaimPolicy` defaults to `Retain`).
+
 ### Read-only Root Filesystem
 
 The chart leaves `securityContext` empty. If you set `readOnlyRootFilesystem: true`, keep the directory named by the
@@ -415,7 +437,7 @@ To upgrade the chart to a new version from the OCI registry:
 1. Set the new version:
 
 ```bash
-export VERSION="0.45.0-SNAPSHOT"
+export VERSION="0.46.0-SNAPSHOT"
 ```
 
 2. Save your current configuration:

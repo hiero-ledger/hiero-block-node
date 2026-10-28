@@ -198,3 +198,54 @@ The service name to connect to Loki. Defaults to the same logic as "loki.fullnam
 {{- end -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Persistence volume helpers. All take (dict "root" $ "key" <volume>) where volume is one of
+archive, live, logging, applicationState, plugins. A volume is chart-managed when pv.path is set.
+*/}}
+{{- define "hiero-block-node.persistence.volumeName" -}}
+{{- $defaults := dict "archive" "archive-storage" "live" "live-storage" "logging" "logging-storage" "applicationState" "application-state-storage" "plugins" "plugins-storage" -}}
+{{- default (index $defaults .key) (index .root.Values.blockNode.persistence .key).volumeName -}}
+{{- end -}}
+
+{{- define "hiero-block-node.persistence.managed" -}}
+{{- if dig "pv" "path" "" (index .root.Values.blockNode.persistence .key) -}}true{{- end -}}
+{{- end -}}
+
+{{- define "hiero-block-node.persistence.pvcName" -}}
+{{- $default := printf "%s-%s" (include "hiero-block-node.fullname" .root) (include "hiero-block-node.persistence.volumeName" .) -}}
+{{- dig "pv" "claimName" $default (index .root.Values.blockNode.persistence .key) | default $default -}}
+{{- end -}}
+
+{{/*
+Chart-managed or existing PVC name; empty when the StatefulSet should use a volumeClaimTemplate.
+*/}}
+{{- define "hiero-block-node.persistence.claimName" -}}
+{{- if include "hiero-block-node.persistence.managed" . -}}
+{{- include "hiero-block-node.persistence.pvcName" . -}}
+{{- else -}}
+{{- default "" (index .root.Values.blockNode.persistence .key).existingClaim -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "hiero-block-node.persistence.validate" -}}
+{{- if include "hiero-block-node.persistence.managed" . -}}
+{{- $cfg := index .root.Values.blockNode.persistence .key -}}
+{{- $path := printf "blockNode.persistence.%s" .key -}}
+{{- $type := default "hostPath" $cfg.pv.type -}}
+{{- if $cfg.existingClaim -}}
+{{- fail (printf "%s.pv.path and %s.existingClaim are mutually exclusive" $path $path) -}}
+{{- end -}}
+{{- if not (has $type (list "hostPath" "local")) -}}
+{{- fail (printf "%s.pv.type must be one of hostPath, local, got %q" $path $type) -}}
+{{- end -}}
+{{- if and (eq $type "local") (not $cfg.pv.nodeAffinity) -}}
+{{- fail (printf "%s.pv.nodeAffinity is required when pv.type is local" $path) -}}
+{{- end -}}
+{{- $modes := default (list "ReadWriteOnce") $cfg.pv.accessModes -}}
+{{- $replicas := int (default 1 .root.Values.replicaCount) -}}
+{{- if and (gt $replicas 1) (or (has "ReadWriteOnce" $modes) (has "ReadWriteOncePod" $modes)) -}}
+{{- fail (printf "%s.pv.accessModes %v cannot be shared by %d replicas" $path $modes $replicas) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}

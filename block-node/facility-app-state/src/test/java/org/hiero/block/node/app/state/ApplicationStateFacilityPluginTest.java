@@ -42,6 +42,7 @@ import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.api.RosterEntry;
 import org.hiero.block.api.TssData;
 import org.hiero.block.api.TssRoster;
+import org.hiero.block.internal.BlockRangesState;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
@@ -1068,6 +1069,88 @@ class ApplicationStateFacilityPluginTest {
 
         assertThat(second.plugin.storedBlocks.streamRanges().toList()).containsExactly(new LongRange(0, 1099));
         second.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("a block ranges file with an invalid range is ignored as a whole")
+    void blockRangesFileWithInvalidRangeIsIgnored() throws IOException {
+        final Fixture f = newFixture();
+        final BlockRangesState state =
+                new BlockRangesState(List.of(new BlockRange(0, 9), new BlockRange(20, 10)), List.of());
+        Files.write(
+                f.config.blockRangesFilePath(),
+                BlockRangesState.JSON.toBytes(state).toByteArray());
+
+        f.initAndStart();
+
+        assertThat(f.plugin.storedBlocks.streamRanges().toList()).isEmpty();
+        f.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("a corrupt block ranges file does not fail startup")
+    void corruptBlockRangesFileIsIgnored() throws IOException {
+        final Fixture f = newFixture();
+        Files.write(f.config.blockRangesFilePath(), new byte[] {(byte) 0xFF, (byte) 0xFE, 0x00});
+
+        f.initAndStart();
+
+        assertThat(f.plugin.storedBlocks.streamRanges().toList()).isEmpty();
+        f.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("start creates the directory for absent state files")
+    void startCreatesMissingStateDirectory() {
+        final Path dir = tempDir.resolve("does-not-exist-yet");
+        final Fixture f = new Fixture(dir);
+        fixtures.add(f);
+
+        f.initAndStart();
+
+        assertThat(dir).isDirectory();
+        f.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("a failure to create the state directory does not fail startup")
+    void failureToCreateStateDirectoryDoesNotFailStartup() throws IOException {
+        // a regular file where the state directory should be makes createDirectories fail
+        final Path blocker = Files.createFile(tempDir.resolve("blocker"));
+        final Fixture f = new Fixture(blocker);
+        fixtures.add(f);
+
+        f.init();
+
+        assertThatCode(f.plugin::start).doesNotThrowAnyException();
+        assertThat(f.plugin.tssData()).isNull();
+        assertThat(f.plugin.rangedAddressBookHistory()).isNull();
+        assertThatCode(f.plugin::stop).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("a single-book RSA file with an invalid address book fails startup")
+    void invalidSingleBookFileThrows() throws IOException {
+        final Fixture f = newFixture();
+        Files.writeString(f.config.rsaBootstrapFilePath(), "{}");
+        f.init();
+
+        assertThatThrownBy(f.plugin::start).isInstanceOf(IllegalStateException.class);
+        f.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("an unreadable RSA file fails startup")
+    void unreadableRsaFileThrows() throws IOException {
+        final Fixture f = newFixture();
+        // a directory in place of the file exists but cannot be read as bytes
+        Files.createDirectory(f.config.rsaBootstrapFilePath());
+        f.init();
+
+        assertThatThrownBy(f.plugin::start)
+                .isInstanceOf(IllegalStateException.class)
+                .hasCauseInstanceOf(IOException.class);
+        f.plugin.stop();
     }
 
     @Test

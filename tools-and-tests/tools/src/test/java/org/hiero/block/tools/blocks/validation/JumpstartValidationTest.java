@@ -5,6 +5,7 @@ import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
 import static org.hiero.block.tools.utils.Sha256.SHA_256_HASH_SIZE;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -19,6 +20,7 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.DataOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.List;
 import org.hiero.block.internal.BlockUnparsed;
@@ -151,7 +153,7 @@ class JumpstartValidationTest {
             out.write(blockHash);
             out.write(new byte[SHA_256_HASH_SIZE]); // consensus timestamp hash
             out.write(new byte[SHA_256_HASH_SIZE]); // output items tree root hash
-            out.writeLong(999); // wrong leaf count
+            out.writeLong(2); // wrong leaf count, but one set bit so the header is still consistent
             out.writeInt(hashes.size());
             for (byte[] h : hashes) {
                 out.write(h);
@@ -243,6 +245,57 @@ class JumpstartValidationTest {
         JumpstartValidation validation = new JumpstartValidation(jumpstartFile, tree, null);
         ValidationException ex = assertThrows(ValidationException.class, () -> validation.finalize(1, 0));
         assertTrue(ex.getMessage().contains("SHA-384"));
+        assertFalse(ex.getMessage().contains("corrupt"));
+    }
+
+    @Test
+    void trailingBytes_isCorruptNotLegacy(@TempDir Path tempDir) throws Exception {
+        BlockChainValidation chain = new BlockChainValidation();
+        HistoricalBlockTreeValidation tree = new HistoricalBlockTreeValidation(chain);
+
+        chain.validate(toUnparsed(VALID_BLOCK), 0);
+        tree.validate(toUnparsed(VALID_BLOCK), 0);
+        byte[] blockHash = chain.getStagedBlockHash();
+        tree.commitState(toUnparsed(VALID_BLOCK), 0);
+        chain.commitState(toUnparsed(VALID_BLOCK), 0);
+
+        Path jumpstartFile = tempDir.resolve("jumpstart.bin");
+        writeJumpstartFile(
+                jumpstartFile,
+                0,
+                blockHash,
+                new byte[SHA_256_HASH_SIZE],
+                new byte[SHA_256_HASH_SIZE],
+                tree.getStreamingHasher());
+        Files.write(jumpstartFile, new byte[7], StandardOpenOption.APPEND);
+
+        JumpstartValidation validation = new JumpstartValidation(jumpstartFile, tree, null);
+        ValidationException ex = assertThrows(ValidationException.class, () -> validation.finalize(1, 0));
+        assertTrue(ex.getMessage().contains("corrupt"));
+        assertFalse(ex.getMessage().contains("SHA-384"));
+    }
+
+    @Test
+    void inconsistentHashCount_isCorrupt(@TempDir Path tempDir) throws Exception {
+        BlockChainValidation chain = new BlockChainValidation();
+        HistoricalBlockTreeValidation tree = new HistoricalBlockTreeValidation(chain);
+
+        // Size fits two 32-byte hashes, but a leaf count of 4 has only one set bit
+        Path jumpstartFile = tempDir.resolve("jumpstart.bin");
+        try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(jumpstartFile))) {
+            out.writeLong(0);
+            out.write(new byte[SHA_256_HASH_SIZE]); // block hash
+            out.write(new byte[SHA_256_HASH_SIZE]); // consensus timestamp hash
+            out.write(new byte[SHA_256_HASH_SIZE]); // output items tree root hash
+            out.writeLong(4);
+            out.writeInt(2);
+            out.write(new byte[SHA_256_HASH_SIZE]);
+            out.write(new byte[SHA_256_HASH_SIZE]);
+        }
+
+        JumpstartValidation validation = new JumpstartValidation(jumpstartFile, tree, null);
+        ValidationException ex = assertThrows(ValidationException.class, () -> validation.finalize(1, 0));
+        assertTrue(ex.getMessage().contains("corrupt"));
     }
 
     @Test

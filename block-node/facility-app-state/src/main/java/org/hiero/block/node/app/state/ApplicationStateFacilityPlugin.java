@@ -582,10 +582,6 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
 
     /// Loads all ApplicationState from file paths specified in the ApplicationStateConfig class.
     /// Must be called after the BlockNodeContext is available and the messaging facility is started.
-    ///
-    /// Note: This method currently uses _exceptions_ for flow control, with try/catch
-    /// almost every sub block of code and calling methods that throw instead
-    /// of returning errors. This needs to be fixed.
     private void loadApplicationState() {
         // Load the connection-information sets (JSON-serialized NetworkData) used by the /statusz endpoints
         // first. These are read-only configuration; absent or unreadable files yield an empty set. Loading the
@@ -594,8 +590,15 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
         knownPublishers.set(loadNetworkData(appStateConfig.knownPublishersFilePath()));
         inboundPartners.set(loadNetworkData(appStateConfig.inboundPartnersFilePath()));
         outboundPartners.set(loadNetworkData(appStateConfig.outboundPartnersFilePath()));
+        loadTssData();
+        loadAddressBookHistory();
+        loadBlockRanges();
+    }
 
-        // Load TssData (JSON format). Installing it persists and dispatches it on the dispatcher thread.
+    /// Loads the TssData (JSON format) if the file exists, otherwise creates its directory for future writes.
+    /// Installing the data persists and dispatches it on the dispatcher thread. An unreadable file is logged
+    /// and ignored.
+    private void loadTssData() {
         final Path tssDataJsonPath = appStateConfig.tssBootstrapFilePath();
         if (Files.exists(tssDataJsonPath)) {
             try {
@@ -606,106 +609,113 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
                     updateTssData(tssData);
                 }
             } catch (ParseException | IOException e) {
-                // @todo(3321) this is using an exception to decide to log, but
-                //      doesn't resolve the problem, so the code still fails
-                //      later in the same method. This catch should be method level,
-                //      or should be in the singular caller.
                 LOGGER.log(WARNING, "Failed to read TssData file: " + tssDataJsonPath, e);
             }
         } else {
-            // make sure the directory is created for the writes
-            Path parent = tssDataJsonPath.getParent();
-            try {
-                Files.createDirectories(parent);
-            } catch (IOException e) {
-                // @todo(3321) this is using an exception to decide to log, but
-                //      doesn't resolve the problem, so the code still fails
-                //      later in the same method. This catch should be method level,
-                //      or should be in the singular caller.
-                LOGGER.log(WARNING, "Failed to create TssData directory: " + parent, e);
-            }
+            ensureParentDirectory(tssDataJsonPath);
         }
+    }
 
-        // Load RSA address book history (JSON format) — takes precedence over the single-book file.
-        // If parsing fails check for single-book file format, wrap it into a single open-ended era
-        // so the rest of the application sees a consistent RangedAddressBookHistory regardless of
-        // which file is present (backward-compatibility bridge).
+    /// Loads the RSA address book history (JSON format) if the file exists, otherwise creates its directory
+    /// for future writes. An unreadable or corrupt file aborts startup.
+    private void loadAddressBookHistory() {
         final Path historyFilePath = appStateConfig.rsaBootstrapFilePath();
         if (Files.exists(historyFilePath)) {
+            final RangedAddressBookHistory history;
             try {
-                final RangedAddressBookHistory history =
-                        standardParse(RangedAddressBookHistory.JSON, Bytes.wrap(Files.readAllBytes(historyFilePath)));
-                if (history.addressBooks().isEmpty()) {
-                    // Try the old bootstrap file format, standard parse swallows it and returns an empty history
-                    final NodeAddressBook book =
-                            standardParse(NodeAddressBook.JSON, Bytes.wrap(Files.readAllBytes(historyFilePath)));
-                    if (validateAddressBook(book, historyFilePath.toString())) {
-                        final RangedAddressBookHistory wrapped = RangedAddressBookHistory.newBuilder()
-                                .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
-                                        .addressBook(book)
-                                        .startBlock(0L)
-                                        .endBlock(-1L)
-                                        .build()))
-                                .build();
-                        updateAddressBookHistory(wrapped);
-                    } else {
-                        // @todo(3321) This is bad design. This entire method uses
-                        //     exceptions as flow control, and we need to fix that.
-                        throw new IllegalStateException("Address book is not valid");
-                    }
-                } else {
-                    updateAddressBookHistory(history);
-                }
+                history = readAddressBookHistory(historyFilePath);
             } catch (IOException e) {
                 throw new IllegalStateException("Failed to read RSA address book history file: " + historyFilePath, e);
             } catch (ParseException e) {
-                // @todo(3321) This is bad design. This entire method uses
-                //     exceptions as flow control, and we need to fix that.
                 final String message =
                         "Corrupt RSA bootstrap file at %s — delete and restart to re-fetch from Mirror Node"
                                 .formatted(historyFilePath);
                 throw new IllegalStateException(message, e);
             }
+            updateAddressBookHistory(history);
         } else {
-            // History file absent — ensure parent directory exists for future writes.
-            final Path parent = historyFilePath.getParent();
-            try {
-                Files.createDirectories(parent);
-            } catch (IOException e) {
-                // @todo(3321) this is using an exception to decide to log, but
-                //      doesn't resolve the problem, so the code still fails
-                //      later in the same method. This catch should be method level,
-                //      or should be in the singular caller.
-                LOGGER.log(WARNING, "Failed to create RSA address book history directory: " + parent, e);
-            }
+            ensureParentDirectory(historyFilePath);
         }
+    }
 
-        // Load block ranges (JSON format) — restored directly into the in-memory range sets.
+    /// Reads the address book history file. If it holds no history, the old single-book bootstrap format is
+    /// tried and wrapped into a single open-ended era, so the rest of the application sees a consistent
+    /// {@link RangedAddressBookHistory} regardless of which file is present (backward-compatibility bridge).
+    ///
+    /// @param historyFilePath the file to read
+    /// @return the history read from the file
+    /// @throws IOException if the file cannot be read
+    /// @throws ParseException if the file content cannot be parsed
+    /// @throws IllegalStateException if the single address book in the file is not valid
+    private static RangedAddressBookHistory readAddressBookHistory(final Path historyFilePath)
+            throws IOException, ParseException {
+        final Bytes bytes = Bytes.wrap(Files.readAllBytes(historyFilePath));
+        final RangedAddressBookHistory history = standardParse(RangedAddressBookHistory.JSON, bytes);
+        if (!history.addressBooks().isEmpty()) {
+            return history;
+        }
+        // Try the old bootstrap file format, standard parse swallows it and returns an empty history
+        final NodeAddressBook book = standardParse(NodeAddressBook.JSON, bytes);
+        if (!validateAddressBook(book, historyFilePath.toString())) {
+            throw new IllegalStateException("Address book is not valid");
+        }
+        return RangedAddressBookHistory.newBuilder()
+                .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
+                        .addressBook(book)
+                        .startBlock(0L)
+                        .endBlock(-1L)
+                        .build()))
+                .build();
+    }
+
+    /// Loads the block ranges (JSON format) if the file exists, restoring them directly into the in-memory
+    /// range sets, otherwise creates the directory for future writes. An unreadable file, or one holding an
+    /// invalid range, is logged and ignored as a whole, so no part of it is restored.
+    private void loadBlockRanges() {
         final Path blockRangesPath = appStateConfig.blockRangesFilePath();
         if (Files.exists(blockRangesPath)) {
             try {
                 final BlockRangesState rangeSet =
                         standardParse(BlockRangesState.JSON, Bytes.wrap(Files.readAllBytes(blockRangesPath)));
-                rangeSet.storedBlocks().forEach(r -> storedBlocks.add(new LongRange(r.rangeStart(), r.rangeEnd())));
-                LOGGER.log(INFO, "Loaded block ranges from file: {0}", blockRangesPath);
-            } catch (ParseException | IOException | IllegalArgumentException e) {
-                // @todo(3321) this is using an exception to decide to log, but
-                //      doesn't resolve the problem, so the code still fails
-                //      later in the same method. This catch should be method level,
-                //      or should be in the singular caller.
+                restoreStoredBlocks(rangeSet.storedBlocks(), blockRangesPath);
+            } catch (ParseException | IOException e) {
                 LOGGER.log(WARNING, "Failed to read block ranges file: " + blockRangesPath, e);
             }
         } else {
-            Path parent = blockRangesPath.getParent();
-            try {
-                Files.createDirectories(parent);
-            } catch (IOException e) {
-                // @todo(3321) this is using an exception to decide to log, but
-                //      doesn't resolve the problem, so the code still fails
-                //      later in the same method. This catch should be method level,
-                //      or should be in the singular caller.
-                LOGGER.log(WARNING, "Failed to create block ranges directory: " + parent, e);
-            }
+            ensureParentDirectory(blockRangesPath);
+        }
+    }
+
+    /// Adds the stored ranges read from the block ranges file to the in-memory set, but only if every one of
+    /// them is a valid {@link LongRange}.
+    ///
+    /// @param ranges the stored ranges read from the file
+    /// @param source the file the ranges were read from, for logging
+    private void restoreStoredBlocks(final List<BlockRange> ranges, final Path source) {
+        if (ranges.stream().allMatch(r -> isValidRange(r.rangeStart(), r.rangeEnd()))) {
+            ranges.forEach(r -> storedBlocks.add(new LongRange(r.rangeStart(), r.rangeEnd())));
+            LOGGER.log(INFO, "Loaded block ranges from file: {0}", source);
+        } else {
+            LOGGER.log(WARNING, "Ignoring block ranges file with an invalid range: {0}", source);
+        }
+    }
+
+    /// Whether the values form a valid {@link LongRange}: both within 0 to `Long.MAX_VALUE - 1`, with start
+    /// not after end.
+    private static boolean isValidRange(final long start, final long end) {
+        return start >= 0 && end >= start && end < Long.MAX_VALUE;
+    }
+
+    /// Creates the parent directory of a state file so later writes can succeed. A failure is logged; the
+    /// write that needs the directory reports its own failure.
+    ///
+    /// @param file the state file whose parent directory must exist
+    private static void ensureParentDirectory(final Path file) {
+        final Path parent = file.getParent();
+        try {
+            Files.createDirectories(parent);
+        } catch (IOException e) {
+            LOGGER.log(WARNING, "Failed to create state directory: " + parent, e);
         }
     }
 }

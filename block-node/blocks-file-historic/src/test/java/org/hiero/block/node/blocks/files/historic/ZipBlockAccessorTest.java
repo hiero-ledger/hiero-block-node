@@ -17,6 +17,14 @@ import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.hiero.block.internal.BlockUnparsed;
@@ -442,6 +450,105 @@ class ZipBlockAccessorTest {
                 case ZSTD -> Format.ZSTD_PROTOBUF;
                 case NONE -> Format.PROTOBUF;
             };
+        }
+    }
+
+    /**
+     * Tests for the temporary hard link each accessor holds on its zip file.
+     */
+    @Nested
+    @DisplayName("Link Tests")
+    final class LinkTests {
+        private static final int THREAD_COUNT = 16;
+        private static final int ACCESSORS_PER_THREAD = 100;
+        private static final long WAIT_TIMEOUT_SECONDS = 30L;
+
+        private BlockPath blockPath;
+        private Bytes expected;
+
+        @BeforeEach
+        void setupBlock() {
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
+            blockPath = BlockPath.computeBlockPath(defaultConfig, block.number());
+            expected = block.bytes();
+        }
+
+        @Test
+        @DisplayName("should create the accessor link under the links root")
+        void testLinkCreatedUnderLinksRoot() throws IOException {
+            createBlockAndGetAssociatedAccessor(defaultConfig, blockPath, expected);
+
+            assertThat(listFileNames(linksTempDir)).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("should not create any file next to the zip archive")
+        void testNoLinkNextToZip() throws IOException {
+            createBlockAndGetAssociatedAccessor(defaultConfig, blockPath, expected);
+
+            assertThat(listFileNames(blockPath.dirPath()))
+                    .containsExactly(blockPath.zipFilePath().getFileName().toString());
+        }
+
+        @Test
+        @DisplayName("should remove the accessor link on close")
+        void testCloseRemovesLink() throws IOException {
+            final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(defaultConfig, blockPath, expected);
+
+            toTest.close();
+
+            assertThat(listFileNames(linksTempDir)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("should keep an accessor readable when another accessor to the same zip closes")
+        void testClosingOneAccessorKeepsAnotherReadable() throws IOException, ParseException {
+            final ZipBlockAccessor first = createBlockAndGetAssociatedAccessor(defaultConfig, blockPath, expected);
+            final ZipBlockAccessor second = new ZipBlockAccessor(blockPath, linksTempDir);
+
+            first.close();
+
+            assertThat(second.blockUnparsed()).isEqualTo(BlockUnparsed.PROTOBUF.parse(expected));
+        }
+
+        @Test
+        @DisplayName("should open concurrent accessors to the same zip without errors")
+        void testConcurrentAccessorsToSameZip() throws Exception {
+            createBlockAndGetAssociatedAccessor(defaultConfig, blockPath, expected)
+                    .close();
+            final Queue<Exception> failures = new ConcurrentLinkedQueue<>();
+            final CountDownLatch startGate = new CountDownLatch(1);
+            final ExecutorService executor = Executors.newFixedThreadPool(THREAD_COUNT);
+            try {
+                for (int i = 0; i < THREAD_COUNT; i++) {
+                    executor.submit(() -> openAndCloseAccessors(startGate, failures));
+                }
+                startGate.countDown();
+                executor.shutdown();
+                assertThat(executor.awaitTermination(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                        .isTrue();
+            } finally {
+                executor.shutdownNow();
+            }
+
+            assertThat(failures).isEmpty();
+        }
+
+        private void openAndCloseAccessors(final CountDownLatch startGate, final Queue<Exception> failures) {
+            try {
+                startGate.await();
+                for (int i = 0; i < ACCESSORS_PER_THREAD; i++) {
+                    new ZipBlockAccessor(blockPath, linksTempDir).close();
+                }
+            } catch (final IOException | InterruptedException e) {
+                failures.add(e);
+            }
+        }
+
+        private List<String> listFileNames(final Path directory) throws IOException {
+            try (final Stream<Path> files = Files.list(directory)) {
+                return files.map(path -> path.getFileName().toString()).toList();
+            }
         }
     }
 

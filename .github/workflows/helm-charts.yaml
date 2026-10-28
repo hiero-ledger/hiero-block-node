@@ -173,6 +173,54 @@ jobs:
             exit 1
           fi
 
+      - name: Verify chart-managed PV/PVC render
+        if: steps.render-needed.outputs.needed == 'true'
+        run: |
+          helm template pv-render-test charts/block-node-server --namespace bn \
+            --values charts/block-node-server/ci/pv-hostpath/values.yaml \
+            --show-only templates/persistence.yaml --show-only templates/statefulset.yaml > rendered-pv.yaml
+          for expected in \
+            "name: bn-pv-render-test-block-node-server-live-storage" \
+            "volumeName: bn-pv-render-test-block-node-server-live-storage" \
+            "claimName: pv-render-test-block-node-server-live-storage" \
+            "claimName: pv-render-test-block-node-server-archive-storage" \
+            "path: /mnt/block-node/live" \
+            "type: DirectoryOrCreate" \
+            "path: /mnt/block-node/archive" \
+            "storageClassName: \"local-storage\"" \
+            "- bn-node-1"; do
+            if ! grep -qF -- "$expected" rendered-pv.yaml; then
+              echo "::error::rendered PV/PVC output is missing: $expected"
+              exit 1
+            fi
+          done
+          if sed -n '/volumeClaimTemplates:/,$p' rendered-pv.yaml | grep -qE "name: (live|archive)-storage$"; then
+            echo "::error::chart-managed volumes must not render a volumeClaimTemplate"
+            exit 1
+          fi
+
+      - name: Verify chart-managed PV/PVC validation
+        if: steps.render-needed.outputs.needed == 'true'
+        run: |
+          expect_fail() {
+            local expected=$1
+            shift
+            local out
+            if out=$(helm template pv-render-test charts/block-node-server \
+                --values charts/block-node-server/ci/pv-hostpath/values.yaml "$@" 2>&1); then
+              echo "::error::render succeeded, expected failure: $expected"
+              exit 1
+            fi
+            if ! grep -qF -- "$expected" <<<"$out"; then
+              echo "::error::expected '$expected', got: $out"
+              exit 1
+            fi
+          }
+          expect_fail "pv.nodeAffinity is required when pv.type is local" --set blockNode.persistence.archive.pv.nodeAffinity=null
+          expect_fail "pv.path and blockNode.persistence.live.existingClaim are mutually exclusive" --set blockNode.persistence.live.existingClaim=my-pvc
+          expect_fail "cannot be shared by 2 replicas" --set replicaCount=2
+          expect_fail 'pv.type must be one of hostPath, local, got "nfs"' --set blockNode.persistence.live.pv.type=nfs
+
   multi-port-install-test:
     timeout-minutes: 20
     name: Multi-Port Plugin Install Test
