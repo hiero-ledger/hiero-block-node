@@ -35,6 +35,7 @@ import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.app.config.WebServerHttp2Config;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
+import org.hiero.block.node.spi.throttle.StaleClientSweepable;
 import org.hiero.block.node.spi.throttle.ThrottleExempt;
 import org.hiero.block.node.spi.throttle.ThrottleSpec;
 import org.hiero.block.node.spi.throttle.ThrottledServiceInterface;
@@ -164,6 +165,45 @@ class ServiceBuilderImplTest {
                         eq(1_000L),
                         eq(1_000L),
                         eq(java.util.concurrent.TimeUnit.MILLISECONDS));
+    }
+
+    @Test
+    @DisplayName("A periodic pass skips a throwing service, still visits the rest, and keeps working on the next run")
+    void runOnEachServiceSurvivesAThrowingService() {
+        final java.util.concurrent.atomic.AtomicInteger healthyVisits = new java.util.concurrent.atomic.AtomicInteger();
+        final StaleClientSweepable failing = new FixedSweepable(() -> {
+            throw new IllegalStateException("simulated sweep failure");
+        });
+        final StaleClientSweepable healthy = new FixedSweepable(() -> {
+            healthyVisits.incrementAndGet();
+            return 3;
+        });
+        final List<StaleClientSweepable> services = List.of(failing, healthy, healthy);
+
+        // Two runs stand in for two scheduler ticks: neither may throw, and both must reach every healthy service.
+        for (int run = 1; run <= 2; run++) {
+            assertEquals(
+                    6, ServiceBuilderImpl.runOnEachService(services, service -> service.sweepStaleClients(0L), "Test"));
+        }
+        assertEquals(4, healthyVisits.get());
+    }
+
+    /// A [StaleClientSweepable] whose every pass returns, or throws from, the same supplier.
+    private record FixedSweepable(java.util.function.IntSupplier result) implements StaleClientSweepable {
+        @Override
+        public int sweepStaleClients(final long nowNanos) {
+            return result.getAsInt();
+        }
+
+        @Override
+        public int reapExpiredPermits(final long nowNanos) {
+            return result.getAsInt();
+        }
+
+        @Override
+        public int smallestPermitHoldSeconds() {
+            return 0;
+        }
     }
 
     /// A hand-written [ServiceInterface] + [ThrottleSpec] test double, not a Mockito
