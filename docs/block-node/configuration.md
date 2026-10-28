@@ -314,6 +314,8 @@ The client receives gRPC status `RESOURCE_EXHAUSTED` with a reason string: rate 
 
 Client identity is the remote IP address. Behind a Kubernetes LoadBalancer Service with the default `externalTrafficPolicy: Cluster`, source IPs are SNATed, so all external clients share one key and therefore one per-client budget. Set `externalTrafficPolicy: Local` or raise the per-client limits. The helm chart has no setting for this today.
 
+The opposite holds for IPv6: one client usually controls a whole /64, so it can rotate addresses to get fresh per-client budgets, and the client-state table has no size cap. Subnet-level limits are tracked in [#3573](https://github.com/hiero-ledger/hiero-block-node/issues/3573).
+
 ### Publisher Plugin Configuration
 
 | ENV Variable                                 | Description                                                                                                                                                                                                                                                                                                                                                                     |                   Default |
