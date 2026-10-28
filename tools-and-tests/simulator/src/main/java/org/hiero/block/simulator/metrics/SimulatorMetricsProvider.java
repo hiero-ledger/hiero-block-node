@@ -19,12 +19,16 @@ public class SimulatorMetricsProvider implements MetricsRegistrationProvider {
 
     private static final String CATEGORY = "blocknode_simulator";
 
+    /** The number of live block items sent by the simulator . */
     public static final MetricKey<LongCounter> LIVE_BLOCK_ITEMS_SENT_KEY =
             LongCounter.key("live_block_items_sent").addCategory(CATEGORY);
+    /** The number of live blocks sent by the simulator */
     public static final MetricKey<LongCounter> LIVE_BLOCKS_SENT_KEY =
             LongCounter.key("live_blocks_sent").addCategory(CATEGORY);
+    /** The number of live blocks processed by the simulator publish server */
     public static final MetricKey<LongCounter> LIVE_BLOCKS_PROCESSED_KEY =
             LongCounter.key("live_blocks_processed_by_server").addCategory(CATEGORY);
+    /** The number of live blocks consumed by the simulator */
     public static final MetricKey<LongCounter> LIVE_BLOCKS_CONSUMED_KEY =
             LongCounter.key("live_blocks_consumed").addCategory(CATEGORY);
 
