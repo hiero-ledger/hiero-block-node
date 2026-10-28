@@ -95,6 +95,9 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     public static final MetricKey<LongCounter> METRIC_MESSAGING_AVAILABLE_BLOCKS_UPDATE_NOTIFICATIONS = MetricKey.of(
                     "messaging_available_blocks_update_notifications", LongCounter.class)
             .addCategory(METRICS_CATEGORY);
+    /** Metric key for messages skipped because a message handler failed on them */
+    public static final MetricKey<LongCounter> METRIC_MESSAGING_HANDLER_FAILURES =
+            MetricKey.of("messaging_handler_failures", LongCounter.class).addCategory(METRICS_CATEGORY);
     /** Metric key for the number of active item listeners */
     public static final MetricKey<ObservableGauge> METRIC_MESSAGING_NO_OF_ITEM_LISTENERS = MetricKey.of(
                     "messaging_no_of_item_listeners", ObservableGauge.class)
@@ -133,6 +136,8 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     private LongCounter.Measurement storedBlocksUpdateNotificationsCounter;
     /** Counter for available blocks update notifications sent */
     private LongCounter.Measurement availableBlocksUpdateNotificationsCounter;
+    /** Counter for messages skipped because a message handler failed on them */
+    private LongCounter.Measurement handlerFailuresCounter;
 
     /**
      * The thread factory used to create the virtual threads for the disruptor. Virtual threads are daemon threads by
@@ -301,6 +306,11 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         availableBlocksUpdateNotificationsCounter = metricRegistry
                 .register(LongCounter.builder(METRIC_MESSAGING_AVAILABLE_BLOCKS_UPDATE_NOTIFICATIONS)
                         .setDescription("Available blocks update notifications sent"))
+                .getOrCreateNotLabeled();
+
+        handlerFailuresCounter = metricRegistry
+                .register(LongCounter.builder(METRIC_MESSAGING_HANDLER_FAILURES)
+                        .setDescription("Messages skipped after a message handler failed"))
                 .getOrCreateNotLabeled();
 
         // Initialize gauges
@@ -821,7 +831,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      * @param handlerToEventProcessor the map of handlers to event processors
      * @param handlerToThread the map of handlers to threads
      */
-    private static <H extends GatingHandler, E> void registerHandler(
+    private <H extends GatingHandler, E> void registerHandler(
             final H handler,
             final boolean cpuIntensiveHandler,
             final String handlerName,
@@ -841,7 +851,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                 });
         final String name = handlerName == null ? "Unknown" : handlerName;
         // Without this the processor rethrows, its thread exits and a gating sequence stops the ring
-        batchEventProcessor.setExceptionHandler(new LoggingExceptionHandler<>(name));
+        batchEventProcessor.setExceptionHandler(new LoggingExceptionHandler<>(name, barrier, handlerFailuresCounter));
         // Dynamically add sequences to the ring buffer
         if (handler.isGating()) {
             ringBuffer.addGatingSequences(batchEventProcessor.getSequence());
@@ -926,39 +936,64 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     /**
      * Exception handler for the event processor of a single message handler. It logs the failure and lets the
      * processor move on to the next message, so one bad message does not stop the handler or stall the ring.
-     * Unregistering a handler or stopping the facility interrupts the handler thread, so a failure caused by that
-     * interrupt is expected and logged at DEBUG.
+     * Unregistering a handler or stopping the facility halts the processor and then interrupts the handler thread, so
+     * a failure caused by that interrupt after the halt is expected and logged at DEBUG. Every other failure is logged
+     * at ERROR and counted.
      *
      * @param <E> the type of the event
      */
     private static final class LoggingExceptionHandler<E> implements ExceptionHandler<E> {
         /** The name of the message handler, used for logging */
         private final String handlerName;
+        /** The barrier of the event processor, alerted when the processor is halted */
+        private final SequenceBarrier barrier;
+        /** Counter for messages skipped because a message handler failed on them */
+        private final LongCounter.Measurement handlerFailuresCounter;
 
         /**
          * Create a new exception handler for the named message handler.
          *
          * @param handlerName the name of the message handler
+         * @param barrier the barrier of the event processor, alerted when the processor is halted
+         * @param handlerFailuresCounter counter for messages skipped because the handler failed on them
          */
-        private LoggingExceptionHandler(final String handlerName) {
+        private LoggingExceptionHandler(
+                final String handlerName,
+                final SequenceBarrier barrier,
+                final LongCounter.Measurement handlerFailuresCounter) {
             this.handlerName = handlerName;
+            this.barrier = barrier;
+            this.handlerFailuresCounter = handlerFailuresCounter;
         }
 
         @Override
         public void handleEventException(final Throwable throwable, final long sequence, final E event) {
-            if (Thread.currentThread().isInterrupted() || isCausedByInterrupt(throwable)) {
+            if (isStopInterrupt(throwable)) {
                 LOGGER.log(
                         DEBUG,
                         () -> "Message handler %s interrupted while stopping on sequence %d, skipping the message"
                                 .formatted(handlerName, sequence),
                         throwable);
             } else {
+                handlerFailuresCounter.increment();
                 LOGGER.log(
                         ERROR,
                         () -> "Message handler %s failed on sequence %d, skipping the message"
                                 .formatted(handlerName, sequence),
                         throwable);
             }
+        }
+
+        /**
+         * Whether the failure comes from the interrupt sent by unregistering the handler or stopping the facility. Both
+         * halt the processor, which alerts its barrier, before interrupting the thread, so an interrupt without the
+         * alert has some other source and is a real failure.
+         *
+         * @param throwable the failure thrown by the message handler
+         * @return true if the processor was halted and the failure was caused by an interrupt
+         */
+        private boolean isStopInterrupt(final Throwable throwable) {
+            return barrier.isAlerted() && (Thread.currentThread().isInterrupted() || isCausedByInterrupt(throwable));
         }
 
         /**

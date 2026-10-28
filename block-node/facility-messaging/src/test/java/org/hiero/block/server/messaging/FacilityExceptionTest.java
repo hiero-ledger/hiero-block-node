@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.messaging;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.pbj.runtime.OneOf;
+import java.io.InterruptedIOException;
+import java.io.UncheckedIOException;
+import java.nio.channels.ClosedByInterruptException;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -33,6 +37,8 @@ import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /**
  * Tests that an exception thrown by a message handler is logged and does not stop that handler or stall the ring
@@ -49,6 +55,8 @@ public class FacilityExceptionTest {
     private TestLogHandler logHandler;
     /** The thread pool manager to use when testing */
     private TestThreadPoolManager<BlockingExecutor, ScheduledBlockingExecutor> threadPoolManager;
+    /** The context the facility under test was initialized with */
+    private BlockNodeContext context;
     /** The messaging facility under test */
     private BlockMessagingFacility service;
     /** The ring buffer sizes used by the facility under test */
@@ -67,7 +75,7 @@ public class FacilityExceptionTest {
         threadPoolManager = new TestThreadPoolManager<>(
                 new BlockingExecutor(new LinkedBlockingQueue<>()),
                 new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
-        final BlockNodeContext context = TestConfig.generateContext(threadPoolManager);
+        context = TestConfig.generateContext(threadPoolManager);
         messagingConfig = context.configuration().getConfigData(MessagingConfig.class);
         service = new BlockMessagingFacilityImpl();
         service.init(context, null);
@@ -198,6 +206,95 @@ public class FacilityExceptionTest {
     }
 
     /**
+     * However a handler surfaces the interrupt sent by its own unregistration, through the thread's interrupt flag or
+     * an interrupt exception in the cause chain, the failure is part of a normal stop and is not logged at ERROR.
+     */
+    @ParameterizedTest
+    @EnumSource(InterruptFailure.class)
+    void handlerInterruptedByUnregisterIsNotLoggedAtErrorForEachInterruptSignal(final InterruptFailure failure)
+            throws InterruptedException {
+        logger.setLevel(Level.FINE);
+        final InterruptedBlockItemHandler handler = new InterruptedBlockItemHandler(failure);
+        service.registerBlockItemHandler(handler, false, "interrupted-on-unregister");
+        service.start();
+        sendBlockItemsInBackground(1);
+        assertTrue(handler.entered.await(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS), "Handler never received the batch");
+
+        service.unregisterBlockItemHandler(handler);
+        assertTrue(
+                logHandler.awaitRecord(Level.FINE, "interrupted-on-unregister", AWAIT_TIMEOUT_SECONDS),
+                "No DEBUG log for the interrupted handler: " + logHandler.messages());
+
+        assertFalse(
+                logHandler.containsRecord(Level.SEVERE, "interrupted-on-unregister"),
+                "Interrupted handler was logged at ERROR: " + logHandler.messages());
+    }
+
+    /**
+     * A handler that fails while its thread is interrupted, but was never unregistered or stopped, has a real failure,
+     * so it is logged at ERROR and not demoted to DEBUG.
+     */
+    @Test
+    void interruptedHandlerThatWasNotStoppedIsLoggedAtError() throws InterruptedException {
+        service.registerBlockItemHandler(new SelfInterruptingBlockItemHandler(), false, "self-interrupting");
+        service.start();
+        sendBlockItemsInBackground(1);
+
+        assertTrue(
+                logHandler.awaitRecord(Level.SEVERE, "self-interrupting", AWAIT_TIMEOUT_SECONDS),
+                "Failure of a handler that was not stopped was not logged at ERROR: " + logHandler.messages());
+    }
+
+    /**
+     * Every message a handler fails on is counted, so operators can alert on skipped messages.
+     */
+    @Test
+    void handlerFailureIsCounted() throws InterruptedException {
+        final CountDownLatch laterBatchesReceived = new CountDownLatch(2);
+        service.registerBlockItemHandler(new ThrowOnFirstBlockItemHandler(laterBatchesReceived), false, "first-fails");
+        service.start();
+
+        sendBlockItemsInBackground(3);
+        assertTrue(
+                laterBatchesReceived.await(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS),
+                "Handler stopped receiving batches after the first one threw");
+
+        assertEquals(1L, handlerFailures(), "Skipped message was not counted");
+    }
+
+    /**
+     * A failure caused by the interrupt of a normal unregistration is not a skipped message, so it is not counted.
+     */
+    @Test
+    void handlerInterruptedByUnregisterIsNotCounted() throws InterruptedException {
+        logger.setLevel(Level.FINE);
+        final BlockingBlockItemHandler handler = new BlockingBlockItemHandler();
+        service.registerBlockItemHandler(handler, false, "interrupted-on-unregister");
+        service.start();
+        sendBlockItemsInBackground(1);
+        assertTrue(handler.entered.await(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS), "Handler never received the batch");
+
+        service.unregisterBlockItemHandler(handler);
+        assertTrue(
+                logHandler.awaitRecord(Level.FINE, "interrupted-on-unregister", AWAIT_TIMEOUT_SECONDS),
+                "No DEBUG log for the interrupted handler: " + logHandler.messages());
+
+        assertEquals(0L, handlerFailures(), "Interrupt of a normal unregistration was counted as a failure");
+    }
+
+    /**
+     * Reads the counter of messages skipped because a handler failed on them.
+     *
+     * @return the number of skipped messages
+     */
+    private long handlerFailures() {
+        return context.metricRegistry()
+                .getMetric(BlockMessagingFacilityImpl.METRIC_MESSAGING_HANDLER_FAILURES)
+                .getOrCreateNotLabeled()
+                .get();
+    }
+
+    /**
      * Sends batches from a background thread, so a stalled ring blocks that thread instead of the test.
      *
      * @param totalBatches the number of batches to send
@@ -281,6 +378,53 @@ public class FacilityExceptionTest {
             } catch (final InterruptedException e) {
                 throw new IllegalStateException("Handler interrupted", e);
             }
+        }
+    }
+
+    /** The ways a handler can surface the interrupt of its thread when it fails. */
+    private enum InterruptFailure {
+        /** Restores the thread's interrupt flag and throws an exception with no interrupt in its cause chain. */
+        INTERRUPT_FLAG_ONLY,
+        /** Throws with a {@link ClosedByInterruptException} cause, as an interrupted channel read does. */
+        CLOSED_BY_INTERRUPT,
+        /** Throws with an {@link InterruptedIOException} cause, as an interrupted stream read does. */
+        INTERRUPTED_IO
+    }
+
+    /** Block item handler that blocks until interrupted and then fails in the given way. */
+    private static final class InterruptedBlockItemHandler implements BlockItemHandler {
+        private final CountDownLatch entered = new CountDownLatch(1);
+        private final CountDownLatch neverReleased = new CountDownLatch(1);
+        private final InterruptFailure failure;
+
+        private InterruptedBlockItemHandler(final InterruptFailure failure) {
+            this.failure = failure;
+        }
+
+        @Override
+        public void handleBlockItemsReceived(final BlockItems blockItems) {
+            entered.countDown();
+            try {
+                neverReleased.await();
+            } catch (final InterruptedException e) {
+                switch (failure) {
+                    case INTERRUPT_FLAG_ONLY -> {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException("Handler stopped");
+                    }
+                    case CLOSED_BY_INTERRUPT -> throw new UncheckedIOException(new ClosedByInterruptException());
+                    case INTERRUPTED_IO -> throw new UncheckedIOException(new InterruptedIOException());
+                }
+            }
+        }
+    }
+
+    /** Block item handler that interrupts its own thread and then fails, without ever being stopped. */
+    private static final class SelfInterruptingBlockItemHandler implements BlockItemHandler {
+        @Override
+        public void handleBlockItemsReceived(final BlockItems blockItems) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Simulated failure while interrupted");
         }
     }
 
