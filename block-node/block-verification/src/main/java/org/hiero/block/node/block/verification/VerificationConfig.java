@@ -15,14 +15,14 @@ import org.hiero.block.node.base.Loggable;
 ///     the oldest one will be removed from the buffer, which is essentially a queue. The queue is used to keep
 ///     track of the blocks that have been recently verified, and failures of verification for blocks that have
 ///     been recently verified will result in an informational failure rather than a standard one.
-/// @param activeSessionsBufferSize the number of simultaneously active sessions, counted across the high priority
-///     lane (the publisher's live stream) and the low priority lane (every other channel) together, above which the
-///     eviction policy gives up stuck sessions: sessions waiting for order above the first block after the last
-///     verified block that no session holds. Each admission over this size evicts the stuck session with the
-///     highest block, the low priority one on a tie, never the session the publisher is still streaming. Sessions
-///     that complete on their own (the next expected block, blocks at or below the last verified block, a run
-///     contiguous with it) are never evicted, so the count can stay above this size until they complete. Must be
-///     at least 1.
+/// @param activeSessionsBufferSize the limit of simultaneously active sessions, counted across the high priority
+///     lane (the publisher's live stream) and the low priority lane (every other channel) together. Every admission
+///     over this limit evicts one session, so the count does not stay above it. The stuck session with the highest
+///     block goes first, the low priority one on a tie: a session waiting for order above the first block after the
+///     last verified block that no session holds. When no session is stuck, the low priority sessions go before any
+///     high priority session. The session the publisher is still streaming is never evicted. Must be at least 13. A
+///     prime number is recommended, as the default 101 is; a Mersenne number (2 to the power of n, minus 1) is
+///     acceptable.
 /// @param firstOrderedBlock the first block number that will require strict ordering. All blocks below this
 ///     setting will not await order, and successful verification will be reported immediately.
 /// @param allSourcesRequireOrdering if true, strict ordering of the next expected block to verify will be enforced
@@ -35,7 +35,7 @@ import org.hiero.block.node.base.Loggable;
 @ConfigData("verification")
 public record VerificationConfig(
     @Loggable @ConfigProperty(defaultValue = "100") int recentlyVerifiedBlocksBufferSize,
-    @Loggable @ConfigProperty(defaultValue = "100") @Min(1) int activeSessionsBufferSize,
+    @Loggable @ConfigProperty(defaultValue = "101") @Min(13) int activeSessionsBufferSize,
     @Loggable @ConfigProperty(defaultValue = "0") long firstOrderedBlock,
     @Loggable @ConfigProperty(defaultValue = "true") boolean allSourcesRequireOrdering,
     @Loggable @ConfigProperty(defaultValue = "false") boolean dumpEnabled,

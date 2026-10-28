@@ -262,9 +262,10 @@ final class BackfillRunner {
      * its turn under strict ordering, not because anything actually went wrong with it. If the caller
      * responded by advancing to the next chunk anyway, it would keep dispatching new backfill blocks on
      * top of ones still parked from this chunk, growing the number of outstanding, unconfirmed blocks
-     * without bound across the whole gap. The verification module never evicts blocks that form a run
-     * with its last verified block, so every one of them would stay in its active sessions, far beyond
-     * {@code activeSessionsBufferSize}. Waiting longer for the same chunk instead keeps the number of
+     * without bound across the whole gap. The verification module holds at most
+     * {@code activeSessionsBufferSize} active sessions and evicts one for every block admitted beyond that,
+     * so blocks dispatched ahead would only push out sessions that were still moving, each of which would
+     * then have to be fetched again. Waiting longer for the same chunk instead keeps the number of
      * outstanding unconfirmed blocks bounded to at most one chunk ({@code fetchBatchSize}) at a time.
      * <p>
      * Re-sending an already in-flight block would not help either: verification sessions are keyed by

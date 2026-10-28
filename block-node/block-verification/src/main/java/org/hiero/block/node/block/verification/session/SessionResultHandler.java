@@ -292,9 +292,16 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
     }
 
     /// Resolve the failure type for a session that was stopped before
-    /// producing a result. A cancellation of a complete block means the
-    /// supplier considers the block delivered, while an incomplete block was
-    /// abandoned by the supplier before it ever finished.
+    /// producing a result. [SessionFailureType#CANCELLED_INCOMPLETE] means that
+    /// the supplier never finished the block: the publisher started the next
+    /// block before ending this one, and the session handler cancelled it. A
+    /// cancellation the plugin makes on its own reports
+    /// [SessionFailureType#CANCELLED]: the eviction policy never selects the
+    /// session still receiving its block, so an evicted session has always
+    /// received its complete block, and the supplier considers the block
+    /// delivered. The end of block mark tells the two apart. A plugin shutdown is
+    /// the one case it cannot: the session still receiving its block then
+    /// reports [SessionFailureType#CANCELLED_INCOMPLETE] as well.
     ///
     /// @return [SessionFailureType#CANCELLED] when the batch ending the block
     ///     was received, [SessionFailureType#CANCELLED_INCOMPLETE] otherwise

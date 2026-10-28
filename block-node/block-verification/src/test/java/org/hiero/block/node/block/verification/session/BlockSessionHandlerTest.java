@@ -3,6 +3,7 @@ package org.hiero.block.node.block.verification.session;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.NavigableSet;
@@ -44,10 +45,13 @@ import org.junit.jupiter.api.Timeout;
 /// admits sessions to.
 /// Sessions run on a [BlockingExecutor] and therefore never progress on their own:
 /// a session ends only when it is cancelled, and a cancellation reports
-/// synchronously through the [TestBlockMessagingFacility] behind the outbox.
+/// synchronously through the [TestBlockMessagingFacility] behind the outbox. Every
+/// test runs at the limit of 13, the smallest the configuration accepts.
 @DisplayName("Block Session Handler Tests")
 @Timeout(value = 30, unit = TimeUnit.SECONDS)
 class BlockSessionHandlerTest {
+    /// The limit of every test, the smallest the configuration accepts.
+    private static final int BUFFER_SIZE = 13;
     /// The executor the sessions are submitted to; it never runs them.
     private BlockingExecutor executor;
     /// Captures the notifications the sessions send.
@@ -84,7 +88,7 @@ class BlockSessionHandlerTest {
     @DisplayName(
             "processBlockItems() ignores items, supplied by publisher, when we expect a new block, but receive items that do not flag new block starting")
     void testShouldIgnoreBlockItemsWhenNewBlockIsExpectedButWeReceiveItemsThatDoNotStartABlock() {
-        final BlockSessionHandler toTest = newHandlerWithProductionPolicy(2);
+        final BlockSessionHandler toTest = newHandlerWithProductionPolicy();
         // First, generate a block.
         final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
         // Now, send the block to the handler, which is in a state that it is expecting the start of a new block,
@@ -107,83 +111,83 @@ class BlockSessionHandlerTest {
     @DisplayName("Eviction Policy Integration Tests")
     class EvictionPolicyIntegrationTests {
         /// This test aims to assert that the eviction policy is only consulted when the
-        /// combined count exceeds the limit: two sessions in a buffer of two leave the
-        /// policy untouched.
+        /// combined count exceeds the limit: thirteen sessions in a buffer of thirteen
+        /// leave the policy untouched.
         @Test
         @DisplayName("processBlockItems() does not consult the policy at or below the limit")
         void testDoesNotConsultThePolicyWhileTheBufferIsWithinItsLimit() {
             final RecordingEvictionPolicy policy = recordingProductionPolicy();
-            final BlockSessionHandler toTest = newHandler(policy, 2);
-            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(2, 3);
-            publish(toTest, blocks.get(0));
-            publish(toTest, blocks.get(1));
+            final BlockSessionHandler toTest = newHandler(policy);
+            publishRun(toTest, 2, 14);
             assertThat(policy.snapshots()).isEmpty();
-            assertThat(gauge()).isEqualTo(2L);
-            assertThat(highPriorityKeys()).containsExactly(key(2, 0), key(3, 1));
+            assertThat(gauge()).isEqualTo(13L);
+            assertThat(highPriorityKeys())
+                    .extracting(SessionKey::blockNumber)
+                    .containsExactlyElementsOf(blockNumbers(2, 14));
         }
 
-        /// This test aims to assert that when the third session exceeds a limit of two
-        /// the policy receives exactly one snapshot carrying the high priority lane, the
-        /// low priority lane, no active high priority session (the publisher block was
-        /// complete) and the last verified block, and that it selects from that snapshot
-        /// the highest stuck session, the backfilled block 4.
+        /// This test aims to assert that when the fourteenth session exceeds the limit of
+        /// thirteen the policy receives exactly one snapshot carrying the high priority
+        /// lane, the low priority lane, no active high priority session (the publisher
+        /// block was complete) and the last verified block, and that it selects from that
+        /// snapshot the highest stuck session, the backfilled block 15.
         @Test
         @DisplayName("processBlockItems() hands the policy a snapshot of both lanes")
         void testConsultsThePolicyWithASnapshotOfBothLanesWhenTheLimitIsExceeded() {
             final RecordingEvictionPolicy policy = recordingProductionPolicy();
-            final BlockSessionHandler toTest = newHandler(policy, 2);
-            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(2, 4);
-            publish(toTest, blocks.get(0));
-            backfill(toTest, blocks.get(1));
-            backfill(toTest, blocks.get(2));
+            final BlockSessionHandler toTest = newHandler(policy);
+            publish(toTest, TestBlockBuilder.generateBlockWithNumber(2));
+            backfillRun(toTest, 3, 15);
             assertThat(policy.snapshots()).hasSize(1);
             final ActiveSessionsSnapshot snapshot = policy.snapshots().getFirst();
             assertThat(snapshot.highPrioritySessions()).containsExactly(key(2, 0));
-            assertThat(snapshot.lowPrioritySessions()).containsExactly(key(3, 1), key(4, 2));
+            assertThat(snapshot.lowPrioritySessions())
+                    .extracting(SessionKey::blockNumber)
+                    .containsExactlyElementsOf(blockNumbers(3, 15));
             assertThat(snapshot.activeHighPrioritySession()).isNull();
             assertThat(snapshot.lastVerifiedBlock()).isEqualTo(-1L);
-            assertThat(policy.selections()).containsExactly(key(4, 2));
+            assertThat(policy.selections()).containsExactly(key(15, 13));
         }
 
         /// This test aims to assert that the session the policy selects is removed from its
         /// lane, cancelled, reported once through messaging as a cancellation of a complete
         /// block, counted in the evictions counter of its lane, and that the gauge reflects
         /// the combined count afterwards: before any block is verified every session is
-        /// stuck, and the complete publisher block 4 is the highest, above the backfilled
-        /// blocks 2 and 3.
+        /// stuck, and the complete publisher block 20 is the highest, above the backfilled
+        /// blocks 2 to 14.
         @Test
         @DisplayName("processBlockItems() evicts what the policy selects")
         void testRemovesCancelsAndReportsTheSelectedSession() {
-            final BlockSessionHandler toTest = newHandler(recordingProductionPolicy(), 2);
-            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(2, 4);
-            publish(toTest, blocks.get(2));
-            backfill(toTest, blocks.get(0));
-            backfill(toTest, blocks.get(1));
+            final BlockSessionHandler toTest = newHandler(recordingProductionPolicy());
+            publish(toTest, TestBlockBuilder.generateBlockWithNumber(20));
+            backfillRun(toTest, 2, 14);
             assertThat(highPriorityKeys()).isEmpty();
-            assertThat(lowPriorityKeys()).containsExactly(key(2, 1), key(3, 2));
+            assertThat(lowPriorityKeys())
+                    .extracting(SessionKey::blockNumber)
+                    .containsExactlyElementsOf(blockNumbers(2, 14));
             assertThat(notifications())
                     .hasSize(1)
                     .first()
-                    .returns(false, VerificationNotification::success)
-                    .returns(FailureInfo.standard(FailureType.CANCELLED), VerificationNotification::failureInfo)
-                    .returns(4L, VerificationNotification::blockNumber)
-                    .returns(BlockSource.PUBLISHER, VerificationNotification::source)
-                    .returns(null, VerificationNotification::block)
-                    .returns(null, VerificationNotification::blockHash);
-            assertThat(gauge()).isEqualTo(2L);
+                    .returns(20L, VerificationNotification::blockNumber)
+                    .satisfies(BlockSessionHandlerTest::assertCancelledPublisherBlock);
+            assertThat(gauge()).isEqualTo(13L);
             assertThat(evictedHighPriority()).isEqualTo(1L);
             assertThat(evictedLowPriority()).isEqualTo(0L);
         }
 
         /// This test aims to assert that a session cancelled by supersession in the
         /// same call is cleared under the eviction lock before the policy is consulted,
-        /// so the count drops back within the limit and no eviction takes place.
+        /// so the count drops back within the limit and no eviction takes place: the
+        /// complete publisher blocks 10 to 21 and the block 30 the publisher is streaming
+        /// fill the buffer, the header of block 31 supersedes 30, and when the admission
+        /// of 31 takes the count over the limit, 30 is cleared first.
         @Test
         @DisplayName("processBlockItems() clears completed sessions before evicting")
         void testClearsCompletedSessionsBeforeConsultingThePolicy() {
             final RecordingEvictionPolicy policy = recordingProductionPolicy();
-            final BlockSessionHandler toTest = newHandler(policy, 1);
-            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(2, 3);
+            final BlockSessionHandler toTest = newHandler(policy);
+            publishRun(toTest, 10, 21);
+            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(30, 31);
             toTest.processBlockItems(headerOnly(blocks.get(0)), BlockSource.PUBLISHER);
             toTest.processBlockItems(headerOnly(blocks.get(1)), BlockSource.PUBLISHER);
             assertThat(policy.snapshots()).isEmpty();
@@ -193,9 +197,11 @@ class BlockSessionHandlerTest {
                     .returns(
                             FailureInfo.standard(FailureType.CANCELLED_INCOMPLETE),
                             VerificationNotification::failureInfo)
-                    .returns(2L, VerificationNotification::blockNumber);
-            assertThat(highPriorityKeys()).containsExactly(key(3, 1));
-            assertThat(gauge()).isEqualTo(1L);
+                    .returns(30L, VerificationNotification::blockNumber);
+            final List<Long> kept = new ArrayList<>(blockNumbers(10, 21));
+            kept.add(31L);
+            assertThat(highPriorityKeys()).extracting(SessionKey::blockNumber).containsExactlyElementsOf(kept);
+            assertThat(gauge()).isEqualTo(13L);
             assertThat(evictedHighPriority()).isEqualTo(0L);
         }
     }
@@ -212,7 +218,7 @@ class BlockSessionHandlerTest {
         @Test
         @DisplayName("processBlockItems() clears completed sessions before handling new block items")
         void testClearsCompletedSessionsBeforeHandlingNewBlockItems() {
-            final BlockSessionHandler toTest = newHandlerWithProductionPolicy(5);
+            final BlockSessionHandler toTest = newHandlerWithProductionPolicy();
             final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(2, 4);
             toTest.processBlockItems(headerOnly(blocks.get(0)), BlockSource.PUBLISHER);
             toTest.processBlockItems(headerOnly(blocks.get(1)), BlockSource.PUBLISHER);
@@ -239,7 +245,7 @@ class BlockSessionHandlerTest {
         @Test
         @DisplayName("processBlockItems() does not cancel a publisher session that received its whole block")
         void testDoesNotCancelAPublisherSessionThatReceivedItsWholeBlock() {
-            final BlockSessionHandler toTest = newHandlerWithProductionPolicy(5);
+            final BlockSessionHandler toTest = newHandlerWithProductionPolicy();
             final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(2, 3);
             toTest.processBlockItems(headerOnly(blocks.get(0)), BlockSource.PUBLISHER);
             toTest.processBlockItems(restOfBlock(blocks.get(0)), BlockSource.PUBLISHER);
@@ -256,7 +262,7 @@ class BlockSessionHandlerTest {
         @Test
         @DisplayName("processBlockItems() disregards a publisher batch that arrives after the end of the block")
         void testDisregardsAPublisherBatchThatArrivesAfterTheEndOfTheBlock() {
-            final BlockSessionHandler toTest = newHandlerWithProductionPolicy(5);
+            final BlockSessionHandler toTest = newHandlerWithProductionPolicy();
             final TestBlock block = TestBlockBuilder.generateBlockWithNumber(2);
             final BlockItems header = headerOnly(block);
             final BlockItems rest = restOfBlock(block);
@@ -277,272 +283,317 @@ class BlockSessionHandlerTest {
     @Nested
     @DisplayName("Production Policy Tests")
     class ProductionPolicyTests {
-        /// This test aims to assert that backfilled blocks arriving in descending order
-        /// into a full buffer, before any block is verified, evict the highest stuck
-        /// session on every admission: block 0 is the next expected block and no session
-        /// holds it, so every session is stuck, each overflowing admission evicts the
-        /// highest, the combined count stays at the limit, and each evicted block is
-        /// reported as a cancelled complete block.
+        /// This test aims to assert that blocks backfilled in descending order are handled
+        /// correctly and never hold the buffer over its limit: with the last verified block
+        /// 100, the blocks 130 down to 102 wait above the missing block 101, so every
+        /// admission over the limit evicts the highest stuck session. When block 101
+        /// arrives, the run 101 to 114 is contiguous and no session is stuck, so the
+        /// highest backfilled session, 114, is evicted. The buffer keeps the thirteen
+        /// lowest blocks, 101 to 113, which verify as a run; every evicted block is
+        /// reported once as a cancelled complete backfilled block, highest first, and the
+        /// gauge stays at the limit.
         @Test
-        @DisplayName("processBlockItems() evicts the highest stuck session on every admission of a descending delivery")
-        void testEvictsTheHighestSessionOnEveryAdmissionOfADescendingBackfillDelivery() {
-            final BlockSessionHandler toTest = newHandlerWithProductionPolicy(3);
-            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(6, 10);
-            backfill(toTest, blocks.get(4));
-            backfill(toTest, blocks.get(3));
-            backfill(toTest, blocks.get(2));
-            backfill(toTest, blocks.get(1));
-            assertThat(lowPriorityKeys()).containsExactly(key(7, 3), key(8, 2), key(9, 1));
+        @DisplayName(
+                "processBlockItems() keeps the lowest blocks of a descending backfilled delivery and evicts the rest highest first")
+        void testKeepsTheLowestBlocksOfADescendingBackfilledDelivery() {
+            lastVerifiedBlock.set(100L);
+            final BlockSessionHandler toTest = newHandlerWithProductionPolicy();
+            for (final TestBlock block :
+                    TestBlockBuilder.generateBlocksInRange(101, 130).reversed()) {
+                backfill(toTest, block);
+            }
+            assertThat(lowPriorityKeys())
+                    .extracting(SessionKey::blockNumber)
+                    .containsExactlyElementsOf(blockNumbers(101, 113));
             assertThat(notifications())
-                    .hasSize(1)
-                    .first()
-                    .returns(10L, VerificationNotification::blockNumber)
-                    .satisfies(BlockSessionHandlerTest::assertCancelledBackfilledBlock);
-            assertThat(gauge()).isEqualTo(3L);
-            backfill(toTest, blocks.get(0));
-            assertThat(lowPriorityKeys()).containsExactly(key(6, 4), key(7, 3), key(8, 2));
-            assertThat(notifications())
-                    .hasSize(2)
-                    .last()
-                    .returns(9L, VerificationNotification::blockNumber)
-                    .satisfies(BlockSessionHandlerTest::assertCancelledBackfilledBlock);
-            assertThat(gauge()).isEqualTo(3L);
-            assertThat(evictedLowPriority()).isEqualTo(2L);
+                    .extracting(VerificationNotification::blockNumber)
+                    .containsExactlyElementsOf(blockNumbers(114, 130).reversed());
+            assertThat(notifications()).allSatisfy(BlockSessionHandlerTest::assertCancelledBackfilledBlock);
+            assertThat(gauge()).isEqualTo(13L);
+            assertThat(evictedLowPriority()).isEqualTo(17L);
         }
 
         /// This test aims to assert that the highest stuck session is evicted whatever
-        /// its lane: before any block is verified every session is stuck, the backfilled
-        /// block 5 is the highest, so it is evicted, while the publisher session 3 and the
-        /// backfilled session 2 below it are kept.
+        /// its lane: with the last verified block 100 and block 101 missing, the publisher
+        /// blocks 102 to 113 and the backfilled blocks 150 and 114 are all stuck, and the
+        /// backfilled block 150 is the highest, so it is evicted when the admission of 114
+        /// takes the count over the limit, while the publisher sessions below it are kept.
         @Test
         @DisplayName(
-                "processBlockItems() evicts the highest stuck session, here a backfilled block above the publisher block")
+                "processBlockItems() evicts the highest stuck session, here a backfilled block above the publisher blocks")
         void testEvictsTheHighestStuckSessionWhateverItsLane() {
-            final BlockSessionHandler toTest = newHandlerWithProductionPolicy(2);
-            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(2, 5);
-            publish(toTest, blocks.get(1));
-            backfill(toTest, blocks.get(0));
-            backfill(toTest, blocks.get(3));
+            lastVerifiedBlock.set(100L);
+            final BlockSessionHandler toTest = newHandlerWithProductionPolicy();
+            publishRun(toTest, 102, 113);
+            backfill(toTest, TestBlockBuilder.generateBlockWithNumber(150));
+            backfill(toTest, TestBlockBuilder.generateBlockWithNumber(114));
             assertThat(notifications())
                     .hasSize(1)
                     .first()
-                    .returns(5L, VerificationNotification::blockNumber)
+                    .returns(150L, VerificationNotification::blockNumber)
                     .satisfies(BlockSessionHandlerTest::assertCancelledBackfilledBlock);
-            assertThat(highPriorityKeys()).containsExactly(key(3, 0));
-            assertThat(lowPriorityKeys()).containsExactly(key(2, 1));
+            assertThat(highPriorityKeys())
+                    .extracting(SessionKey::blockNumber)
+                    .containsExactlyElementsOf(blockNumbers(102, 113));
+            assertThat(lowPriorityKeys()).containsExactly(key(114, 13));
         }
 
         /// This test aims to assert that a far-ahead high priority session is evicted
-        /// rather than the backfilled sessions below it: before any block is verified every
-        /// session is stuck, and the complete publisher block 10 is the highest stuck
-        /// session, while the backfilled blocks 2 and 3 are lower and are kept, so the
+        /// rather than the backfilled sessions below it: with the last verified block 100
+        /// and block 101 missing, the complete publisher block 200 is the highest stuck
+        /// session, while the backfilled blocks 102 to 114 are lower and are kept, so the
         /// catch-up they carry can proceed.
         @Test
         @DisplayName(
                 "processBlockItems() evicts a far-ahead high priority session rather than the backfilled sessions it waits for")
         void testEvictsAFarAheadHighPrioritySessionRatherThanTheBackfilledSessionsBelowIt() {
-            final BlockSessionHandler toTest = newHandlerWithProductionPolicy(2);
-            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(2, 10);
-            publish(toTest, blocks.get(8));
-            backfill(toTest, blocks.get(0));
-            backfill(toTest, blocks.get(1));
+            lastVerifiedBlock.set(100L);
+            final BlockSessionHandler toTest = newHandlerWithProductionPolicy();
+            publish(toTest, TestBlockBuilder.generateBlockWithNumber(200));
+            backfillRun(toTest, 102, 114);
             assertThat(notifications())
                     .hasSize(1)
                     .first()
-                    .returns(false, VerificationNotification::success)
-                    .returns(FailureInfo.standard(FailureType.CANCELLED), VerificationNotification::failureInfo)
-                    .returns(10L, VerificationNotification::blockNumber)
-                    .returns(BlockSource.PUBLISHER, VerificationNotification::source);
+                    .returns(200L, VerificationNotification::blockNumber)
+                    .satisfies(BlockSessionHandlerTest::assertCancelledPublisherBlock);
             assertThat(highPriorityKeys()).isEmpty();
-            assertThat(lowPriorityKeys()).containsExactly(key(2, 1), key(3, 2));
+            assertThat(lowPriorityKeys())
+                    .extracting(SessionKey::blockNumber)
+                    .containsExactlyElementsOf(blockNumbers(102, 114));
         }
 
         /// This test aims to assert that the high priority session still receiving its items
-        /// is never evicted, whatever the other lane holds: the highest stuck session other
-        /// than it, the backfilled newcomer 9, is evicted instead, and the end of the
-        /// publisher block is still accepted afterwards.
+        /// is never evicted, whatever the other lane holds: the publisher streams block 150
+        /// above the missing block 101 and the backfilled blocks 102 to 114 fill the buffer,
+        /// so the highest stuck session other than the streaming one, the backfilled
+        /// newcomer 114, is evicted, and the end of the publisher block is still accepted
+        /// afterwards.
         @Test
         @DisplayName("processBlockItems() never evicts the high priority session still receiving items")
         void testNeverEvictsTheHighPrioritySessionStillReceivingItems() {
-            final BlockSessionHandler toTest = newHandlerWithProductionPolicy(2);
-            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(7, 9);
-            toTest.processBlockItems(headerOnly(blocks.get(0)), BlockSource.PUBLISHER);
-            backfill(toTest, blocks.get(1));
-            backfill(toTest, blocks.get(2));
+            lastVerifiedBlock.set(100L);
+            final BlockSessionHandler toTest = newHandlerWithProductionPolicy();
+            final TestBlock streamed = TestBlockBuilder.generateBlockWithNumber(150);
+            toTest.processBlockItems(headerOnly(streamed), BlockSource.PUBLISHER);
+            backfillRun(toTest, 102, 114);
             assertThat(notifications())
                     .hasSize(1)
                     .first()
-                    .returns(9L, VerificationNotification::blockNumber)
+                    .returns(114L, VerificationNotification::blockNumber)
                     .satisfies(BlockSessionHandlerTest::assertCancelledBackfilledBlock);
-            assertThat(highPriorityKeys()).containsExactly(key(7, 0));
-            assertThat(lowPriorityKeys()).containsExactly(key(8, 1));
-            toTest.processBlockItems(restOfBlock(blocks.get(0)), BlockSource.PUBLISHER);
+            assertThat(highPriorityKeys()).containsExactly(key(150, 0));
+            assertThat(lowPriorityKeys())
+                    .extracting(SessionKey::blockNumber)
+                    .containsExactlyElementsOf(blockNumbers(102, 113));
+            toTest.processBlockItems(restOfBlock(streamed), BlockSource.PUBLISHER);
             assertThat(notifications()).hasSize(1);
-            assertThat(highPriorityKeys()).containsExactly(key(7, 0));
-            assertThat(lowPriorityKeys()).containsExactly(key(8, 1));
-            assertThat(gauge()).isEqualTo(2L);
+            assertThat(highPriorityKeys()).containsExactly(key(150, 0));
+            assertThat(lowPriorityKeys())
+                    .extracting(SessionKey::blockNumber)
+                    .containsExactlyElementsOf(blockNumbers(102, 113));
+            assertThat(gauge()).isEqualTo(13L);
         }
 
-        /// This test aims to assert that in a publisher only burst before any block is
-        /// verified, every session is stuck and the highest stuck session other than the
-        /// active one, the session just started, is evicted, while the lowest is kept.
+        /// This test aims to assert that in a publisher only burst behind a missing block,
+        /// every session is stuck and the highest stuck session other than the active one,
+        /// the session just started, is evicted: with the last verified block 100 and block
+        /// 101 missing, the admission of block 115 takes the count over the limit, and
+        /// block 114 is evicted while the lower blocks are kept.
         @Test
         @DisplayName(
                 "processBlockItems() evicts the highest stuck session other than the active one in a publisher only burst")
         void testEvictsTheHighestStuckSessionOtherThanTheActiveOneInAPublisherOnlyBurst() {
-            final BlockSessionHandler toTest = newHandlerWithProductionPolicy(2);
-            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(2, 4);
-            publish(toTest, blocks.get(0));
-            publish(toTest, blocks.get(1));
-            publish(toTest, blocks.get(2));
+            lastVerifiedBlock.set(100L);
+            final BlockSessionHandler toTest = newHandlerWithProductionPolicy();
+            publishRun(toTest, 102, 115);
             assertThat(notifications())
                     .hasSize(1)
                     .first()
-                    .returns(false, VerificationNotification::success)
-                    .returns(FailureInfo.standard(FailureType.CANCELLED), VerificationNotification::failureInfo)
-                    .returns(3L, VerificationNotification::blockNumber)
-                    .returns(BlockSource.PUBLISHER, VerificationNotification::source);
-            assertThat(highPriorityKeys()).containsExactly(key(2, 0), key(4, 2));
+                    .returns(114L, VerificationNotification::blockNumber)
+                    .satisfies(BlockSessionHandlerTest::assertCancelledPublisherBlock);
+            final List<Long> kept = new ArrayList<>(blockNumbers(102, 113));
+            kept.add(115L);
+            assertThat(highPriorityKeys()).extracting(SessionKey::blockNumber).containsExactlyElementsOf(kept);
             assertThat(evictedHighPriority()).isEqualTo(1L);
         }
 
         /// This test aims to assert that historical backfill, blocks at or below the last
-        /// verified block, is never evicted while the publisher streams: with the last
-        /// verified block 100, the publisher blocks 101 (the next expected block) and 102
-        /// (a run with it) and the backfilled blocks 50 and 51 all complete on their own,
-        /// so the buffer of two holds all four sessions, nothing is reported and nothing
-        /// is counted as evicted.
+        /// verified block, goes before any publisher block when no session is stuck: with
+        /// the last verified block 100, the publisher blocks 101 to 113 form a run with it
+        /// and fill the buffer, and each of the backfilled blocks 50 and 51 is evicted on
+        /// arrival as the first backup candidate, while every publisher session is kept.
         @Test
-        @DisplayName("processBlockItems() never evicts historical backfill while the publisher streams")
-        void testNeverEvictsHistoricalBackfillWhileThePublisherStreams() {
+        @DisplayName("processBlockItems() evicts historical backfill before any publisher block")
+        void testEvictsHistoricalBackfillBeforeAnyPublisherBlock() {
             lastVerifiedBlock.set(100L);
-            final BlockSessionHandler toTest = newHandlerWithProductionPolicy(2);
-            final List<TestBlock> publisherBlocks = TestBlockBuilder.generateBlocksInRange(101, 102);
-            final List<TestBlock> historicalBlocks = TestBlockBuilder.generateBlocksInRange(50, 51);
-            publish(toTest, publisherBlocks.get(0));
-            publish(toTest, publisherBlocks.get(1));
-            backfill(toTest, historicalBlocks.get(0));
-            backfill(toTest, historicalBlocks.get(1));
-            assertThat(notifications()).isEmpty();
-            assertThat(highPriorityKeys()).containsExactly(key(101, 0), key(102, 1));
-            assertThat(lowPriorityKeys()).containsExactly(key(50, 2), key(51, 3));
-            assertThat(gauge()).isEqualTo(4L);
+            final BlockSessionHandler toTest = newHandlerWithProductionPolicy();
+            publishRun(toTest, 101, 113);
+            backfillRun(toTest, 50, 51);
+            assertThat(notifications())
+                    .extracting(VerificationNotification::blockNumber)
+                    .containsExactly(50L, 51L);
+            assertThat(notifications()).allSatisfy(BlockSessionHandlerTest::assertCancelledBackfilledBlock);
+            assertThat(highPriorityKeys())
+                    .extracting(SessionKey::blockNumber)
+                    .containsExactlyElementsOf(blockNumbers(101, 113));
+            assertThat(lowPriorityKeys()).isEmpty();
+            assertThat(gauge()).isEqualTo(13L);
             assertThat(evictedHighPriority()).isZero();
-            assertThat(evictedLowPriority()).isZero();
+            assertThat(evictedLowPriority()).isEqualTo(2L);
         }
 
         /// This test aims to assert that a backfilled run contiguous with the last verified
-        /// block is never evicted, even far over the limit: with the last verified block
-        /// 100, the blocks 101 to 110 each wait only for the blocks below them, all of
-        /// which are in the buffer, so none is stuck and the buffer of three holds all ten.
+        /// block is held at the limit: with the last verified block 100, the blocks 101 to
+        /// 120 each wait only for the blocks below them, so no session is stuck, and each
+        /// admission over the limit evicts the highest backfilled session, the block just
+        /// admitted, while the run 101 to 113 is kept.
         @Test
-        @DisplayName("processBlockItems() never evicts a run contiguous with the last verified block")
-        void testNeverEvictsARunContiguousWithTheLastVerifiedBlock() {
+        @DisplayName("processBlockItems() holds a run contiguous with the last verified block at the limit")
+        void testHoldsARunContiguousWithTheLastVerifiedBlockAtTheLimit() {
             lastVerifiedBlock.set(100L);
-            final BlockSessionHandler toTest = newHandlerWithProductionPolicy(3);
-            for (final TestBlock block : TestBlockBuilder.generateBlocksInRange(101, 110)) {
-                backfill(toTest, block);
-            }
-            assertThat(notifications()).isEmpty();
+            final BlockSessionHandler toTest = newHandlerWithProductionPolicy();
+            backfillRun(toTest, 101, 120);
+            assertThat(notifications())
+                    .extracting(VerificationNotification::blockNumber)
+                    .containsExactlyElementsOf(blockNumbers(114, 120));
+            assertThat(notifications()).allSatisfy(BlockSessionHandlerTest::assertCancelledBackfilledBlock);
             assertThat(lowPriorityKeys())
                     .extracting(SessionKey::blockNumber)
-                    .containsExactly(101L, 102L, 103L, 104L, 105L, 106L, 107L, 108L, 109L, 110L);
-            assertThat(gauge()).isEqualTo(10L);
-            assertThat(evictedLowPriority()).isZero();
+                    .containsExactlyElementsOf(blockNumbers(101, 113));
+            assertThat(gauge()).isEqualTo(13L);
+            assertThat(evictedLowPriority()).isEqualTo(7L);
         }
 
         /// This test aims to assert that the next expected block is admitted to a full
         /// buffer and a stuck session makes room instead: with the last verified block
-        /// 100, the publisher blocks 103 and 104 wait above the missing blocks 101 and 102
-        /// and fill a buffer of two; the backfilled block 101 arrives and is kept, the
-        /// first gap is 102, and the highest stuck session, block 104, which has received
-        /// its whole block and is not the active publisher session any more, is evicted and
-        /// reported as a cancelled complete publisher block.
+        /// 100, the publisher blocks 103 to 115 wait above the missing blocks 101 and 102
+        /// and fill the buffer; the backfilled block 101 arrives and is kept, the first gap
+        /// is 102, and the highest stuck session, block 115, which has received its whole
+        /// block and is not the active publisher session any more, is evicted and reported
+        /// as a cancelled complete publisher block.
         @Test
         @DisplayName("processBlockItems() admits the next expected block to a full buffer and evicts a stuck session")
         void testAdmitsTheNextExpectedBlockToAFullBufferAndEvictsAStuckSession() {
             lastVerifiedBlock.set(100L);
-            final BlockSessionHandler toTest = newHandlerWithProductionPolicy(2);
-            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(101, 104);
-            publish(toTest, blocks.get(2));
-            publish(toTest, blocks.get(3));
-            backfill(toTest, blocks.get(0));
+            final BlockSessionHandler toTest = newHandlerWithProductionPolicy();
+            publishRun(toTest, 103, 115);
+            backfill(toTest, TestBlockBuilder.generateBlockWithNumber(101));
             assertThat(notifications())
                     .hasSize(1)
                     .first()
-                    .returns(false, VerificationNotification::success)
-                    .returns(FailureInfo.standard(FailureType.CANCELLED), VerificationNotification::failureInfo)
-                    .returns(104L, VerificationNotification::blockNumber)
-                    .returns(BlockSource.PUBLISHER, VerificationNotification::source);
-            assertThat(highPriorityKeys()).containsExactly(key(103, 0));
-            assertThat(lowPriorityKeys()).containsExactly(key(101, 2));
+                    .returns(115L, VerificationNotification::blockNumber)
+                    .satisfies(BlockSessionHandlerTest::assertCancelledPublisherBlock);
+            assertThat(highPriorityKeys())
+                    .extracting(SessionKey::blockNumber)
+                    .containsExactlyElementsOf(blockNumbers(103, 114));
+            assertThat(lowPriorityKeys()).containsExactly(key(101, 13));
             assertThat(evictedHighPriority()).isEqualTo(1L);
         }
 
-        /// This test aims to assert that a publisher burst contiguous with the last
-        /// verified block grows the buffer over its limit without any eviction: with the
-        /// last verified block 100, the blocks 101 to 105 each wait only for the blocks
-        /// below them, so every eviction pass finds nothing stuck, nothing is reported and
-        /// the buffer of two holds all five sessions.
+        /// This test aims to assert that a publisher burst contiguous with the last verified
+        /// block is held at the limit: with the last verified block 100, the blocks 101 to
+        /// 115 each wait only for the blocks below them. The admission of 114, the active
+        /// publisher session during its own admission, finds no session stuck and evicts the
+        /// publisher session at the backup position, the third from the top, 112. That opens
+        /// a gap below 113 and 114, so the admission of 115 evicts the highest stuck session
+        /// other than the active one, 114. Both are reported as cancelled complete publisher
+        /// blocks, which the publisher resends.
         @Test
-        @DisplayName("processBlockItems() lets a contiguous publisher burst grow over the limit without evicting")
-        void testLetsAContiguousPublisherBurstGrowOverTheLimit() {
+        @DisplayName(
+                "processBlockItems() holds a contiguous publisher burst at the limit, starting at the backup position")
+        void testHoldsAContiguousPublisherBurstAtTheLimit() {
             lastVerifiedBlock.set(100L);
-            final BlockSessionHandler toTest = newHandlerWithProductionPolicy(2);
-            for (final TestBlock block : TestBlockBuilder.generateBlocksInRange(101, 105)) {
-                publish(toTest, block);
-            }
-            assertThat(notifications()).isEmpty();
-            assertThat(highPriorityKeys())
-                    .extracting(SessionKey::blockNumber)
-                    .containsExactly(101L, 102L, 103L, 104L, 105L);
+            final BlockSessionHandler toTest = newHandlerWithProductionPolicy();
+            publishRun(toTest, 101, 115);
+            assertThat(notifications())
+                    .extracting(VerificationNotification::blockNumber)
+                    .containsExactly(112L, 114L);
+            assertThat(notifications()).allSatisfy(BlockSessionHandlerTest::assertCancelledPublisherBlock);
+            final List<Long> kept = new ArrayList<>(blockNumbers(101, 111));
+            kept.add(113L);
+            kept.add(115L);
+            assertThat(highPriorityKeys()).extracting(SessionKey::blockNumber).containsExactlyElementsOf(kept);
+            assertThat(gauge()).isEqualTo(13L);
+            assertThat(evictedHighPriority()).isEqualTo(2L);
+        }
+
+        /// This test aims to assert that a backfilled block goes before any publisher block,
+        /// even the one that closes the gap below a full publisher run: with the last verified
+        /// block 100, the publisher blocks 102 to 113 and the block 115 the publisher is
+        /// streaming fill the buffer above the missing block 101. When backfill delivers 101,
+        /// no session other than the streaming one is stuck, and no backfilled block can go
+        /// without opening a gap below a publisher block, so the highest backfilled block, 101
+        /// itself, is evicted and reported once as a cancelled complete backfilled block, while
+        /// every publisher session is kept and waits for 101 again.
+        @Test
+        @DisplayName(
+                "processBlockItems() evicts the backfilled block closing the gap below a full publisher run before any publisher block")
+        void testEvictsTheBackfilledBlockThatClosesTheGapBelowAFullPublisherRun() {
+            lastVerifiedBlock.set(100L);
+            final BlockSessionHandler toTest = newHandlerWithProductionPolicy();
+            publishRun(toTest, 102, 113);
+            toTest.processBlockItems(headerOnly(TestBlockBuilder.generateBlockWithNumber(115)), BlockSource.PUBLISHER);
+            backfill(toTest, TestBlockBuilder.generateBlockWithNumber(101));
+            assertThat(notifications())
+                    .hasSize(1)
+                    .first()
+                    .returns(101L, VerificationNotification::blockNumber)
+                    .satisfies(BlockSessionHandlerTest::assertCancelledBackfilledBlock);
+            assertThat(lowPriorityKeys()).isEmpty();
+            final List<Long> kept = new ArrayList<>(blockNumbers(102, 113));
+            kept.add(115L);
+            assertThat(highPriorityKeys()).extracting(SessionKey::blockNumber).containsExactlyElementsOf(kept);
+            assertThat(activeSessions.activePublisherSession().sessionKey()).isEqualTo(key(115, 12));
+            assertThat(gauge()).isEqualTo(13L);
+            assertThat(evictedLowPriority()).isEqualTo(1L);
             assertThat(evictedHighPriority()).isZero();
         }
 
         /// This test aims to assert that a backfilled block that arrives stuck far ahead of
         /// a run is evicted on arrival: with the last verified block 100 and the backfilled
-        /// run 101 and 102 filling a buffer of two, the backfilled block 500 waits above
-        /// the first gap 103, is the only stuck session, and is evicted as soon as it is
-        /// admitted, while the run is kept.
+        /// run 101 to 113 filling the buffer, the backfilled block 500 waits above the first
+        /// gap 114, is the only stuck session, and is evicted as soon as it is admitted,
+        /// while the run is kept.
         @Test
         @DisplayName("processBlockItems() evicts a backfilled block stuck far ahead of the run on arrival")
         void testEvictsAStuckNewcomerOnArrival() {
             lastVerifiedBlock.set(100L);
-            final BlockSessionHandler toTest = newHandlerWithProductionPolicy(2);
-            final List<TestBlock> run = TestBlockBuilder.generateBlocksInRange(101, 102);
-            backfill(toTest, run.get(0));
-            backfill(toTest, run.get(1));
+            final BlockSessionHandler toTest = newHandlerWithProductionPolicy();
+            backfillRun(toTest, 101, 113);
             backfill(toTest, TestBlockBuilder.generateBlockWithNumber(500));
             assertThat(notifications())
                     .hasSize(1)
                     .first()
                     .returns(500L, VerificationNotification::blockNumber)
                     .satisfies(BlockSessionHandlerTest::assertCancelledBackfilledBlock);
-            assertThat(lowPriorityKeys()).containsExactly(key(101, 0), key(102, 1));
+            assertThat(lowPriorityKeys())
+                    .extracting(SessionKey::blockNumber)
+                    .containsExactlyElementsOf(blockNumbers(101, 113));
             assertThat(evictedLowPriority()).isEqualTo(1L);
         }
 
         /// This test aims to assert that when sessions of both lanes hold the highest stuck
         /// block, the backfilled session is evicted and the publisher's copy is kept: with
-        /// the last verified block 100, block 105 is held by a publisher session and by a
-        /// backfilled session, both stuck above the first gap 102 once the backfilled
-        /// block 101 overflows the buffer of two, and the backfilled 105 is evicted.
+        /// the last verified block 100, block 114 is held by a publisher session and by a
+        /// backfilled session, both stuck above the first gap 102 once the backfilled block
+        /// 101 takes the count over the limit, and the backfilled 114 is evicted.
         @Test
         @DisplayName("processBlockItems() evicts the backfilled session when both lanes hold the highest stuck block")
         void testEvictsTheBackfilledSessionWhenBothLanesHoldTheHighestStuckBlock() {
             lastVerifiedBlock.set(100L);
-            final BlockSessionHandler toTest = newHandlerWithProductionPolicy(2);
-            final TestBlock block105 = TestBlockBuilder.generateBlockWithNumber(105);
-            publish(toTest, block105);
-            backfill(toTest, block105);
+            final BlockSessionHandler toTest = newHandlerWithProductionPolicy();
+            publishRun(toTest, 103, 114);
+            backfill(toTest, TestBlockBuilder.generateBlockWithNumber(114));
             backfill(toTest, TestBlockBuilder.generateBlockWithNumber(101));
             assertThat(notifications())
                     .hasSize(1)
                     .first()
-                    .returns(105L, VerificationNotification::blockNumber)
+                    .returns(114L, VerificationNotification::blockNumber)
                     .satisfies(BlockSessionHandlerTest::assertCancelledBackfilledBlock);
-            assertThat(highPriorityKeys()).containsExactly(key(105, 0));
-            assertThat(lowPriorityKeys()).containsExactly(key(101, 2));
+            assertThat(highPriorityKeys())
+                    .extracting(SessionKey::blockNumber)
+                    .containsExactlyElementsOf(blockNumbers(103, 114));
+            assertThat(lowPriorityKeys()).containsExactly(key(101, 13));
             assertThat(evictedLowPriority()).isEqualTo(1L);
         }
     }
@@ -551,13 +602,11 @@ class BlockSessionHandlerTest {
     @Nested
     @DisplayName("Concurrent Admission Tests")
     class ConcurrentAdmissionTests {
-        /// The buffer size used by the concurrent admission tests.
-        private static final int BUFFER_SIZE = 5;
         /// The number of blocks each ingress thread admits.
         private static final int BLOCKS_PER_THREAD = 300;
 
         /// This test aims to assert that when both ingress threads admit sessions at the
-        /// same time into a small buffer, with sessions that never finish on their own so
+        /// same time into a full buffer, with sessions that never finish on their own so
         /// that evictions are the only removals, the combined count is exactly the buffer
         /// size once both threads are done: no block is ever verified and block 0 never
         /// arrives, so every session is stuck and every overflowing admission evicts one.
@@ -591,25 +640,22 @@ class BlockSessionHandlerTest {
         }
 
         /// This test aims to assert that when both ingress threads admit sessions at the
-        /// same time and no session is stuck, nothing is evicted and the buffer holds every
-        /// session over its limit, whatever the interleaving: with the last verified block
-        /// 1000, the publisher blocks from 1001 are admitted in ascending order on one
-        /// thread and always form a run with the last verified block, and the backfilled
-        /// blocks are all at or below it, so every eviction pass finds no candidate. The
-        /// gauge is not asserted: it is set after each admission without synchronization,
-        /// so under concurrent admissions its last value may be the other thread's count.
+        /// same time and no session is stuck, every overflowing admission still evicts one
+        /// session, whatever the interleaving: with the last verified block 1000, the
+        /// publisher blocks from 1001 are admitted in ascending order on one thread and form
+        /// a run with the last verified block, and the backfilled blocks are all at or below
+        /// it. The combined count is exactly the limit once both threads are done, every
+        /// admitted block ended either as an active session or as exactly one cancellation
+        /// notification, no block was reported twice, and the evictions counters add up to
+        /// the number of cancellations.
         @Test
-        @DisplayName("processBlockItems() evicts nothing under concurrent admissions when no session is stuck")
-        void testConcurrentAdmissionsEvictNothingWhenNoSessionIsStuck() throws Exception {
+        @DisplayName(
+                "processBlockItems() keeps the combined count within the limit under concurrent admissions when no session is stuck")
+        void testConcurrentAdmissionsKeepTheCombinedCountWithinTheLimitWhenNoSessionIsStuck() throws Exception {
             lastVerifiedBlock.set(1000L);
-            final List<TestBlock> publisherBlocks =
-                    TestBlockBuilder.generateBlocksInRange(1001, 1000 + BLOCKS_PER_THREAD);
-            final List<TestBlock> backfilledBlocks = TestBlockBuilder.generateBlocksInRange(1, BLOCKS_PER_THREAD);
-            final BlockSessionHandler toTest = newHandlerWithProductionPolicy(BUFFER_SIZE);
-            admitConcurrently(toTest, publisherBlocks, backfilledBlocks);
-            assertThat(notifications()).isEmpty();
-            assertThat(combinedSize()).isEqualTo(publisherBlocks.size() + backfilledBlocks.size());
-            assertThat(evictedHighPriority() + evictedLowPriority()).isZero();
+            admitConcurrentlyAndAssertTheBufferIsAtItsLimit(
+                    TestBlockBuilder.generateBlocksInRange(1001, 1000 + BLOCKS_PER_THREAD),
+                    TestBlockBuilder.generateBlocksInRange(1, BLOCKS_PER_THREAD));
         }
 
         /// Admits the publisher blocks from one thread and the backfilled blocks from another,
@@ -617,7 +663,7 @@ class BlockSessionHandlerTest {
         private void admitConcurrentlyAndAssertTheBufferIsAtItsLimit(
                 final List<TestBlock> publisherBlocks, final List<TestBlock> backfilledBlocks) throws Exception {
             final int bufferSize = BUFFER_SIZE;
-            final BlockSessionHandler toTest = newHandlerWithProductionPolicy(bufferSize);
+            final BlockSessionHandler toTest = newHandlerWithProductionPolicy();
             admitConcurrently(toTest, publisherBlocks, backfilledBlocks);
             final int admitted = publisherBlocks.size() + backfilledBlocks.size();
             assertThat(combinedSize()).isEqualTo(bufferSize);
@@ -717,8 +763,8 @@ class BlockSessionHandlerTest {
         @Test
         @DisplayName("gauge grows as new sessions are activated")
         void testGaugeGrowsWithActivatedSessions() {
-            final BlockSessionHandler toTest = newHandlerWithProductionPolicy(2);
-            // Create two blocks, matching the buffer size configured in setup
+            final BlockSessionHandler toTest = newHandlerWithProductionPolicy();
+            // Create two blocks, well below the limit
             final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(2, 3);
             // Supply the first block and assert the gauge reflects one active session
             publish(toTest, blocks.get(0));
@@ -730,72 +776,71 @@ class BlockSessionHandlerTest {
 
         /// This test aims to assert that the active sessions gauge stays at the buffer
         /// limit when the buffer is full and a new session evicts the highest stuck
-        /// session other than the active one, mirroring the combined size of both lanes.
+        /// session other than the active one, mirroring the combined size of both lanes:
+        /// with the last verified block 100 and block 101 missing, the admission of the
+        /// fourteenth publisher block, 115, evicts 114.
         @Test
         @DisplayName("gauge stays at buffer size when a new session evicts a session")
         void testGaugeStaysAtBufferSizeOnEviction() {
-            final BlockSessionHandler toTest = newHandlerWithProductionPolicy(2);
-            // Create three blocks, one more than the buffer size configured in setup
-            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(2, 4);
-            // Supply blocks in order so the third activation evicts the highest stuck session other than the active one
-            publish(toTest, blocks.get(0));
-            publish(toTest, blocks.get(1));
-            publish(toTest, blocks.get(2));
-            // Assert the gauge matches the buffer, back at the configured size
-            assertThat(gauge()).isEqualTo(2L).isEqualTo(combinedSize());
-            assertThat(highPriorityKeys()).containsExactly(key(2, 0), key(4, 2));
+            lastVerifiedBlock.set(100L);
+            final BlockSessionHandler toTest = newHandlerWithProductionPolicy();
+            publishRun(toTest, 102, 115);
+            assertThat(gauge()).isEqualTo(13L).isEqualTo(combinedSize());
+            assertThat(highPriorityKeys())
+                    .extracting(SessionKey::blockNumber)
+                    .doesNotContain(114L)
+                    .hasSize(13);
         }
 
         /// This test aims to assert that the gauge stays at the configured size when
-        /// blocks arrive in descending order before any block is verified, because every
-        /// session is stuck and the highest stuck session other than the active one is
-        /// evicted on the overflowing admission.
+        /// blocks arrive in descending order: with the last verified block 100 and block
+        /// 101 missing, every session is stuck, and the admission of the fourteenth block,
+        /// 102, the active publisher session during its own admission, evicts the highest
+        /// stuck session, 115.
         @Test
         @DisplayName("gauge stays at buffer size when blocks arrive in descending order")
         void testGaugeStaysAtBufferSizeWhenBlocksArriveInDescendingOrder() {
-            final BlockSessionHandler toTest = newHandlerWithProductionPolicy(2);
-            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(2, 4);
-            publish(toTest, blocks.get(2));
-            publish(toTest, blocks.get(1));
-            publish(toTest, blocks.get(0));
-            assertThat(gauge()).isEqualTo(2L).isEqualTo(combinedSize());
-            assertThat(highPriorityKeys()).containsExactly(key(2, 2), key(3, 1));
-        }
-
-        /// This test aims to assert that the gauge reports the count above the limit when
-        /// no session is stuck: with the last verified block 100, the publisher blocks 101,
-        /// 102 and 103 form a run with it, nothing is evicted, and the gauge of a buffer of
-        /// two reports all three sessions, matching the combined size of both lanes.
-        @Test
-        @DisplayName("gauge reports the count above the limit when no session is stuck")
-        void testGaugeReportsTheCountAboveTheLimitWhenNoSessionIsStuck() {
             lastVerifiedBlock.set(100L);
-            final BlockSessionHandler toTest = newHandlerWithProductionPolicy(2);
-            for (final TestBlock block : TestBlockBuilder.generateBlocksInRange(101, 103)) {
+            final BlockSessionHandler toTest = newHandlerWithProductionPolicy();
+            for (final TestBlock block :
+                    TestBlockBuilder.generateBlocksInRange(102, 115).reversed()) {
                 publish(toTest, block);
             }
-            assertThat(gauge()).isEqualTo(3L).isEqualTo(combinedSize());
+            assertThat(gauge()).isEqualTo(13L).isEqualTo(combinedSize());
+            assertThat(highPriorityKeys())
+                    .extracting(SessionKey::blockNumber)
+                    .containsExactlyElementsOf(blockNumbers(102, 114));
+        }
+
+        /// This test aims to assert that the gauge stays at the limit when no session is
+        /// stuck: with the last verified block 100, the publisher blocks 101 to 115 form a
+        /// run with it, each admission over the limit still evicts one session, and the
+        /// gauge reports the limit, matching the combined size of both lanes.
+        @Test
+        @DisplayName("gauge stays at the limit when no session is stuck")
+        void testGaugeStaysAtTheLimitWhenNoSessionIsStuck() {
+            lastVerifiedBlock.set(100L);
+            final BlockSessionHandler toTest = newHandlerWithProductionPolicy();
+            publishRun(toTest, 101, 115);
+            assertThat(gauge()).isEqualTo(13L).isEqualTo(combinedSize());
         }
     }
 
-    /// Build a handler with the given policy and buffer size.
-    private BlockSessionHandler newHandler(final SessionEvictionPolicy policy, final int bufferSize) {
-        return newHandler(policy, configWithBufferSize(bufferSize));
+    /// Build a handler with the given policy and the configuration of every test.
+    private BlockSessionHandler newHandler(final SessionEvictionPolicy policy) {
+        return newHandler(policy, config());
     }
 
-    /// Build a handler with the production policy and the given buffer size.
-    private BlockSessionHandler newHandlerWithProductionPolicy(final int bufferSize) {
-        final VerificationConfig verificationConfig = configWithBufferSize(bufferSize);
+    /// Build a handler with the production policy and the configuration of every test.
+    private BlockSessionHandler newHandlerWithProductionPolicy() {
+        final VerificationConfig verificationConfig = config();
         return newHandler(new OrderAwareEvictionPolicy(verificationConfig), verificationConfig);
     }
 
-    /// The production policy built from the default configuration, wrapped to record
-    /// every snapshot it is handed and every key it selects.
+    /// The production policy built from the configuration of every test, wrapped to
+    /// record every snapshot it is handed and every key it selects.
     private static RecordingEvictionPolicy recordingProductionPolicy() {
-        return RecordingEvictionPolicy.recording(new OrderAwareEvictionPolicy(new TestConfigurationBuilder()
-                .withConfigDataType(VerificationConfig.class)
-                .getOrCreateConfig()
-                .getConfigData(VerificationConfig.class)));
+        return RecordingEvictionPolicy.recording(new OrderAwareEvictionPolicy(config()));
     }
 
     /// Build a handler with the given policy and configuration, and keep its buffer.
@@ -813,11 +858,12 @@ class BlockSessionHandlerTest {
                 new VerificationOutbox(blockMessaging));
     }
 
-    /// Build a verification configuration with the given buffer size.
-    private static VerificationConfig configWithBufferSize(final int bufferSize) {
+    /// The verification configuration of every test: the defaults, with the limit of
+    /// [#BUFFER_SIZE].
+    private static VerificationConfig config() {
         return new TestConfigurationBuilder()
                 .withConfigDataType(VerificationConfig.class)
-                .withValue("verification.activeSessionsBufferSize", String.valueOf(bufferSize))
+                .withValue("verification.activeSessionsBufferSize", String.valueOf(BUFFER_SIZE))
                 .getOrCreateConfig()
                 .getConfigData(VerificationConfig.class);
     }
@@ -830,6 +876,31 @@ class BlockSessionHandlerTest {
     /// Supply a complete block as a backfilled batch.
     private static void backfill(final BlockSessionHandler handler, final TestBlock block) {
         handler.processBlockItems(block.asBlockItems(), BlockSource.BACKFILL);
+    }
+
+    /// Supply each block from the first block to the last, in ascending order, as a
+    /// complete block in a single publisher batch.
+    private static void publishRun(final BlockSessionHandler handler, final long firstBlock, final long lastBlock) {
+        for (final TestBlock block : TestBlockBuilder.generateBlocksInRange(firstBlock, lastBlock)) {
+            publish(handler, block);
+        }
+    }
+
+    /// Supply each block from the first block to the last, in ascending order, as a
+    /// backfilled batch.
+    private static void backfillRun(final BlockSessionHandler handler, final long firstBlock, final long lastBlock) {
+        for (final TestBlock block : TestBlockBuilder.generateBlocksInRange(firstBlock, lastBlock)) {
+            backfill(handler, block);
+        }
+    }
+
+    /// The block numbers from the first block to the last, ascending.
+    private static List<Long> blockNumbers(final long firstBlock, final long lastBlock) {
+        final List<Long> blockNumbers = new ArrayList<>();
+        for (long blockNumber = firstBlock; blockNumber <= lastBlock; blockNumber++) {
+            blockNumbers.add(blockNumber);
+        }
+        return blockNumbers;
     }
 
     /// A batch carrying only the header of a block, starting the block without ending it.
@@ -853,6 +924,16 @@ class BlockSessionHandlerTest {
         assertThat(notification)
                 .returns(false, VerificationNotification::success)
                 .returns(FailureInfo.standard(FailureType.CANCELLED), VerificationNotification::failureInfo)
+                .returns(null, VerificationNotification::block)
+                .returns(null, VerificationNotification::blockHash);
+    }
+
+    /// Asserts that a notification reports a cancelled complete publisher block.
+    private static void assertCancelledPublisherBlock(final VerificationNotification notification) {
+        assertThat(notification)
+                .returns(false, VerificationNotification::success)
+                .returns(FailureInfo.standard(FailureType.CANCELLED), VerificationNotification::failureInfo)
+                .returns(BlockSource.PUBLISHER, VerificationNotification::source)
                 .returns(null, VerificationNotification::block)
                 .returns(null, VerificationNotification::blockHash);
     }

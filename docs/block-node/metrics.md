@@ -378,9 +378,9 @@ is a block-count cap, not a disk-size cap (see [Host / Volume](#host--volume-ext
 
 **Verification**: Alerts for the active sessions buffer of the verification plugin
 
-| Severity |             Metric             |                                          Alert Condition                                           |
-|----------|--------------------------------|----------------------------------------------------------------------------------------------------|
-| L        | `verification_active_sessions` | If above `VERIFICATION_ACTIVE_SESSIONS_BUFFER_SIZE` for 10 minutes, otherwise, configure as needed |
+| Severity |             Metric              |                               Alert Condition                               |
+|----------|---------------------------------|-----------------------------------------------------------------------------|
+| L        | `verification_sessions_evicted` | If it increases continuously for 10 minutes, otherwise, configure as needed |
 
 **Latency**: Alerts for latency metrics in receiving, hashing, verifying, and persisting blocks
 

@@ -3,6 +3,8 @@ package org.hiero.block.node.block.verification.session;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -31,8 +33,8 @@ import org.junit.jupiter.params.provider.EnumSource;
 /// is stuck.
 @DisplayName("Active Sessions Buffer Tests")
 class ActiveSessionsBufferTest {
-    /// The buffer limit used unless a test needs another.
-    private static final int BUFFER_SIZE = 2;
+    /// The buffer limit of every test, the smallest the configuration accepts.
+    private static final int BUFFER_SIZE = 13;
     /// The metrics the buffer under test records.
     private MetricsHolder metrics;
     /// The last verified block handed to the buffer under test.
@@ -52,7 +54,7 @@ class ActiveSessionsBufferTest {
         lastVerifiedBlock = new AtomicLong(-1);
         policy = RecordingEvictionPolicy.recording(productionPolicy());
         nextUniqueId = 0;
-        toTest = newBuffer(BUFFER_SIZE);
+        toTest = newBuffer();
     }
 
     /// Tests for admitting sessions to their lanes.
@@ -110,22 +112,20 @@ class ActiveSessionsBufferTest {
         /// This test aims to assert that a publisher session is protected during its own
         /// admission: it is admitted before it receives any batch, so when it takes the
         /// count over the limit, the snapshot handed to the policy names it as the active
-        /// publisher session and the policy never selects it. Both sessions are stuck,
-        /// since nothing is verified, and the policy selects the backfilled session 7
-        /// instead, although the publisher session 9 is higher. This holds for a block
-        /// that comes in one batch as well.
+        /// publisher session and the policy never selects it. Every session is stuck,
+        /// since nothing is verified, and the policy selects the highest backfilled
+        /// session, 13, instead, although the publisher session 20 is higher. This holds
+        /// for a block that comes in one batch as well.
         @Test
         @DisplayName("admit() protects a newly admitted publisher session during its own admission")
         void testProtectsANewlyAdmittedPublisherSessionDuringItsOwnAdmission() {
-            toTest = newBuffer(1);
-            final StandInSession backfilled = newSession(7, BlockSource.BACKFILL);
-            final StandInSession published = publisherSession(9);
-            toTest.admit(backfilled);
+            final List<StandInSession> backfilled = admitRun(1, 13, BlockSource.BACKFILL);
+            final StandInSession published = publisherSession(20);
             toTest.admit(published);
             assertThat(policy.snapshots()).hasSize(1);
             assertThat(policy.snapshots().getFirst().activeHighPrioritySession())
                     .isEqualTo(published.sessionKey());
-            assertThat(policy.selections()).containsExactly(backfilled.sessionKey());
+            assertThat(policy.selections()).containsExactly(backfilled.getLast().sessionKey());
             assertThat(published.cancelCalls()).isZero();
             assertThat(toTest.activePublisherSession()).isSameAs(published);
         }
@@ -186,7 +186,6 @@ class ActiveSessionsBufferTest {
         @Test
         @DisplayName("clearCompletedSessions() removes the complete sessions of both lanes")
         void testClearingRemovesTheCompleteSessionsOfBothLanes() {
-            toTest = newBuffer(5);
             final StandInSession published = publisherSession(5);
             final StandInSession running = publisherSession(6);
             final StandInSession backfilled = newSession(3, BlockSource.BACKFILL);
@@ -226,88 +225,113 @@ class ActiveSessionsBufferTest {
 
         /// This test aims to assert that the session the policy selects is removed from its
         /// lane, cancelled once and counted in the evictions counter of its lane when its
-        /// cancellation stopped it: nothing is verified, so the backfilled sessions 2, 3
-        /// and 4 are all stuck, and the overflowing admission evicts the highest, 4.
+        /// cancellation stopped it: nothing is verified, so the backfilled sessions 2 to 15
+        /// are all stuck, and the admission of 15, which takes the count over the limit,
+        /// evicts the highest, 15 itself.
         @Test
         @DisplayName("admit() evicts, cancels and counts what the policy selects")
         void testEvictsCancelsAndCountsTheSelectedSession() {
-            toTest.admit(newSession(2, BlockSource.BACKFILL));
-            toTest.admit(newSession(3, BlockSource.BACKFILL));
-            final StandInSession highest = newSession(4, BlockSource.BACKFILL);
+            admitRun(2, 14, BlockSource.BACKFILL);
+            final StandInSession highest = newSession(15, BlockSource.BACKFILL);
             toTest.admit(highest);
             assertThat(policy.selections()).containsExactly(highest.sessionKey());
             assertThat(highest.cancelCalls()).isEqualTo(1);
             assertThat(toTest.snapshot().lowPrioritySessions())
                     .extracting(SessionKey::blockNumber)
-                    .containsExactly(2L, 3L);
+                    .containsExactlyElementsOf(blocks(2, 14));
             assertThat(evictedLowPriority()).isEqualTo(1L);
-            assertThat(gauge()).isEqualTo(2L);
+            assertThat(gauge()).isEqualTo(13L);
         }
 
         /// This test aims to assert that complete sessions are cleared before the policy
-        /// is consulted: when clearing brings the count back within the limit, nothing is
-        /// evicted and the policy is not consulted.
+        /// is consulted: the session for block 2 of the full buffer completes, and when the
+        /// admission of 15 takes the count over the limit, clearing it brings the count
+        /// back to the limit, so nothing is evicted and the policy is not consulted.
         @Test
         @DisplayName("admit() clears complete sessions before consulting the policy")
         void testClearsCompleteSessionsBeforeConsultingThePolicy() {
-            final StandInSession completed = newSession(2, BlockSource.BACKFILL);
-            final StandInSession running = newSession(3, BlockSource.BACKFILL);
-            toTest.admit(completed);
-            toTest.admit(running);
-            completed.completeOnItsOwn();
-            toTest.admit(newSession(4, BlockSource.BACKFILL));
+            final List<StandInSession> admitted = admitRun(2, 14, BlockSource.BACKFILL);
+            admitted.getFirst().completeOnItsOwn();
+            toTest.admit(newSession(15, BlockSource.BACKFILL));
             assertThat(policy.snapshots()).isEmpty();
-            assertThat(running.cancelCalls()).isZero();
+            assertThat(admitted)
+                    .allSatisfy(session -> assertThat(session.cancelCalls()).isZero());
             assertThat(toTest.snapshot().lowPrioritySessions())
                     .extracting(SessionKey::blockNumber)
-                    .containsExactly(3L, 4L);
+                    .containsExactlyElementsOf(blocks(3, 15));
             assertThat(evictedLowPriority()).isZero();
         }
 
         /// This test aims to assert that a selected session whose result was already
         /// produced when it was cancelled (its cancellation returns false while its result
         /// handling is still running) is removed but not counted as evicted: the session
-        /// for block 4 has produced its result, and when the admission of 3 takes the count
-        /// over the limit, the policy selects 4, the highest stuck session.
+        /// for block 20 has produced its result, and when the admission of 14 takes the
+        /// count over the limit, the policy selects 20, the highest stuck session.
         @Test
         @DisplayName("admit() does not count a selected session that had already produced its result")
         void testDoesNotCountASelectedSessionThatHadAlreadyProducedItsResult() {
-            final StandInSession highest = newSession(4, BlockSource.BACKFILL);
+            final StandInSession highest = newSession(20, BlockSource.BACKFILL);
             toTest.admit(highest);
             highest.produceResultWhileItIsStillBeingHandled();
-            toTest.admit(newSession(2, BlockSource.BACKFILL));
-            toTest.admit(newSession(3, BlockSource.BACKFILL));
+            admitRun(2, 14, BlockSource.BACKFILL);
             assertThat(policy.selections()).containsExactly(highest.sessionKey());
             assertThat(highest.cancelCalls()).isEqualTo(1);
             assertThat(toTest.snapshot().lowPrioritySessions())
                     .extracting(SessionKey::blockNumber)
-                    .containsExactly(2L, 3L);
+                    .containsExactlyElementsOf(blocks(2, 14));
             assertThat(evictedLowPriority()).isZero();
         }
 
-        /// This test aims to assert that when the policy selects nothing, every admission
-        /// still completes and the buffer stays over its limit: with the last verified
-        /// block 1, the sessions 2 to 5 form a run with it, so no session is stuck and the
-        /// policy selects nothing on either admission over the limit. Each such admission
-        /// consults the policy once, nothing is cancelled or counted as evicted, and the
-        /// gauge reports the count above the limit.
+        /// This test aims to assert that every admission over the limit evicts one
+        /// session even when no session is stuck, so the buffer never stays over its
+        /// limit: with the last verified block 1, the backfilled sessions 2 to 16 form a
+        /// run with it, and each of the admissions of 15 and 16 consults the policy once,
+        /// which selects the highest backfilled session, the one just admitted. Each is
+        /// cancelled and counted, the run 2 to 14 stays, and the gauge reports the limit.
         @Test
-        @DisplayName("admit() leaves the buffer over its limit when the policy selects nothing")
-        void testStaysOverItsLimitWhenThePolicySelectsNothing() {
+        @DisplayName("admit() evicts one session on every admission over the limit, even when no session is stuck")
+        void testEvictsOneSessionOnEveryAdmissionOverTheLimitEvenWhenNoSessionIsStuck() {
             lastVerifiedBlock.set(1L);
-            final StandInSession lowest = newSession(2, BlockSource.BACKFILL);
-            toTest.admit(lowest);
-            toTest.admit(newSession(3, BlockSource.BACKFILL));
-            toTest.admit(newSession(4, BlockSource.BACKFILL));
-            toTest.admit(newSession(5, BlockSource.BACKFILL));
+            final List<StandInSession> admitted = admitRun(2, 16, BlockSource.BACKFILL);
             assertThat(policy.snapshots()).hasSize(2);
-            assertThat(policy.selections()).hasSize(2).containsOnlyNulls();
-            assertThat(lowest.cancelCalls()).isZero();
+            assertThat(policy.selections())
+                    .containsExactly(
+                            admitted.get(13).sessionKey(), admitted.get(14).sessionKey());
+            assertThat(admitted.get(13).cancelCalls()).isEqualTo(1);
+            assertThat(admitted.get(14).cancelCalls()).isEqualTo(1);
             assertThat(toTest.snapshot().lowPrioritySessions())
                     .extracting(SessionKey::blockNumber)
-                    .containsExactly(2L, 3L, 4L, 5L);
-            assertThat(evictedLowPriority()).isZero();
-            assertThat(gauge()).isEqualTo(4L);
+                    .containsExactlyElementsOf(blocks(2, 14));
+            assertThat(evictedLowPriority()).isEqualTo(2L);
+            assertThat(gauge()).isEqualTo(13L);
+        }
+
+        /// This test aims to assert that when the lanes hold publisher sessions only and
+        /// none is stuck, the publisher session at the backup position is evicted and
+        /// counted in the high priority lane, never the session being admitted: with the
+        /// last verified block 100, the complete publisher blocks 101 to 113 fill the
+        /// buffer and the publisher starts block 114, the active publisher session during
+        /// its own admission, so the third session from the top, 112, is evicted.
+        @Test
+        @DisplayName(
+                "admit() evicts the publisher session at the backup position when the lanes hold publisher sessions only")
+        void testEvictsThePublisherSessionAtTheBackupPositionWhenTheLanesHoldPublisherSessionsOnly() {
+            lastVerifiedBlock.set(100L);
+            final List<StandInSession> admitted = admitPublisherRun(101, 113);
+            final StandInSession streaming = publisherSession(114);
+            toTest.admit(streaming);
+            final StandInSession atBackupPosition = admitted.get(11);
+            assertThat(policy.selections()).containsExactly(atBackupPosition.sessionKey());
+            assertThat(atBackupPosition.cancelCalls()).isEqualTo(1);
+            assertThat(streaming.cancelCalls()).isZero();
+            assertThat(toTest.snapshot().highPrioritySessions())
+                    .extracting(SessionKey::blockNumber)
+                    .doesNotContain(112L)
+                    .hasSize(13)
+                    .contains(114L);
+            assertThat(toTest.activePublisherSession()).isSameAs(streaming);
+            assertThat(evictedHighPriority()).isEqualTo(1L);
+            assertThat(gauge()).isEqualTo(13L);
         }
 
         /// This test aims to assert that a selected session that is no longer in its lane
@@ -315,24 +339,23 @@ class ActiveSessionsBufferTest {
         /// completed sessions without the eviction lock, so the session the policy has just
         /// selected can complete and be cleared before the buffer evicts it. The hook of
         /// the recording policy reproduces that window: the policy selects the highest
-        /// stuck session, 4, and the hook completes and clears it before the eviction.
+        /// stuck session, 15, and the hook completes and clears it before the eviction.
         /// Nothing is cancelled or counted, and the count is back at the limit.
         @Test
         @DisplayName("admit() skips a selected session that was cleared before it could be evicted")
         void testSkipsASelectedSessionThatWasClearedMeanwhile() {
             policy = RecordingEvictionPolicy.recording(productionPolicy(), this::completeAndClear);
-            toTest = newBuffer(BUFFER_SIZE);
-            toTest.admit(newSession(2, BlockSource.BACKFILL));
-            toTest.admit(newSession(3, BlockSource.BACKFILL));
-            clearedMeanwhile = newSession(4, BlockSource.BACKFILL);
+            toTest = newBuffer();
+            admitRun(2, 14, BlockSource.BACKFILL);
+            clearedMeanwhile = newSession(15, BlockSource.BACKFILL);
             toTest.admit(clearedMeanwhile);
             assertThat(policy.selections()).containsExactly(clearedMeanwhile.sessionKey());
             assertThat(clearedMeanwhile.cancelCalls()).isZero();
             assertThat(toTest.snapshot().lowPrioritySessions())
                     .extracting(SessionKey::blockNumber)
-                    .containsExactly(2L, 3L);
+                    .containsExactlyElementsOf(blocks(2, 14));
             assertThat(evictedLowPriority()).isZero();
-            assertThat(gauge()).isEqualTo(2L);
+            assertThat(gauge()).isEqualTo(13L);
         }
 
         /// Complete the selected session and clear the buffer, as the other ingress thread
@@ -347,22 +370,63 @@ class ActiveSessionsBufferTest {
         }
     }
 
-    /// The production eviction policy, built from the default configuration.
-    private static OrderAwareEvictionPolicy productionPolicy() {
-        return new OrderAwareEvictionPolicy(new TestConfigurationBuilder()
+    /// The verification configuration of every test: the defaults, with the limit of
+    /// [#BUFFER_SIZE].
+    private static VerificationConfig config() {
+        return new TestConfigurationBuilder()
                 .withConfigDataType(VerificationConfig.class)
-                .getOrCreateConfig()
-                .getConfigData(VerificationConfig.class));
-    }
-
-    /// Build a buffer with the recording policy and the given limit.
-    private ActiveSessionsBuffer newBuffer(final int bufferSize) {
-        final VerificationConfig config = new TestConfigurationBuilder()
-                .withConfigDataType(VerificationConfig.class)
-                .withValue("verification.activeSessionsBufferSize", String.valueOf(bufferSize))
+                .withValue("verification.activeSessionsBufferSize", String.valueOf(BUFFER_SIZE))
                 .getOrCreateConfig()
                 .getConfigData(VerificationConfig.class);
-        return new ActiveSessionsBuffer(config, policy, lastVerifiedBlock, metrics.sessionHandlerMetrics());
+    }
+
+    /// The production eviction policy, built from the configuration of every test.
+    private static OrderAwareEvictionPolicy productionPolicy() {
+        return new OrderAwareEvictionPolicy(config());
+    }
+
+    /// Build a buffer with the recording policy and the configuration of every test.
+    private ActiveSessionsBuffer newBuffer() {
+        return new ActiveSessionsBuffer(config(), policy, lastVerifiedBlock, metrics.sessionHandlerMetrics());
+    }
+
+    /// Admit a stand-in session of the given source for each block from the first block
+    /// to the last, in ascending order.
+    ///
+    /// @return the admitted sessions, in order
+    private List<StandInSession> admitRun(final long firstBlock, final long lastBlock, final BlockSource source) {
+        final List<StandInSession> admitted = new ArrayList<>();
+        for (long blockNumber = firstBlock; blockNumber <= lastBlock; blockNumber++) {
+            final StandInSession session = newSession(blockNumber, source);
+            toTest.admit(session);
+            admitted.add(session);
+        }
+        return admitted;
+    }
+
+    /// Admit a stand-in publisher session for each block from the first block to the
+    /// last, in ascending order, each receiving the end of its block once admitted, as
+    /// a block that comes in one batch does.
+    ///
+    /// @return the admitted sessions, in order
+    private List<StandInSession> admitPublisherRun(final long firstBlock, final long lastBlock) {
+        final List<StandInSession> admitted = new ArrayList<>();
+        for (long blockNumber = firstBlock; blockNumber <= lastBlock; blockNumber++) {
+            final StandInSession session = publisherSession(blockNumber);
+            toTest.admit(session);
+            session.markEndOfBlockReceived();
+            admitted.add(session);
+        }
+        return admitted;
+    }
+
+    /// The block numbers from the first block to the last, ascending.
+    private static List<Long> blocks(final long firstBlock, final long lastBlock) {
+        final List<Long> blocks = new ArrayList<>();
+        for (long blockNumber = firstBlock; blockNumber <= lastBlock; blockNumber++) {
+            blocks.add(blockNumber);
+        }
+        return blocks;
     }
 
     /// A stand-in session for a publisher block.
@@ -378,6 +442,13 @@ class ActiveSessionsBufferTest {
     /// Reads the current value of the active sessions gauge.
     private long gauge() {
         return metrics.sessionHandlerMetrics().verificationActiveSessions().get();
+    }
+
+    /// Reads the evictions counter of the high priority lane.
+    private long evictedHighPriority() {
+        return metrics.sessionHandlerMetrics()
+                .verificationSessionsEvictedHighPriority()
+                .get();
     }
 
     /// Reads the evictions counter of the low priority lane.

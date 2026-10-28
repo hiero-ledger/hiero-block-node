@@ -31,14 +31,16 @@ public enum SessionFailureType {
     /// hashed with an algorithm other than SHA-256, as declared by its header or shown by
     /// the size of its footer hashes)
     UNSUPPORTED_STREAM_FORMAT,
-    /// This type indicates that the session was cancelled after the
+    /// This type indicates that the plugin cancelled the session after the
     /// complete block was received, for example evicted from the active
-    /// sessions buffer or shut down before completing
+    /// sessions buffer or shut down before completing. An eviction always
+    /// reports this type, because the session still receiving its block is
+    /// never evicted
     CANCELLED,
-    /// This type indicates that the session ended before the full block
-    /// was received, for example the publisher started a new block and
-    /// abandoned the current one, or an incomplete session was cancelled
-    /// for any other reason
+    /// This type indicates that the supplier never finished the block: the
+    /// publisher started the next block before ending this one, so the session
+    /// was cancelled before the full block was received. A plugin shutdown
+    /// while the block is still being received reports this type as well
     CANCELLED_INCOMPLETE,
     /// This type indicates that an unknown error occurred
     UNKNOWN_ERROR;
