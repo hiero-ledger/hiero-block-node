@@ -563,11 +563,13 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             // A gap-retry request runs the sweep here, not on backgroundExecutor — see
             // gapSweepRequested's javadoc.
             if (gapSweepRequested.compareAndSet(true, false) && !applyHalted.get()) {
+                boolean reachedTip = false;
                 try {
-                    sweepHistoricalBlocks();
+                    reachedTip = sweepHistoricalBlocks();
                 } catch (final RuntimeException e) {
                     LOGGER.log(System.Logger.Level.WARNING, "Gap-recovery sweep failed", e);
                 }
+                finishSweep(reachedTip);
             }
             applyPending();
         }
@@ -589,20 +591,33 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
 
     /// Bring the live state up to the latest block on hand, reading from `HistoricalBlockFacility`
     /// through the same `applyPending` loop that handles verification-delivered blocks. Runs on
-    /// the apply-worker thread; sets `stateIsCaughtUp` when complete (or nothing to catch up to).
+    /// the apply-worker thread; sets `stateIsCaughtUp` only once the sweep reached the latest
+    /// available block (or there was nothing to catch up to). A sweep that stops short schedules
+    /// a retry instead, see `finishSweep`.
     void catchUpFromHistoricalBlocks() {
+        boolean reachedTip = false;
         try {
-            sweepHistoricalBlocks();
+            reachedTip = sweepHistoricalBlocks();
         } catch (final RuntimeException e) {
             LOGGER.log(System.Logger.Level.WARNING, "Catch-up failed; plugin remains not ready", e);
-        } finally {
-            // Ready means caught up AND not halted, so state_ready can't be confused with a
-            // caught-up-then-halted state.
-            if (applyHalted.get()) {
-                LOGGER.log(System.Logger.Level.WARNING, "Catch-up halted; plugin remains not ready");
-            } else {
-                stateIsCaughtUp.set(true);
-            }
+        }
+        finishSweep(reachedTip);
+    }
+
+    /// Act on a sweep's outcome. Ready means caught up AND not halted, so `state_ready` can't be
+    /// confused with a caught-up-then-halted or still-behind state. A sweep that stopped short
+    /// (hole in `availableBlocks`, failed fetch, exception) schedules a gap retry: nothing else
+    /// would, since `applyPending` only schedules one when `pendingBlocks` is non-empty.
+    ///
+    /// @param reachedTip the result of `sweepHistoricalBlocks`, or `false` if it threw
+    private void finishSweep(final boolean reachedTip) {
+        if (applyHalted.get()) {
+            LOGGER.log(System.Logger.Level.WARNING, "Catch-up halted; plugin remains not ready");
+        } else if (reachedTip) {
+            stateIsCaughtUp.set(true);
+        } else {
+            LOGGER.log(System.Logger.Level.WARNING, "Catch-up stopped short of the latest block; plugin not ready yet");
+            scheduleGapRetry(Math.max(lastAppliedBlock, attested.blockNumber()) + 1L);
         }
     }
 
@@ -619,20 +634,23 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// later batches keep fetching and buffering blocks into `pendingBlocks` that can never be
     /// applied until the stalled block resolves.
     /// Package-private so tests can drive gap recovery directly.
-    void sweepHistoricalBlocks() {
+    ///
+    /// @return `true` if the sweep reached the latest available block (or there was nothing to
+    ///     catch up to), `false` if it stopped short
+    boolean sweepHistoricalBlocks() {
         final HistoricalBlockFacility historic = context == null ? null : context.historicalBlockProvider();
         if (historic == null) {
-            return;
+            return true;
         }
         final BlockRangeSet available = historic.availableBlocks();
         if (available == null || available.size() == 0L) {
-            return;
+            return true;
         }
         final long latest = available.max();
         final boolean atGenesis = lastAppliedBlock < 0L;
         final long start = atGenesis ? available.min() : Math.max(lastAppliedBlock, attested.blockNumber()) + 1L;
         if (start > latest) {
-            return;
+            return true;
         }
         final int batchSize = Math.max(1, config.historicCatchUpBatchSize());
         long cursor = start;
@@ -650,6 +668,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             }
             cursor = batchEnd + 1L;
         }
+        return lastAppliedBlock >= latest;
     }
 
     /// A gap in `pendingBlocks` is expected, not an error — backfill fills it eventually. Retries
