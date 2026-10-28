@@ -20,6 +20,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.LinkedList;
 import java.util.List;
@@ -29,6 +30,7 @@ import org.hiero.block.api.NetworkConnection.ConnectionReference;
 import org.hiero.block.api.NetworkConnection.IpProtocol;
 import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.RangedAddressBookHistory;
+import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 
@@ -74,6 +76,50 @@ final class ApplicationStateUtility {
                 || (incomingLast == currentLast
                         && incoming.addressBooks().size()
                                 > current.addressBooks().size());
+    }
+
+    /// Returns {@code history} with adjacent eras that carry the same address book merged into one
+    /// era covering both block ranges. Mirror Node derived histories contain many such duplicates,
+    /// because a new era starts whenever any node entry changes, even if no RSA key changed.
+    ///
+    /// Address books are compared ignoring node order, and a merged era keeps the later era's book.
+    /// Eras are merged only when the earlier one ends exactly one block before the later one starts,
+    /// so every block resolves to the same address book before and after merging.
+    ///
+    /// @param history the history to merge; must not be {@code null}
+    /// @return a history without adjacent duplicate eras, or {@code history} itself if it has none
+    static RangedAddressBookHistory mergeDuplicateEras(final RangedAddressBookHistory history) {
+        final List<RangedNodeAddressBook> eras = history.addressBooks();
+        final List<RangedNodeAddressBook> merged = new ArrayList<>(eras.size());
+        for (final RangedNodeAddressBook era : eras) {
+            final RangedNodeAddressBook previous = merged.isEmpty() ? null : merged.getLast();
+            if (previous != null
+                    && previous.endBlock() != -1L
+                    && previous.endBlock() + 1 == era.startBlock()
+                    && sameAddressBook(previous.addressBook(), era.addressBook())) {
+                merged.set(
+                        merged.size() - 1,
+                        era.copyBuilder().startBlock(previous.startBlock()).build());
+            } else {
+                merged.add(era);
+            }
+        }
+        return merged.size() == eras.size()
+                ? history
+                : history.copyBuilder().addressBooks(merged).build();
+    }
+
+    private static boolean sameAddressBook(final NodeAddressBook left, final NodeAddressBook right) {
+        if (left == null || right == null) {
+            return left == right;
+        }
+        return sortedByNodeId(left).equals(sortedByNodeId(right));
+    }
+
+    private static List<NodeAddress> sortedByNodeId(final NodeAddressBook book) {
+        return book.nodeAddress().stream()
+                .sorted(Comparator.comparingLong(NodeAddress::nodeId))
+                .toList();
     }
 
     /// Merge two sets of block ranges into a single list of block ranges, in ascending order. Ranges that
