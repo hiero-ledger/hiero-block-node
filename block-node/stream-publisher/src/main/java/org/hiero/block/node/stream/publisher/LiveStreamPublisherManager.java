@@ -117,9 +117,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private volatile ScheduledFuture<Boolean> publisherUnavailabilityTimeoutFuture;
     /// nanoTime of the last penalty-count reset (tumbling window).
     private long lastPenaltyResetNanos;
-    /// Scheduled handle for the flow-control refresh task.
+    /// Scheduled handle for the flow-control refresh task. Visible for testing.
     volatile ScheduledFuture<?> flowControlRefreshFuture;
-    /// The refresh body run by the scheduled task. Package-private so tests can inject failures.
+    /// The refresh body run by the scheduled task. Visible for testing, so tests can inject failures.
     volatile Runnable flowControlRefreshAction = this::refreshFlowControl;
     /// Held by the one caller that is currently rescheduling the flow-control refresh task.
     private final AtomicBoolean flowControlRescheduling = new AtomicBoolean(false);
@@ -1217,6 +1217,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// Check the queue forwarder task and start, or restart, if it is
     /// null or completed, respectively. A completed task is logged and replaced.
     /// This also checks that the flow control refresh task is still scheduled.
+    /// Visible for testing.
     void checkLogAndRestartForwarderTask() {
         if (stopped) {
             return;
@@ -1306,6 +1307,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// Reschedule the flow control refresh task if its future is gone or finished. A periodic
     /// task that throws is silently dropped by the executor, so without this check a single
     /// failure would stop all budget refills for the life of the process.
+    /// Visible for testing.
     void ensureFlowControlRefreshScheduled() {
         if (stopped || isRunning(flowControlRefreshFuture)) {
             return;
@@ -1331,6 +1333,12 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
 
     private void refreshFlowControlSafely() {
         try {
+            // Closing a block only checks the forwarder when block traffic arrives. If the forwarder ended
+            // while a block is still queued (for example after an exception), nothing else would restart it
+            // until the next block closes or a handler connects, so check on the timer when work is pending.
+            if (!stopped && !queueByBlockMap.isEmpty()) {
+                checkLogAndRestartForwarderTask();
+            }
             flowControlRefreshAction.run();
             consecutiveFlowControlRefreshFailures = 0;
         } catch (final RuntimeException e) {
