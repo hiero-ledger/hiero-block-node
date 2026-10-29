@@ -53,6 +53,9 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
     /** Metric key for the number of subscriber errors */
     public static final MetricKey<LongCounter> METRIC_SUBSCRIBER_ERRORS =
             MetricKey.of("subscriber_errors", LongCounter.class).addCategory(METRICS_CATEGORY);
+    /** Metric key for the number of subscriber sessions closed for exceeding the idle session limit */
+    public static final MetricKey<LongCounter> METRIC_SUBSCRIBER_IDLE_SESSIONS_CLOSED =
+            MetricKey.of("subscriber_idle_sessions_closed", LongCounter.class).addCategory(METRICS_CATEGORY);
 
     /** The logger for this class. */
     private final Logger LOGGER = System.getLogger(getClass().getName());
@@ -144,6 +147,8 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
         // Metrics
         /** Counter for errors while streaming to subscribers */
         private final LongCounter.Measurement subscriberErrorsCounter;
+        /** Counter for sessions closed for exceeding the idle session limit */
+        private final LongCounter.Measurement idleSessionsClosedCounter;
         /** Gauge for number of subscribers */
         private final LongGauge.Measurement numberOfSubscribers;
 
@@ -166,6 +171,10 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
             subscriberErrorsCounter = metricRegistry
                     .register(LongCounter.builder(METRIC_SUBSCRIBER_ERRORS)
                             .setDescription("Errors while streaming to subscribers"))
+                    .getOrCreateNotLabeled();
+            idleSessionsClosedCounter = metricRegistry
+                    .register(LongCounter.builder(METRIC_SUBSCRIBER_IDLE_SESSIONS_CLOSED)
+                            .setDescription("Subscriber sessions closed for exceeding the idle session limit"))
                     .getOrCreateNotLabeled();
             reaperExecutor = context.threadPoolManager()
                     .createVirtualThreadScheduledExecutor(
@@ -300,6 +309,8 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
                     final String message = "Subscriber session %(,d failed due to {0}.".formatted(clientId);
                     LOGGER.log(Level.INFO, message, failureCause);
                     subscriberErrorsCounter.increment();
+                } else if (completedSession.closedForIdle()) {
+                    idleSessionsClosedCounter.increment();
                 } else {
                     // Otherwise, log that the session completed successfully.
                     LOGGER.log(Level.TRACE, "Subscriber session %(,d completed successfully.".formatted(clientId));

@@ -39,6 +39,12 @@ import org.hiero.block.node.base.Loggable;
  *     range is enforced by the web server when binding.
  * @param completedSessionReapIntervalSeconds How often the background reaper drains completed
  *     subscriber sessions from tracked state, independent of new client traffic.
+ * @param idleSessionTimeoutSeconds How long a session may go without sending anything to its
+ *     client before the node ends it with a {@code SUCCESS} status, so the client can reconnect
+ *     from the next block. Bounds sessions whose client disconnected while the session was waiting
+ *     for blocks, which are otherwise never detected. Skipping live blocks before a future start
+ *     block resets the limit. Each session adds a random extra of up to 10% of this value, so
+ *     sessions idled by the same stall don't all reconnect at once. {@code 0} disables the limit.
  */
 // spotless:off - long annotations on record components must stay on one line
 @ConfigData("subscriber")
@@ -50,7 +56,8 @@ public record SubscriberConfig(
         // defaultValue must match DEFAULT_MAX_PROTOBUF_MESSAGE_SIZE_BYTES (annotation requires a String literal)
         @Loggable @ConfigProperty(defaultValue = "131_072_000") @Min(1_048_576) @Max(1_610_612_736) int maxProtobufMessageSizeBytes,
         @Loggable @ConfigProperty(defaultValue = ConfigProperty.NULL_DEFAULT_VALUE) Integer port,
-        @Loggable @ConfigProperty(defaultValue = "5") @Min(1) long completedSessionReapIntervalSeconds) {
+        @Loggable @ConfigProperty(defaultValue = "5") @Min(1) long completedSessionReapIntervalSeconds,
+        @Loggable @ConfigProperty(defaultValue = "60") @Min(0) long idleSessionTimeoutSeconds) {
     /** Default for {@code maxProtobufMessageSizeBytes}; must match the {@code @ConfigProperty(defaultValue = ...)} literal above. */
     public static final int DEFAULT_MAX_PROTOBUF_MESSAGE_SIZE_BYTES = 131_072_000;
 }

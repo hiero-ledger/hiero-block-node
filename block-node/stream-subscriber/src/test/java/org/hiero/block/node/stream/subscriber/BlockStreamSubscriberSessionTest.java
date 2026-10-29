@@ -4,6 +4,7 @@ package org.hiero.block.node.stream.subscriber;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
+import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.generateBlockWithNumber;
 import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.sampleHeaderUnparsed;
 import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.sampleProofUnparsed;
 import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.sampleRoundHeaderUnparsed;
@@ -15,8 +16,11 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
+import java.util.function.LongSupplier;
 import java.util.stream.Stream;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse.Code;
@@ -30,8 +34,10 @@ import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.stream.subscriber.BlockStreamSubscriberSession.SessionContext;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -1588,6 +1594,315 @@ class BlockStreamSubscriberSessionTest {
             sessionThread.join(TimeUnit.SECONDS.toMillis(WAIT_TIMEOUT_SECONDS));
 
             assertThat(sessionThread.isAlive()).isFalse();
+        }
+    }
+
+    /**
+     * Tests for re-registering the live block handler after it fell too far behind.
+     */
+    @Nested
+    @DisplayName("Live Handler Re-registration Tests")
+    class LiveHandlerReregistrationTests {
+        /** Upper bound for waits, so a regression fails the test instead of hanging it. */
+        private static final long WAIT_TIMEOUT_SECONDS = 10L;
+
+        /**
+         * This test verifies that a session closed partway through a loop iteration does not
+         * re-register its live block handler. close() unregisters the handler, so registering it
+         * again would leave it receiving live blocks with no session to drain its queue.
+         */
+        @Test
+        @DisplayName("should not re-register the live block handler after the session is closed")
+        void testClosedSessionDoesNotReregisterHandler() throws Exception {
+            historicalBlockFacility.handleBlockItemsReceived(
+                    generateBlockWithNumber(0L).asBlockItems(), false);
+            final RegistrationCountingMessagingFacility messagingFacility = new RegistrationCountingMessagingFacility();
+            final BlockNodeContext context =
+                    generateContext(blockNodeContext.configuration(), messagingFacility, historicalBlockFacility);
+            final HandlerBehindFailingResponsePipeline pipeline =
+                    new HandlerBehindFailingResponsePipeline(messagingFacility);
+            final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
+                    .startBlockNumber(0L)
+                    .endBlockNumber(-1L)
+                    .build();
+            final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
+                    SessionContext.create(clientId, request, context), pipeline, context, sessionReadyLatch);
+
+            try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+                executor.submit(session).get(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            }
+
+            assertThat(messagingFacility.registrationCount.get()).isEqualTo(1);
+        }
+    }
+
+    /**
+     * Tests for the idle session limit, which closes sessions that have sent nothing to their
+     * client for {@link SubscriberConfig#idleSessionTimeoutSeconds()}. A client that disconnects
+     * while its session waits for blocks is otherwise never detected, leaking the session.
+     */
+    @Nested
+    @DisplayName("Idle Session Timeout Tests")
+    class IdleSessionTimeoutTests {
+        /** Upper bound for waits, so a regression fails the test instead of hanging it. */
+        private static final long WAIT_TIMEOUT_SECONDS = 10L;
+        /** The default idle session limit. */
+        private static final long IDLE_TIMEOUT_SECONDS = 60L;
+        /** The default idle session limit plus the largest jitter a session can add (10%). */
+        private static final long MAXIMUM_JITTERED_IDLE_TIMEOUT_SECONDS = 66L;
+        /**
+         * Clock reads that prove the session evaluated the idle limit at least once at the
+         * current time; one read may still have seen the previous time.
+         */
+        private static final int READS_FOR_ONE_FULL_CHECK = 3;
+
+        private FakeClock clock;
+        private ExecutorService executor;
+
+        @BeforeEach
+        void setupIdleTests() {
+            clock = new FakeClock();
+            executor = Executors.newVirtualThreadPerTaskExecutor();
+        }
+
+        @AfterEach
+        void tearDownIdleTests() {
+            // shutdownNow(), not close(), so a regression fails fast instead of hanging the build.
+            executor.shutdownNow();
+        }
+
+        @Test
+        @DisplayName("should close a live-tip session with SUCCESS when no live block arrives within the limit")
+        void testLiveTipSessionClosesWhenIdle() throws Exception {
+            final BlockStreamSubscriberSession session = createSession(-1L, -1L, blockNodeContext, responsePipeline);
+            final Future<BlockStreamSubscriberSession> sessionFuture = executor.submit(session);
+            assertThat(sessionReadyLatch.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                    .isTrue();
+
+            clock.advanceSeconds(MAXIMUM_JITTERED_IDLE_TIMEOUT_SECONDS);
+            sessionFuture.get(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+            assertThat(responsePipeline.getOnNextCalls())
+                    .last()
+                    .extracting(responseStatusExtractor)
+                    .isEqualTo(Code.SUCCESS);
+        }
+
+        @Test
+        @DisplayName("should close a caught-up open-ended historical session with SUCCESS when idle")
+        void testCaughtUpHistoricalSessionClosesWhenIdle() throws Exception {
+            for (long blockNumber = 0L; blockNumber <= 2L; blockNumber++) {
+                historicalBlockFacility.handleBlockItemsReceived(
+                        generateBlockWithNumber(blockNumber).asBlockItems(), false);
+            }
+            // Each block is sent as one batch of items followed by an end of block.
+            final LatchedResponsePipeline pipeline = new LatchedResponsePipeline(6);
+            final BlockStreamSubscriberSession session = createSession(0L, -1L, blockNodeContext, pipeline);
+            final Future<BlockStreamSubscriberSession> sessionFuture = executor.submit(session);
+            assertThat(pipeline.expectedSends.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                    .isTrue();
+
+            clock.advanceSeconds(MAXIMUM_JITTERED_IDLE_TIMEOUT_SECONDS);
+            sessionFuture.get(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+            assertThat(pipeline.getOnNextCalls())
+                    .last()
+                    .extracting(responseStatusExtractor)
+                    .isEqualTo(Code.SUCCESS);
+        }
+
+        @Test
+        @DisplayName("should measure the idle limit from the last send, not from the session start")
+        void testIdleLimitMeasuredFromLastSend() throws Exception {
+            final TestBlockMessagingFacility messagingFacility = new TestBlockMessagingFacility();
+            final BlockNodeContext context =
+                    generateContext(blockNodeContext.configuration(), messagingFacility, historicalBlockFacility);
+            // One block is sent as one batch of items followed by an end of block.
+            final LatchedResponsePipeline pipeline = new LatchedResponsePipeline(2);
+            final BlockStreamSubscriberSession session = createSession(-1L, -1L, context, pipeline);
+            final Future<BlockStreamSubscriberSession> sessionFuture = executor.submit(session);
+            assertThat(sessionReadyLatch.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                    .isTrue();
+            clock.advanceSeconds(IDLE_TIMEOUT_SECONDS - 10L);
+            messagingFacility.sendBlockItems(generateBlockWithNumber(0L).asBlockItems());
+            assertThat(pipeline.expectedSends.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                    .isTrue();
+
+            // Past the limit since the session started, but within it since the last send.
+            clock.advanceSeconds(IDLE_TIMEOUT_SECONDS - 10L);
+            assertThat(clock.awaitReads(READS_FOR_ONE_FULL_CHECK, WAIT_TIMEOUT_SECONDS))
+                    .isTrue();
+
+            assertThat(session.closedForIdle()).isFalse();
+            session.close(Code.SUCCESS);
+            sessionFuture.get(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        }
+
+        @Test
+        @DisplayName("should keep a future-start session open while the live stream advances toward its start block")
+        void testFutureStartSessionNotClosedWhileLiveAdvances() throws Exception {
+            for (long blockNumber = 0L; blockNumber <= 2L; blockNumber++) {
+                historicalBlockFacility.handleBlockItemsReceived(
+                        generateBlockWithNumber(blockNumber).asBlockItems(), false);
+            }
+            final TestBlockMessagingFacility messagingFacility = new TestBlockMessagingFacility();
+            final BlockNodeContext context =
+                    generateContext(blockNodeContext.configuration(), messagingFacility, historicalBlockFacility);
+            final BlockStreamSubscriberSession session = createSession(5L, -1L, context, responsePipeline);
+            final Future<BlockStreamSubscriberSession> sessionFuture = executor.submit(session);
+            assertThat(sessionReadyLatch.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                    .isTrue();
+            clock.advanceSeconds(IDLE_TIMEOUT_SECONDS - 10L);
+            // Block 3 precedes the requested start block 5, so the session skips it without sending.
+            messagingFacility.sendBlockItems(generateBlockWithNumber(3L).asBlockItems());
+            assertThat(clock.awaitReads(READS_FOR_ONE_FULL_CHECK, WAIT_TIMEOUT_SECONDS))
+                    .isTrue();
+
+            // Past the limit since the session started, but within it since the skipped live block.
+            clock.advanceSeconds(IDLE_TIMEOUT_SECONDS - 10L);
+            assertThat(clock.awaitReads(READS_FOR_ONE_FULL_CHECK, WAIT_TIMEOUT_SECONDS))
+                    .isTrue();
+
+            assertThat(session.closedForIdle()).isFalse();
+            session.close(Code.SUCCESS);
+            sessionFuture.get(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        }
+
+        @Test
+        @DisplayName("should start the idle limit when the session starts serving, not when it is created")
+        void testIdleLimitExcludesTimeQueuedBeforeServing() throws Exception {
+            final BlockStreamSubscriberSession session = createSession(-1L, -1L, blockNodeContext, responsePipeline);
+            // The session waited the full limit for a worker thread before it started serving.
+            clock.advanceSeconds(IDLE_TIMEOUT_SECONDS);
+            final Future<BlockStreamSubscriberSession> sessionFuture = executor.submit(session);
+            assertThat(sessionReadyLatch.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                    .isTrue();
+            assertThat(clock.awaitReads(READS_FOR_ONE_FULL_CHECK, WAIT_TIMEOUT_SECONDS))
+                    .isTrue();
+
+            assertThat(session.closedForIdle()).isFalse();
+            session.close(Code.SUCCESS);
+            sessionFuture.get(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        }
+
+        @Test
+        @DisplayName("should never close an idle session when the limit is 0")
+        void testZeroLimitDisablesIdleClose() throws Exception {
+            final Configuration configuration = ConfigurationBuilder.create()
+                    .withConfigDataType(SubscriberConfig.class)
+                    .withValue("subscriber.idleSessionTimeoutSeconds", "0")
+                    .build();
+            final BlockNodeContext context =
+                    generateContext(configuration, new TestBlockMessagingFacility(), historicalBlockFacility);
+            final BlockStreamSubscriberSession session = createSession(-1L, -1L, context, responsePipeline);
+            final Future<BlockStreamSubscriberSession> sessionFuture = executor.submit(session);
+            assertThat(sessionReadyLatch.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                    .isTrue();
+
+            clock.advanceSeconds(TimeUnit.DAYS.toSeconds(365L));
+            assertThat(clock.awaitReads(READS_FOR_ONE_FULL_CHECK, WAIT_TIMEOUT_SECONDS))
+                    .isTrue();
+
+            assertThat(session.closedForIdle()).isFalse();
+            session.close(Code.SUCCESS);
+            sessionFuture.get(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        }
+
+        private BlockStreamSubscriberSession createSession(
+                final long startBlock,
+                final long endBlock,
+                final BlockNodeContext context,
+                final TestResponsePipeline<SubscribeStreamResponseUnparsed> pipeline) {
+            final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
+                    .startBlockNumber(startBlock)
+                    .endBlockNumber(endBlock)
+                    .build();
+            return new BlockStreamSubscriberSession(
+                    SessionContext.create(clientId, request, context), pipeline, context, sessionReadyLatch, clock);
+        }
+    }
+
+    /**
+     * Manually advanced monotonic clock that counts its reads, so a test can wait until the
+     * session has looked at the time after an advance instead of sleeping.
+     */
+    private static final class FakeClock implements LongSupplier {
+        private final AtomicLong nanos = new AtomicLong(0L);
+        private final Semaphore reads = new Semaphore(0);
+
+        @Override
+        public long getAsLong() {
+            final long now = nanos.get();
+            reads.release();
+            return now;
+        }
+
+        void advanceSeconds(final long seconds) {
+            reads.drainPermits();
+            nanos.addAndGet(TimeUnit.SECONDS.toNanos(seconds));
+        }
+
+        boolean awaitReads(final int count, final long timeoutSeconds) throws InterruptedException {
+            return reads.tryAcquire(count, timeoutSeconds, TimeUnit.SECONDS);
+        }
+    }
+
+    /**
+     * Response pipeline that counts down a latch on each response, so a test can wait for an
+     * expected number of sends.
+     */
+    private static final class LatchedResponsePipeline extends TestResponsePipeline<SubscribeStreamResponseUnparsed> {
+        private final CountDownLatch expectedSends;
+
+        private LatchedResponsePipeline(final int expectedSendCount) {
+            expectedSends = new CountDownLatch(expectedSendCount);
+        }
+
+        @Override
+        public void onNext(final SubscribeStreamResponseUnparsed item) {
+            super.onNext(item);
+            expectedSends.countDown();
+        }
+    }
+
+    /**
+     * Messaging facility that counts registrations of no-backpressure handlers and keeps the last
+     * one registered, so a test can mark it as fallen behind.
+     */
+    private static final class RegistrationCountingMessagingFacility extends TestBlockMessagingFacility {
+        private final AtomicLong registrationCount = new AtomicLong(0L);
+        private volatile NoBackPressureBlockItemHandler lastRegisteredHandler;
+
+        @Override
+        public void registerNoBackpressureBlockItemHandler(
+                final NoBackPressureBlockItemHandler handler,
+                final boolean cpuIntensiveHandler,
+                final String handlerName) {
+            registrationCount.incrementAndGet();
+            lastRegisteredHandler = handler;
+            super.registerNoBackpressureBlockItemHandler(handler, cpuIntensiveHandler, handlerName);
+        }
+    }
+
+    /**
+     * Response pipeline whose sends fail after marking the session's live block handler as
+     * fallen behind, so the session closes itself while its handler is eligible to re-register.
+     */
+    private static final class HandlerBehindFailingResponsePipeline
+            extends TestResponsePipeline<SubscribeStreamResponseUnparsed> {
+        private final RegistrationCountingMessagingFacility messagingFacility;
+
+        private HandlerBehindFailingResponsePipeline(final RegistrationCountingMessagingFacility messagingFacility) {
+            this.messagingFacility = messagingFacility;
+        }
+
+        @Override
+        public void onNext(final SubscribeStreamResponseUnparsed item) {
+            super.onNext(item);
+            if (item.hasBlockItems()) {
+                messagingFacility.setHandlerBehind(messagingFacility.lastRegisteredHandler);
+                throw new RuntimeException("Stream reset by client.");
+            }
         }
     }
 

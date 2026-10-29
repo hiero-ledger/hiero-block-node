@@ -14,6 +14,7 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -1248,6 +1249,105 @@ class SubscriberServicePluginTest {
                     if (!plugin.getOpenSessions().isEmpty()) {
                         parkNanos(TimeUnit.MILLISECONDS.toNanos(10));
                     }
+                }
+            }
+        }
+    }
+
+    /**
+     * Plugin tests for the idle session limit, with a short limit so sessions waiting for blocks
+     * that never arrive are closed within the test timeout.
+     */
+    @Nested
+    @DisplayName("Idle Session Plugin Tests")
+    class IdleSessionPluginTests
+            extends GrpcPluginTestBase<SubscriberServicePlugin, ExecutorService, ScheduledBlockingExecutor> {
+        IdleSessionPluginTests() {
+            super(Executors.newSingleThreadExecutor(), new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+            final SubscriberServicePlugin toTest = new SubscriberServicePlugin();
+            start(
+                    toTest,
+                    toTest.methods().getFirst(),
+                    new SimpleInMemoryHistoricalBlockFacility(),
+                    Map.of("subscriber.idleSessionTimeoutSeconds", "1"));
+        }
+
+        @Test
+        @DisplayName("should close and reap a live-tip session that receives no live block")
+        void testIdleLiveTipSessionIsClosedAndReaped() {
+            subscribe(-1L, -1L);
+            awaitResponse(fromPluginBytes, 1); // success status
+
+            waitOnEmptyOpenSessions();
+
+            assertThat(getMetric(SubscriberServicePlugin.METRIC_SUBSCRIBER_OPEN_CONNECTIONS)
+                            .getOrCreateNotLabeled()
+                            .get())
+                    .isZero();
+        }
+
+        @Test
+        @DisplayName("should close and reap a caught-up open-ended session that receives no new block")
+        void testIdleCaughtUpSessionIsClosedAndReaped() {
+            blockMessaging.sendBlockItems(
+                    TestBlockBuilder.generateBlockWithNumber(0).asBlockItems());
+            subscribe(0L, -1L);
+            awaitResponse(fromPluginBytes, 3); // items, end of block, success status
+
+            waitOnEmptyOpenSessions();
+
+            assertThat(getMetric(SubscriberServicePlugin.METRIC_SUBSCRIBER_OPEN_CONNECTIONS)
+                            .getOrCreateNotLabeled()
+                            .get())
+                    .isZero();
+        }
+
+        @Test
+        @DisplayName("should end an idle session with a SUCCESS status")
+        void testIdleSessionEndsWithSuccess() {
+            subscribe(-1L, -1L);
+            awaitResponse(fromPluginBytes, 1);
+
+            assertThat(fromPluginBytes)
+                    .last()
+                    .extracting(responseExtractor)
+                    .extracting(responseStatusExtractor)
+                    .isEqualTo(Code.SUCCESS);
+        }
+
+        @Test
+        @DisplayName("should count an idle session close as idle, not as an error")
+        void testIdleSessionCountedAsIdleNotError() {
+            subscribe(-1L, -1L);
+            awaitResponse(fromPluginBytes, 1);
+
+            waitOnEmptyOpenSessions();
+
+            assertThat(List.of(
+                            getMetric(SubscriberServicePlugin.METRIC_SUBSCRIBER_IDLE_SESSIONS_CLOSED)
+                                    .getOrCreateNotLabeled()
+                                    .get(),
+                            getMetric(SubscriberServicePlugin.METRIC_SUBSCRIBER_ERRORS)
+                                    .getOrCreateNotLabeled()
+                                    .get()))
+                    .containsExactly(1L, 0L);
+        }
+
+        private void subscribe(final long startBlock, final long endBlock) {
+            final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
+                    .startBlockNumber(startBlock)
+                    .endBlockNumber(endBlock)
+                    .build();
+            toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
+        }
+
+        /** Pumps the test scheduled executor until the reaper empties {@code openSessions}, bounded so a regression fails fast instead of hanging. */
+        private void waitOnEmptyOpenSessions() {
+            final long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (!plugin.getOpenSessions().isEmpty() && System.nanoTime() < deadlineNanos) {
+                testThreadPoolManager.scheduledExecutor().executeSerially();
+                if (!plugin.getOpenSessions().isEmpty()) {
+                    parkNanos(TimeUnit.MILLISECONDS.toNanos(10));
                 }
             }
         }

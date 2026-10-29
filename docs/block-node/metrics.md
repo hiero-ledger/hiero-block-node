@@ -142,10 +142,11 @@ Observes inbound streams from publishers.
 **Plugin:** `stream-subscriber [block-node-stream-subscriber]`
 Observes outbound streams served to subscribers.
 
-|  Type   |             Name              |              Description              |
-|---------|-------------------------------|---------------------------------------|
-| Gauge   | `subscriber_open_connections` | Connected subscribers                 |
-| Counter | `subscriber_errors`           | Errors while streaming to subscribers |
+|  Type   |               Name                |                           Description                           |
+|---------|-----------------------------------|-----------------------------------------------------------------|
+| Gauge   | `subscriber_open_connections`     | Connected subscribers                                           |
+| Counter | `subscriber_errors`               | Errors while streaming to subscribers                           |
+| Counter | `subscriber_idle_sessions_closed` | Subscriber sessions closed for exceeding the idle session limit |
 
 ---
 
