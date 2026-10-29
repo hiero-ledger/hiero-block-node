@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Flow;
+import java.util.concurrent.atomic.AtomicReference;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse;
 import org.hiero.block.internal.BlockItemUnparsed;
@@ -72,7 +73,7 @@ public class BlockStreamSubscribeUnparsedClient {
         }
 
         // Build per-request context
-        final RequestContext ctx = new RequestContext(startBlockNumber);
+        final RequestContext ctx = new RequestContext(startBlockNumber, endBlockNumber);
 
         // Create request
         final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
@@ -110,23 +111,42 @@ public class BlockStreamSubscribeUnparsedClient {
      * The {@link CountDownLatch} establishes happens-before from callback threads to the waiter.
      */
     private static final class RequestContext {
+        private static final Object COMPLETED = new Object();
+
         final CountDownLatch done = new CountDownLatch(1);
         final List<BlockUnparsed> blocks = new ArrayList<>();
+        final long startBlock;
+        final long endBlock;
+        final long requestedCount;
         long expectedBlockNumber;
         List<BlockItemUnparsed> currentBlockItems = new ArrayList<>();
-        Throwable error;
+        boolean blockStarted;
+        /// How the request ended: [#COMPLETED] or the failure. Set once, by whichever of [#complete()]
+        /// and [#fail(Throwable)] gets there first, so a timeout failure racing with the last block
+        /// cannot be applied on top of a completed request or the other way around.
+        private final AtomicReference<Object> outcome = new AtomicReference<>();
 
-        RequestContext(long startBlock) {
+        RequestContext(long startBlock, long endBlock) {
+            this.startBlock = startBlock;
+            this.endBlock = endBlock;
+            this.requestedCount = endBlock - startBlock + 1;
             this.expectedBlockNumber = startBlock;
         }
 
+        boolean isFinished() {
+            return outcome.get() != null;
+        }
+
         void fail(Throwable t) {
-            this.error = t;
-            done.countDown();
+            if (outcome.compareAndSet(null, t)) {
+                done.countDown();
+            }
         }
 
         void complete() {
-            done.countDown();
+            if (outcome.compareAndSet(null, COMPLETED)) {
+                done.countDown();
+            }
         }
 
         List<BlockUnparsed> await(long timeoutMs) {
@@ -146,8 +166,8 @@ public class BlockStreamSubscribeUnparsedClient {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
-            if (error != null) {
-                throw new RuntimeException("Error fetching blocks", error);
+            if (outcome.get() instanceof Throwable failure) {
+                throw new RuntimeException("Error fetching blocks", failure);
             }
             return blocks;
         }
@@ -178,12 +198,21 @@ public class BlockStreamSubscribeUnparsedClient {
 
         @Override
         public void onNext(SubscribeStreamResponseUnparsed resp) {
+            // Once the request has completed or failed, nothing more is buffered.
+            if (ctx.isFinished()) {
+                return;
+            }
             try {
                 if (resp.hasBlockItems()) {
                     final List<BlockItemUnparsed> frame = resp.blockItems().blockItems();
                     if (frame.getFirst().hasBlockHeader()) {
                         final long expected = ctx.expectedBlockNumber;
                         final long actual = extractBlockNumberFromBlockHeader(frame.getFirst());
+                        if (actual < ctx.startBlock || actual > ctx.endBlock) {
+                            ctx.fail(new IllegalStateException("Received block number " + actual
+                                    + " outside the requested range " + ctx.startBlock + " to " + ctx.endBlock));
+                            return;
+                        }
                         if (actual != expected) {
                             ctx.fail(new IllegalStateException(
                                     "Expected block number " + expected + " but received " + actual));
@@ -191,6 +220,10 @@ public class BlockStreamSubscribeUnparsedClient {
                         }
                         // Start a new block: reuse the buffer and populate it.
                         ctx.currentBlockItems.clear();
+                        ctx.blockStarted = true;
+                    } else if (!ctx.blockStarted) {
+                        ctx.fail(new IllegalStateException("Received block items before a block header"));
+                        return;
                     }
                     // Continuation: append everything to the buffer.
                     ctx.currentBlockItems.addAll(frame);
@@ -200,12 +233,20 @@ public class BlockStreamSubscribeUnparsedClient {
                         ctx.fail(new RuntimeException("Received error code: " + code));
                     }
                 } else if (resp.hasEndOfBlock()) {
+                    if (!ctx.blockStarted) {
+                        ctx.fail(new IllegalStateException("Received end of block without a block header"));
+                        return;
+                    }
                     // Snapshot the current items to avoid retaining the large buffer in the finished block.
                     final List<BlockItemUnparsed> snapshot = List.copyOf(ctx.currentBlockItems);
                     ctx.blocks.add(
                             BlockUnparsed.newBuilder().blockItems(snapshot).build());
                     ctx.currentBlockItems.clear();
+                    ctx.blockStarted = false;
                     ctx.expectedBlockNumber++;
+                    if (ctx.blocks.size() == ctx.requestedCount) {
+                        ctx.complete();
+                    }
                 } else {
                     ctx.fail(new RuntimeException("Received unexpected response without block items or code"));
                 }
