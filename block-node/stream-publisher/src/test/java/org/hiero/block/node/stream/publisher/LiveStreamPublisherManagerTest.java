@@ -592,6 +592,44 @@ class LiveStreamPublisherManagerTest {
                 assertThat(seededManager.getLatestBlockNumber()).isEqualTo(-1L);
                 assertThat(seededManager.getNextUnstreamed()).isEqualTo(0L);
             }
+
+            /// Regression for #3910: after a restart with stored blocks, serverStatus must report
+            /// the block the manager will accept, not the initial `-1`, before anything is persisted.
+            @Test
+            @DisplayName("initializeBlockNumbers publishes next expected block = latest stored + 1")
+            void publishesNextExpectedBlockFromStoredBlocks() {
+                final BlockNodeContext seededContext = generateContext();
+                new LiveStreamPublisherManager(
+                        seededContext, generateManagerMetrics(), List.of(new BlockRange(0L, 4_965L)));
+
+                assertThat(testApplicationState.nextExpectedBlock()).isEqualTo(4_966L);
+            }
+
+            /// With no stored blocks the manager accepts any block up to earliestManagedBlock, so the
+            /// published next expected block stays `-1`.
+            @Test
+            @DisplayName("initializeBlockNumbers leaves next expected block at -1 when no blocks are stored")
+            void leavesNextExpectedBlockUnknownWhenNoBlocksStored() {
+                final BlockNodeContext seededContext = generateContext();
+                new LiveStreamPublisherManager(seededContext, generateManagerMetrics(), List.of());
+
+                assertThat(testApplicationState.nextExpectedBlock()).isEqualTo(-1L);
+            }
+
+            /// Stored blocks below earliestManagedBlock still accept any block up to it, so the
+            /// published next expected block stays `-1`.
+            @Test
+            @DisplayName("initializeBlockNumbers leaves next expected block at -1 when stored blocks end below EMB")
+            void leavesNextExpectedBlockUnknownWhenStoredBlocksBelowEarliestManagedBlock() {
+                final Configuration embConfig = TestStreamPublisherManager.createTestConfiguration(
+                        Map.of("block.node.earliestManagedBlock", "100"));
+                final SimpleInMemoryHistoricalBlockFacility embHistorical = new SimpleInMemoryHistoricalBlockFacility();
+                final BlockNodeContext embContext =
+                        generateContext(embHistorical, threadPoolManager, messagingFacility, embConfig);
+                new LiveStreamPublisherManager(embContext, generateManagerMetrics(), List.of(new BlockRange(0L, 50L)));
+
+                assertThat(testApplicationState.nextExpectedBlock()).isEqualTo(-1L);
+            }
         }
 
         /// Test for [LiveStreamPublisherManager#getLatestBlockNumber()].

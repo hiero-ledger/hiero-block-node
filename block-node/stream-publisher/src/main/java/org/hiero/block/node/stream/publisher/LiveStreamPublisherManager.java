@@ -914,7 +914,13 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             // next unstreamed block number to one greater pretend the next
             // unstreamed block is streaming initially, that ensures that the
             // first block accepted is correctly handled.
-            nextUnstreamedBlockNumber.set(latestKnownBlock + 1L);
+            // Publish it to application state as well, otherwise serverStatus
+            // keeps reporting the initial -1 ("accept any block") until the
+            // next block is persisted, while this manager rejects anything
+            // other than this block.
+            final long nextExpectedBlock = latestKnownBlock + 1L;
+            nextUnstreamedBlockNumber.set(nextExpectedBlock);
+            applicationState.updateExpectedBlock(nextExpectedBlock);
         }
     }
 
