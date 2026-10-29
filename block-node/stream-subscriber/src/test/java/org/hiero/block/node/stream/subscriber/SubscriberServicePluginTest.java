@@ -27,6 +27,7 @@ import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
+import org.hiero.block.node.app.fixtures.plugintest.RecordingServiceBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.bulkhead.BlockReadBulkhead;
@@ -102,7 +103,8 @@ class SubscriberServicePluginTest {
             final TestBlock blockZero = TestBlockBuilder.generateBlockWithNumber(0);
             historicalBlockFacility.handleBlockItemsReceived(blockZero.asBlockItems());
 
-            final BlockReadBulkhead bulkhead = webserviceBuilder.blockReadBulkhead();
+            final RecordingServiceBuilder builder = (RecordingServiceBuilder) webserviceBuilder;
+            final BlockReadBulkhead bulkhead = builder.blockReadBulkhead();
             for (int i = 0; i < bulkhead.totalPermits(); i++) {
                 assertThat(bulkhead.tryAcquire(BlockReadBulkhead.Method.GET_BLOCK))
                         .isTrue();
@@ -114,9 +116,9 @@ class SubscriberServicePluginTest {
                         .build();
                 toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
 
-                // No response yet proves the session is polling for a permit rather than
-                // disconnecting, which would produce an error/status response.
-                parkNanos(TimeUnit.MILLISECONDS.toNanos(350));
+                // Two rejected catch-up acquires prove the session started, missed a permit and
+                // tried again. No response at that point proves it did not disconnect.
+                awaitCatchUpRequests(builder, "rejected", 2);
                 assertThat(fromPluginBytes).isEmpty();
             } finally {
                 for (int i = 0; i < bulkhead.totalPermits(); i++) {
@@ -127,6 +129,21 @@ class SubscriberServicePluginTest {
             // Now that a permit is available, the session should complete normally on its next poll.
             final int expectedResponses = 3; // block items, end of block, success status
             awaitResponse(fromPluginBytes, expectedResponses);
+            assertThat(builder.blockReadBulkheadRequests(BlockReadBulkhead.Method.SUBSCRIBER_CATCH_UP, "acquired"))
+                    .isEqualTo(1);
+        }
+
+        /// Waits until the subscriber catch-up counter for `status` reaches `atLeast`. The deadline
+        /// only bounds a broken run; the assertion itself does not depend on timing.
+        private void awaitCatchUpRequests(
+                final RecordingServiceBuilder builder, final String status, final long atLeast) {
+            final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            while (builder.blockReadBulkheadRequests(BlockReadBulkhead.Method.SUBSCRIBER_CATCH_UP, status) < atLeast) {
+                if (System.nanoTime() - deadline > 0) {
+                    fail("Timed out waiting for %d subscriber_catch_up %s requests".formatted(atLeast, status));
+                }
+                parkNanos(TimeUnit.MILLISECONDS.toNanos(10));
+            }
         }
 
         /**

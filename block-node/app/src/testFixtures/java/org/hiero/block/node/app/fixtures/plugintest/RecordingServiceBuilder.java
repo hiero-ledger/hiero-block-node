@@ -15,8 +15,11 @@ import java.util.List;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Stream;
+import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.bulkhead.BlockReadBulkhead;
+import org.hiero.metrics.LongCounter;
+import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
 
 /// A [ServiceBuilder] test fixture that records every call and every input instead of creating
@@ -172,6 +175,21 @@ public final class RecordingServiceBuilder implements ServiceBuilder {
     public MetricRegistry blockReadBulkheadMetrics() {
         blockReadBulkhead();
         return blockReadBulkheadMetrics;
+    }
+
+    /// The current `bulkhead_read_requests` count for one caller and outcome of the bulkhead
+    /// returned by [#blockReadBulkhead()].
+    ///
+    /// @param method the caller label
+    /// @param status the outcome label, `acquired` or `rejected`
+    /// @return the counter value
+    public long blockReadBulkheadRequests(
+            @NonNull final BlockReadBulkhead.Method method, @NonNull final String status) {
+        final LongCounter counter = blockReadBulkheadMetrics()
+                .getMetric(MetricKey.of("bulkhead_read_requests", LongCounter.class)
+                        .addCategory(BlockNodePlugin.METRICS_CATEGORY));
+        return counter.getOrCreateLabeled("resource", "block", "method", method.labelValue(), "status", status)
+                .get();
     }
 
     /// {@inheritDoc}

@@ -35,12 +35,9 @@ import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.RecordingServiceBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
-import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.bulkhead.BlockReadBulkhead;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
-import org.hiero.metrics.LongCounter;
-import org.hiero.metrics.core.MetricKey;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -317,12 +314,7 @@ public class BlockAccessServicePluginTest
     }
 
     private long bulkheadRequests(final BlockReadBulkhead.Method method, final String status) {
-        final LongCounter counter = ((RecordingServiceBuilder) webserviceBuilder)
-                .blockReadBulkheadMetrics()
-                .getMetric(MetricKey.of("bulkhead_read_requests", LongCounter.class)
-                        .addCategory(BlockNodePlugin.METRICS_CATEGORY));
-        return counter.getOrCreateLabeled("resource", "block", "method", method.labelValue(), "status", status)
-                .get();
+        return ((RecordingServiceBuilder) webserviceBuilder).blockReadBulkheadRequests(method, status);
     }
 
     /// An in-memory facility whose reads can be made to fail, to exercise the provider-failure path.
