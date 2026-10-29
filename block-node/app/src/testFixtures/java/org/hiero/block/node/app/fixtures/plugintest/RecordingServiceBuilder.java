@@ -15,7 +15,12 @@ import java.util.List;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Stream;
+import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.bulkhead.BlockReadBulkhead;
+import org.hiero.metrics.LongCounter;
+import org.hiero.metrics.core.MetricKey;
+import org.hiero.metrics.core.MetricRegistry;
 
 /// A [ServiceBuilder] test fixture that records every call and every input instead of creating
 /// real Helidon web servers. It never opens a socket; it simply captures what a plugin registered so
@@ -87,6 +92,13 @@ public final class RecordingServiceBuilder implements ServiceBuilder {
     /** The port a {@code null} port resolves to, and the general server's base port. */
     private final int defaultPort;
 
+    /// A generous default so fixture-based tests aren't throttled unless they explicitly drain permits.
+    private static final int DEFAULT_BLOCK_READ_BULKHEAD_PERMITS = 1_000;
+    /// Lazily created on first use; a self-contained, no-op-exported [MetricRegistry] is enough since
+    /// this fixture never opens a socket and has no shared "real" registry to reuse.
+    private BlockReadBulkhead blockReadBulkhead;
+    private MetricRegistry blockReadBulkheadMetrics;
+
     /** Every {@link #registerHttpService} invocation, in call order. */
     private final List<HttpServiceRegistration> httpServiceRegistrations = new ArrayList<>();
     /** Every {@link #registerGrpcService} invocation, in call order. */
@@ -139,6 +151,45 @@ public final class RecordingServiceBuilder implements ServiceBuilder {
     @Override
     public void registerGrpcService(@Nullable final Integer port, @NonNull final ServiceInterface service) {
         grpcServiceRegistrations.add(new GrpcServiceRegistration(port, service));
+    }
+
+    /// {@inheritDoc}
+    /// Lazily creates a single shared [BlockReadBulkhead]. Tests exercising bulkhead denial can
+    /// call this accessor directly and drain permits with {@link
+    // BlockReadBulkhead#tryAcquire(BlockReadBulkhead.Method)}.
+    @NonNull
+    @Override
+    public BlockReadBulkhead blockReadBulkhead() {
+        if (blockReadBulkhead == null) {
+            blockReadBulkheadMetrics = MetricRegistry.builder().build();
+            blockReadBulkhead = new BlockReadBulkhead(DEFAULT_BLOCK_READ_BULKHEAD_PERMITS, blockReadBulkheadMetrics);
+        }
+        return blockReadBulkhead;
+    }
+
+    /// The registry holding the metrics of the bulkhead returned by [#blockReadBulkhead()], so tests
+    /// can assert on them.
+    ///
+    /// @return the bulkhead's metric registry
+    @NonNull
+    public MetricRegistry blockReadBulkheadMetrics() {
+        blockReadBulkhead();
+        return blockReadBulkheadMetrics;
+    }
+
+    /// The current `bulkhead_read_requests` count for one caller and outcome of the bulkhead
+    /// returned by [#blockReadBulkhead()].
+    ///
+    /// @param method the caller label
+    /// @param status the outcome label, `acquired` or `rejected`
+    /// @return the counter value
+    public long blockReadBulkheadRequests(
+            @NonNull final BlockReadBulkhead.Method method, @NonNull final String status) {
+        final LongCounter counter = blockReadBulkheadMetrics()
+                .getMetric(MetricKey.of("bulkhead_read_requests", LongCounter.class)
+                        .addCategory(BlockNodePlugin.METRICS_CATEGORY));
+        return counter.getOrCreateLabeled("resource", "block", "method", method.labelValue(), "status", status)
+                .get();
     }
 
     /// {@inheritDoc}
