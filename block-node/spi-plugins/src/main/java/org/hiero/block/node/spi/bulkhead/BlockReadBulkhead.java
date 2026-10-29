@@ -21,6 +21,11 @@ import org.hiero.metrics.core.MetricRegistry;
 /// rejected ([#tryAcquire(Method)]), and a standing session that retries instead of disconnecting over
 /// one momentary saturation instant ([#tryAcquire(Method, Duration)]). Callers must call [#release()]
 /// exactly once per successful acquire, typically in a `finally` block.
+///
+/// The pool is not fair. An immediate acquire takes a freed permit even while bounded-wait callers
+/// are queued, so sustained request/response load at or above the pool size stalls standing sessions
+/// (without disconnecting them) until load drops. Those stalls show up as
+/// `bulkhead_read_requests{method="subscriber_catch_up",status="rejected"}`.
 public final class BlockReadBulkhead {
     /// The caller of a bulkhead acquire, used as the `method` label on the requests metric. A closed
     /// set rather than a free-form string so label cardinality stays bounded.
