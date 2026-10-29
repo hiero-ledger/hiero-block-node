@@ -547,7 +547,7 @@ class BackfillFetcherTest {
         void shouldEvictClientOnFailureAndCreateFreshAfterBackoff() throws Exception {
             final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
             final BlockNodeSource source = createSource(nodeConfig);
-            final BackfillConfiguration config = createTestConfig(1, 10, 100, 100, 50L, 100.0);
+            final BackfillConfiguration config = createTestConfig(1, 60_000, 100, 100, 300_000L, 100.0);
 
             AtomicBoolean shouldFail = new AtomicBoolean(false);
 
