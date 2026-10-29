@@ -171,6 +171,24 @@ Measures block‑verification throughput and success rate.
 
 ---
 
+### State Management
+
+**Plugin:** `state-management [block-node-state-management-hashgraph]` (beta)
+Replays verified block-stream `state_changes` onto a live, queryable copy of Hashgraph state.
+
+|  Type   |            Name             |                              Description                              |
+|---------|-----------------------------|-----------------------------------------------------------------------|
+| Gauge   | `state_applied_block`       | Latest committed (reader-visible) block number applied to live state  |
+| Gauge   | `state_size`                | Node count of the latest network-attested state                       |
+| Gauge   | `state_pending_blocks`      | Blocks buffered awaiting apply (bounded by `pendingBlocksMax`)        |
+| Gauge   | `state_ready`               | `1` once catch-up has completed without halting, else `0`             |
+| Gauge   | `state_apply_halted`        | `1` when block apply has halted (e.g. footer hash mismatch), else `0` |
+| Gauge   | `state_apply_latency_ms`    | Wall-clock duration of the most recent block apply, in milliseconds   |
+| Counter | `state_hash_mismatch_total` | Cumulative footer hash mismatches observed                            |
+| Gauge   | `state_block_lag`           | Blocks between the latest available block and the attested block      |
+
+---
+
 ### files.recent
 
 **Plugin:** `block-providers/files.recent [block-node-blocks-file-recent]`
