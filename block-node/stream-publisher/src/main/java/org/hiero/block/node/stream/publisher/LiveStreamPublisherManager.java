@@ -3,7 +3,6 @@ package org.hiero.block.node.stream.publisher;
 
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
-import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.hiero.block.api.PublishStreamResponse.EndOfStream.Code.TIMEOUT;
@@ -27,11 +26,11 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.NavigableSet;
-import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.TreeSet;
 import java.util.concurrent.Callable;
@@ -39,7 +38,6 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ConcurrentSkipListSet;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
@@ -799,15 +797,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     ///    `null` or empty
     @Nullable
     private <T> T getLastDequeItem(final Deque<T> deque) {
-        try {
-            if (deque != null && !deque.isEmpty()) {
-                return deque.getLast();
-            } else {
-                return null;
-            }
-        } catch (final NoSuchElementException e) {
-            return null;
-        }
+        return deque == null ? null : deque.peekLast();
     }
 
     /// Checks whether any currently accepted block is stalled relative to the
@@ -969,13 +959,11 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             // If done and not cancelled, get the result so we can log
             // any exceptions
             else if (localFuture.isDone() && !localFuture.isCancelled()) {
-                try {
-                    localFuture.get();
-                } catch (final InterruptedException e) {
+                if (localFuture.state() == Future.State.FAILED) {
                     LOGGER.log(
-                            TRACE, "Interrupted while waiting for publisher unavailability timeout task to complete");
-                } catch (final ExecutionException e) {
-                    LOGGER.log(INFO, "Publisher unavailability timeout task completed exceptionally", e);
+                            INFO,
+                            "Publisher unavailability timeout task completed exceptionally",
+                            localFuture.exceptionNow());
                 }
             }
         }
@@ -1049,19 +1037,10 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// This method could also return {@link org.hiero.block.node.spi.BlockNodePlugin#UNKNOWN_BLOCK_NUMBER} if no
     /// more blocks are awaiting resend.
     private long nextBlockToResend() {
-        long nextBlock;
-        if (!blocksToResend.isEmpty()) {
-            try {
-                // The blocksToResend set is a SortedSet, so first item will be the lowest one.
-                nextBlock = blocksToResend.first();
-            } catch (final NoSuchElementException e) {
-                // do nothing; we have no more blocks to resend.
-                nextBlock = UNKNOWN_BLOCK_NUMBER;
-            }
-        } else {
-            nextBlock = UNKNOWN_BLOCK_NUMBER;
-        }
-        return nextBlock;
+        // The blocksToResend set is sorted, so the first item is the lowest one. Reading it through an
+        // iterator avoids a separate emptiness check that could race with a concurrent removal.
+        final Iterator<Long> lowestFirst = blocksToResend.iterator();
+        return lowestFirst.hasNext() ? lowestFirst.next() : UNKNOWN_BLOCK_NUMBER;
     }
 
     /// todo(1420) add documentation
@@ -1263,8 +1242,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             case SUCCESS -> {
                 final long blocksForwarded = finishedResult.resultNow();
                 metrics.blockBatchesMessaged().increment(blocksForwarded);
-                final String formatString = "Queue forwarder task completed normally after forwarding %d blocks.";
-                LOGGER.log(DEBUG, formatString.formatted(blocksForwarded));
+                LOGGER.log(
+                        DEBUG, "Queue forwarder task completed normally after forwarding {0} blocks.", blocksForwarded);
             }
             case FAILED ->
                 LOGGER.log(WARNING, "Queue forwarder task failed, restarting it.", finishedResult.exceptionNow());
@@ -1342,6 +1321,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             flowControlRefreshAction.run();
             consecutiveFlowControlRefreshFailures = 0;
         } catch (final RuntimeException e) {
+            // Must not escape: the executor cancels a periodic task that throws, which stops all refills.
             if (consecutiveFlowControlRefreshFailures++ == 0) {
                 LOGGER.log(WARNING, "Flow control refresh failed, will retry on the next interval.", e);
             } else {
