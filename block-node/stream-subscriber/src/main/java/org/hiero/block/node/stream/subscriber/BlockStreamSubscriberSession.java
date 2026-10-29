@@ -485,6 +485,8 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             // disconnecting the session.
             if (!sessionContext.blockReadBulkhead.tryAcquire(
                     BlockReadBulkhead.Method.SUBSCRIBER_CATCH_UP, HISTORICAL_READ_PERMIT_WAIT)) {
+                // Deliberately the session's shared wait point, not a separate backoff, so a session
+                // starved of permits is handled like any other session that is not sending.
                 awaitNewLiveEntries();
                 break;
             }
