@@ -8,127 +8,220 @@ option java_package = "org.hiero.block.api.protoc";
 option java_multiple_files = true;
 
 /**
- * A request to read a state snapshot.
+ * A 1-indexed, inclusive range of queue elements, for `getQueue`.
  *
- * A state snapshot is a full copy of the network state at the completion of a
- * particular block.
- *
- * This request MUST contain a block number that has already reached this block
- * node and completed verification, or request the "latest" snapshot.<br/>
- * This request MAY specify the "latest" snapshot, and the block node SHALL
- * respond with a reference to a snapshot containing the most recent contents
- * of the network state known to that block node.
+ * Both `start` and `end` `0` (or the whole message left unset) requests the full queue.
+ * `start == end` (both positive) requests a single element. `start < end` (both positive)
+ * requests that inclusive range. `start > end`, or exactly one of `start`/`end` being `0`
+ * while the other is positive, is an `INVALID_REQUEST`. A range wider than this Block-Node's
+ * configured `maxQueueRangeSize` is also an `INVALID_REQUEST`, since this is a unary RPC, not
+ * a streaming one. The same cap applies to a full-queue read: if the whole queue holds more than
+ * `maxQueueRangeSize` elements, the request is an `INVALID_REQUEST` and the client SHOULD page
+ * with an explicit range.
  */
-message StateSnapshotRequest {
-    /**
-     * A block number.
-     * <p>
-     * This SHALL be the last block number present in the snapshot
-     * returned.<br/>
-     * If `retrieve_latest` is set `true` this field SHOULD NOT be set
-     * and SHALL be ignored.<br/>
-     * A block node implementation MAY reject any request with a non-default
-     * value for this field, but MUST clearly document that behavior.
-     */
-    uint64 last_block_number = 1;
-
-    /**
-     * A boolean to request the latest available snapshot.
-     * <p>
-     * This value MAY be set `true` to request the most recent state snapshot
-     * available.<br/>
-     * If this value is set to `true` then `last_block_number` SHOULD NOT be
-     * set and SHALL be ignored.<br/>
-     * A block node implementation MAY reject any request with that does _not_
-     * set this field `true`, but MUST clearly document that behavior.
-     */
-    bool retrieve_latest = 2;
+message QueueRange {
+    uint64 start = 1;
+    uint64 end = 2;
 }
 
 /**
- * A response to a request for a state snapshot.
+ * A request for a single piece of binary state held by the Block-Node.
  *
- * This message SHALL deliver a _reference_ to the requested snapshot
- * data if successful.<br/>
- * This message SHALL deliver a code indicating the reason for failure
- * if unsuccessful.
+ * The combination of `state_id` and `selector` determines which RPC method should be used and
+ * the shape of the response:
+ *
+ *  - `getKV`        SHALL set `state_id` and `selector.key_bytes`.
+ *  - `getSingleton` SHALL set only `state_id`. `selector` MUST NOT be set.
+ *  - `getQueue`     SHALL set `state_id`. `selector.queue_range` MAY be set to narrow the read;
+ *                   when `selector` is unset the full queue is returned.
+ *
+ * Exactly one of `block_specifier.block_number` or
+ * `block_specifier.retrieve_latest` MUST be set. Block 0 (genesis) is a
+ * valid `block_number`. This Block-Node holds only its current attested
+ * state (no historical retention yet); requests targeting block numbers
+ * other than that attested block SHALL be answered with `NOT_AVAILABLE`.
+ * This is independent of whether block apply has halted: a request for
+ * the attested block (or `retrieve_latest`) SHALL still succeed even
+ * while apply is halted, since the attested state itself remains valid —
+ * only requests for a block other than it (older or newer) are affected.
+ *
+ * TODO: when a second consumer of this pattern lands, lift
+ * `block_specifier` into `shared_message_types.proto` and reuse here and
+ * in `BlockRequest`.
  */
-message StateSnapshotResponse {
+message StateQuery {
     /**
-     * An enumeration indicating the status of a StateSnapshotResponse request.
+     * Which block this query targets — explicit block number or the latest
+     * applied state. Modeled to match `BlockRequest.block_specifier` in
+     * `block_access_service.proto`.
      */
+    oneof block_specifier {
+        /**
+         * The explicit block number the response state MUST correspond to.
+         * Genesis (`block_number = 0`) is valid. The Block-Node SHALL
+         * answer with `NOT_AVAILABLE` if the requested block does not
+         * match its currently attested block.
+         */
+        uint64 block_number = 1;
+
+        /**
+         * Flag to request the latest applied state. SHOULD be set `true`
+         * instead of using `block_number` when the intent is "whatever
+         * state the Block-Node has caught up to".
+         */
+        bool retrieve_latest = 2;
+    }
+
+    /**
+     * The integer state identifier as defined in `virtual_map_state.proto` — which map,
+     * singleton, or queue this query targets (e.g. accounts, token relationships). A map holds
+     * many entries under one `state_id`; `selector.key_bytes` below selects a single entry
+     * within it.
+     */
+    uint64 state_id = 3;
+
+    /**
+     * Which entry or range this query targets, for RPC methods that need one. Exactly one of
+     * `key_bytes` or `queue_range` MAY be set, never both — enforced by this being a `oneof`
+     * rather than left to a MUST-be-empty convention. Unset entirely for `getSingleton` (a
+     * singleton has exactly one value per `state_id`, nothing to select) and for a full-queue
+     * `getQueue` read.
+     */
+    oneof selector {
+        /**
+         * Domain-encoded key bytes identifying a single entry within the map named by
+         * `state_id`, for `getKV`.
+         */
+        bytes key_bytes = 4;
+
+        /**
+         * The element or range to read, for `getQueue`.
+         */
+        QueueRange queue_range = 5;
+    }
+}
+
+/**
+ * A list of raw domain-value byte strings read from a queue, in head-to-tail
+ * order. Wraps `repeated bytes` since protobuf does not allow a `repeated`
+ * field directly inside a `oneof`.
+ */
+message QueueValues {
+    repeated bytes values = 1;
+}
+
+/**
+ * Response carrying the requested binary state plus the metadata of the
+ * state slice it was read from.
+ *
+ * Exactly one of `kv_bytes`, `singleton_bytes`, or `queue_values` SHALL be
+ * populated on success, matching the RPC method invoked.
+ */
+message StateResponse {
     enum Code {
         /**
-         * An "unset value" flag, this value SHALL NOT be used.<br/>
-         * This status indicates the server software failed to set a status,
-         * and SHALL be considered a software defect.
+         * An "unset value" flag, this value SHALL NOT be used. A response
+         * carrying this code is a server software defect.
          */
         UNKNOWN = 0;
 
         /**
-         * The request succeeded.<br/>
-         * The full snapshot data MAY be read via the endpoint provided in the
-         * `snapshot_reference` field for the duration specified.
+         * The request was answered successfully.
          */
         SUCCESS = 1;
 
         /**
-         * The request cannot be fulfilled.<br/>
-         * The client sent a malformed or structurally incorrect request.
-         * <p>
-         * The client MAY retry the request after correcting the form and
-         * structure.
+         * The request was malformed or referenced fields in a combination
+         * that is not valid for the selected RPC method. See `StateQuery`
+         * documentation for valid combinations.
          */
         INVALID_REQUEST = 2;
 
         /**
-         * The Block-Node had an error and cannot continue processing.<br/>
-         * The Publisher may retry again later.
+         * The requested state element (key or queue index) does not exist in the attested
+         * state that was read. For a `queue_range`, this applies to the whole request if `end`
+         * exceeds the queue's current size — a range is never partially served.
          */
-        ERROR = 3;
+        NOT_FOUND = 3;
+
+        /**
+         * This Block-Node holds no state yet: no snapshot was restored and no
+         * block has been attested (true genesis). The client SHOULD retry after
+         * a short backoff. Once a snapshot is restored or any block is
+         * attested, this Block-Node answers from it even while still catching
+         * up or halted — this code is never returned again after that.
+         */
+        NOT_READY = 4;
+
+        /**
+         * The requested `block_number` is not the Block-Node's currently
+         * attested block. This Block-Node holds only its current attested
+         * state (no historical retention yet). The client MAY retry later
+         * if it expects this node to catch up to the requested block, or
+         * query a different Block-Node.
+         */
+        NOT_AVAILABLE = 5;
     }
 
     /**
-     * A status response.
-     * <p>
-     * This code SHALL indicate a successful call, or the detailed
-     * reason for failure.
+     * Status of the lookup.
      */
     Code status = 1;
 
     /**
-     * A block number.
-     * <p>
-     * This SHALL be the number of the last block included in this
-     * state snapshot.
+     * The block number of the attested state this response was sourced
+     * from. Populated on every response except `NOT_READY`, including other
+     * failures, so the client can decide whether to retry against a different
+     * Block-Node. On `NOT_READY` no state is held, so this is `-1`
+     * (`uint64` max, `0xFFFFFFFFFFFFFFFF`), not `0`, which is the valid genesis
+     * block; clients MUST check `status` first. Otherwise this is read
+     * directly from the state's own `BlockStreamInfo` singleton, never tracked
+     * as a separate copy, so it can never disagree with the state it describes.
      */
-    uint64 last_block_number = 2;
+    uint64 block_number = 2;
 
     /**
-     * A reference to where the requested state snapshot may be obtained.
-     * <p>
-     * <blockquote>REVIEW NOTE<blockquote>
-     * This is TEMPORARY.  We have not yet designed how state snapshots may
-     * be sent. One idea is to use `Any` and let implementations decide;
-     * another is to use a time limited URL (with the same login as the block
-     * node server); another is to use a customer-pays cloud storage bucket.
-     * </blockquote></blockquote>
+     * The result payload. Exactly one is set on `SUCCESS`, matching the RPC
+     * method invoked; none are set on failure (see `status`).
      */
-    string snapshot_reference = 3;
+    oneof payload {
+        /**
+         * Raw domain-value bytes for a `getKV` response.
+         */
+        bytes kv_bytes = 3;
+
+        /**
+         * Raw domain-value bytes for a `getSingleton` response.
+         */
+        bytes singleton_bytes = 4;
+
+        /**
+         * Raw domain-value bytes for a `getQueue` response, in head-to-tail order. May contain
+         * a single element, a `queue_range` of elements, or the full queue, matching the
+         * request.
+         */
+        QueueValues queue_values = 5;
+    }
 }
 
 /**
- * Remote procedure calls (RPCs) for the Block Node state snapshot
- * and query services.
+ * Remote procedure calls (RPCs) for binary state queries against the
+ * Block-Node's live Hashgraph state plugin.
  */
 service StateService {
     /**
-     * Read a state snapshot from the block node.
-     * <p>
-     * The request SHALL describe the last block number present in the
-     * snapshot.<br/>
-     * Block node implementations MAY decline a request for a snapshot older
-     * than the latest available, but MUST clearly document this behavior.
+     * Read a key-value entry from the live state by `state_id` and `key_bytes`.
      */
-    rpc stateSnapshot(StateSnapshotRequest) returns (StateSnapshotResponse);
+    rpc getKV(StateQuery) returns (StateResponse);
+
+    /**
+     * Read a singleton from the live state by `state_id`.
+     */
+    rpc getSingleton(StateQuery) returns (StateResponse);
+
+    /**
+     * Read a queue from the live state by `state_id`, optionally narrowed to a single element
+     * or a range via `selector.queue_range`.
+     */
+    rpc getQueue(StateQuery) returns (StateResponse);
 }
