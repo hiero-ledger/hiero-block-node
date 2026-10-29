@@ -75,6 +75,46 @@ f="$WORK/again.json"; fixture "$f"; "$SCRIPT" "$f" > /dev/null; cp "$f" "$WORK/a
 cmp -s "$f" "$WORK/again.once"
 check "running twice changes nothing more" $? "second run changed the file"
 
+# --- files written by the Block Node --------------------------------------------------------
+# PBJ JSON omits zero values: node 0 has no nodeId and the era starting at block 0 has no startBlock.
+pbj_fixture() {
+  cat > "$1" <<'JSON'
+{"addressBooks":[
+ {"addressBook":{"nodeAddress":[{"RSAPubKey":"a0"},{"RSAPubKey":"a3","nodeId":"3"}]},"endBlock":"10"},
+ {"addressBook":{"nodeAddress":[{"RSAPubKey":"a3","nodeId":"3"},{"RSAPubKey":"a0"}]},"startBlock":"11","endBlock":"20"},
+ {"addressBook":{"nodeAddress":[{"RSAPubKey":"b3","nodeId":"3"}]},"startBlock":"21","endBlock":"-1"}]}
+JSON
+}
+f="$WORK/pbj.json"; pbj_fixture "$f"
+"$SCRIPT" "$f" > "$WORK/out" 2>&1
+code=$?
+[[ $code -eq 0 && $(jq -c '[.addressBooks[] | [.startBlock, .endBlock]]' "$f") == '[[null,"20"],["21","-1"]]' \
+  && $(jq '[.. | nulls] | length' "$f") == 0 ]]
+check "Block Node file with omitted zero fields merges, startBlock stays omitted" $? \
+  "code=$code got=$(jq -c '.addressBooks' "$f" 2>&1) out='$(cat "$WORK/out")'"
+
+f="$WORK/pbj-trim.json"; pbj_fixture "$f"
+"$SCRIPT" "$f" 15 > /dev/null 2>&1
+[[ $(jq -c '[.addressBooks[] | [.startBlock, .endBlock]]' "$f") == '[["11","20"],["21","-1"]]' ]]
+check "Block Node file trims by block height" $? "got=$(jq -c '.addressBooks' "$f" 2>&1)"
+
+# --- no change and backups ------------------------------------------------------------------
+f="$WORK/nochange.json"; fixture "$f"; "$SCRIPT" "$f" > /dev/null; rm -f "$f".bak-*; cp "$f" "$WORK/nochange.once"
+"$SCRIPT" "$f" > "$WORK/out" 2>&1
+cmp -s "$f" "$WORK/nochange.once" && ! ls "$f".bak-* > /dev/null 2>&1 && grep -qF "unchanged" "$WORK/out"
+check "an already shrunk file is left untouched without a backup" $? "out='$(cat "$WORK/out")'"
+
+# A fake date pins the backup name, so the collision is deterministic.
+mkdir -p "$WORK/fake-date"
+printf '#!/usr/bin/env bash\necho 20000101000000\n' > "$WORK/fake-date/date"
+chmod +x "$WORK/fake-date/date"
+f="$WORK/collide.json"; fixture "$f"; cp "$f" "$WORK/collide.orig"
+echo sentinel > "$f.bak-20000101000000"
+PATH="$WORK/fake-date:$PATH" "$SCRIPT" "$f" > /dev/null 2>&1
+bak=$(ls "$f".bak-20000101000000-* 2> /dev/null | head -1)
+[[ $(cat "$f.bak-20000101000000") == sentinel && -n "$bak" ]] && cmp -s "$bak" "$WORK/collide.orig"
+check "an existing backup is never overwritten" $? "bak='$bak'"
+
 # --- trim at era boundaries -------------------------------------------------------------------
 # Eras [0,10], [11,20], [21,30], [31,-1]: an era is dropped only when it ends before the height.
 for case in '10 ["0-20","21--1"]' '11 ["11-20","21--1"]' '20 ["11-20","21--1"]' \
