@@ -52,34 +52,40 @@ command -v jq >/dev/null || { echo "jq is required" >&2; exit 1; }
 [[ -f "$file" ]] || { echo "File not found: $file" >&2; exit 1; }
 [[ "$height" =~ ^[0-9]+$ ]] || { echo "Block height must be a non-negative integer: $height" >&2; exit 1; }
 
+# The Block Node writes this file with PBJ JSON, which omits fields equal to zero: node 0 has no
+# nodeId and an era starting at block 0 has no startBlock. num reads those as 0. Block numbers may
+# be JSON strings (PBJ int64) or numbers. endBlock -1 is the open-ended sentinel.
+defs='
+  def num: (. // 0) | tonumber;
+  def book: .addressBook.nodeAddress // [] | sort_by(.nodeId | num);'
+
 # Eras must be non-empty, ordered and contiguous, with only the last one open-ended (-1).
-jq -e '
+jq -e "$defs"'
   .addressBooks as $a
   | ($a | type == "array" and length > 0)
-    and all(range(0; $a | length - 1); ($a[.].endBlock | tonumber) != -1)
+    and all(range(0; $a | length - 1); ($a[.].endBlock | num) != -1)
     and all(range(1; $a | length);
-        ($a[.].startBlock | tonumber) == ($a[. - 1].endBlock | tonumber) + 1)
+        ($a[.].startBlock | num) == ($a[. - 1].endBlock | num) + 1)
 ' "$file" >/dev/null 2>&1 || { echo "addressBooks missing, unordered or not contiguous in $file" >&2; exit 1; }
 
-# endBlock -1 is the open-ended sentinel. Block numbers may be JSON strings (PBJ int64) or numbers.
-shrink_filter='
-  def book: .addressBook.nodeAddress | sort_by(.nodeId | tonumber);
+# A merged era takes the earlier era's start. An omitted startBlock stays omitted, never null.
+shrink_filter="$defs"'
   .addressBooks |= (
-    map(select((.endBlock | tonumber) == -1 or (.endBlock | tonumber) >= $h))
+    map(select((.endBlock | num) == -1 or (.endBlock | num) >= $h))
     | reduce .[] as $e ([];
         if length > 0 and ((.[-1] | book) == ($e | book))
-        then .[-1] as $prev | .[-1] = ($e | .startBlock = $prev.startBlock)
+        then .[-1] as $prev
+          | .[-1] = ($e | if $prev | has("startBlock") then .startBlock = $prev.startBlock else del(.startBlock) end)
         else . + [$e] end)
   )'
 
 # Lists the boundary blocks >= $h whose address book differs between $orig and $new.
-verify_filter='
+verify_filter="$defs"'
   def lookup($hist; $n):
     [$hist.addressBooks[]
-      | select((.startBlock | tonumber) <= $n
-          and ((.endBlock | tonumber) == -1 or (.endBlock | tonumber) >= $n))]
-    | if length == 1 then .[0].addressBook.nodeAddress | sort_by(.nodeId | tonumber) else "MISS" end;
-  [$orig[0].addressBooks[] | (.startBlock | tonumber), (.endBlock | tonumber)]
+      | select((.startBlock | num) <= $n and ((.endBlock | num) == -1 or (.endBlock | num) >= $n))]
+    | if length == 1 then .[0] | book else "MISS" end;
+  [$orig[0].addressBooks[] | (.startBlock | num), (.endBlock | num)]
   | map(select(. >= $h)) + [$h]
   | map(select(lookup($orig[0]; .) != lookup($new[0]; .)))'
 
@@ -93,7 +99,14 @@ if [[ "$mismatches" != "[]" ]]; then
   exit 1
 fi
 
+if [[ "$(jq -S -c . "$tmp")" == "$(jq -S -c . "$file")" ]]; then
+  echo "Nothing to shrink, $file unchanged"
+  exit 0
+fi
+
 backup="${file}.bak-$(date +%Y%m%d%H%M%S)"
+# Never overwrite an earlier backup, which may hold the only copy of the original.
+[[ -e "$backup" ]] && backup="${backup}-$$"
 cp -p "$file" "$backup"
 echo "Backup written: $backup"
 
@@ -106,5 +119,5 @@ after_bytes=$(wc -c < "$file" | tr -d ' ')
 
 echo "Eras:  $before_eras -> $after_eras"
 echo "Bytes: $before_bytes -> $after_bytes"
-echo "First era: $(jq -c '.addressBooks[0] | {startBlock, endBlock}' "$file")"
-echo "Last era:  $(jq -c '.addressBooks[-1] | {startBlock, endBlock}' "$file")"
+echo "First era: $(jq -r "$defs"'.addressBooks[0] | "\(.startBlock | num)-\(.endBlock | num)"' "$file")"
+echo "Last era:  $(jq -r "$defs"'.addressBooks[-1] | "\(.startBlock | num)-\(.endBlock | num)"' "$file")"
