@@ -231,21 +231,21 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
             try {
                 final NodeAddressBook resolved = resolveNodeIds(original);
                 if (resolved != original) {
-                    System.out.println("  Era " + i + ": node ids were not unique, derived "
-                            + resolved.nodeAddress().size() + " from the node accounts (accountNum - "
-                            + NODE_ACCOUNT_OFFSET + ")");
+                    System.out.printf(
+                            "  Era %d: node ids were not unique, derived %d from the node accounts (accountNum - %d)%n",
+                            i, resolved.nodeAddress().size(), NODE_ACCOUNT_OFFSET);
                 }
                 resolvedBooks.add(resolved);
             } catch (IllegalArgumentException e) {
                 final Timestamp ts = era.blockTimestampOrThrow();
-                nodeIdProblems.add("era " + i + " (block_timestamp=" + Instant.ofEpochSecond(ts.seconds(), ts.nanos())
-                        + "): " + e.getMessage());
+                final Instant eraTime = Instant.ofEpochSecond(ts.seconds(), ts.nanos());
+                nodeIdProblems.add("era %d (block_timestamp=%s): %s".formatted(i, eraTime, e.getMessage()));
             }
         }
         if (!nodeIdProblems.isEmpty()) {
-            System.err.println("Error: node ids could not be resolved for " + nodeIdProblems.size() + " era(s):");
+            System.err.printf("Error: node ids could not be resolved for %d era(s):%n", nodeIdProblems.size());
             for (final String problem : nodeIdProblems) {
-                System.err.println("  * " + problem);
+                System.err.printf("  * %s%n", problem);
             }
             return 1;
         }
