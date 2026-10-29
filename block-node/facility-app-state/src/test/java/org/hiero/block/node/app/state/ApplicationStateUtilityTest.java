@@ -563,6 +563,24 @@ class ApplicationStateUtilityTest {
                 assertSame(history, ApplicationStateUtility.mergeDuplicateEras(history), history.toString());
             }
         }
+
+        @Test
+        @DisplayName("contiguous eras without an address book are merged")
+        void mergesContiguousErasWithoutAddressBook() {
+            final RangedAddressBookHistory original = history(
+                    RangedNodeAddressBook.newBuilder().startBlock(0).endBlock(9).build(),
+                    RangedNodeAddressBook.newBuilder()
+                            .startBlock(10)
+                            .endBlock(-1)
+                            .build());
+
+            assertEquals(
+                    List.of(RangedNodeAddressBook.newBuilder()
+                            .startBlock(0)
+                            .endBlock(-1)
+                            .build()),
+                    ApplicationStateUtility.mergeDuplicateEras(original).addressBooks());
+        }
     }
 
     // ---- mergeRanges ----------------------------------------------------------------------------
