@@ -22,6 +22,7 @@ import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.logging.TestLogHandler;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -314,6 +315,45 @@ public class ServerStatusServicePluginTest
             julLogger.removeHandler(logHandler);
         }
         assertEquals(1, logHandler.countContaining("Server status heartbeat disabled"));
+    }
+
+    @Test
+    @DisplayName("ThrottleSpec reports each method's own per-client settings and global ceiling")
+    void perClientSettingsAndGlobalCeilingsReflectConfigPerMethod() {
+        final ServerStatusServicePlugin localPlugin = new ServerStatusServicePlugin();
+        start(
+                localPlugin,
+                localPlugin.methods().getFirst(),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "throttle.serverStatus.ratePerSecond", "42",
+                        "throttle.serverStatus.burstTolerance", "7",
+                        "throttle.serverStatus.maxConcurrentPerClient", "3",
+                        "throttle.serverStatus.maxPermitHoldSeconds", "11",
+                        "throttle.serverStatusDetail.ratePerSecond", "20",
+                        "throttle.serverStatusDetail.maxPermitHoldSeconds", "61",
+                        "throttle.global.serverStatusMaxConcurrent", "99",
+                        "throttle.global.serverStatusDetailMaxConcurrent", "55"));
+
+        assertEquals(
+                Map.of(
+                        "serverStatus", new PerClientThrottleSettings(42, 7, 3, 11),
+                        "serverStatusDetail", new PerClientThrottleSettings(20, 20, 5, 61)),
+                localPlugin.perClientSettings(),
+                "each method gets its own settings; unset keys fall back to that method's defaults");
+        assertEquals(Map.of("serverStatus", 99, "serverStatusDetail", 55), localPlugin.globalConcurrencyCeilings());
+    }
+
+    @Test
+    @DisplayName("Default throttle settings give serverStatus a 10 s and serverStatusDetail a 60 s permit hold limit")
+    void defaultPermitHoldLimitsDifferPerMethod() {
+        final ServerStatusServicePlugin localPlugin = new ServerStatusServicePlugin();
+        start(localPlugin, localPlugin.methods().getFirst(), new SimpleInMemoryHistoricalBlockFacility(), Map.of());
+
+        assertEquals(10, localPlugin.perClientSettings().get("serverStatus").maxPermitHoldSeconds());
+        assertEquals(
+                60, localPlugin.perClientSettings().get("serverStatusDetail").maxPermitHoldSeconds());
+        assertEquals(Map.of("serverStatus", 1000, "serverStatusDetail", 1000), localPlugin.globalConcurrencyCeilings());
     }
 
     /**

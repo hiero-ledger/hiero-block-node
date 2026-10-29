@@ -239,6 +239,22 @@ Observes the server status API that provides information about the node.
 | Counter | `server_status_requests`         | Number of server status requests         |
 | Counter | `server_status_details_requests` | Number of server status details requests |
 
+### Throttle
+
+**Plugin:** `server-status [block-node-server-status]`
+Per-client and node-wide throttling of the `serverStatus` and `serverStatusDetail` methods. See [Throttle Configuration](./configuration.md#throttle-configuration).
+
+|  Type   |               Name                |                                                                                   Description                                                                                    |
+|---------|-----------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Counter | `throttle_calls`                  | Calls to a throttled method, labels: `service`, `method`, `outcome={admitted,rejected_global_concurrency,rejected_client_concurrency,rejected_rate}`                             |
+| Gauge   | `throttle_client_state_count`     | Number of distinct clients currently tracked by the throttle for a method, labels: `service`, `method`                                                                           |
+| Gauge   | `throttle_in_flight`              | Current node-wide count of in-flight calls holding a concurrency permit for a method, labels: `service`, `method`                                                                |
+| Gauge   | `throttle_clients_in_flight`      | Number of distinct clients currently holding at least one in-flight call for a method, labels: `service`, `method`                                                               |
+| Counter | `throttle_permits_reaped`         | Permits force-released by the sweep after exceeding `maxPermitHoldSeconds`, labels: `service`, `method`. A sustained non-zero rate means calls are abandoned without completing. |
+| Counter | `throttle_unknown_remote_address` | Calls whose client address could not be determined and were grouped under a shared fallback key                                                                                  |
+
+> **Note:** The throttle counters are registered without a `_total` suffix; Prometheus appends `_total` at scrape time (for example `throttle_calls_total`).
+
 ### Backfill
 
 **Plugin:** `backfill [block-node-backfill]`
