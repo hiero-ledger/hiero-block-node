@@ -44,6 +44,9 @@ import picocli.CommandLine.Help.Ansi;
  * The current address book is the most recently added address book.
  */
 public class AddressBookRegistry {
+    /** A node's account number is its node id plus this offset (node 0 is account 0.0.3). */
+    public static final long NODE_ACCOUNT_OFFSET = 3L;
+
     /** List of dated address books, ordered by block timestamp, oldest first.
      * Uses CopyOnWriteArrayList for thread-safe reads during parallel signature validation
      * while the main thread may append new entries discovered from block data. */
@@ -288,7 +291,7 @@ public class AddressBookRegistry {
         NodeAddress.Builder builder = NodeAddress.newBuilder();
         if (createTx.hasAccountId()) {
             builder.nodeAccountId(createTx.accountId());
-            builder.nodeId(createTx.accountId().accountNum() - 3);
+            builder.nodeId(createTx.accountId().accountNum() - NODE_ACCOUNT_OFFSET);
             builder.memo(Bytes.wrap(("0.0." + createTx.accountId().accountNum()).getBytes(StandardCharsets.UTF_8)));
         }
         if (createTx.gossipCaCertificate().length() > 0) {
@@ -484,7 +487,7 @@ public class AddressBookRegistry {
                 .orElse(null);
         long addressBookNodeId = nodeAddress == null ? -1 : nodeAddress.nodeId();
         // For older address books where nodeId is not set, derive it from account number - 3
-        return addressBookNodeId > 0 ? addressBookNodeId : number - 3;
+        return addressBookNodeId > 0 ? addressBookNodeId : number - NODE_ACCOUNT_OFFSET;
     }
 
     /**
@@ -494,7 +497,7 @@ public class AddressBookRegistry {
      * @return the account ID
      */
     public static long accountIdForNode(long nodeId) {
-        return nodeId + 3;
+        return nodeId + NODE_ACCOUNT_OFFSET;
     }
 
     /**
@@ -517,7 +520,8 @@ public class AddressBookRegistry {
             final String memoStr = nodeAddress.memo().asUtf8String();
             return Long.parseLong(memoStr.substring(memoStr.lastIndexOf('.') + 1));
         } else {
-            throw new IllegalArgumentException("NodeAddress has no nodeAccountId or memo: " + nodeAddress);
+            throw new IllegalArgumentException(
+                    "NodeAddress with nodeId " + nodeAddress.nodeId() + " has no nodeAccountId or memo");
         }
     }
 
