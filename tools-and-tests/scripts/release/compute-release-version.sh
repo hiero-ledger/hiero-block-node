@@ -22,9 +22,9 @@
 #   GA      release/X.Y only: built from the highest vX.Y.Z-rcN tag reachable from that branch
 #           (--branch-tags-file). Fails if rc tags exist but none is on the branch, so an rc cut
 #           from another branch (e.g. main) can never become the GA source.
-#   custom  any branch. A plain X.Y.Z version (no suffix, so it publishes as a final release)
-#           must be dispatched from release/X.Y. An rc-shaped version needs an existing
-#           release/X.Y branch. Both are waived by --allow-custom-without-release-branch true.
+#   custom  any branch. A plain X.Y.Z (final release) or an rc-shaped version must be dispatched
+#           from release/X.Y. Both are waived by --allow-custom-without-release-branch true.
+#           Other shapes (alpha, hotfix...) can be tagged from any branch.
 # The computed tag must not already exist.
 
 set -euo pipefail
@@ -87,12 +87,10 @@ case "$RELEASE_TYPE" in
     VERSION="$CUSTOM_VERSION"
     line="release/${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
     if [[ "$ALLOW_CUSTOM" != "true" ]]; then
-      if [[ -z "${BASH_REMATCH[3]}" ]]; then
+      pre="${BASH_REMATCH[3]}"
+      if [[ -z "$pre" || "$VERSION" =~ -rc[0-9]+$ ]]; then
         [[ "$REF_NAME" == "$line" ]] \
-          || fail "custom '$VERSION' publishes a final release and must be dispatched from $line, not '$REF_NAME'. Set allow_custom_without_release_branch to confirm this is intended."
-      elif [[ "$VERSION" =~ -rc[0-9]+$ ]]; then
-        has_line "$line" "$BRANCHES_FILE" \
-          || fail "custom rc '$VERSION' has no $line branch. Set allow_custom_without_release_branch to confirm this is intended."
+          || fail "custom '$VERSION' must be dispatched from $line, not '$REF_NAME'. Set allow_custom_without_release_branch to confirm this is intended."
       fi
     fi
     ;;
