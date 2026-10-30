@@ -16,29 +16,39 @@ import org.hiero.block.node.block.verification.session.BlockVerificationSession.
 import org.hiero.metrics.LongCounter;
 
 /// The active sessions buffer: a helper of the [BlockSessionHandler] that holds the
-/// sessions the handler has started and not cleared yet, in two lanes (see
-/// [SessionLane]) that share one limit, [VerificationConfig#activeSessionsBufferSize()].
-/// Every admission that takes the combined count over the limit evicts the session
-/// the [SessionEvictionPolicy] selects, so the count is above the limit only while
-/// admissions are in flight, by at most one per ingress thread, and back at it once
-/// they have made room. An admission never waits for room.
+/// sessions the handler has started and that have not been cleared yet, in two lanes
+/// (see [SessionLane]) that share one limit,
+/// [VerificationConfig#activeSessionsBufferSize()]. An admission first clears the
+/// sessions that are complete; when the buffer is still full, it evicts the session
+/// the [SessionEvictionPolicy] selects among the sessions already held, and only then
+/// adds the new session, so the combined count never exceeds the limit and a session
+/// is never evicted by its own admission. An admission never waits for room.
 ///
 /// The buffer is passive. The handler decides what happens to its sessions and when,
-/// and the buffer gives it the means to do so: [#admit(BlockVerificationSession)] adds
-/// a session to the lane its block's source calls for and, when that takes the
-/// combined count over the limit, evicts what the [SessionEvictionPolicy] selects;
-/// [#activePublisherSession()] finds the session the publisher's next batch belongs to;
-/// [#clearCompletedSessions()] removes the sessions that are complete. Sessions never
-/// change the buffer themselves.
+/// and the buffer gives it the means to do so: [#admit(BlockVerificationSession)]
+/// clears the sessions that are complete, makes room when the buffer is still full,
+/// by evicting what the [SessionEvictionPolicy] selects, and adds a session to the
+/// lane its block's source calls for; [#activePublisherSession()] finds the session
+/// the publisher's next batch belongs to. Sessions never change the buffer
+/// themselves.
 ///
-/// The handler calls the buffer from both ingress threads. Eviction runs under a lock,
-/// held only for work in memory, so the two threads never evict at the same time.
+/// The handler calls the buffer from both ingress threads. The lanes change only
+/// within an admission, which runs under the eviction lock with its clearing, its
+/// eviction and its addition, so the two threads never change the lanes at the same
+/// time, and the lanes stay as the snapshot for the eviction policy shows them until
+/// the eviction. Complete sessions stay in their lanes until the next admission clears
+/// them, and the gauge is set on every admission. The lock is held for work in memory
+/// only: cancelling an evicted session runs its result handling on the admitting
+/// thread, and its failure notification is sent without waiting, see
+/// [VerificationOutbox][org.hiero.block.node.block.verification.VerificationOutbox].
+/// Only finding the active publisher session takes no lock: it reads the latest
+/// publisher session, which only changes under the lock.
 public final class ActiveSessionsBuffer {
     /// Logger for the buffer.
     private static final System.Logger LOGGER = System.getLogger(ActiveSessionsBuffer.class.getName());
     /// The configuration for verification, source of the limit.
     private final VerificationConfig verificationConfig;
-    /// The policy that selects the session to evict when the lanes hold more sessions than the limit.
+    /// The policy that selects the session to evict when an admission finds the lanes full.
     private final SessionEvictionPolicy evictionPolicy;
     /// The last successfully verified block, read for the snapshot handed to the policy.
     private final AtomicLong lastVerifiedBlock;
@@ -50,7 +60,8 @@ public final class ActiveSessionsBuffer {
     private final ConcurrentSkipListMap<SessionKey, BlockVerificationSession> lowPrioritySessions;
     /// The latest admitted publisher session, until it is cleared or evicted; see [#activePublisherSession()].
     private final AtomicReference<BlockVerificationSession> latestPublisherSession;
-    /// Guards the eviction so that the two ingress threads never evict at the same time.
+    /// Guards each admission, with its clearing, its eviction and its addition, so that
+    /// the two ingress threads never change the lanes at the same time.
     private final ReentrantLock evictionLock;
 
     /// Constructor.
@@ -76,39 +87,44 @@ public final class ActiveSessionsBuffer {
 
     /// Admit a started session to the lane its block's source calls for: the high
     /// priority lane for the publisher, the low priority lane for any other source. A
-    /// publisher session also becomes the latest publisher session. When the combined
-    /// count then exceeds the limit, the eviction policy is consulted under the
-    /// eviction lock, see [#makeRoom()]. The admission never waits for room; the
-    /// session is added before the policy is consulted, so it may itself be the one
-    /// evicted.
+    /// publisher session also becomes the latest publisher session. The whole admission
+    /// runs under the eviction lock: the complete sessions are cleared first, then, when
+    /// the buffer is still full, room is made, see [#makeRoom()], and only then is the
+    /// session added. The policy chooses among the sessions already held, so a session
+    /// is never evicted by its own admission, and the combined count never exceeds the
+    /// limit. The active sessions gauge is set
+    /// before the lock is released, so it never shows a count taken halfway through an
+    /// admission. An admission on the other ingress thread waits until this one has
+    /// added its session. The admission never waits for room.
     ///
     /// @param session the started session to admit, must not be null
     public void admit(final BlockVerificationSession session) {
-        final SessionLane lane =
-                switch (session.blockSource()) {
-                    case PUBLISHER -> {
-                        latestPublisherSession.set(session);
-                        yield SessionLane.HIGH_PRIORITY;
-                    }
-                    case BACKFILL, HISTORY, UNKNOWN -> SessionLane.LOW_PRIORITY;
-                };
-        laneOf(lane).put(session.sessionKey(), session);
-        if (isOverLimit()) {
-            evictionLock.lock();
-            try {
+        evictionLock.lock();
+        try {
+            clearCompletedSessions();
+            if (isFull()) {
                 makeRoom();
-            } finally {
-                evictionLock.unlock();
             }
+            final SessionLane lane =
+                    switch (session.blockSource()) {
+                        case PUBLISHER -> {
+                            latestPublisherSession.set(session);
+                            yield SessionLane.HIGH_PRIORITY;
+                        }
+                        case BACKFILL, HISTORY, UNKNOWN -> SessionLane.LOW_PRIORITY;
+                    };
+            laneOf(lane).put(session.sessionKey(), session);
+            sessionHandlerMetrics.verificationActiveSessions().set(size());
+        } finally {
+            evictionLock.unlock();
         }
-        sessionHandlerMetrics.verificationActiveSessions().set(size());
     }
 
     /// The session the publisher's next batch belongs to: the latest admitted publisher
-    /// session, until it has received the end of its block. The eviction policy never
-    /// selects it. A session that has received its whole block but is still being
-    /// verified is not the active one: a new block does not cancel it and no further
-    /// batch is added to it.
+    /// session, until it has received the end of its block, or until an admission
+    /// clears it once it is complete. The eviction policy never selects it. A session
+    /// that has received its whole block but is still being verified is not the active
+    /// one: a new block does not cancel it and no further batch is added to it.
     ///
     /// @return the active publisher session, or null when there is none
     public BlockVerificationSession activePublisherSession() {
@@ -122,20 +138,23 @@ public final class ActiveSessionsBuffer {
         return result;
     }
 
-    /// Clear the complete sessions: every session whose result has been handled leaves
-    /// its lane, and stops being the latest publisher session if it was.
-    public void clearCompletedSessions() {
+    /// Clear the complete sessions, called first by every admission with the eviction
+    /// lock held, the only place sessions are cleared: every session whose result has
+    /// been handled leaves its lane, and stops being the latest publisher session if
+    /// it was.
+    private void clearCompletedSessions() {
         clearCompleted(highPrioritySessions);
         clearCompleted(lowPrioritySessions);
-        sessionHandlerMetrics.verificationActiveSessions().set(size());
     }
 
-    /// Take an immutable view of both lanes for the eviction policy. The lanes are
-    /// copied before the active publisher session is resolved: a publisher session in
-    /// the copy that is still active by then is the latest one, so it is protected, and
-    /// one that is not active any more has received the end of its block, so evicting
-    /// it reports a complete block. Resolving it first would let a session admitted
-    /// in between appear in the copy without its protection.
+    /// Take an immutable view of both lanes for the eviction policy. It is taken with
+    /// the eviction lock held, before the session being admitted is added, so it holds
+    /// only sessions already in the buffer, and no session joins or leaves the lanes
+    /// while it is taken; only the active publisher session can still receive the end
+    /// of its block meanwhile. The lanes are copied before the active publisher session
+    /// is resolved: a publisher session in the copy that is still active by then is
+    /// protected, and one that is not active any more has received the end of its
+    /// block, so evicting it reports a complete block.
     ///
     /// @return the snapshot
     ActiveSessionsSnapshot snapshot() {
@@ -170,33 +189,24 @@ public final class ActiveSessionsBuffer {
         }
     }
 
-    /// Make room in the lanes, called with the eviction lock held, once per admission
-    /// over the limit. Complete sessions are cleared first, because sessions may have
-    /// completed while waiting for the lock, and the count is checked again before the
-    /// policy is consulted: the other ingress thread may already have made room. The
-    /// session the policy selects is then evicted when it is still present. The policy
-    /// selects a session whenever the lanes hold one other than the active publisher
-    /// session, so every pass that finds the buffer over its limit takes one session
-    /// out: by evicting it, or because the other ingress thread cleared it after the
-    /// snapshot was taken, which lowered the count already. A pass never loops and never
-    /// waits: the time spent under the lock is bounded by one clearing, one snapshot,
-    /// one policy consultation and at most one eviction, and an admission in flight on
-    /// the other ingress thread runs its own pass.
+    /// Make room for a session about to be admitted to a full buffer, called with the
+    /// eviction lock held once the admission has cleared the complete sessions and the
+    /// buffer is still full. The policy selects a session whenever the lanes hold one
+    /// other than the active publisher session, which a full buffer always does, and
+    /// no session joins or leaves the lanes between the snapshot and the eviction, so
+    /// every pass evicts the session the policy selects. A pass never loops and never
+    /// waits: it adds one snapshot, one policy consultation and one eviction to the
+    /// admission's time under the lock.
     private void makeRoom() {
-        clearCompleted(highPrioritySessions);
-        clearCompleted(lowPrioritySessions);
-        if (isOverLimit()) {
-            final SessionKey selected = evictionPolicy.selectForEviction(snapshot());
-            if (selected != null) {
-                evict(selected);
-            }
+        final SessionKey selected = evictionPolicy.selectForEviction(snapshot());
+        if (selected != null) {
+            evict(selected);
         }
     }
 
-    /// Evict one session: remove it from its lane, cancel it, and account for it.
-    /// A session that is in no lane any more was cleared by the other ingress thread
-    /// since the snapshot was taken, which lowered the count already, and is left
-    /// alone.
+    /// Evict one session: remove it from its lane, cancel it, and account for it. The
+    /// policy selects from a snapshot taken under the eviction lock, which is still
+    /// held, so the selected session is always in one of the lanes.
     ///
     /// @param key the key of the session to evict
     private void evict(final SessionKey key) {
@@ -226,18 +236,19 @@ public final class ActiveSessionsBuffer {
             evictedSessions(lane).increment();
             LOGGER.log(
                     DEBUG,
-                    "Evicted the session for block {0} from the {1} lane, the active sessions buffer is over its limit of {2}",
+                    "Evicted the session for block {0} from the {1} lane, the active sessions buffer is full at its limit of {2}",
                     key.blockNumber(),
                     lane,
                     verificationConfig.activeSessionsBufferSize());
         }
     }
 
-    /// Whether the combined count exceeds the configured limit.
+    /// Whether the combined count has reached the configured limit, so that another
+    /// session can only be admitted once room is made.
     ///
-    /// @return true when over the limit
-    private boolean isOverLimit() {
-        return size() > verificationConfig.activeSessionsBufferSize();
+    /// @return true when the buffer is full
+    private boolean isFull() {
+        return size() >= verificationConfig.activeSessionsBufferSize();
     }
 
     /// The map holding a lane.

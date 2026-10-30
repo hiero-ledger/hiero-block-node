@@ -16,13 +16,13 @@ import org.hiero.block.node.base.Loggable;
 ///     track of the blocks that have been recently verified, and failures of verification for blocks that have
 ///     been recently verified will result in an informational failure rather than a standard one.
 /// @param activeSessionsBufferSize the limit of simultaneously active sessions, counted across the high priority
-///     lane (the publisher's live stream) and the low priority lane (every other channel) together. Every admission
-///     over this limit evicts one session, so the count does not stay above it. The stuck session with the highest
-///     block goes first, the low priority one on a tie: a session waiting for order above the first block after the
-///     last verified block that no session holds. When no session is stuck, the low priority sessions go before any
-///     high priority session. The session the publisher is still streaming is never evicted. Must be at least 13. A
-///     prime number is recommended, as the default 101 is; a Mersenne number (2 to the power of n, minus 1) is
-///     acceptable.
+///     lane (the publisher's live stream) and the low priority lane (every other channel) together. An admission
+///     that finds the buffer full first evicts one of the sessions already held, so the count never exceeds it and a
+///     session is never evicted by its own admission. The stuck session with the highest block goes first, the low
+///     priority one on a tie: a session waiting for order above the first block after the last verified block that no
+///     session holds. When no session is stuck, the low priority sessions go before any high priority session. The
+///     session the publisher is still streaming is never evicted. Must be at least 13. A prime number is recommended,
+///     as the default 101 is; a Mersenne number (2 to the power of n, minus 1) is acceptable.
 /// @param firstOrderedBlock the first block number that will require strict ordering. All blocks below this
 ///     setting will not await order, and successful verification will be reported immediately.
 /// @param allSourcesRequireOrdering if true, strict ordering of the next expected block to verify will be enforced

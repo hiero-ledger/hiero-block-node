@@ -1064,15 +1064,14 @@ class VerificationServicePluginTest {
         }
 
         /// This test aims to assert that when, after block 0 is verified, complete publisher blocks fill the
-        /// buffer of thirteen above the missing block 1, the highest stuck session other than the active one
-        /// is evicted and reports a standard CANCELLED failure from the publisher. The fixtures hold six
+        /// buffer of thirteen above the missing block 1, the highest stuck session is evicted to make room for
+        /// the next one and reports a standard CANCELLED failure from the publisher. The fixtures hold six
         /// consecutive blocks, so the buffer is filled with copies of blocks 2 to 5, each a session of its own,
-        /// and every session waits for block 1, which never arrives. A fifth copy of block 5 then starts and is
-        /// the active publisher session during its own admission, so the newest earlier copy of block 5 is the
-        /// highest stuck session that may go. The outcome does not depend on timing.
+        /// and every session waits for block 1, which never arrives. A fifth copy of block 5 then starts and
+        /// finds the buffer full, so the newest earlier copy of block 5, the highest held stuck session, is
+        /// evicted before the fifth copy is added. The outcome does not depend on timing.
         @Test
-        @DisplayName(
-                "Active Sessions Buffer - evicts the highest stuck high priority session other than the active one when the buffer is full")
+        @DisplayName("Active Sessions Buffer - evicts the highest stuck high priority session when the buffer is full")
         void testEvictsTheHighestStuckHighPrioritySessionWhenTheBufferIsFull() throws IOException, ParseException {
             final List<ResourceTestWRBBlock> loadedBlocks = ResourceTestBlockBuilder.loadMultiple(consecutiveWRBBlocks);
             final ResourceTestWRBBlock block0 = loadedBlocks.get(0);
@@ -1099,13 +1098,14 @@ class VerificationServicePluginTest {
         /// This test aims to assert that a high priority session that has only received its header is never
         /// evicted, even when it holds the highest block: after block 0 is verified, the active publisher
         /// session for block 5 and backfilled copies of blocks 2, 3 and 4 fill the buffer of thirteen, all
-        /// waiting above the missing block 1, so all are stuck. A fifth backfilled copy of block 4 overflows
-        /// the buffer, is the highest stuck session other than the active one, is evicted and reports
-        /// CANCELLED with source BACKFILL, while the incomplete high priority session for block 5 stays.
+        /// waiting above the missing block 1, so all are stuck. When a fifth backfilled copy of block 4 is
+        /// admitted to the full buffer, the highest stuck session other than the active one, the newest held
+        /// copy of block 4, is evicted to make room and reports CANCELLED with source BACKFILL, while the
+        /// incomplete high priority session for block 5 stays.
         @Test
         @DisplayName(
-                "Active Sessions Buffer - keeps the high priority session still receiving items and evicts the backfilled newcomer")
-        void testProtectsTheHighPrioritySessionStillReceivingItemsAndEvictsTheBackfilledNewcomer()
+                "Active Sessions Buffer - keeps the high priority session still receiving items and evicts a backfilled copy")
+        void testProtectsTheHighPrioritySessionStillReceivingItemsAndEvictsABackfilledCopy()
                 throws IOException, ParseException {
             final List<ResourceTestWRBBlock> loadedBlocks = ResourceTestBlockBuilder.loadMultiple(consecutiveWRBBlocks);
             final ResourceTestWRBBlock block0 = loadedBlocks.get(0);
@@ -1135,10 +1135,10 @@ class VerificationServicePluginTest {
         /// This test aims to assert that a high priority session stuck above a missing block is evicted
         /// rather than the backfilled blocks below it, and that the backfilled run then verifies: after block 0
         /// is verified, the complete high priority session for block 5 and twelve backfilled copies of block 2
-        /// fill the buffer of thirteen, waiting for block 1. The backfilled block 1 then overflows the buffer
-        /// and forms a run 1, 2 with block 0, so the first gap is block 3 and block 5 is the only stuck
-        /// session. It is evicted and reports CANCELLED with source PUBLISHER, and block 1 and every copy of
-        /// block 2 verify, block 1 first.
+        /// fill the buffer of thirteen, waiting for block 1. When the backfilled block 1 is admitted to the
+        /// full buffer, every held session still waits for it, and block 5, the highest, is evicted to make
+        /// room and reports CANCELLED with source PUBLISHER. Block 1 then forms a run 1, 2 with block 0, and
+        /// block 1 and every copy of block 2 verify, block 1 first.
         @Test
         @DisplayName(
                 "Active Sessions Buffer - evicts a far-ahead high priority session stuck above a missing block, keeping the backfilled run below it")
@@ -1182,12 +1182,13 @@ class VerificationServicePluginTest {
 
         /// This test aims to assert that backfilled blocks delivered in descending order are handled correctly.
         /// After block 0 is verified, backfilled copies of blocks 5, 4, 3 and 2, in that order, fill the buffer
-        /// of thirteen above the missing block 1, so every session is stuck, and the copy of block 2 that
-        /// overflows the buffer evicts the newest copy of block 5, the highest. The backfilled block 1 then
-        /// completes the run 1 to 5 with block 0, so no session is stuck, and its admission evicts the newest
-        /// remaining copy of block 5, the highest backfilled session. Both evictions report CANCELLED with
-        /// source BACKFILL, and block 1 and every kept copy verify, block 1 first. Each admission runs its
-        /// eviction pass before its items are offered, so the outcome does not depend on timing.
+        /// of thirteen above the missing block 1, so every session is stuck, and the fourth copy of block 2
+        /// finds the buffer full and evicts the newest copy of block 5, the highest. The admission of the
+        /// backfilled block 1 finds it full again, with every held session still waiting for block 1, and
+        /// evicts the newest remaining copy of block 5. Both evictions report CANCELLED with source BACKFILL.
+        /// Block 1 then completes the run 1 to 5 with block 0, and block 1 and every kept copy verify, block 1
+        /// first. Each admission runs its eviction pass before its items are offered, so the outcome does not
+        /// depend on timing.
         @Test
         @DisplayName(
                 "Active Sessions Buffer - descending backfilled delivery keeps the lowest blocks and verifies them")

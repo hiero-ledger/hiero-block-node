@@ -51,10 +51,11 @@ contiguous, in order stream of verified blocks they can process safely.
    - Successful verifications **must** be propagated strictly in order, subject
      to the ordering configuration described below.
    - Failures **must** be propagated immediately, without ordering.
-4. The plugin **must** bound the number of simultaneously active sessions:
-   every admission over the limit gives up one session, so the count never
-   stays above the limit, whatever order and rate the sources deliver blocks
-   in. A session stuck behind a block that no session holds goes first, the
+4. The plugin **must** bound the number of simultaneously active sessions: an
+   admission that finds the buffer full first gives up one of the sessions
+   already held, so the count never exceeds the limit, whatever order and rate
+   the sources deliver blocks in, and a session is never given up by its own
+   admission. A session stuck behind a block that no session holds goes first, the
    highest one first; only when no session is stuck does a session that would
    complete on its own make room. The block the publisher is still streaming is
    never given up.
@@ -80,8 +81,8 @@ verifies a single block from start to finish and always produces a result.</dd>
 session passes through: hashing, proof verification, result ordering, and
 result handling.</dd>
 <dt><code>Session Handler</code></dt><dd>The component that manages the
-sessions and their lifecycle: it starts, supplies, cancels and clears them, and
-routes incoming data to the correct session.</dd>
+sessions and their lifecycle: it starts, supplies and cancels them, and routes
+incoming data to the correct session.</dd>
 <dt><code>Active Sessions Buffer</code></dt><dd>A passive helper of the session
 handler that holds the running sessions in two lanes under one limit and
 applies the eviction policy when an admission exceeds it.</dd>
@@ -122,10 +123,9 @@ verified blocks buffer.
 
 ### BlockSessionHandler
 
-Manages the verification sessions and their lifecycle. Before handling any
-block items it clears the sessions that are complete from the active sessions
-buffer. It starts a session for every block that starts, admits it to the
-buffer, and supplies every session with the block items of its block: publisher
+Manages the verification sessions and their lifecycle. It starts a session for
+every block that starts, admits it to the active sessions buffer, and supplies
+every session with the block items of its block: publisher
 item batches go to the active publisher session, and every backfilled block gets
 a session of its own. When the publisher starts a new block before the active one
 ended, it cancels the active one.
@@ -137,9 +137,9 @@ started and has not cleared yet, in two lanes: a **high priority lane** for
 sessions of blocks from the publisher and a **low priority lane** for sessions
 of blocks from any other source, under one combined limit. It gives the
 handler the means to manage its sessions: admitting a session to the lane its
-block's source calls for, applying the **eviction policy** when an admission
-exceeds the limit, finding the active publisher session, and clearing the
-sessions that are complete. Sessions never change the buffer themselves.
+block's source calls for, which first clears the sessions that are complete and
+applies the **eviction policy** when the buffer is still full, and finding the
+active publisher session. Sessions never change the buffer themselves.
 
 ### VerificationOutbox
 
@@ -249,9 +249,8 @@ stage skips the remaining work and goes straight to result handling.
    success it then advances the last verified block and records the block in the
    recently verified buffer. On failure it decides whether the failure is
    informational, optionally dumps the bad block for diagnostics, and updates
-   metrics. Once this stage has returned, the session is complete, and the
-   session handler clears it from the active sessions buffer before it handles
-   the next block items.
+   metrics. Once this stage has returned, the session is complete, and the next
+   admission to the active sessions buffer clears it.
 
 ### The Active Sessions Buffer
 
@@ -267,15 +266,15 @@ publisher session also becomes the *active publisher session*, whether its block
 comes in many batches or in one, until it has received the end of its block:
 the publisher's later batches go to it and the eviction policy never selects
 it. When the next publisher block starts before it ended, the session handler
-cancels it, because the publisher has moved on. The session handler clears the
-sessions that are complete before it handles new block items, and the buffer
-clears them again before deciding an eviction. If an admission takes the
-combined count over the limit, the buffer consults an **eviction policy**: a
-separate unit that receives an immutable view of both lanes and the last
-verified block, and selects one session to give up. The buffer never stays over
-its limit: every admission over it evicts one session, so the count is above
-the limit only while admissions are in flight, by at most one per ingress
-thread. The policy in use sorts every session into one of three states.
+cancels it, because the publisher has moved on. Every admission first clears
+the sessions that are complete, which stay in their lanes until then. If the
+buffer is still full, the buffer consults an **eviction policy**: a separate
+unit that receives an immutable view of both lanes and the last verified block,
+and selects one of the sessions already held to give up. Only then is the new
+session added. The count therefore never exceeds the limit, a session is never
+evicted by its own admission, and admissions run one at a time, their clearing
+and eviction included. The policy in use sorts every session into one of three
+states.
 
 - *Finishing*: the session does not wait for order. Its block is at most one
   ahead of the last verified block (the next expected block, or a block at or
@@ -317,9 +316,9 @@ of:
 3. The high priority session at the **backup position**, once the low priority
    lane is empty, counted from the highest block down:
    `activeSessionsBufferSize` divided by 11, truncated, and at least the third
-   session (the ninth with the default limit of 101). A view taken while
-   sessions were being cleared can hold fewer, and the lowest session is taken
-   then. The position keeps clear of both ends of the lane. The lowest session
+   session (the ninth with the default limit of 101), or the lowest session of a
+   view holding fewer, which a full buffer never hands over. The position keeps
+   clear of both ends of the lane. The lowest session
    is the next to complete, and evicting it holds up every session above it,
    one resend at a time. The highest sessions are the blocks the publisher has
    just sent, and evicting them asks for the same blocks again on every
@@ -327,20 +326,21 @@ of:
    above the gap it opens, and a long run below it that keeps draining while
    the publisher resends the evicted block. When the session at the position is
    the active publisher session, the next one up is taken, or the next one down
-   when none is above it. That happens once the publisher resends a block this
-   step evicted, since the resent block lands back on the same position: the
-   next one up opens the gap above the block being received, so that block and
-   every block below it still complete in order, and it is the block the
-   publisher sends next.
+   when none is above it. That can happen while the publisher resends a block
+   below its newest ones: the next one up opens the gap above the block being
+   received, so that block and every block below it still complete in order,
+   and it is the block the publisher sends next.
 
 The policy therefore selects a session whenever the buffer holds one other than
 the active publisher session, and that session is never selected: the publisher
 does not resend a block that ends incomplete, so evicting it would lose the
-block. The session just admitted is treated like any other: a block that
-arrives stuck far ahead of the rest is selected on arrival. The policy is
-consulted once per admission over the limit; eviction happens only when a
-session is admitted, never on a timer; an admission never waits for room; and
-the two ingress threads never evict at the same time. The
+block. The policy chooses among the sessions already in the buffer, so the
+session being admitted always gets its place, and a block that arrives stuck
+far ahead of the rest goes on a later admission, as the highest stuck session.
+The policy is consulted once per admission into a full buffer; eviction happens
+only when a session is admitted, never on a timer; an admission never waits for
+room; and each admission runs under one lock, its eviction included, so the two
+ingress threads never admit or evict at the same time. The
 `verification_active_sessions` gauge shows the count, and
 `verification_sessions_evicted` counts the evictions. How often sessions are
 evicted depends on how far ahead the sources deliver: backfill sends its blocks
@@ -495,10 +495,9 @@ How the active sessions buffer makes room:
 
 ```mermaid
 flowchart TD
-    NS[New session starts] --> ADD[Add to its lane]
-    ADD --> FULL{"Combined count over the limit?"}
-    FULL -- no --> RUN[Admission done]
-    FULL -- yes --> GAP["Find the first gap: the lowest block after the last verified block that no session holds"]
+    NS[New session starts] --> FULL{"Combined count at the limit?"}
+    FULL -- no --> ADD[Add it to its lane]
+    FULL -- yes --> GAP["Find the first gap among the sessions already held: the lowest block after the last verified block that no session holds"]
     GAP --> STUCK{"A stuck session above the gap, other than the active publisher session?"}
     STUCK -- yes --> C1["Best candidate: the highest stuck session, the low priority one on a tie"]
     STUCK -- no --> LOW{"A low priority session whose eviction opens no gap below a high priority session?"}
@@ -510,7 +509,8 @@ flowchart TD
     C2 --> CANCEL
     C3 --> CANCEL
     C4 --> CANCEL
-    CANCEL --> RUN
+    CANCEL --> ADD
+    ADD --> RUN[Admission done]
 ```
 
 ## Configuration
@@ -520,7 +520,7 @@ Configuration prefix: `verification`
 |              Property              |                  Default                   |                                                                                                                    Description                                                                                                                     |
 |------------------------------------|--------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `recentlyVerifiedBlocksBufferSize` | `100`                                      | Maximum number of recently verified block numbers kept for the informational failure check. When full, the oldest entry is dropped.                                                                                                                |
-| `activeSessionsBufferSize`         | `101`                                      | Limit of simultaneously active sessions across both lanes. Every admission over it evicts one session, stuck sessions first, never the block being streamed. Must be at least 13; a prime is preferred, a Mersenne number (2^n - 1) is acceptable. |
+| `activeSessionsBufferSize`         | `101`                                      | Limit of simultaneously active sessions across both lanes. An admission at the limit first evicts one, stuck sessions first, never the block being streamed. Must be at least 13; a prime is preferred, a Mersenne number (2^n - 1) is acceptable. |
 | `firstOrderedBlock`                | `0`                                        | The first block number that requires strict ordering. Blocks below this value report success immediately, without waiting for order.                                                                                                               |
 | `allSourcesRequireOrdering`        | `true`                                     | If `true`, successes from every source are strictly ordered. If `false`, only publisher blocks are ordered. Should remain `true` on Tier 1 Block Nodes.                                                                                            |
 | `dumpEnabled`                      | `false`                                    | Whether to write failing block bytes and metadata to disk for diagnostics.                                                                                                                                                                         |
@@ -574,11 +574,12 @@ in flight.
 #### `verification_active_sessions`
 
 The combined number of sessions in both lanes of the active sessions buffer,
-set whenever a session is admitted or completed sessions are cleared. It stays
-at or below `activeSessionsBufferSize`: every admission over the limit evicts
-one session, so the value is above the limit only while admissions are in
-flight. A value that sits at the limit means the sources deliver faster than
-the node verifies, and sessions are evicted to make room.
+set on every admission, once the complete sessions are cleared and the new
+session is added, so it changes only when a session is admitted. It never
+exceeds `activeSessionsBufferSize`: an admission that finds the buffer full
+evicts one session before it adds the new one. A value that sits at the limit
+means the sources deliver faster than the node verifies, and sessions are
+evicted to make room.
 
 #### `verification_sessions_evicted`
 
@@ -710,9 +711,10 @@ ends in a verification notification, and the plugin keeps running.
 5. **Source ordering setting.** With `allSourcesRequireOrdering` set to
    `false`, a backfilled block ahead of the last verified block reports
    success immediately; with `true`, it waits.
-6. **Active sessions buffer.** Every admission that takes the combined count
-   over the limit cancels exactly one session, so the count never stays above
-   the limit: the stuck session with the highest block when there is one, the
+6. **Active sessions buffer.** Every admission into a full buffer first cancels
+   exactly one of the sessions already held, so the count never exceeds the
+   limit and a session is never evicted by its own admission: the stuck session
+   with the highest block when there is one, the
    low priority one on a tie; otherwise the highest low priority session that
    no high priority session waits on, then the highest remaining low priority
    session, and only once the low priority lane is empty the high priority
