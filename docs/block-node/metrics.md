@@ -95,6 +95,7 @@ Observes the messaging system that connects the publisher with subscribers and t
 | Counter | `messaging_block_backfilled_notifications`              | Notifications issued after backfilling blocks          |
 | Counter | `messaging_newest_block_known_to_network_notifications` | Notifications issued for newest block known to network |
 | Counter | `messaging_publisher_status_update_notifications`       | Notifications issued for publisher status updates      |
+| Counter | `messaging_handler_failures`                            | Messages skipped after a message handler failed        |
 
 ---
 
@@ -350,6 +351,7 @@ is a block-count cap, not a disk-size cap (see [Host / Volume](#host--volume-ext
 |----------|---------------------------------------------|-----------------------------------------------------------|
 | L        | `messaging_item_queue_percent_used`         | If percentage exceeds 60%, otherwise, configure as needed |
 | L        | `messaging_notification_queue_percent_used` | If percentage exceeds 60%, otherwise, configure as needed |
+| M        | `messaging_handler_failures`                | If value increases, otherwise, configure as needed        |
 
 **Latency**: Alerts for latency metrics in receiving, hashing, verifying, and persisting blocks
 
