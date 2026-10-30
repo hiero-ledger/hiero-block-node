@@ -51,6 +51,10 @@ public class DynamicBlockItemTest {
     private static final int LONG_AWAIT_TIMEOUT = TEST_TIMEOUT_LIMIT - 10;
     /// mediut timeout for a wait, should be no more than 1/2 of the test timeout limit.
     private static final int MEDIUM_AWAIT_TIMEOUT = TEST_TIMEOUT_LIMIT / 2;
+    /// Maximum batches a no-backpressure handler may trail the publisher by: a quarter of the ring buffer, well
+    /// below the facility's 80 percent eviction threshold.
+    private static final int MAX_HANDLER_LAG =
+            TestConfig.getConfig().getConfigData(MessagingConfig.class).blockItemQueueSize() / 4;
 
     /**
      * Test to verify that the messaging service can handle dynamic handlers with no back pressure and a slow handler is
@@ -526,18 +530,20 @@ public class DynamicBlockItemTest {
     @Test
     void testNoBackpressureHandlerReceivesAllItemsWhenFastEnough() throws InterruptedException {
         final int totalItems = TEST_DATA_COUNT;
+        final int totalBatches = totalItems * 2;
         final CountDownLatch allReceived = new CountDownLatch(1);
         final AtomicInteger receiveCount = new AtomicInteger(0);
         final AtomicInteger receiveSum = new AtomicInteger(0);
 
-        final NoBackPressureBlockItemHandler fastHandler =
-                new BackpressureTestItemHandler(receiveSum, receiveCount, totalItems, allReceived);
+        final BackpressureTestItemHandler fastHandler =
+                new BackpressureTestItemHandler(receiveSum, receiveCount, totalBatches, allReceived);
 
         final BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
         messagingService.init(TestConfig.getBlockNodeContext(), null);
         messagingService.registerNoBackpressureBlockItemHandler(fastHandler, false, "fast-all-items");
         messagingService.start();
 
+        int publishedBatches = 0;
         for (int i = 0; i < totalItems; i++) {
             messagingService.sendBlockItems(new BlockItems(
                     List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))),
@@ -549,28 +555,30 @@ public class DynamicBlockItemTest {
                     i,
                     true,
                     false));
-            // Yield periodically so the handler's virtual thread gets scheduled.
-            // Without this, the tight publish loop outpaces JVM scheduling and the handler
-            // falls >80% behind before it can process its first event, triggering eviction.
-            if (i % 64 == 63) {
-                LockSupport.parkNanos(100_000);
-            }
+            publishedBatches += 2;
+            awaitHandlerWithinLag(fastHandler, receiveCount, publishedBatches);
         }
-        // Pause for 100 microseconds to let blocks finish sending.
-        LockSupport.parkNanos(100_000L);
+        final boolean receivedAll = allReceived.await(LONG_AWAIT_TIMEOUT, TimeUnit.SECONDS);
         messagingService.stop();
-        assertAllReceived(allReceived, totalItems * 2);
-        assertEquals(totalItems * 2, receiveCount.get(), "Item count mismatch");
+
+        assertFalse(fastHandler.isEvicted(), "Fast handler should never be evicted");
+        assertTrue(
+                receivedAll,
+                "No-backpressure handler received only %d/%d items".formatted(receiveCount.get(), totalBatches));
+        assertEquals(totalBatches, receiveCount.get(), "Item count mismatch");
         // use a formula for sum of numbers from 0 to n-1 instead of adding them
         final int pascalSum = (totalItems * (totalItems - 1)) / 2;
         assertEquals(pascalSum * 2, receiveSum.get(), "Item sum mismatch — some items were lost");
     }
 
-    private static void assertAllReceived(final CountDownLatch allReceived, final int totalItems)
-            throws InterruptedException {
-        final String message =
-                "No-backpressure handler received only %d/%d items".formatted(allReceived.getCount(), totalItems);
-        assertTrue(allReceived.await(LONG_AWAIT_TIMEOUT, TimeUnit.SECONDS), message);
+    /// Paces the publisher on the handler's observed progress rather than on fixed parks. A handler that keeps up
+    /// must never be evicted, but on a loaded runner the publisher can be scheduled far more often than the
+    /// handler thread, so the lag is bounded here well below the facility's 80 percent eviction threshold.
+    private static void awaitHandlerWithinLag(
+            final BackpressureTestItemHandler handler, final AtomicInteger receiveCount, final int publishedBatches) {
+        while (publishedBatches - receiveCount.get() > MAX_HANDLER_LAG && !handler.isEvicted()) {
+            LockSupport.parkNanos(10_000L);
+        }
     }
 
     /**
@@ -600,6 +608,7 @@ public class DynamicBlockItemTest {
         private final AtomicInteger receiveCount;
         private final int totalItems;
         private final CountDownLatch allReceived;
+        private final AtomicBoolean evicted = new AtomicBoolean(false);
 
         public BackpressureTestItemHandler(
                 final AtomicInteger receiveSum,
@@ -631,9 +640,16 @@ public class DynamicBlockItemTest {
             }
         }
 
+        /// Eviction is recorded rather than failed here, because this callback runs on the disruptor thread where
+        /// an assertion error is swallowed by its exception handler instead of failing the test.
         @Override
         public void onTooFarBehindError() {
-            fail("Fast handler should never be evicted");
+            evicted.set(true);
+            allReceived.countDown();
+        }
+
+        boolean isEvicted() {
+            return evicted.get();
         }
     }
 }
