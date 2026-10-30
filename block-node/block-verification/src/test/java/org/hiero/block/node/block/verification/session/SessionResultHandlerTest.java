@@ -4,6 +4,7 @@ package org.hiero.block.node.block.verification.session;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionException;
@@ -37,21 +38,25 @@ import org.junit.jupiter.params.provider.EnumSource;
 class SessionResultHandlerTest {
     /// The number of the block the handler under test reports for.
     private static final long BLOCK_NUMBER = 10L;
-    /// Captures the notifications the handler sends.
-    private TestBlockMessagingFacility blockMessaging;
+    /// Captures the notifications the handler sends, and whether the result handled flag
+    /// was up when each was sent.
+    private FlagRecordingMessagingFacility blockMessaging;
     /// The last verified block handed to the handler under test.
     private AtomicLong lastVerifiedBlock;
     /// The recently verified blocks handed to the handler under test.
     private ConcurrentLinkedDeque<Long> recentlyVerifiedBlocks;
     /// The flag the owning session raises when the batch ending the block has been received.
     private AtomicBoolean endOfBlockReceived;
+    /// The flag the handler under test raises once it has handled the result.
+    private AtomicBoolean resultHandled;
     /// The instance under test.
     private SessionResultHandler toTest;
 
     /// Setup before each test.
     @BeforeEach
     void setUp() {
-        blockMessaging = new TestBlockMessagingFacility();
+        resultHandled = new AtomicBoolean(false);
+        blockMessaging = new FlagRecordingMessagingFacility(resultHandled);
         lastVerifiedBlock = new AtomicLong(BLOCK_NUMBER - 1);
         recentlyVerifiedBlocks = new ConcurrentLinkedDeque<>();
         final MetricsHolder metrics = MetricsHolder.create(TestUtils.createMetrics());
@@ -71,7 +76,49 @@ class SessionResultHandlerTest {
                 BLOCK_NUMBER,
                 BlockSource.PUBLISHER,
                 new SessionKey(BLOCK_NUMBER, 0L),
-                endOfBlockReceived);
+                endOfBlockReceived,
+                resultHandled);
+    }
+
+    /// Tests for the flag the handler raises once it has handled the result, which makes
+    /// its session complete.
+    @Nested
+    @DisplayName("Result Handled Flag Tests")
+    class ResultHandledFlagTests {
+        /// This test aims to assert that the handler raises the result handled flag after it
+        /// has sent the notification, whatever outcome it handles: a success, a stage
+        /// failure, a cancellation, or neither a result nor a failure. The flag is down
+        /// before the handler runs and still down while the notification is sent, so a
+        /// session never becomes complete before its notification is out, and it is up
+        /// once the handler returns.
+        @ParameterizedTest(name = "{0}")
+        @EnumSource(Outcome.class)
+        @DisplayName("accept() raises the result handled flag once the notification is sent")
+        void testRaisesTheResultHandledFlagOnceTheNotificationIsSent(final Outcome outcome) {
+            assertThat(resultHandled).isFalse();
+            final BlockVerificationResult result =
+                    switch (outcome) {
+                        case SUCCESS ->
+                            new BlockVerificationResult(
+                                    BLOCK_NUMBER,
+                                    Bytes.wrap(new byte[32]),
+                                    BlockUnparsed.DEFAULT,
+                                    BlockSource.PUBLISHER);
+                        case STAGE_FAILURE, CANCELLATION, NEITHER -> null;
+                    };
+            final Throwable failure =
+                    switch (outcome) {
+                        case SUCCESS, NEITHER -> null;
+                        case STAGE_FAILURE ->
+                            new CompletionException(new VerificationSessionFailedException(
+                                    BLOCK_NUMBER, SessionFailureType.BAD_BLOCK_PROOF, BlockSource.PUBLISHER));
+                        case CANCELLATION -> new CancellationException();
+                    };
+            toTest.accept(result, failure);
+            assertThat(blockMessaging.getSentVerificationNotifications(1)).hasSize(1);
+            assertThat(blockMessaging.resultHandledWhenSent()).containsExactly(false);
+            assertThat(resultHandled).isTrue();
+        }
     }
 
     /// Tests for the classification of sessions that were stopped before
@@ -204,6 +251,50 @@ class SessionResultHandlerTest {
                     .returns(FailureInfo.standard(FailureType.BAD_BLOCK_PROOF), VerificationNotification::failureInfo);
             assertThat(recentlyVerifiedBlocks).isEmpty();
             assertThat(lastVerifiedBlock.get()).isEqualTo(BLOCK_NUMBER - 1);
+        }
+    }
+
+    /// The outcomes a result handler can be handed.
+    enum Outcome {
+        /// A successful result.
+        SUCCESS,
+        /// A failure a stage reported.
+        STAGE_FAILURE,
+        /// A cancellation of the stage chain.
+        CANCELLATION,
+        /// Neither a result nor a failure.
+        NEITHER
+    }
+
+    /// A messaging facility that records, for every verification notification it is
+    /// sent, whether the result handled flag was up at that moment, and otherwise behaves
+    /// like the [TestBlockMessagingFacility].
+    private static final class FlagRecordingMessagingFacility extends TestBlockMessagingFacility {
+        /// The flag whose value is recorded.
+        private final AtomicBoolean resultHandled;
+        /// The value of the flag at every send, in order.
+        private final List<Boolean> resultHandledWhenSent;
+
+        /// Constructor.
+        ///
+        /// @param resultHandled the flag whose value is recorded at every send
+        private FlagRecordingMessagingFacility(final AtomicBoolean resultHandled) {
+            this.resultHandled = resultHandled;
+            this.resultHandledWhenSent = new ArrayList<>();
+        }
+
+        /// {@inheritDoc}
+        @Override
+        public void sendBlockVerification(final VerificationNotification notification) {
+            resultHandledWhenSent.add(resultHandled.get());
+            super.sendBlockVerification(notification);
+        }
+
+        /// The value of the flag at every send so far, in order.
+        ///
+        /// @return the recorded values
+        private List<Boolean> resultHandledWhenSent() {
+            return resultHandledWhenSent;
         }
     }
 }

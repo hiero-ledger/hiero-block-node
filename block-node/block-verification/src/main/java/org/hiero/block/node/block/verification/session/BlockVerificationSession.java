@@ -41,8 +41,9 @@ public interface BlockVerificationSession {
 
     /// Cancel and stop the session.
     ///
-    /// @return true if this call stopped the session, false if the session had already
-    ///     produced its result before the call
+    /// @return true for exactly one call once the session is stopped by cancellation, and
+    ///     false for every other call, as well as for any call made after the session
+    ///     produced its result on its own
     boolean cancel();
 
     /// Mark that the end of block has been received for this session.

@@ -58,6 +58,9 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
     /// been received, used to discriminate a cancelled complete block from an
     /// incomplete one.
     private final AtomicBoolean endOfBlockReceived;
+    /// Flag this stage raises once it has handled the result and sent the
+    /// notification; the owning session is complete from then on.
+    private final AtomicBoolean resultHandled;
 
     /// Constructor.
     ///
@@ -72,6 +75,8 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
     /// @param sessionKey the composite key of the owning session, must not be null
     /// @param endOfBlockReceived flag raised by the owning session when the batch ending the
     ///     block has been received, must not be null
+    /// @param resultHandled flag this stage raises once it has handled the result and sent the
+    ///     notification, read by the owning session, must not be null
     public SessionResultHandler(
             final VerificationOutbox outbox,
             final VerificationConfig verificationConfig,
@@ -82,7 +87,8 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
             final long blockNumber,
             final BlockSource blockSource,
             final SessionKey sessionKey,
-            final AtomicBoolean endOfBlockReceived) {
+            final AtomicBoolean endOfBlockReceived,
+            final AtomicBoolean resultHandled) {
         this.outbox = Objects.requireNonNull(outbox);
         this.verificationConfig = Objects.requireNonNull(verificationConfig);
         this.sessionResultMetrics = Objects.requireNonNull(sessionResultMetrics);
@@ -92,6 +98,7 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
         this.recentlyVerifiedBlocks = Objects.requireNonNull(recentlyVerifiedBlocks);
         this.sessionKey = Objects.requireNonNull(sessionKey);
         this.endOfBlockReceived = Objects.requireNonNull(endOfBlockReceived);
+        this.resultHandled = Objects.requireNonNull(resultHandled);
         if (blockNumber < 0) {
             throw new IllegalArgumentException("Block number must be non-negative");
         } else {
@@ -101,7 +108,9 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
 
     /// Accept a [BlockVerificationResult] in case of successful verification of a block,
     /// or a [Throwable] in case of an error or failure.
-    /// The end result is propagated to messaging.
+    /// The end result is propagated to messaging. Once it has been handled, its
+    /// notification sent, the result handled flag is raised, whatever happened while
+    /// handling it: the owning session is complete from then on.
     @Override
     public void accept(final BlockVerificationResult verificationResult, final Throwable throwable) {
         try {
@@ -122,6 +131,8 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
                     blockSource);
             outbox.send(notification);
             sessionResultMetrics.verificationBlocksError().increment();
+        } finally {
+            resultHandled.set(true);
         }
     }
 
