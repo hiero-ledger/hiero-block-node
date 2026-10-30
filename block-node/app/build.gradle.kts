@@ -373,7 +373,6 @@ val assemblePluginCatalog =
         }
     }
 
-// solo-dev bakes plugins/, full bakes plugin-catalog/
 createDockerImage.configure { dependsOn(prepareDockerPlugins, assemblePluginCatalog) }
 
 tasks.register<Exec>("startDockerContainer") {

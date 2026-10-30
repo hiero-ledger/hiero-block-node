@@ -113,6 +113,7 @@ RUN echo >> /etc/sudoers && \
 USER hedera
 
 FROM base-image AS full
+ENV VERSION=${VERSION}
 ENV BN_PLUGINS=all
 # single COPY keeps the catalog hardlinks
 COPY --from=catalog --chown=2000:2000 . app-${VERSION}/plugin-catalog/
