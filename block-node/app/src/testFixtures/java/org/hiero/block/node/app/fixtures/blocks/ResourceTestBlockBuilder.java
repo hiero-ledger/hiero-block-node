@@ -8,15 +8,26 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
 import org.hiero.block.internal.BlockUnparsed;
-import org.hiero.block.node.app.fixtures.TestUtils;
 import org.junit.jupiter.params.provider.Arguments;
 
 public class ResourceTestBlockBuilder {
+    /// Root of the extracted `ci-test-blocks` archive, see `fetchTestBlocks` in the root build.
+    public static Path testBlocksRoot() {
+        final String dir = System.getProperty("hiero.testBlocks.dir");
+        if (dir == null) {
+            throw new IllegalStateException(
+                    "System property hiero.testBlocks.dir not set; run tests through Gradle (fetchTestBlocks)");
+        }
+        return Path.of(dir);
+    }
+
     /// The real captured fixtures, one consecutive chain per proof family, each starting at
     /// block 0. These arrays are the single source of truth for the real-data tests: the hasher
     /// tests hash every block of every chain and the plugin tests feed each chain in order.
@@ -53,7 +64,7 @@ public class ResourceTestBlockBuilder {
 
         default BlockUnparsed loadBlock() throws IOException, ParseException {
             try (final InputStream stream =
-                            TestUtils.class.getModule().getResourceAsStream("test-blocks/" + resourceName());
+                            Files.newInputStream(testBlocksRoot().resolve(resourceName()));
                     final GZIPInputStream gzipInputStream = new GZIPInputStream(stream)) {
                 final byte[] bytes = gzipInputStream.readAllBytes();
                 return BlockUnparsed.PROTOBUF.parse(
@@ -78,12 +89,30 @@ public class ResourceTestBlockBuilder {
     /// {@code :block-verification:generateHarnessBlocks}.
     public enum WRAPS implements ResourceBlock {
         /// Genesis block: bootstraps TSS parameters and ledger ID.
-        BLOCK_0("CN_11_12_TSS_WRAPS/0.blk.gz", "3c5008ebb8a7b75dea226bc80070de857f0013c4e66cd06ab4f76e005bd41848", 0),
-        BLOCK_1("CN_11_12_TSS_WRAPS/1.blk.gz", "d3ccd9f1189828ddb26280a02073c3cddb990c0dd56dca0fb45a7a6f528a17a7", 1),
-        BLOCK_2("CN_11_12_TSS_WRAPS/2.blk.gz", "3ecbe0f59d5c4e3c76d90f14c41a680fdad6e526b1182cd2cf127f5e0cb69c98", 2),
-        BLOCK_3("CN_11_12_TSS_WRAPS/3.blk.gz", "85ee335f1141be23772617fd40efe5a0931b3ae5b3aeeb4719561a8102a97630", 3),
-        BLOCK_4("CN_11_12_TSS_WRAPS/4.blk.gz", "b962cb94bdc10673d620f91fe3bf739c3001cfb7ea84d62ec078a5fcaf65552e", 4),
-        BLOCK_5("CN_11_12_TSS_WRAPS/5.blk.gz", "e083ae5de11ba44fe5dc546f7e948de85d031535054d34f4ca9a3c608e6ea337", 5);
+        BLOCK_0(
+                "tss/direct/varied/local-cn-11-12/0.blk.gz",
+                "3c5008ebb8a7b75dea226bc80070de857f0013c4e66cd06ab4f76e005bd41848",
+                0),
+        BLOCK_1(
+                "tss/direct/varied/local-cn-11-12/1.blk.gz",
+                "d3ccd9f1189828ddb26280a02073c3cddb990c0dd56dca0fb45a7a6f528a17a7",
+                1),
+        BLOCK_2(
+                "tss/direct/varied/local-cn-11-12/2.blk.gz",
+                "3ecbe0f59d5c4e3c76d90f14c41a680fdad6e526b1182cd2cf127f5e0cb69c98",
+                2),
+        BLOCK_3(
+                "tss/direct/varied/local-cn-11-12/3.blk.gz",
+                "85ee335f1141be23772617fd40efe5a0931b3ae5b3aeeb4719561a8102a97630",
+                3),
+        BLOCK_4(
+                "tss/direct/varied/local-cn-11-12/4.blk.gz",
+                "b962cb94bdc10673d620f91fe3bf739c3001cfb7ea84d62ec078a5fcaf65552e",
+                4),
+        BLOCK_5(
+                "tss/direct/varied/local-cn-11-12/5.blk.gz",
+                "e083ae5de11ba44fe5dc546f7e948de85d031535054d34f4ca9a3c608e6ea337",
+                5);
         private final String resourceName;
         private final Bytes blockRootHash;
         private final long blockNumber;
@@ -111,57 +140,57 @@ public class ResourceTestBlockBuilder {
     }
 
     /// Sample wrapped record blocks (WRB) for the V6 `SignedRecordFileProof` verification path.
-    /// Each constant maps to a `test-blocks/WRB/<network>/<blockNumber>.blk.gz` resource and
+    /// Each constant maps to a `<network>/<blockNumber>.blk.gz` file under [#testBlocksRoot()] and
     /// carries the name of the network folder so callers can fetch the matching
-    /// [NodeAddressBook] via [#loadAddressBook(String)].
+    /// [NodeAddressBook] via [WRB#loadAddressBook()].
     public enum WRB implements ResourceBlock {
         /// Solo-network genesis WRB block — the only one in this batch containing tss-init metadata.
         SOLO_4N_BLOCK_0(
-                "WRB/SOLO_4N/0.blk.gz",
+                "wrb/v6/varied/local-solo-4n/0.blk.gz",
                 "bc3e4d7dfe22ba99d04da01757371cd3458ae414a8fcee25d0bee48f3a5cc05d",
                 0,
-                "SOLO_4N"),
+                "wrb/v6/varied/local-solo-4n"),
         SOLO_4N_BLOCK_1(
-                "WRB/SOLO_4N/1.blk.gz",
+                "wrb/v6/varied/local-solo-4n/1.blk.gz",
                 "f10b060cb824f1f63d6be21a15fbd356c8a21a6a2630aaf7e858200763261b7f",
                 1,
-                "SOLO_4N"),
+                "wrb/v6/varied/local-solo-4n"),
         SOLO_4N_BLOCK_2(
-                "WRB/SOLO_4N/2.blk.gz",
+                "wrb/v6/varied/local-solo-4n/2.blk.gz",
                 "4908e561241ceddcf51c5efdb02a983ec279734b9c74531417f71a9bd138c964",
                 2,
-                "SOLO_4N"),
+                "wrb/v6/varied/local-solo-4n"),
         SOLO_4N_BLOCK_3(
-                "WRB/SOLO_4N/3.blk.gz",
+                "wrb/v6/varied/local-solo-4n/3.blk.gz",
                 "6ee3b7cb4ae6aead865fc0791ea4a3e919ff0c7396af0ca3dddea57b8133048f",
                 3,
-                "SOLO_4N"),
+                "wrb/v6/varied/local-solo-4n"),
         SOLO_4N_BLOCK_4(
-                "WRB/SOLO_4N/4.blk.gz",
+                "wrb/v6/varied/local-solo-4n/4.blk.gz",
                 "1a645f93213adafd7d516e953c8ce4ef5aaea7fd39f89c6ec76f089630b15a1a",
                 4,
-                "SOLO_4N"),
+                "wrb/v6/varied/local-solo-4n"),
         SOLO_4N_BLOCK_5(
-                "WRB/SOLO_4N/5.blk.gz",
+                "wrb/v6/varied/local-solo-4n/5.blk.gz",
                 "3e61ddc29b36fe34611080972c4925636dc5e35dfe2ed0fdb0572cbd0a4625c6",
                 5,
-                "SOLO_4N"),
+                "wrb/v6/varied/local-solo-4n"),
         /// Real genesis block wrapped from a v2 record file
         /// (2019-09-13T21_53_51.396440Z) with its original RSA signatures; the address book
         /// carries the genesis-era keys with nodeId = accountNum - 3.
         V2_BLOCK_0(
-                "WRB/V2/0.blk.gz",
+                "wrb/v2/varied/mainnet/0.blk.gz",
                 "2262876a73c10cdd6c7780723b149d73d5f47196916104b9e34e675d950baef07d429173d48bc845de158ea8e7c0bacc",
                 0,
-                "V2"),
+                "wrb/v2/varied/mainnet"),
         /// Real block wrapped from a v5 record file (2022-01-01T00_00_00.252365821Z)
         /// with its original RSA signatures; the address book carries the era keys with
         /// nodeId = accountNum - 3.
         V5_BLOCK_26591040(
-                "WRB/V5/26591040.blk.gz",
+                "wrb/v5/varied/mainnet/26591040.blk.gz",
                 "2e23d5e423bbe37ad32917109b0baf92ef5f890ad2c226b7d7e01d4f9c5d90217a2645ba2e832f948b76e200ecd03c70",
                 26591040,
-                "V5");
+                "wrb/v5/varied/mainnet");
         private final String resourceName;
         private final Bytes blockRootHash;
         private final long blockNumber;
@@ -189,20 +218,18 @@ public class ResourceTestBlockBuilder {
             return blockNumber;
         }
 
-        /// Network folder for this fixture (also the `<network>` argument to [#loadAddressBook(String)]).
+        /// Network folder for this fixture; [#loadAddressBook()] reads its `address-book.json`.
         public String network() {
             return network;
         }
 
         /// Load the address book based on network.
         public NodeAddressBook loadAddressBook() throws IOException, ParseException {
-            final String resourcePath = "test-blocks/WRB/" + network + "/address-book.json";
-            try (final InputStream stream = TestUtils.class.getModule().getResourceAsStream(resourcePath)) {
-                if (stream == null) {
-                    throw new IOException("Address book fixture not found on classpath: " + resourcePath);
-                }
-                return NodeAddressBook.JSON.parse(Bytes.wrap(stream.readAllBytes()));
+            final Path path = testBlocksRoot().resolve(network).resolve("address-book.json");
+            if (!Files.isRegularFile(path)) {
+                throw new IOException("Address book fixture not found: " + path);
             }
+            return NodeAddressBook.JSON.parse(Bytes.wrap(Files.readAllBytes(path)));
         }
     }
 
@@ -213,17 +240,35 @@ public class ResourceTestBlockBuilder {
     /// these blocks are hashed but not signature-verified until re-captured.
     public enum StateProof implements ResourceBlock {
         /// Genesis block, bootstraps TSS parameters and ledger ID. Direct TSS proof.
-        BLOCK_0("CN_11_12_TSS_SCHNORR/0.blk.gz", "45595f0f6fbc1cc9f01a8844b4558446f38961c728ac3e22a60dadd4374d8c5f", 0),
+        BLOCK_0(
+                "tss/indirect/varied/local-cn-11-12/0.blk.gz",
+                "45595f0f6fbc1cc9f01a8844b4558446f38961c728ac3e22a60dadd4374d8c5f",
+                0),
         /// Indirect proof — 4-gap state proof, references signed block 5.
-        BLOCK_1("CN_11_12_TSS_SCHNORR/1.blk.gz", "2324591602f1fc8a7e7c2800fd64afab23d1d2129a0462ff6d9d1534fdcb605d", 1),
+        BLOCK_1(
+                "tss/indirect/varied/local-cn-11-12/1.blk.gz",
+                "2324591602f1fc8a7e7c2800fd64afab23d1d2129a0462ff6d9d1534fdcb605d",
+                1),
         /// Indirect proof — 3-gap state proof, references signed block 5.
-        BLOCK_2("CN_11_12_TSS_SCHNORR/2.blk.gz", "51359533ee8ecbe67c637f254f6948ea9ff0872217f04ac0b0548f404d2bd3fe", 2),
+        BLOCK_2(
+                "tss/indirect/varied/local-cn-11-12/2.blk.gz",
+                "51359533ee8ecbe67c637f254f6948ea9ff0872217f04ac0b0548f404d2bd3fe",
+                2),
         /// Indirect proof — 2-gap state proof, references signed block 5.
-        BLOCK_3("CN_11_12_TSS_SCHNORR/3.blk.gz", "09dd130bef705f63563d5a5393b409b50d81d8c86a0e134c2bdf954056a30408", 3),
+        BLOCK_3(
+                "tss/indirect/varied/local-cn-11-12/3.blk.gz",
+                "09dd130bef705f63563d5a5393b409b50d81d8c86a0e134c2bdf954056a30408",
+                3),
         /// Indirect proof — 1-gap state proof, references signed block 5.
-        BLOCK_4("CN_11_12_TSS_SCHNORR/4.blk.gz", "bdf0d0861ebfe21ddc90b32a4d020012ffac50aebf919e8cb7f6df6d272175d3", 4),
+        BLOCK_4(
+                "tss/indirect/varied/local-cn-11-12/4.blk.gz",
+                "bdf0d0861ebfe21ddc90b32a4d020012ffac50aebf919e8cb7f6df6d272175d3",
+                4),
         /// Direct Schnorr TSS proof — the signed block referenced by blocks 1-4.
-        BLOCK_5("CN_11_12_TSS_SCHNORR/5.blk.gz", "f1f74fc92ee40e71f046a08ddc62a859f8120fd0d4fc7c2f0ac13df2f2f05ad6", 5);
+        BLOCK_5(
+                "tss/indirect/varied/local-cn-11-12/5.blk.gz",
+                "f1f74fc92ee40e71f046a08ddc62a859f8120fd0d4fc7c2f0ac13df2f2f05ad6",
+                5);
         private final String resourceName;
         private final Bytes blockRootHash;
         private final long blockNumber;

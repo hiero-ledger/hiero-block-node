@@ -165,6 +165,8 @@ The Gradle wrapper is included - no separate Gradle installation required.
 ./gradlew spotlessApply # auto-format (required before any commit)
 ```
 
+Tests read their blocks from an OCI image that the first `./gradlew test` downloads with Docker. See [Test blocks](docs/test-blocks.md) for how to use and change them.
+
 ### Repository layout
 
 |          Directory           |                                         What it contains                                          |

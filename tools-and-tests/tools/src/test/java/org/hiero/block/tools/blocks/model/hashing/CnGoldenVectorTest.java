@@ -9,6 +9,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.stream.Stream;
@@ -24,16 +26,16 @@ import org.junit.jupiter.params.provider.MethodSource;
 /**
  * Golden vectors for the CLI's SHA-256 block hashing, taken from blocks produced by a consensus node.
  *
- * <p>The fixtures under {@code blocks/cn-sha256} are copies of the CN-captured chains in
- * {@code block-node/app/src/testFixtures/resources/test-blocks}, and the expected roots are the
- * constants in {@code ResourceTestBlockBuilder} ({@code WRB.SOLO_4N_BLOCK_0..5} and {@code WRAPS.BLOCK_0..5}). They
- * are copied rather than shared so the tools module stays independent of block node test fixtures.
+ * <p>The blocks are the CN-captured chains of the {@code ci-test-blocks} archive (fetched by {@code fetchTestBlocks}
+ * in the root build), the same files the block node tests use. The expected roots are the constants in
+ * {@code ResourceTestBlockBuilder} ({@code WRB.SOLO_4N_BLOCK_0..5} and {@code WRAPS.BLOCK_0..5}), repeated here so the
+ * tools module stays independent of block node test fixture code.
  *
  * <p>{@code startOfBlockStateRootHash} is not checked: CN blocks carry a real state hash, while the CLI has no state
  * and writes {@link HashingUtils#EMPTY_TREE_HASH} on purpose.
  */
 class CnGoldenVectorTest {
-    /** Expected block root hashes of the WRB/SOLO_4N chain, blocks 0 to 5 */
+    /** Expected block root hashes of the wrb/v6/varied/local-solo-4n chain, blocks 0 to 5 */
     private static final List<String> WRB_SOLO_4N_ROOTS = List.of(
             "bc3e4d7dfe22ba99d04da01757371cd3458ae414a8fcee25d0bee48f3a5cc05d",
             "f10b060cb824f1f63d6be21a15fbd356c8a21a6a2630aaf7e858200763261b7f",
@@ -41,7 +43,7 @@ class CnGoldenVectorTest {
             "6ee3b7cb4ae6aead865fc0791ea4a3e919ff0c7396af0ca3dddea57b8133048f",
             "1a645f93213adafd7d516e953c8ce4ef5aaea7fd39f89c6ec76f089630b15a1a",
             "3e61ddc29b36fe34611080972c4925636dc5e35dfe2ed0fdb0572cbd0a4625c6");
-    /** Expected block root hashes of the CN_11_12_TSS_WRAPS chain, blocks 0 to 5 */
+    /** Expected block root hashes of the tss/direct/varied/local-cn-11-12 chain, blocks 0 to 5 */
     private static final List<String> CN_11_12_TSS_WRAPS_ROOTS = List.of(
             "3c5008ebb8a7b75dea226bc80070de857f0013c4e66cd06ab4f76e005bd41848",
             "d3ccd9f1189828ddb26280a02073c3cddb990c0dd56dca0fb45a7a6f528a17a7",
@@ -50,11 +52,11 @@ class CnGoldenVectorTest {
             "b962cb94bdc10673d620f91fe3bf739c3001cfb7ea84d62ec078a5fcaf65552e",
             "e083ae5de11ba44fe5dc546f7e948de85d031535054d34f4ca9a3c608e6ea337");
 
-    /** The CN chains under {@code blocks/cn-sha256}, each with its expected block root hashes */
+    /** The CN chains (set folders in the test blocks archive), each with its expected block root hashes */
     private static Stream<Arguments> cnChains() {
         return Stream.of(
-                Arguments.of("WRB_SOLO_4N", WRB_SOLO_4N_ROOTS),
-                Arguments.of("CN_11_12_TSS_WRAPS", CN_11_12_TSS_WRAPS_ROOTS));
+                Arguments.of("wrb/v6/varied/local-solo-4n", WRB_SOLO_4N_ROOTS),
+                Arguments.of("tss/direct/varied/local-cn-11-12", CN_11_12_TSS_WRAPS_ROOTS));
     }
 
     /**
@@ -102,19 +104,19 @@ class CnGoldenVectorTest {
     }
 
     /**
-     * Loads one gzipped block of a CN chain from the test resources.
+     * Loads one gzipped block of a CN chain from the test blocks directory.
      *
-     * @param chain the chain folder under {@code blocks/cn-sha256}
+     * @param chain the set folder in the test blocks archive
      * @param blockNumber the block number, which is also the file name
      * @return the unparsed block
      */
     private static BlockUnparsed loadBlock(final String chain, final int blockNumber) throws Exception {
-        final String resource = "/blocks/cn-sha256/" + chain + "/" + blockNumber + ".blk.gz";
-        try (InputStream in = CnGoldenVectorTest.class.getResourceAsStream(resource)) {
-            assertNotNull(in, "Missing resource: " + resource);
-            try (GZIPInputStream gzipIn = new GZIPInputStream(in)) {
-                return standardParse(BlockUnparsed.PROTOBUF, Bytes.wrap(gzipIn.readAllBytes()), Integer.MAX_VALUE);
-            }
+        final String dir = System.getProperty("hiero.testBlocks.dir");
+        assertNotNull(dir, "System property hiero.testBlocks.dir not set; run tests through Gradle (fetchTestBlocks)");
+        final Path file = Path.of(dir, chain, blockNumber + ".blk.gz");
+        try (InputStream in = Files.newInputStream(file);
+                GZIPInputStream gzipIn = new GZIPInputStream(in)) {
+            return standardParse(BlockUnparsed.PROTOBUF, Bytes.wrap(gzipIn.readAllBytes()), Integer.MAX_VALUE);
         }
     }
 
