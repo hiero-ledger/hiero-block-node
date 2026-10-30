@@ -89,13 +89,13 @@ class OrderAwareEvictionPolicyTest {
                     .isEqualTo(key(57, 5));
         }
 
-        /// This test aims to assert that a session far ahead of a run, such as a
-        /// newcomer just admitted, is selected while the run is kept: with the last
-        /// verified block 100, the sessions 101 and 102 form a run, the first gap is
-        /// 103, and the session 500 is the only stuck session.
+        /// This test aims to assert that a session stuck far ahead of a run is selected
+        /// while the run is kept: with the last verified block 100, the sessions 101 and
+        /// 102 form a run, the first gap is 103, and the session 500 is the only stuck
+        /// session.
         @Test
-        @DisplayName("selectForEviction() selects a session stuck far ahead of a run, the newcomer included")
-        void testSelectsAStuckNewcomerFarAheadOfARun() {
+        @DisplayName("selectForEviction() selects a session stuck far ahead of a run")
+        void testSelectsASessionStuckFarAheadOfARun() {
             final NavigableSet<SessionKey> lowPriority = keys(key(101, 0), key(102, 1), key(500, 2));
             assertThat(toTest.selectForEviction(snapshot(keys(), lowPriority, null, 100L)))
                     .isEqualTo(key(500, 2));
@@ -337,13 +337,13 @@ class OrderAwareEvictionPolicyTest {
         /// divided by 11, truncated, and never above the third session: a limit below
         /// 33 gives the third session from the top, 33 to 43 the third, 44 the fourth,
         /// the default 101 the ninth and 127 the eleventh. Each limit is exercised with
-        /// a full buffer of publisher sessions one over the limit, contiguous with the
+        /// a full buffer of publisher sessions, as many as the limit, contiguous with the
         /// last verified block 1000, so that no session is stuck.
         @ParameterizedTest(name = "limit {0} selects position {1}")
         @CsvSource({"13, 3", "32, 3", "33, 3", "43, 3", "44, 4", "101, 9", "127, 11"})
         @DisplayName("selectForEviction() selects the high priority session at the backup position for the limit")
         void testSelectsTheHighPrioritySessionAtTheBackupPositionForTheLimit(final int limit, final int position) {
-            final long highestBlock = 1000L + limit + 1;
+            final long highestBlock = 1000L + limit;
             final long expectedBlock = highestBlock - position + 1;
             final NavigableSet<SessionKey> highPriority = run(1001, highestBlock, 0);
             assertThat(policyWithLimit(limit).selectForEviction(snapshot(highPriority, keys(), null, 1000L)))
@@ -379,10 +379,11 @@ class OrderAwareEvictionPolicyTest {
         }
 
         /// This test aims to assert that the lowest high priority session stands in for
-        /// the backup position when the lane holds fewer sessions than that: at the
-        /// limit of 13, a snapshot taken while sessions were being cleared holds only
-        /// the session for block 5 and the active session 6 above it, so the lowest
-        /// session, 5, the second from the top, is selected.
+        /// the backup position when the lane holds fewer sessions than that, so the
+        /// policy selects a session for any snapshot, although a full buffer never hands
+        /// over one this short: at the limit of 13, a snapshot holding only the session
+        /// for block 5 and the active session 6 above it gets the lowest session, 5, the
+        /// second from the top.
         @Test
         @DisplayName(
                 "selectForEviction() selects the lowest high priority session when the lane is shorter than the backup position")
@@ -413,7 +414,7 @@ class OrderAwareEvictionPolicyTest {
         /// This test aims to assert that in a publisher only burst behind a missing
         /// block, the highest stuck session other than the active one is selected:
         /// with the last verified block 0 and block 1 missing, the sessions 2, 3 and 4
-        /// are stuck, 4 is the active publisher session during its own admission, and
+        /// are stuck, 4 is the active publisher session, still receiving its items, and
         /// 3 is selected.
         @Test
         @DisplayName(

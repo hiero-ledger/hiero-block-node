@@ -17,12 +17,12 @@ import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 
 /// Handler for [BlockVerificationSession]s.
-/// This handler manages the sessions and their lifecycle: before handling any block
-/// items it clears the sessions that are complete, it starts a session for every
-/// block that starts and admits it, supplies every session with the block items of its
-/// block, and cancels the publisher session of a block that never finished. The
-/// [ActiveSessionsBuffer] holds the sessions for it and applies the eviction policy
-/// when an admission takes it over its limit.
+/// This handler manages the sessions and their lifecycle: it starts a session for
+/// every block that starts and admits it, supplies every session with the block items
+/// of its block, and cancels the publisher session of a block that never finished.
+/// The [ActiveSessionsBuffer] holds the sessions for it: every admission clears the
+/// sessions that are complete, and applies the eviction policy when the buffer is
+/// still full.
 public final class BlockSessionHandler {
     /// Logger for the handler.
     private static final System.Logger LOGGER = System.getLogger(BlockSessionHandler.class.getName());
@@ -85,12 +85,10 @@ public final class BlockSessionHandler {
 
     /// Process the supplied [BlockItems] based on the source.
     /// Items supplied here must be validated beforehand.
-    /// Before processing, the sessions that are complete are cleared from the buffer.
     ///
     /// @param blockItems the block items to process, must be validated beforehand
     /// @param blockSource the source the items were received from
     public void processBlockItems(final BlockItems blockItems, final BlockSource blockSource) {
-        activeSessions.clearCompletedSessions();
         switch (blockSource) {
             case PUBLISHER -> processPublisherLiveItems(blockItems);
             case BACKFILL -> processBackfilledItems(blockItems);

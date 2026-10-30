@@ -9,8 +9,8 @@ import org.hiero.block.node.block.verification.VerificationConfig;
 import org.hiero.block.node.block.verification.session.BlockVerificationSession.SessionKey;
 
 /// The eviction policy the active sessions buffer applies in production. It
-/// always selects a session, so that the buffer never stays over its limit, and
-/// it prefers a session that cannot complete on its own.
+/// always selects a session, so that an admission into a full buffer always makes
+/// room, and it prefers a session that cannot complete on its own.
 ///
 /// Given the last verified block, every session in the buffer is in one of three
 /// states:
@@ -49,9 +49,9 @@ import org.hiero.block.node.block.verification.session.BlockVerificationSession.
 ///    evicted again on its next arrival.
 /// 1. The high priority session at the backup position, once the low priority
 ///    lane is empty, counted from the highest block down: the configured limit
-///    divided by 11, and at least the third session. A snapshot taken while
-///    sessions were being cleared can hold fewer, and the lowest session is
-///    selected then. The position keeps clear of both ends of the lane. The
+///    divided by 11, and at least the third session, or the lowest session of a
+///    snapshot holding fewer, which a full buffer never hands over. The position
+///    keeps clear of both ends of the lane. The
 ///    lowest session is the next to complete, and evicting it holds up every
 ///    session above it. The highest sessions are the blocks the publisher has
 ///    just sent, and evicting them asks for the same blocks again on every
@@ -59,19 +59,19 @@ import org.hiero.block.node.block.verification.session.BlockVerificationSession.
 ///    above the gap it opens, and a long run below it that keeps draining while
 ///    the publisher resends the evicted block. When the session at the position
 ///    is the active publisher session, the next one up is selected, or the next
-///    one down when none is above it. That happens once the publisher resends a
-///    block this step evicted, since the resent block lands back on the same
-///    position: the next one up opens the gap above the block being received, so
-///    that block and every block below it still complete in order, and it is the
-///    block the publisher sends next.
+///    one down when none is above it. That can happen while the publisher resends
+///    a block below its newest ones: the next one up opens the gap above the block
+///    being received, so that block and every block below it still complete in
+///    order, and it is the block the publisher sends next.
 ///
 /// The policy selects nothing only when the snapshot holds no session but the
 /// active publisher session, the high priority session still receiving its block
 /// items. That session is never selected, because the publisher does not resend
 /// a block that ends incomplete. Every selected session has therefore received
 /// its complete block, and its eviction reports [SessionFailureType#CANCELLED].
-/// The session just admitted is treated like any other: a block that arrives
-/// stuck far ahead of the rest is selected on arrival.
+/// The snapshot holds only the sessions already in the buffer: the buffer consults
+/// the policy before it adds a new session, so a session is never evicted by its
+/// own admission.
 public final class OrderAwareEvictionPolicy implements SessionEvictionPolicy {
     /// The prime the configured limit is divided by to find the backup position.
     /// It is fixed, not configurable: with the default limit of 101 the backup
