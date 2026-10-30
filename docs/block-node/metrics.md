@@ -99,6 +99,7 @@ Observes the messaging system that connects the publisher with subscribers and t
 | Counter | `messaging_address_book_history_update_notifications`   | Address book history update notifications sent         |
 | Counter | `messaging_stored_blocks_update_notifications`          | Stored blocks update notifications sent                |
 | Counter | `messaging_available_blocks_update_notifications`       | Available blocks update notifications sent             |
+| Counter | `messaging_handler_failures`                            | Messages skipped after a message handler failed        |
 
 ---
 
@@ -372,6 +373,7 @@ is a block-count cap, not a disk-size cap (see [Host / Volume](#host--volume-ext
 |----------|---------------------------------------------|-----------------------------------------------------------|
 | L        | `messaging_item_queue_percent_used`         | If percentage exceeds 60%, otherwise, configure as needed |
 | L        | `messaging_notification_queue_percent_used` | If percentage exceeds 60%, otherwise, configure as needed |
+| M        | `messaging_handler_failures`                | If value increases, otherwise, configure as needed        |
 
 **Latency**: Alerts for latency metrics in receiving, hashing, verifying, and persisting blocks
 
