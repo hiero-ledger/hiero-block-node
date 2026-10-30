@@ -14,9 +14,10 @@ on:
                    the tag is pushed.
           GA     → release/X.Y only. Strips the pre-release suffix and builds from the
                    highest existing vX.Y.Z-rcN tag (0.38.0-rc2 → 0.38.0).
-          custom → uses the custom_version field below verbatim. Tags off whatever branch
-                   you dispatch from (main, release/X.Y, or anything else) - no release
-                   branch, no version.txt commit anywhere - only the tag is pushed.
+          custom → uses the custom_version field below verbatim. Tags off the branch you
+                   dispatch from - no release branch, no version.txt commit anywhere - only
+                   the tag is pushed. A plain X.Y.Z (final release) must be dispatched from
+                   release/X.Y; an rc-shaped version needs an existing release/X.Y branch.
         required: true
         type: choice
         options:
@@ -28,10 +29,15 @@ on:
         description: "Full version string — only honoured when release_type is 'custom' (e.g. 0.38.0-hotfix.1)"
         required: false
       allow_custom_without_release_branch:
-        description: "Only honoured for 'custom' with an rc-shaped version (e.g. 0.38.0-rc3). Required to tag it when no release/X.Y branch exists."
+        description: "Only honoured for 'custom'. Waives the release/X.Y checks for a plain X.Y.Z (must be dispatched from release/X.Y) or an rc-shaped version (needs a release/X.Y branch)."
         required: false
         type: boolean
         default: false
+      dry_run:
+        description: "Dry run (default). Computes the version and reports what would happen in the job summary, but creates no branch, commit, tag, release or PR. Untick to release for real."
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -72,20 +78,23 @@ jobs:
 
       - name: Compute Release Version
         env:
+          REF_NAME: ${{ github.ref_name }}
           INPUT_RELEASE_TYPE: ${{ github.event.inputs.release_type }}
           INPUT_CUSTOM_VERSION: ${{ github.event.inputs.custom_version }}
           INPUT_ALLOW_CUSTOM: ${{ github.event.inputs.allow_custom_without_release_branch }}
         run: |
           git tag -l > "$RUNNER_TEMP/tags.txt"
+          git tag --merged HEAD > "$RUNNER_TEMP/branch-tags.txt"
           git ls-remote --heads origin | sed 's#.*refs/heads/##' > "$RUNNER_TEMP/branches.txt"
           OUTPUT=$(tools-and-tests/scripts/release/compute-release-version.sh \
             --release-type "$INPUT_RELEASE_TYPE" \
-            --ref-name "${{ github.ref_name }}" \
+            --ref-name "$REF_NAME" \
             --current-version "$(tr -d '[:space:]' < version.txt)" \
             --custom-version "$INPUT_CUSTOM_VERSION" \
             --allow-custom-without-release-branch "$INPUT_ALLOW_CUSTOM" \
             --tags-file "$RUNNER_TEMP/tags.txt" \
-            --branches-file "$RUNNER_TEMP/branches.txt")
+            --branches-file "$RUNNER_TEMP/branches.txt" \
+            --branch-tags-file "$RUNNER_TEMP/branch-tags.txt")
           echo "$OUTPUT"
           echo "$OUTPUT" >> "$GITHUB_ENV"
 
@@ -98,6 +107,7 @@ jobs:
 
       - name: Set Release Environment Variables
         env:
+          REF_NAME: ${{ github.ref_name }}
           INPUT_RELEASE_TYPE: ${{ github.event.inputs.release_type }}
         run: |
           PREMINOR_VERSION=${{ steps.version_parser.outputs.inc-preminor }}
@@ -107,7 +117,7 @@ jobs:
           # dispatched from — neither creates or uses a release/X.Y branch.
           case "$INPUT_RELEASE_TYPE" in
             alpha)  RELEASE_BRANCH="main" ;;
-            custom) RELEASE_BRANCH="${{ github.ref_name }}" ;;
+            custom) RELEASE_BRANCH="$REF_NAME" ;;
             *)      RELEASE_BRANCH="release/${{ steps.version_parser.outputs.major }}.${{ steps.version_parser.outputs.minor }}" ;;
           esac
 
@@ -124,8 +134,41 @@ jobs:
           IS_PRERELEASE=$([[ -n "${{ steps.version_parser.outputs.prerelease }}" ]] && echo "true" || echo "false")
           EOF
 
+      - name: Dry Run Summary
+        if: ${{ inputs.dry_run }}
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_RELEASE_TYPE: ${{ github.event.inputs.release_type }}
+        run: |
+          case "$INPUT_RELEASE_TYPE" in
+            alpha|custom) ACTIONS="Commit the version bump locally and push only the tag $RELEASE_TAG from $RELEASE_BRANCH. No branch is pushed." ;;
+            GA)           ACTIONS="Build GA from ${SOURCE_TAG:-the tip of $RELEASE_BRANCH}, push tag $RELEASE_TAG, then merge it into $RELEASE_BRANCH and push." ;;
+            *)
+              if git ls-remote --exit-code --heads --quiet origin "refs/heads/${RELEASE_BRANCH}" > /dev/null; then
+                ACTIONS="Commit the version bump to the existing $RELEASE_BRANCH and push it with tag $RELEASE_TAG."
+              else
+                ACTIONS="Create and push $RELEASE_BRANCH, push tag $RELEASE_TAG, and open a PR bumping main to $NEXT_VERSION_SNAPSHOT."
+              fi ;;
+          esac
+          {
+            echo "## Release dry run (nothing was created)"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Dispatched from | \`$REF_NAME\` |"
+            echo "| Release type | \`$INPUT_RELEASE_TYPE\` |"
+            echo "| Computed tag | \`$RELEASE_TAG\` |"
+            echo "| Pre-release | \`$IS_PRERELEASE\` |"
+            echo "| GA source tag | \`${SOURCE_TAG:-n/a}\` |"
+            echo ""
+            echo "**Would do:** $ACTIONS"
+            echo ""
+            echo "Re-run with \`dry_run\` unticked to release for real."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Import GPG Key
         id: gpg_importer
+        if: ${{ !inputs.dry_run }}
         uses: step-security/ghaction-import-gpg@c0b4a334b9b72bfaaebec86ef022a78a5b17f828 # v7.0.0
         with:
           git_commit_gpgsign: true
@@ -135,18 +178,20 @@ jobs:
           passphrase: ${{ secrets.GPG_KEY_PASSPHRASE }}
 
       - name: Install JDK
+        if: ${{ !inputs.dry_run }}
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: "temurin"
           java-version: "25.0.2"
 
       - name: Setup Gradle
+        if: ${{ !inputs.dry_run }}
         uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
 
       - name: Create and Switch to Release Branch
         # alpha and custom never use a release/X.Y branch - they tag directly off
         # whatever's already checked out (main for alpha, the dispatching branch for custom).
-        if: ${{ github.event.inputs.release_type != 'alpha' && github.event.inputs.release_type != 'custom' }}
+        if: ${{ !inputs.dry_run && github.event.inputs.release_type != 'alpha' && github.event.inputs.release_type != 'custom' }}
         env:
           INPUT_RELEASE_TYPE: ${{ github.event.inputs.release_type }}
         run: |
@@ -168,10 +213,11 @@ jobs:
           fi
 
       - name: Bump Version
+        if: ${{ !inputs.dry_run }}
         run: ./gradlew versionAsSpecified -PnewVersion=${{ env.VERSION }}
 
       - name: Commit and Tag
-        if: ${{ github.event.inputs.release_type != 'GA' }}
+        if: ${{ !inputs.dry_run && github.event.inputs.release_type != 'GA' }}
         uses: step-security/git-auto-commit-action@ca31fda53dd20a6864523b29798308a4c5fa5cfa # v7.2.0
         with:
           commit_author: ${{ steps.gpg_importer.outputs.name }} <${{ steps.gpg_importer.outputs.email }}>
@@ -185,11 +231,11 @@ jobs:
           skip_push: ${{ github.event.inputs.release_type == 'alpha' || github.event.inputs.release_type == 'custom' }}
 
       - name: Push Tag Only
-        if: ${{ github.event.inputs.release_type == 'alpha' || github.event.inputs.release_type == 'custom' }}
+        if: ${{ !inputs.dry_run && (github.event.inputs.release_type == 'alpha' || github.event.inputs.release_type == 'custom') }}
         run: git push origin ${{ env.RELEASE_TAG }}
 
       - name: Commit and Tag (GA)
-        if: ${{ github.event.inputs.release_type == 'GA' }}
+        if: ${{ !inputs.dry_run && github.event.inputs.release_type == 'GA' }}
         env:
           GIT_AUTHOR_NAME: ${{ steps.gpg_importer.outputs.name }}
           GIT_AUTHOR_EMAIL: ${{ steps.gpg_importer.outputs.email }}
@@ -206,7 +252,7 @@ jobs:
           git push origin "refs/tags/${RELEASE_TAG}"
 
       - name: Sync Release Branch with GA Tag
-        if: ${{ github.event.inputs.release_type == 'GA' }}
+        if: ${{ !inputs.dry_run && github.event.inputs.release_type == 'GA' }}
         env:
           GIT_AUTHOR_NAME: ${{ steps.gpg_importer.outputs.name }}
           GIT_AUTHOR_EMAIL: ${{ steps.gpg_importer.outputs.email }}
@@ -226,9 +272,11 @@ jobs:
           git push origin "${RELEASE_BRANCH}"
 
       - name: Generate Protobuf Artifact
+        if: ${{ !inputs.dry_run }}
         run: ./gradlew :protobuf-sources:generateBlockNodeProtoArtifact
 
       - name: Upload Protobuf Artifact
+        if: ${{ !inputs.dry_run }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: block-node-protobuf-${{ env.RELEASE_TAG }}
@@ -237,12 +285,14 @@ jobs:
           retention-days: 7
 
       - name: Generate Block-Stream-Tools Artifact
+        if: ${{ !inputs.dry_run }}
         run: |
           ./gradlew :tools:shadowJar
           cp ./tools-and-tests/tools/build/libs/tools-${{ env.VERSION }}-all.jar \
              ./tools-and-tests/tools/build/libs/block-stream-tools-${{ env.VERSION }}.jar
 
       - name: Upload Block-Stream-Tools Artifact
+        if: ${{ !inputs.dry_run }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: block-stream-tools-${{ env.RELEASE_TAG }}
@@ -253,6 +303,7 @@ jobs:
   generate_notes:
     name: Generate Release Notes
     needs: release
+    if: ${{ !inputs.dry_run }}
     uses: ./.github/workflows/release-notes-generator.yaml
     with:
       release_branch: ${{ needs.release.outputs.release_branch }}
@@ -263,7 +314,7 @@ jobs:
   milestone_rollover:
     name: Roll Over Milestone
     needs: release
-    if: ${{ needs.release.outputs.is_prerelease == 'false' }}
+    if: ${{ !inputs.dry_run && needs.release.outputs.is_prerelease == 'false' }}
     uses: ./.github/workflows/milestone-rollover.yaml
     with:
       release_version: ${{ needs.release.outputs.release_version }}
@@ -276,7 +327,7 @@ jobs:
     runs-on: hl-bn-lin-md
     needs: [release, generate_notes]
     continue-on-error: true
-    if: ${{ always() && needs.release.result == 'success' }}
+    if: ${{ always() && !inputs.dry_run && needs.release.result == 'success' }}
     env:
       RELEASE_BRANCH: ${{ needs.release.outputs.release_branch }}
       RELEASE_TAG: ${{ needs.release.outputs.release_tag }}
@@ -352,7 +403,7 @@ jobs:
     name: Create PR
     runs-on: hl-bn-lin-md
     needs: release
-    if: ${{ needs.release.outputs.create_pr == 'true' }}
+    if: ${{ !inputs.dry_run && needs.release.outputs.create_pr == 'true' }}
     env:
       NEXT_VERSION_SNAPSHOT: ${{ needs.release.outputs.next_version_snapshot }}
       RELEASE_BRANCH: ${{ needs.release.outputs.release_branch }}
