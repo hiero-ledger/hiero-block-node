@@ -24,6 +24,7 @@ import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Objects;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.NetworkConnection;
 import org.hiero.block.api.NetworkConnection.ConnectionReference;
@@ -91,35 +92,35 @@ final class ApplicationStateUtility {
     static RangedAddressBookHistory mergeDuplicateEras(final RangedAddressBookHistory history) {
         final List<RangedNodeAddressBook> eras = history.addressBooks();
         final List<RangedNodeAddressBook> merged = new ArrayList<>(eras.size());
+        // Each book is sorted once and kept for the next comparison; the stored eras keep their order.
+        List<NodeAddress> previousBook = null;
         for (final RangedNodeAddressBook era : eras) {
+            final List<NodeAddress> book = sortedByNodeId(era.addressBook());
             final RangedNodeAddressBook previous = merged.isEmpty() ? null : merged.getLast();
             if (previous != null
                     && previous.endBlock() != -1L
                     && previous.endBlock() + 1 == era.startBlock()
-                    && sameAddressBook(previous.addressBook(), era.addressBook())) {
+                    && Objects.equals(previousBook, book)) {
                 merged.set(
                         merged.size() - 1,
                         era.copyBuilder().startBlock(previous.startBlock()).build());
             } else {
                 merged.add(era);
             }
+            previousBook = book;
         }
         return merged.size() == eras.size()
                 ? history
                 : history.copyBuilder().addressBooks(merged).build();
     }
 
-    private static boolean sameAddressBook(final NodeAddressBook left, final NodeAddressBook right) {
-        if (left == null || right == null) {
-            return left == right;
-        }
-        return sortedByNodeId(left).equals(sortedByNodeId(right));
-    }
-
+    /// The book's nodes sorted by node ID, or {@code null} for an era without an address book.
     private static List<NodeAddress> sortedByNodeId(final NodeAddressBook book) {
-        return book.nodeAddress().stream()
-                .sorted(Comparator.comparingLong(NodeAddress::nodeId))
-                .toList();
+        return book == null
+                ? null
+                : book.nodeAddress().stream()
+                        .sorted(Comparator.comparingLong(NodeAddress::nodeId))
+                        .toList();
     }
 
     /// Merge two sets of block ranges into a single list of block ranges, in ascending order. Ranges that
