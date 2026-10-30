@@ -47,6 +47,14 @@ communicating with a single Block-Node. A subsequent section will describe
 the interactions when multiple Publishers are communicating with a single Block
 Node.
 
+> [!NOTE]
+We deliberately left some things open and unspecified in this protocol to
+allow for implementation flexibility. Implementors should consider the
+implications of various approaches in meeting their implementation goals
+including strictness of interpretation and response policy relating to, for
+example, interpreting unexpected responses as indicators versus interpreting
+unexpected responses as errors.
+
 * Publisher, on connect, sends a block header, this contains a block number.
   * If this is the next block, no problem, start streaming.
   * If this is less than last known verified block, respond with
