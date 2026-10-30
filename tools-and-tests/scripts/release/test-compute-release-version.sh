@@ -11,15 +11,18 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 PASS=0 FAIL=0
 
-# State shared by the scenarios below.
-TAGS=() BRANCHES=()
+# State shared by the scenarios below. ON_BRANCH_TAGS (tags reachable from the dispatching
+# branch) defaults to TAGS unless a scenario sets ON_BRANCH_SET.
+TAGS=() BRANCHES=() ON_BRANCH_TAGS=() ON_BRANCH_SET=""
 
 # run <release-type> <ref> <version.txt> [extra script args...]; sets OUT (stdout) and CODE.
 run() {
   printf '%s\n' "${TAGS[@]:-}" > "$WORK/tags"
   printf '%s\n' "${BRANCHES[@]:-}" > "$WORK/branches"
+  if [[ -n "$ON_BRANCH_SET" ]]; then printf '%s\n' "${ON_BRANCH_TAGS[@]:-}" > "$WORK/branch-tags"
+  else printf '%s\n' "${TAGS[@]:-}" > "$WORK/branch-tags"; fi
   OUT=$("$SCRIPT" --release-type "$1" --ref-name "$2" --current-version "$3" \
-    --tags-file "$WORK/tags" --branches-file "$WORK/branches" "${@:4}" 2>"$WORK/err")
+    --tags-file "$WORK/tags" --branches-file "$WORK/branches" --branch-tags-file "$WORK/branch-tags" "${@:4}" 2>"$WORK/err")
   CODE=$?
 }
 
@@ -101,6 +104,27 @@ TAGS=()
 run GA main 0.45.0-SNAPSHOT
 expect_fail "GA rejected off main" "GA must be dispatched from a release/X.Y branch"
 
+# An rc cut off-branch (the main-based v0.45.0-rc2 incident) must never be the GA source.
+TAGS=(v0.45.0-rc1 v0.45.0-rc2 v0.45.0-rc3) ON_BRANCH_TAGS=(v0.45.0-rc1 v0.45.0-rc3) ON_BRANCH_SET=1
+run GA release/0.45 0.45.0-rc3
+expect_ok "GA uses highest on-branch rc" COMPUTED_VERSION=0.45.0 SOURCE_TAG=v0.45.0-rc3
+
+ON_BRANCH_TAGS=(v0.45.0-rc1)
+run GA release/0.45 0.45.0-rc1
+expect_ok "GA skips a higher off-branch rc" COMPUTED_VERSION=0.45.0 SOURCE_TAG=v0.45.0-rc1
+grep -qF "v0.45.0-rc3 is not reachable" "$WORK/err" && PASS=$((PASS + 1)) || { FAIL=$((FAIL + 1)); echo "FAIL GA off-branch rc warning missing"; }
+
+TAGS=(v0.45.0-rc2) ON_BRANCH_TAGS=()
+run GA release/0.45 0.45.0-rc1
+expect_fail "GA rejected when every rc is off-branch" "none is reachable from 'release/0.45'"
+ON_BRANCH_TAGS=() ON_BRANCH_SET=""
+
+TAGS=(v0.45.0-rc1)
+printf '%s\n' "${TAGS[@]}" > "$WORK/tags"; printf 'release/0.45\n' > "$WORK/branches"
+OUT=$("$SCRIPT" --release-type GA --ref-name release/0.45 --current-version 0.45.0-rc1 \
+  --tags-file "$WORK/tags" --branches-file "$WORK/branches" 2>"$WORK/err"); CODE=$?
+expect_fail "GA requires --branch-tags-file" "--branch-tags-file is required for GA"
+
 # --- custom -----------------------------------------------------------------------------------
 TAGS=(v0.45.0-rc4) BRANCHES=(main release/0.45)
 run custom release/0.45 0.45.0-rc1 --custom-version 0.45.0-rc5
@@ -108,6 +132,17 @@ expect_ok "custom rc with release branch" COMPUTED_VERSION=0.45.0-rc5
 TAGS=(v0.45.0-rc4 v0.45.0-rc5)
 run rc release/0.45 0.45.0-rc1
 expect_ok "next rc counts custom rc tags" COMPUTED_VERSION=0.45.0-rc6
+
+# A plain X.Y.Z publishes a final release, so it must come from release/X.Y.
+TAGS=() BRANCHES=(main release/0.45)
+run custom main 0.45.0-SNAPSHOT --custom-version 0.45.0
+expect_fail "custom X.Y.Z rejected from main" "must be dispatched from release/0.45, not 'main'"
+run custom release/0.44 0.44.0-rc1 --custom-version 0.45.0
+expect_fail "custom X.Y.Z rejected from another release line" "must be dispatched from release/0.45, not 'release/0.44'"
+run custom release/0.45 0.45.0-rc1 --custom-version 0.45.0
+expect_ok "custom X.Y.Z from its release branch" COMPUTED_VERSION=0.45.0
+run custom main 0.45.0-SNAPSHOT --custom-version 0.45.0 --allow-custom-without-release-branch true
+expect_ok "custom X.Y.Z override flag waives the branch check" COMPUTED_VERSION=0.45.0
 
 TAGS=() BRANCHES=(main)
 run custom main 0.47.0-SNAPSHOT --custom-version 0.47.0-rc1
@@ -134,6 +169,15 @@ run custom main 0.47.0-SNAPSHOT --custom-version not-a-version
 expect_fail "custom rejects malformed version" "is not a valid version"
 
 # --- input validation -------------------------------------------------------------------------
+# A flag with no value must be a clean ::error::, not an unbound-variable crash under set -u.
+for flag in --release-type --ref-name --current-version --custom-version --tags-file \
+            --branches-file --branch-tags-file --allow-custom-without-release-branch; do
+  OUT=$("$SCRIPT" "$flag" 2>"$WORK/err"); CODE=$?
+  expect_fail "missing value for $flag" "Missing value for '$flag'"
+done
+OUT=$("$SCRIPT" --bogus x 2>"$WORK/err"); CODE=$?
+expect_fail "unknown argument" "Unknown argument '--bogus'"
+
 run rc release/0.45 garbage
 expect_fail "unparseable version.txt" "Unrecognised version format"
 
