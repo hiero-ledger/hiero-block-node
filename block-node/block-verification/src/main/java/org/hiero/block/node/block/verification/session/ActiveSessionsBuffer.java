@@ -224,7 +224,8 @@ public final class ActiveSessionsBuffer {
     /// Cancel a session that was just removed from its lane and count it. Cancelling
     /// runs the session's result handling on this thread, which sends the
     /// cancellation. A session whose cancellation returns false had already produced
-    /// its result on its own and is not counted as evicted.
+    /// its result, on its own or through an earlier cancellation, and is not counted
+    /// as evicted.
     ///
     /// @param key the key of the removed session
     /// @param session the removed session
