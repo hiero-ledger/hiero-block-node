@@ -88,38 +88,32 @@ Out of scope:
 
 ## Terms
 
-<dl>
-<dt><code>Batch Request</code></dt><dd>One call to
-<code>BlockStreamSubscribeUnparsedClient.getBatchOfBlocks(start, end)</code>. It
-opens one gRPC server stream for a closed block range and waits for it to
-finish.</dd>
-<dt><code>Attempt</code></dt><dd>One batch request made by
-<code>BackfillFetcher.fetchBlocksFromNode</code>. The fetcher makes up to
-<code>maxRetries</code> attempts per chunk.</dd>
-<dt><code>Chunk</code></dt><dd>The block range the runner asks the fetcher for,
-bounded by the peer's available range, <code>fetchBatchSize</code> and the gap
-end. See <a href="./backfill-plugin.md">Backfill Plugin Design</a>.</dd>
-<dt><code>Prefix</code></dt><dd>The complete blocks received for a batch request,
-in order, starting at the requested start block with no holes. A prefix may be
-empty, cover part of the range, or cover all of it.</dd>
-<dt><code>Partial Block</code></dt><dd>A block whose header and possibly some
-items arrived, but whose end of block marker did not. It is never part of a
-prefix.</dd>
-<dt><code>Terminal Event</code></dt><dd>The first of: stream completed, stream
-error, block number mismatch, unexpected response, timeout. After the terminal
-event a request accepts no more data.</dd>
-<dt><code>Abandoned Stream</code></dt><dd>A gRPC stream whose batch request has
-already returned to the caller (because of a timeout or an error) while the peer
-may still be sending data.</dd>
-<dt><code>Response Message</code></dt><dd>One gRPC message of the block
-stream: a set of block items, an end of block marker, or a status. The client
-sees each message only once it has fully arrived.</dd>
-<dt><code>Inactivity Timeout</code></dt><dd>The longest time a batch request
-waits without receiving any response message from the peer.</dd>
-<dt><code>Overall Timeout (Ceiling)</code></dt><dd>The longest time one batch
-request may take in total, regardless of progress. Configured by
-<code>BACKFILL_GRPC_OVERALL_TIMEOUT</code>.</dd>
-</dl>
+* **Batch Request**: One call to
+  `BlockStreamSubscribeUnparsedClient.getBatchOfBlocks(start, end)`. It opens
+  one gRPC server stream for a closed block range and waits for it to finish.
+* **Attempt**: One batch request made by `BackfillFetcher.fetchBlocksFromNode`.
+  The fetcher makes up to `maxRetries` attempts per chunk.
+* **Chunk**: The block range the runner asks the fetcher for, bounded by the
+  peer's available range, `fetchBatchSize` and the gap end. See
+  [Backfill Plugin Design](./backfill-plugin.md).
+* **Prefix**: The complete blocks received for a batch request, in order,
+  starting at the requested start block with no holes. A prefix may be empty,
+  cover part of the range, or cover all of it.
+* **Partial Block**: A block whose header and possibly some items arrived, but
+  whose end of block marker did not. It is never part of a prefix.
+* **Terminal Event**: The first of: stream completed, stream error, block number
+  mismatch, unexpected response, timeout. After the terminal event a request
+  accepts no more data.
+* **Abandoned Stream**: A gRPC stream whose batch request has already returned
+  to the caller (because of a timeout or an error) while the peer may still be
+  sending data.
+* **Response Message**: One gRPC message of the block stream: a set of block
+  items, an end of block marker, or a status. The client sees each message only
+  once it has fully arrived.
+* **Inactivity Timeout**: The longest time a batch request waits without
+  receiving any response message from the peer.
+* **Overall Timeout (Ceiling)**: The longest time one batch request may take in
+  total, regardless of progress. Configured by `BACKFILL_GRPC_OVERALL_TIMEOUT`.
 
 ## Entities
 
