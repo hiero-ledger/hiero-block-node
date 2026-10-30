@@ -103,7 +103,8 @@ public final class BlockSessionHandler {
     /// The publisher guarantees that when a block starts, items received will be in order. It cannot,
     /// however, guarantee that a block will finish. A batch that starts a block cancels the active
     /// publisher session of a block that never finished, as we can safely assume the publisher has moved
-    /// on, and starts a new session, which is admitted before it receives any items: the buffer then
+    /// on, and counts it as superseded, unless the session had already produced its result on its own.
+    /// The batch then starts a new session, admitted before it receives any items, so the buffer
     /// protects it until it has received the end of its block, even a block that comes in one batch. Any
     /// other batch goes to the active publisher session; a batch arriving when there is none is
     /// disregarded.
@@ -114,7 +115,10 @@ public final class BlockSessionHandler {
         if (blockItems.isStartOfNewBlock()) {
             final BlockVerificationSession superseded = activeSessions.activePublisherSession();
             if (superseded != null) {
-                superseded.cancel();
+                final boolean cancelled = superseded.cancel();
+                if (cancelled) {
+                    sessionHandlerMetrics.verificationSessionsSuperseded().increment();
+                }
             }
             session = startNewSession(blockItems, BlockSource.PUBLISHER);
             activeSessions.admit(session);

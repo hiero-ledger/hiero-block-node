@@ -16,11 +16,14 @@ import org.hiero.metrics.core.MetricRegistry;
 ///     high priority lane, `verification_sessions_evicted{lane="high_priority"}`
 /// @param verificationSessionsEvictedLowPriority a [LongCounter.Measurement] of the sessions evicted from the
 ///     low priority lane, `verification_sessions_evicted{lane="low_priority"}`
+/// @param verificationSessionsSuperseded a [LongCounter.Measurement] of the publisher sessions cancelled because
+///     the publisher started its next block before finishing theirs, `verification_sessions_superseded`
 public record SessionHandlerMetrics(
         LongCounter.Measurement verificationBlocksReceived,
         LongGauge.Measurement verificationActiveSessions,
         LongCounter.Measurement verificationSessionsEvictedHighPriority,
-        LongCounter.Measurement verificationSessionsEvictedLowPriority) {
+        LongCounter.Measurement verificationSessionsEvictedLowPriority,
+        LongCounter.Measurement verificationSessionsSuperseded) {
     /// Metric key for the number of blocks received for verification.
     private static final MetricKey<LongCounter> METRIC_VERIFICATION_BLOCKS_RECEIVED =
             MetricKey.of("verification_blocks_received", LongCounter.class).addCategory(METRICS_CATEGORY);
@@ -30,6 +33,9 @@ public record SessionHandlerMetrics(
     /// Metric key for the number of sessions evicted from the active sessions buffer.
     private static final MetricKey<LongCounter> METRIC_VERIFICATION_SESSIONS_EVICTED =
             MetricKey.of("verification_sessions_evicted", LongCounter.class).addCategory(METRICS_CATEGORY);
+    /// Metric key for the number of publisher sessions cancelled because the publisher moved on to its next block.
+    private static final MetricKey<LongCounter> METRIC_VERIFICATION_SESSIONS_SUPERSEDED =
+            MetricKey.of("verification_sessions_superseded", LongCounter.class).addCategory(METRICS_CATEGORY);
     /// Dynamic label name identifying the lane a session was evicted from.
     private static final String LABEL_LANE = "lane";
     /// Label value for the high priority lane.
@@ -57,7 +63,16 @@ public record SessionHandlerMetrics(
                 sessionsEvicted.getOrCreateLabeled(LABEL_LANE, LANE_HIGH_PRIORITY);
         final LongCounter.Measurement evictedLowPriority =
                 sessionsEvicted.getOrCreateLabeled(LABEL_LANE, LANE_LOW_PRIORITY);
+        final LongCounter.Measurement verificationSessionsSuperseded = metricRegistry
+                .register(LongCounter.builder(METRIC_VERIFICATION_SESSIONS_SUPERSEDED)
+                        .setDescription(
+                                "Publisher sessions cancelled because the publisher moved on to its next block"))
+                .getOrCreateNotLabeled();
         return new SessionHandlerMetrics(
-                verificationBlocksReceived, verificationActiveSessions, evictedHighPriority, evictedLowPriority);
+                verificationBlocksReceived,
+                verificationActiveSessions,
+                evictedHighPriority,
+                evictedLowPriority,
+                verificationSessionsSuperseded);
     }
 }
