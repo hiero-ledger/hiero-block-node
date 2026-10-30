@@ -124,21 +124,6 @@ class OrderAwareEvictionPolicyTest {
                     .isEqualTo(key(10, 3));
         }
 
-        /// This test aims to assert that before any block is verified (last verified
-        /// block -1) the search for the first gap starts at block 0: without a session
-        /// for block 0 every session is stuck and the highest, 3, is selected, while a
-        /// run starting at block 0 is not stuck and only the session for block 5 above
-        /// the gap at 3 is.
-        @Test
-        @DisplayName("selectForEviction() starts the search for the first gap at block 0 before any block is verified")
-        void testStartsTheGapSearchAtBlockZeroBeforeAnyBlockIsVerified() {
-            assertThat(toTest.selectForEviction(snapshot(keys(key(1, 0), key(2, 1), key(3, 2)), keys(), null, -1L)))
-                    .isEqualTo(key(3, 2));
-            final NavigableSet<SessionKey> runFromZero = keys(key(0, 0), key(1, 1), key(2, 2), key(5, 3));
-            assertThat(toTest.selectForEviction(snapshot(runFromZero, keys(), null, -1L)))
-                    .isEqualTo(key(5, 3));
-        }
-
         /// This test aims to assert that blocks delivered in descending order are
         /// selected highest first: with the last verified block 4, the sessions 7 to 10
         /// and then 6 to 9 wait above the missing block 5 and the highest stuck session
@@ -210,16 +195,35 @@ class OrderAwareEvictionPolicyTest {
         }
 
         /// This test aims to assert that sessions below `firstOrderedBlock` are not
-        /// taken as stuck: before any block is verified the first gap is block 0, yet
-        /// the sessions 80 to 94 below the first ordered block 100 never wait for
-        /// order, so the third from the top, 92, is selected.
+        /// taken as stuck: with the last verified block 10, the sessions 80 to 94 sit
+        /// far above the first gap, 11, yet below the first ordered block 100 they never
+        /// wait for order, so the third from the top, 92, is selected.
         @Test
         @DisplayName("selectForEviction() does not take sessions below the first ordered block as stuck")
         void testDoesNotTakeSessionsBelowTheFirstOrderedBlockAsStuck() {
             final OrderAwareEvictionPolicy policy = new OrderAwareEvictionPolicy(config(
                     Map.of("verification.activeSessionsBufferSize", "13", "verification.firstOrderedBlock", "100")));
-            assertThat(policy.selectForEviction(snapshot(run(80, 94, 0), keys(), null, -1L)))
+            assertThat(policy.selectForEviction(snapshot(run(80, 94, 0), keys(), null, 10L)))
                     .isEqualTo(key(92, 12));
+        }
+
+        /// This test aims to assert that before any block is verified (last verified
+        /// block -1) no session is taken as stuck, since the ordering stage lets nothing
+        /// wait until it adopts the first block that verifies. At the limit of 13, two
+        /// snapshots are handed over: the run 1 to 13, and the sessions 0 to 2 and 5 to 14
+        /// with the blocks 3 and 4 missing. Each time the third session from the top, 11
+        /// and then 12, is selected as a backup candidate, where taking the sessions as
+        /// stuck would select the highest, 13 and then 14.
+        @Test
+        @DisplayName("selectForEviction() takes no session as stuck before any block is verified")
+        void testTakesNoSessionAsStuckBeforeAnyBlockIsVerified() {
+            final OrderAwareEvictionPolicy policy = policyWithLimit(13);
+            assertThat(policy.selectForEviction(snapshot(run(1, 13, 0), keys(), null, -1L)))
+                    .isEqualTo(key(11, 10));
+            final NavigableSet<SessionKey> withAGap = new TreeSet<>(run(0, 2, 0));
+            withAGap.addAll(run(5, 14, 3));
+            assertThat(policy.selectForEviction(snapshot(withAGap, keys(), null, -1L)))
+                    .isEqualTo(key(12, 10));
         }
 
         /// This test aims to assert that a run spread over both lanes is not taken as

@@ -29,8 +29,8 @@ import org.junit.jupiter.params.provider.EnumSource;
 /// end of its block, and when the buffer is cleared. The buffer applies the
 /// production eviction policy, observed through a recording wrapper. Nothing is ever
 /// verified, so the last verified block stays where a test puts it, -1 unless a test
-/// sets it; until then block 0 is the next expected block and every session above it
-/// is stuck.
+/// sets it. While it is -1, no session waits for order, as before the first success
+/// in production, so no session is stuck and the policy selects backup candidates.
 @DisplayName("Active Sessions Buffer Tests")
 class ActiveSessionsBufferTest {
     /// The buffer limit of every test, the smallest the configuration accepts.
@@ -111,11 +111,12 @@ class ActiveSessionsBufferTest {
 
         /// This test aims to assert that an admission into a full buffer makes room before
         /// it adds its session, so the policy never sees the session being admitted and
-        /// never evicts it: the backfilled sessions 1 to 13 fill the buffer and are all
-        /// stuck, since nothing is verified, and when the publisher session 20 is admitted,
-        /// the snapshot handed to the policy holds only the backfilled sessions, no active
-        /// publisher session yet, and the policy selects the highest of them, 13, although
-        /// 20 is higher. 20 is then added as the active publisher session.
+        /// never evicts it: the backfilled sessions 1 to 13 fill the buffer, and when the
+        /// publisher session 20 is admitted, the snapshot handed to the policy holds only
+        /// the backfilled sessions, no active publisher session yet. No block is verified,
+        /// so no session waits for order, and the policy selects the highest backfilled
+        /// session, 13, as the first backup candidate, although 20 is higher. 20 is then
+        /// added as the active publisher session.
         @Test
         @DisplayName("admit() makes room before adding a session, so the policy never sees the session being admitted")
         void testMakesRoomBeforeAddingASessionSoThePolicyNeverSeesTheSessionBeingAdmitted() {
@@ -236,9 +237,10 @@ class ActiveSessionsBufferTest {
         /// This test aims to assert that the session the policy selects is removed from its
         /// lane, cancelled once and counted in the evictions counter of its lane when its
         /// cancellation stopped it, and that the session being admitted is added after it:
-        /// nothing is verified, so the backfilled sessions 2 to 14 that fill the buffer are
-        /// all stuck, and the admission of 15 evicts the highest of them, 14, then adds 15,
-        /// which is never cancelled although it is higher.
+        /// the backfilled sessions 2 to 14 fill the buffer, no block is verified, so no
+        /// session waits for order, and the admission of 15 evicts the highest backfilled
+        /// session, 14, as the first backup candidate, then adds 15, which is never
+        /// cancelled although it is higher.
         @Test
         @DisplayName("admit() evicts, cancels and counts what the policy selects, then adds the new session")
         void testEvictsCancelsAndCountsTheSelectedSession() {
@@ -281,7 +283,7 @@ class ActiveSessionsBufferTest {
         /// produced when it was cancelled (its cancellation returns false while its result
         /// handling is still running) is removed but not counted as evicted: the session
         /// for block 20 has produced its result, and when the admission of 14 finds the
-        /// buffer full, the policy selects 20, the highest stuck session.
+        /// buffer full, the policy selects 20, the highest backfilled session.
         @Test
         @DisplayName("admit() does not count a selected session that had already produced its result")
         void testDoesNotCountASelectedSessionThatHadAlreadyProducedItsResult() {

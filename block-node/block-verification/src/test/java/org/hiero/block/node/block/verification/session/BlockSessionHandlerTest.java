@@ -130,8 +130,10 @@ class BlockSessionHandlerTest {
         /// backfilled block 15, finds the buffer of thirteen full, the policy receives
         /// exactly one snapshot carrying the high priority lane, the low priority lane
         /// without the session being admitted, no active high priority session (the
-        /// publisher block was complete) and the last verified block, and that it selects
-        /// from that snapshot the highest stuck session, the backfilled block 14.
+        /// publisher block was complete) and the last verified block. No block is verified
+        /// yet, so no session waits for order, and the policy selects the backfilled block
+        /// 14, the highest backfilled session and above every publisher block, as the first
+        /// backup candidate.
         @Test
         @DisplayName("processBlockItems() hands the policy a snapshot of both lanes")
         void testConsultsThePolicyWithASnapshotOfBothLanesWhenTheBufferIsFull() {
@@ -153,12 +155,13 @@ class BlockSessionHandlerTest {
         /// This test aims to assert that the session the policy selects is removed from its
         /// lane, cancelled, reported once through messaging as a cancellation of a complete
         /// block, counted in the evictions counter of its lane, and that the gauge reflects
-        /// the combined count afterwards: before any block is verified every session is
-        /// stuck, and the complete publisher block 20 is the highest, above the backfilled
-        /// blocks 2 to 14.
+        /// the combined count afterwards: with the last verified block 0 and block 1
+        /// missing, every session is stuck, and the complete publisher block 20 is the
+        /// highest, above the backfilled blocks 2 to 14.
         @Test
         @DisplayName("processBlockItems() evicts what the policy selects")
         void testRemovesCancelsAndReportsTheSelectedSession() {
+            lastVerifiedBlock.set(0L);
             final BlockSessionHandler toTest = newHandler(recordingProductionPolicy());
             publish(toTest, TestBlockBuilder.generateBlockWithNumber(20));
             backfillRun(toTest, 2, 14);
@@ -651,9 +654,9 @@ class BlockSessionHandlerTest {
         /// This test aims to assert that when both ingress threads admit sessions at the
         /// same time into a full buffer, with sessions that never finish on their own so
         /// that evictions are the only removals, the combined count is exactly the buffer
-        /// size once both threads are done: no block is ever verified and block 0 never
-        /// arrives, so every session is stuck and every admission into the full buffer
-        /// evicts one.
+        /// size once both threads are done: with the last verified block 0, no block is
+        /// ever verified and block 1 never arrives, so every session is stuck and every
+        /// admission into the full buffer evicts one.
         /// Every admitted block ended either as an active session or as exactly one
         /// cancellation notification, no block was reported twice, and the evictions
         /// counters add up to the number of cancellations.
@@ -661,15 +664,17 @@ class BlockSessionHandlerTest {
         @DisplayName(
                 "processBlockItems() keeps the combined count within the limit under concurrent admissions while every session is stuck")
         void testConcurrentAdmissionsKeepTheCombinedCountWithinTheLimit() throws Exception {
+            lastVerifiedBlock.set(0L);
             admitConcurrentlyAndAssertTheBufferIsAtItsLimit(
                     TestBlockBuilder.generateBlocksInRange(1000, 1000 + BLOCKS_PER_THREAD - 1),
-                    TestBlockBuilder.generateBlocksInRange(1, BLOCKS_PER_THREAD));
+                    TestBlockBuilder.generateBlocksInRange(2, BLOCKS_PER_THREAD + 1));
         }
 
         /// This test aims to assert that when both ingress threads admit blocks in descending
         /// order at the same time, the eviction pass still finds a session to give up on every
-        /// admission into the full buffer: no block is ever verified and block 0 never arrives, so every
-        /// session is stuck. The combined count is exactly the buffer size once both threads are
+        /// admission into the full buffer: with the last verified block 0, no block is ever
+        /// verified and block 1 never arrives, so every session is stuck. The combined count is
+        /// exactly the buffer size once both threads are
         /// done, every admitted block ended either as an active session or as exactly one
         /// cancellation notification, no block was reported twice, and the evictions counters
         /// add up to the number of cancellations.
@@ -677,10 +682,12 @@ class BlockSessionHandlerTest {
         @DisplayName(
                 "processBlockItems() keeps the combined count within the limit when both threads admit blocks in descending order while every session is stuck")
         void testConcurrentDescendingAdmissionsKeepTheCombinedCountWithinTheLimit() throws Exception {
+            lastVerifiedBlock.set(0L);
             admitConcurrentlyAndAssertTheBufferIsAtItsLimit(
                     TestBlockBuilder.generateBlocksInRange(1000, 1000 + BLOCKS_PER_THREAD - 1)
                             .reversed(),
-                    TestBlockBuilder.generateBlocksInRange(1, BLOCKS_PER_THREAD).reversed());
+                    TestBlockBuilder.generateBlocksInRange(2, BLOCKS_PER_THREAD + 1)
+                            .reversed());
         }
 
         /// This test aims to assert that when both ingress threads admit sessions at the

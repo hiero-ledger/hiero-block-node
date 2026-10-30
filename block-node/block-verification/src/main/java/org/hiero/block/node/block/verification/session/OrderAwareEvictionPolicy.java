@@ -13,11 +13,13 @@ import org.hiero.block.node.block.verification.session.BlockVerificationSession.
 /// room, and it prefers a session that cannot complete on its own.
 ///
 /// Given the last verified block, every session in the buffer is in one of three
-/// states:
-/// - finishing: it does not wait for order, because its block is at most one
-///   ahead of the last verified block, below the first ordered block, or in the
-///   low priority lane while not all sources require ordering. It reports its
-///   result on its own.
+/// states, decided by the [OrderingRules] the ordering stage applies as well:
+/// - finishing: it does not wait for order, because no block has been verified
+///   yet, its block is at most one ahead of the last verified block, below the
+///   first ordered block, or in the low priority lane while not all sources
+///   require ordering. It reports its result on its own. Before the first success
+///   the ordering stage adopts the first block that verifies as the last verified
+///   one, so no session waits, none is stuck, and the backup candidates apply.
 /// - progressing: it waits for order, and every block from the one after the
 ///   last verified block up to its own is held by a session of either lane. It
 ///   is released as the run below it verifies.
@@ -134,11 +136,16 @@ public final class OrderAwareEvictionPolicy implements SessionEvictionPolicy {
     /// @param sessionsPerBlock the number of sessions per held block
     /// @return the best candidate, or null when no session other than the active one is stuck
     private SessionKey bestCandidate(final ActiveSessionsSnapshot snapshot, final Map<Long, Integer> sessionsPerBlock) {
-        final long firstGap = firstGap(snapshot.lastVerifiedBlock(), sessionsPerBlock);
-        final SessionKey stuckHighPriority =
-                highestStuck(snapshot.highPrioritySessions(), snapshot.activeHighPrioritySession(), firstGap, true);
+        final long lastVerifiedBlock = snapshot.lastVerifiedBlock();
+        final long firstGap = firstGap(lastVerifiedBlock, sessionsPerBlock);
+        final SessionKey stuckHighPriority = highestStuck(
+                snapshot.highPrioritySessions(),
+                SessionLane.HIGH_PRIORITY,
+                snapshot.activeHighPrioritySession(),
+                firstGap,
+                lastVerifiedBlock);
         final SessionKey stuckLowPriority = highestStuck(
-                snapshot.lowPrioritySessions(), null, firstGap, verificationConfig.allSourcesRequireOrdering());
+                snapshot.lowPrioritySessions(), SessionLane.LOW_PRIORITY, null, firstGap, lastVerifiedBlock);
         final SessionKey result;
         if (stuckHighPriority == null) {
             result = stuckLowPriority;
@@ -153,8 +160,8 @@ public final class OrderAwareEvictionPolicy implements SessionEvictionPolicy {
     }
 
     /// Find the first gap: the lowest block after the last verified block that no
-    /// session of either lane holds. Before any block is verified, the search starts
-    /// at block 0.
+    /// session of either lane holds. Before any block is verified the search starts at
+    /// block 0, though no session waits for order then.
     ///
     /// @param lastVerifiedBlock the last verified block of the snapshot
     /// @param sessionsPerBlock the number of sessions per held block
@@ -169,39 +176,42 @@ public final class OrderAwareEvictionPolicy implements SessionEvictionPolicy {
 
     /// Find the stuck session with the highest key in one lane.
     ///
-    /// @param lane the keys of the lane, ascending
+    /// @param keys the keys of the lane, ascending
+    /// @param lane the lane the keys belong to
     /// @param excluded a key never to select, may be null
     /// @param firstGap the first gap
-    /// @param laneAwaitsOrder whether sessions of this lane are subject to ordering at all
+    /// @param lastVerifiedBlock the last verified block of the snapshot
     /// @return the highest stuck key of the lane other than the excluded one, or null when there is none
     private SessionKey highestStuck(
-            final NavigableSet<SessionKey> lane,
+            final NavigableSet<SessionKey> keys,
+            final SessionLane lane,
             final SessionKey excluded,
             final long firstGap,
-            final boolean laneAwaitsOrder) {
+            final long lastVerifiedBlock) {
         SessionKey result = null;
-        if (laneAwaitsOrder) {
-            final Iterator<SessionKey> descending = lane.descendingIterator();
-            while (result == null && descending.hasNext()) {
-                final SessionKey key = descending.next();
-                if (!key.equals(excluded) && isStuck(key.blockNumber(), firstGap)) {
-                    result = key;
-                }
+        final Iterator<SessionKey> descending = keys.descendingIterator();
+        while (result == null && descending.hasNext()) {
+            final SessionKey key = descending.next();
+            if (!key.equals(excluded) && isStuck(key.blockNumber(), lane, firstGap, lastVerifiedBlock)) {
+                result = key;
             }
         }
         return result;
     }
 
-    /// Decide whether a session for the given block, in a lane subject to ordering,
-    /// is stuck: its block is above the first gap, which also puts it more than one
-    /// ahead of the last verified block, and at or above the first ordered block, as
-    /// the ordering stage requires before it makes a session wait.
+    /// Decide whether a session is stuck: under the [OrderingRules] it waits for its
+    /// turn, and its block is above the first gap, so its turn depends on a block no
+    /// session holds.
     ///
     /// @param blockNumber the block of the session
+    /// @param lane the lane of the session
     /// @param firstGap the first gap
+    /// @param lastVerifiedBlock the last verified block of the snapshot
     /// @return true when the session is stuck
-    private boolean isStuck(final long blockNumber, final long firstGap) {
-        return blockNumber > firstGap && blockNumber >= verificationConfig.firstOrderedBlock();
+    private boolean isStuck(
+            final long blockNumber, final SessionLane lane, final long firstGap, final long lastVerifiedBlock) {
+        return OrderingRules.waitsForOrder(verificationConfig, blockNumber, lane, lastVerifiedBlock)
+                && blockNumber > firstGap;
     }
 
     /// Find the first backup candidate, for when no session is stuck: the highest low
