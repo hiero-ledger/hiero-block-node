@@ -188,7 +188,8 @@ sources today:
   guarantee that a block will finish. If a new block starts before the previous
   one ended, the previous session is cancelled, since the stream has clearly
   moved on; because the superseded session never received its full block, it
-  reports a `CANCELLED_INCOMPLETE` failure.
+  reports a `CANCELLED_INCOMPLETE` failure, and it is counted in
+  `verification_sessions_superseded`.
 - **Backfill**: blocks arrive whole, one complete block per notification. Each
   is wrapped as a single batch that is both the start and the end of the block,
   and a session is started for it.
@@ -547,6 +548,7 @@ handling stage.
 | [`verification_active_sessions`](#verification_active_sessions)                 | Gauge        | none                                           | Combined number of sessions in both lanes of the buffer          |
 | [`verification_sessions_evicted`](#verification_sessions_evicted)               | Counter      | `lane="high_priority"`                         | Sessions evicted from the high priority lane                     |
 | [`verification_sessions_evicted`](#verification_sessions_evicted)               | Counter      | `lane="low_priority"`                          | Sessions evicted from the low priority lane                      |
+| [`verification_sessions_superseded`](#verification_sessions_superseded)         | Counter      | none                                           | Publisher sessions superseded by the publisher's next block      |
 | _**<br/>[Hashing Metrics](#hashing-metrics)<br/>&nbsp;**_                       |              |                                                |                                                                  |
 | [`hashing_block_time`](#hashing_block_time)                                     | Counter (ns) | none                                           | Cumulative time spent hashing blocks                             |
 | _**<br/>[Proof Verification Metrics](#proof-verification-metrics)<br/>&nbsp;**_ |              |                                                |                                                                  |
@@ -597,6 +599,16 @@ evicted first, or the sources deliver faster than the node verifies, and
 sessions that would complete on their own make room, backfilled ones first. On
 the `low_priority` series, the backfill plugin fetches the evicted blocks again
 on a later gap scan; on the `high_priority` series, the publisher resends them.
+
+#### `verification_sessions_superseded`
+
+Increments once per publisher session cancelled because the publisher started
+its next block before it finished the session's block; such a session reports
+`CANCELLED_INCOMPLETE`. A session that had already produced its result on its
+own, for example one that failed on a corrupted item, is not counted. This is
+not an eviction and says nothing about the buffer: a rising series means the
+publisher leaves blocks unfinished, which points at the publishing side rather
+than at verification.
 
 ### Hashing Metrics
 

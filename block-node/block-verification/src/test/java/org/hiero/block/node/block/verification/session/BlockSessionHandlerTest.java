@@ -17,6 +17,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.app.fixtures.TestConfigurationBuilder;
 import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
@@ -52,7 +53,8 @@ import org.junit.jupiter.api.Timeout;
 class BlockSessionHandlerTest {
     /// The limit of every test, the smallest the configuration accepts.
     private static final int BUFFER_SIZE = 13;
-    /// The executor the sessions are submitted to; it never runs them.
+    /// The executor the sessions are submitted to; it runs them only when a test says so,
+    /// and most tests never do.
     private BlockingExecutor executor;
     /// Captures the notifications the sessions send.
     private TestBlockMessagingFacility blockMessaging;
@@ -218,10 +220,10 @@ class BlockSessionHandlerTest {
         /// cleared by the admission of the block that superseded it: the handler cancels it
         /// before it admits the next block, so it is complete by then, and the admission
         /// clears it before it adds the new session. Its cancellation is reported once as an
-        /// incomplete block, and only the session of block 3 remains, as the active
-        /// publisher session.
+        /// incomplete block and counted once as superseded, not as evicted, and only the
+        /// session of block 3 remains, as the active publisher session.
         @Test
-        @DisplayName("processBlockItems() has a superseded session cleared by the admission that follows")
+        @DisplayName("processBlockItems() counts a superseded session, cleared by the admission that follows")
         void testHasASupersededSessionClearedByTheAdmissionThatFollows() {
             final BlockSessionHandler toTest = newHandlerWithProductionPolicy();
             final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(2, 3);
@@ -234,17 +236,48 @@ class BlockSessionHandlerTest {
                             FailureInfo.standard(FailureType.CANCELLED_INCOMPLETE),
                             VerificationNotification::failureInfo)
                     .returns(2L, VerificationNotification::blockNumber);
+            assertThat(superseded()).isEqualTo(1L);
+            assertThat(evictedHighPriority()).isZero();
+            assertThat(evictedLowPriority()).isZero();
             assertThat(highPriorityKeys()).containsExactly(key(3, 1));
             assertThat(activeSessions.activePublisherSession().sessionKey()).isEqualTo(key(3, 1));
             assertThat(gauge()).isEqualTo(1L);
+        }
+
+        /// This test aims to assert that a publisher session that already failed on its own
+        /// is not counted as superseded when the next block starts. The first batch of
+        /// block 2 carries its header and a corrupted item, but not the end of the block,
+        /// and the session's stages run: the session fails to parse the item and reports
+        /// `UNABLE_TO_PARSE` while it is still the active publisher session. The header of
+        /// block 3 then supersedes it, but cancelling it returns false: nothing is counted
+        /// as superseded, no cancellation is reported, and the session of block 3 becomes
+        /// the active publisher session.
+        @Test
+        @DisplayName("processBlockItems() does not count a superseded session that had already failed on its own")
+        void testDoesNotCountASupersededSessionThatHadAlreadyFailed() {
+            final BlockSessionHandler toTest = newHandlerWithProductionPolicy();
+            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(2, 3);
+            final TestBlock block2 = blocks.get(0);
+            final List<BlockItemUnparsed> headerAndCorruptedItem =
+                    List.of(block2.getHeaderUnparsed(), TestBlockBuilder.sampleBrokenProofUnparsed(block2.number()));
+            toTest.processBlockItems(
+                    new BlockItems(headerAndCorruptedItem, block2.number(), true, false), BlockSource.PUBLISHER);
+            executor.executeSerially();
+            toTest.processBlockItems(headerOnly(blocks.get(1)), BlockSource.PUBLISHER);
+            assertThat(superseded()).isZero();
+            assertThat(notifications())
+                    .singleElement()
+                    .returns(FailureInfo.standard(FailureType.UNABLE_TO_PARSE), VerificationNotification::failureInfo)
+                    .returns(2L, VerificationNotification::blockNumber);
+            assertThat(activeSessions.activePublisherSession().sessionKey()).isEqualTo(key(3, 1));
         }
 
         /// This test aims to assert that a new publisher block does not cancel the session
         /// of the previous block once that session has received its whole block, even
         /// though it is still being verified: block 2 arrives as a header batch followed
         /// by the batch ending it, then the header of block 3 arrives. No session is
-        /// cancelled, nothing is reported, both sessions stay in the buffer, and the
-        /// session of block 3 becomes the active publisher session.
+        /// cancelled, nothing is reported or counted as superseded, both sessions stay in
+        /// the buffer, and the session of block 3 becomes the active publisher session.
         @Test
         @DisplayName("processBlockItems() does not cancel a publisher session that received its whole block")
         void testDoesNotCancelAPublisherSessionThatReceivedItsWholeBlock() {
@@ -254,6 +287,7 @@ class BlockSessionHandlerTest {
             toTest.processBlockItems(restOfBlock(blocks.get(0)), BlockSource.PUBLISHER);
             toTest.processBlockItems(headerOnly(blocks.get(1)), BlockSource.PUBLISHER);
             assertThat(notifications()).isEmpty();
+            assertThat(superseded()).isZero();
             assertThat(highPriorityKeys()).containsExactly(key(2, 0), key(3, 1));
             assertThat(activeSessions.activePublisherSession().sessionKey()).isEqualTo(key(3, 1));
         }
@@ -1035,5 +1069,10 @@ class BlockSessionHandlerTest {
         return metrics.sessionHandlerMetrics()
                 .verificationSessionsEvictedLowPriority()
                 .get();
+    }
+
+    /// Reads the counter of the publisher sessions cancelled by supersession.
+    private long superseded() {
+        return metrics.sessionHandlerMetrics().verificationSessionsSuperseded().get();
     }
 }

@@ -155,21 +155,22 @@ Observes outbound streams served to subscribers.
 **Plugin:** `verification [block-node-verification]`
 Measures block‑verification throughput and success rate.
 
-|  Type   |               Name                |                                                          Description                                                           |
-|---------|-----------------------------------|--------------------------------------------------------------------------------------------------------------------------------|
-| Counter | `verification_blocks_received`    | Blocks received for verification                                                                                               |
-| Gauge   | `verification_active_sessions`    | Currently active verification sessions (live size of the active sessions buffer)                                               |
-| Counter | `verification_sessions_evicted`   | Sessions evicted from the active sessions buffer, labels: `lane={high_priority,low_priority}`                                  |
-| Counter | `verification_blocks_verified`    | Blocks that passed verification                                                                                                |
-| Counter | `verification_blocks_failed`      | Blocks that failed verification                                                                                                |
-| Counter | `verification_blocks_error`       | Internal errors during verification                                                                                            |
-| Counter | `verification_block_time`         | Verification time per block (ns=nanoseconds)                                                                                   |
-| Counter | `hashing_block_time`              | Hashing time per block (ns=nanoseconds)                                                                                        |
-| Counter | `hashing_future_items_hashed`     | Future block item types hashed via the forward-compatibility numbering rule.                                                   |
-| Counter | `hashing_future_items_not_hashed` | Future block item types present in a block but not hashed (ignored).                                                           |
-| Counter | `hashing_future_items_refused`    | Future block item types that caused a block to be refused.                                                                     |
-| Counter | `verification_proof_total`        | [Block proof](./glossary.md#block-proof) verifications, labels: `proof_type={rsa,state_proof,tss}`, `result={success,failure}` |
-| Counter | `rsa_roster_mismatch_total`       | RSA signatures from node IDs absent from the loaded address book                                                               |
+|  Type   |                Name                |                                                          Description                                                           |
+|---------|------------------------------------|--------------------------------------------------------------------------------------------------------------------------------|
+| Counter | `verification_blocks_received`     | Blocks received for verification                                                                                               |
+| Gauge   | `verification_active_sessions`     | Currently active verification sessions (live size of the active sessions buffer)                                               |
+| Counter | `verification_sessions_evicted`    | Sessions evicted from the active sessions buffer, labels: `lane={high_priority,low_priority}`                                  |
+| Counter | `verification_sessions_superseded` | Publisher sessions cancelled because the publisher started its next block before finishing theirs                              |
+| Counter | `verification_blocks_verified`     | Blocks that passed verification                                                                                                |
+| Counter | `verification_blocks_failed`       | Blocks that failed verification                                                                                                |
+| Counter | `verification_blocks_error`        | Internal errors during verification                                                                                            |
+| Counter | `verification_block_time`          | Verification time per block (ns=nanoseconds)                                                                                   |
+| Counter | `hashing_block_time`               | Hashing time per block (ns=nanoseconds)                                                                                        |
+| Counter | `hashing_future_items_hashed`      | Future block item types hashed via the forward-compatibility numbering rule.                                                   |
+| Counter | `hashing_future_items_not_hashed`  | Future block item types present in a block but not hashed (ignored).                                                           |
+| Counter | `hashing_future_items_refused`     | Future block item types that caused a block to be refused.                                                                     |
+| Counter | `verification_proof_total`         | [Block proof](./glossary.md#block-proof) verifications, labels: `proof_type={rsa,state_proof,tss}`, `result={success,failure}` |
+| Counter | `rsa_roster_mismatch_total`        | RSA signatures from node IDs absent from the loaded address book                                                               |
 
 ---
 
