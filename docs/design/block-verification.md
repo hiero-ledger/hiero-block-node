@@ -243,7 +243,9 @@ stage skips the remaining work and goes straight to result handling.
 3. **Result ordering.** The `ResultOrderingManager` holds a *successful* result
    until it is its turn to be released, following the last verified block. This
    is what turns out-of-order verification into an in-order stream of successes.
-   Failures never pass through this stage; they are reported immediately.
+   Which results wait is decided by `OrderingRules`, the rules the eviction
+   policy applies as well, so the two always agree. Failures never pass through
+   this stage; they are reported immediately.
 4. **Result handling.** The `SessionResultHandler` turns the outcome into a
    verification notification and sends it to messaging through the outbox. On
    success it then advances the last verified block and records the block in the
@@ -274,13 +276,16 @@ and selects one of the sessions already held to give up. Only then is the new
 session added. The count therefore never exceeds the limit, a session is never
 evicted by its own admission, and admissions run one at a time, their clearing
 and eviction included. The policy in use sorts every session into one of three
-states.
+states, by the same `OrderingRules` the ordering stage applies.
 
-- *Finishing*: the session does not wait for order. Its block is at most one
-  ahead of the last verified block (the next expected block, or a block at or
-  below the last verified block, such as historical backfill), below
-  `firstOrderedBlock`, or in the low priority lane while
-  `allSourcesRequireOrdering` is `false`. It reports its result on its own.
+- *Finishing*: the session does not wait for order. No block has been verified
+  yet, its block is at most one ahead of the last verified block (the next
+  expected block, or a block at or below the last verified block, such as
+  historical backfill), below `firstOrderedBlock`, or in the low priority lane
+  while `allSourcesRequireOrdering` is `false`. It reports its result on its
+  own. Before the first success the ordering stage adopts the first block that
+  verifies as the last verified one, so nothing waits, no session is stuck, and
+  the backup candidates apply.
 - *Progressing*: the session waits for order, and every block from the next
   expected block up to its own is held by a session of either lane. It is
   released as the run below it verifies.
