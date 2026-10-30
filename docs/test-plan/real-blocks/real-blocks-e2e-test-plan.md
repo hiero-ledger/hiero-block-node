@@ -9,7 +9,9 @@ load archives that `fetchTestBlocks` downloads before the run.
 The purpose is a load test with real blocks: real block sizes, transaction mix
 and rate, instead of generated ones. The suite supports several sources of
 real blocks. This E2E test plan lists the sources and what the Block Node must
-do with the blocks of each: keep verifying, persisting and acknowledging them.
+do with the blocks of each: keep verifying, persisting and acknowledging them,
+stream them to a subscriber, and serve them to a second Block Node that
+backfills from it.
 
 ## Key Considerations
 
@@ -46,12 +48,22 @@ do with the blocks of each: keep verifying, persisting and acknowledging them.
   is refused with `UNSUPPORTED_STREAM_FORMAT` and cannot be re-hashed (the TSS
   signature is over the SHA-384 root hash). Published archives hold SHA-256
   captures only.
-- **Crypto Version**: the TSS library version of the Block Node must match the
-  Consensus Node that produced the blocks, otherwise every block fails with
+- **Crypto Version**: the Block Node's TSS crypto library (hinTS/WRAPS) must
+  be compatible with the one the Consensus Node signed the blocks with. The
+  versions may differ; an incompatible pair fails every block with
   `BAD_BLOCK_PROOF`.
+- **Simulator**: the simulator is the publisher client only. It reads the
+  set's `.blk.gz` files in `DIR` mode, streams them over the publish API, and
+  handles acknowledgements, resends and behind responses. It is not used to
+  provoke other publish response codes; those are covered by the publisher
+  suites. A second simulator in `CONSUMER` mode is the subscriber (see
+  Subscriber).
 - **Large Blocks**: real blocks can be hundreds of MB. The Block Node runs with
   `SERVER_MAX_MESSAGE_SIZE_BYTES=300000000`, and the simulator's
   `blockStream.maxBlockItemsToStream` is raised so it does not stop mid-set.
+  The backfilling Block Node runs with `BACKFILL_MAX_INCOMING_BUFFER_SIZE` and
+  `BACKFILL_MAX_PROTOBUF_MESSAGE_SIZE_BYTES` at 314572800, the buffer's upper
+  bound; the defaults (100 MiB and 125 MiB) are below the largest real blocks.
 - **Resend Loop**: a refused block is resent by the simulator forever. The
   test fails early when `verification_blocks_verified` stops advancing for a
   stall window, instead of waiting for the full timeout.
@@ -60,19 +72,45 @@ do with the blocks of each: keep verifying, persisting and acknowledging them.
   sends as fast as the Block Node accepts.
 - **Report**: each set writes `build/real-blocks/<set>.txt`, uploaded as a CI
   artifact so runs can be compared. It holds:
-  - blocks/s: blocks in the set divided by the time from the first block sent
-    to the last block acknowledged. With pace 0 this is the highest rate the
-    Block Node sustains for that set; with a fixed pace it shows whether the
-    Block Node keeps up.
+  - the run time of each phase, and blocks/s as the blocks in the set divided
+    by it:
+    - publish: from the first block sent to the last block acknowledged. With
+      pace 0 its blocks/s is the highest rate the Block Node sustains for that
+      set; with a fixed pace it shows whether the Block Node keeps up.
+    - subscribe: from opening the subscription to receiving the last block.
+    - backfill: from starting the backfilling Block Node to its last block
+      verified.
+  - the P50, P90 and P99 end-to-end latency per block: the time from the
+    simulator sending a block's first item to receiving the acknowledgement
+    that covers it, the delay a Consensus Node sees. The simulator records
+    these per block: an acknowledgement for block N closes every block up to
+    N still open, and a resent block is timed from its last send.
   - the average verification time and receive latency per block:
     `verification_block_time` and `publisher_receive_latency_ns` divided by
     the block count. Both are running sums in nanoseconds, so averages are all
-    they give, not percentiles.
-- **Scope**: a load test with real blocks, not a functional test of Block Node
-  behavior; failure paths are covered by the other suites. Each set has one
-  expected outcome: every block verified, persisted and acknowledged.
-  Throughput and latency are reported per set (see Report), with no
-  thresholds until nightly runs give a baseline. The suite runs with
+    they give; percentiles per stage inside the Block Node need histogram
+    metrics, which it does not have yet.
+- **Subscriber**: while the set is published, a second simulator in
+  `CONSUMER` mode subscribes to `<first>` to `<last>`. It connects once the
+  first block is verified: on an empty Block Node a subscription to a
+  mid-chain set is refused with `INVALID_START_BLOCK_NUMBER`, since `<first>`
+  is further ahead than `maximumFutureRequest` allows. It then reads the early
+  blocks from storage and the rest live as they arrive.
+- **Backfill**: once the first Block Node acknowledges `<last>`, a second,
+  empty Block Node starts with the first one as its only backfill source
+  (`BACKFILL_BLOCK_NODE_SOURCES_PATH`). It is configured like the first: the
+  same first block (plus `BACKFILL_START_BLOCK`), verification on, its own
+  writable copies of the set's roster files. Starting it after publishing
+  ends keeps the publish numbers clean and makes the backfill a pure
+  historical fetch. The stall check applies here too, on the second Block
+  Node's `verification_blocks_verified`.
+- **Scope**: a load test with real blocks on the publish and subscribe
+  endpoints and on backfill, not a functional test of Block Node behavior;
+  failure paths are covered by the other suites. Each set has one expected
+  outcome: every block verified, persisted, acknowledged, received by the
+  subscriber and backfilled by the second Block Node. Throughput
+  and latency are reported per set (see Report), with no thresholds until
+  nightly runs give a baseline. The suite runs with
   `./gradlew :suites:runRealBlockSuites`, nightly and on demand, not on pull
   requests.
 
@@ -96,19 +134,28 @@ do with the blocks of each: keep verifying, persisting and acknowledging them.
 ##### Scenario Description
 
 A SHA-256 block set captured from an SDPT/SDLT run is streamed by the
-simulator into an empty Block Node, starting at the first block of the set.
+simulator into an empty Block Node, starting at the first block of the set,
+while a subscriber streams the same blocks out of it. Once the whole set is
+acknowledged, a second, empty Block Node backfills the set from the first.
 
 ##### Requirements
 
 The Block Node MUST accept the first block of the set as its first block.<br/>
 The Block Node MUST verify every block using only the data in the blocks and
 the roster files of the set.<br/>
-The Block Node MUST persist and acknowledge every block.
+The Block Node MUST persist and acknowledge every block.<br/>
+The Block Node MUST stream every block of the set to the subscriber, while it
+keeps receiving and verifying the rest of the set.<br/>
+The Block Node MUST serve every block of the set to a Block Node that
+backfills from it, and that Block Node MUST verify and persist every block.
 
-##### Expected Behavior
+##### Expected Behaviour
 
 - Every block of the set is verified, persisted and acknowledged.
 - No block fails verification.
+- The subscriber receives every block of the set, then its stream ends.
+- The second Block Node backfills, verifies and persists every block of the
+  set.
 
 ##### Preconditions
 
@@ -116,11 +163,17 @@ The Block Node MUST persist and acknowledge every block.
   `-PtestBlocks=<archive>`.
 - A Block Node container configured to start at the first block of the set,
   with writable copies of the set's roster files mounted.
+- A second Block Node container, configured the same way with its own roster
+  file copies and the first Block Node as its backfill source, started once
+  the first Block Node acknowledges `<last>`.
 
 ##### Input
 
 - Blocks `<first>` to `<last>` of the set, streamed by the simulator in `DIR`
   mode.
+- A subscribe request with `consumer.startBlockNumber=<first>` and
+  `consumer.endBlockNumber=<last>`, sent by the subscriber simulator once
+  `verification_blocks_verified` reaches 1.
 
 ##### Output
 
@@ -128,8 +181,17 @@ The Block Node MUST persist and acknowledge every block.
   number of blocks in the set.
 - `verification_blocks_failed` is 0.
 - The simulator's last known publisher status acknowledges `<last>`.
-- The report `build/real-blocks/<set>.txt` gives blocks/s and the average
-  verification time and receive latency per block.
+- The subscriber simulator's consumed block count equals the number of blocks
+  in the set, and its stream completes after `<last>`.
+- `subscriber_errors` is 0.
+- On the second Block Node, `backfill_blocks_backfilled`,
+  `verification_blocks_verified` and `files_recent_blocks_written` equal the
+  number of blocks in the set, and `verification_blocks_failed` and
+  `backfill_persistence_failures` are 0.
+- The report `build/real-blocks/<set>.txt` gives the run time and blocks/s
+  of the publish, subscribe and backfill phases, the P50/P90/P99 end-to-end
+  latency per block, and the average verification time and receive latency
+  per block.
 
 ##### Other
 
@@ -154,7 +216,7 @@ Same as [TC-RB-001](#tc-rb-001).
 
 ##### Expected Behaviour
 
-- Every block of the set is verified, persisted and acknowledged.
+- Same as [TC-RB-001](#tc-rb-001).
 
 ##### Preconditions
 
@@ -191,7 +253,7 @@ Same as [TC-RB-001](#tc-rb-001).
 
 ##### Expected Behaviour
 
-- Every block of the set is verified, persisted and acknowledged.
+- Same as [TC-RB-001](#tc-rb-001).
 
 ##### Preconditions
 
