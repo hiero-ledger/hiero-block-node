@@ -74,7 +74,6 @@ public final class VerificationDataProvider {
     /// @param tssData the TSS data the rejected verification used, must not be null
     /// @return `true` for the first rejection under this TSS data, `false` for the following ones
     public boolean firstLibraryRejectionFor(final TssData tssData) {
-        Objects.requireNonNull(tssData);
         return !tssData.equals(lastRejectedTssData.getAndSet(tssData));
     }
 
