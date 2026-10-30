@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: Apache-2.0
+# CI values for the backfill sources ConfigMap render test (Issue #3588).
+# Every source entry omits at least one optional numeric field, so a template that renders
+# a field without a fallback produces `<no value>` and therefore invalid JSON.
+#
+# Source entries:
+#   split-ports  → omits `port`; subscribePort/statusPort fully describe the source
+#   no-priority  → omits `priority`; only `port` is set
+#   all-fields   → every field set (control case)
+
+blockNode:
+  backfill:
+    path: "/opt/hiero/block-node/backfill"
+    filename: "block-node-sources.json"
+    sources:
+      - address: "split-ports.example.com"
+        subscribePort: 40980
+        statusPort: 40982
+        priority: 1
+      - address: "no-priority.example.com"
+        port: 40840
+      - address: "all-fields.example.com"
+        port: 40840
+        subscribePort: 40980
+        statusPort: 40982
+        priority: 2
