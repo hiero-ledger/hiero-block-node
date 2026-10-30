@@ -16,8 +16,8 @@ on:
                    highest existing vX.Y.Z-rcN tag (0.38.0-rc2 → 0.38.0).
           custom → uses the custom_version field below verbatim. Tags off the branch you
                    dispatch from - no release branch, no version.txt commit anywhere - only
-                   the tag is pushed. A plain X.Y.Z (final release) must be dispatched from
-                   release/X.Y; an rc-shaped version needs an existing release/X.Y branch.
+                   the tag is pushed. A plain X.Y.Z (final release) or an rc-shaped version
+                   must be dispatched from release/X.Y.
         required: true
         type: choice
         options:
@@ -29,7 +29,7 @@ on:
         description: "Full version string — only honoured when release_type is 'custom' (e.g. 0.38.0-hotfix.1)"
         required: false
       allow_custom_without_release_branch:
-        description: "Only honoured for 'custom'. Waives the release/X.Y checks for a plain X.Y.Z (must be dispatched from release/X.Y) or an rc-shaped version (needs a release/X.Y branch)."
+        description: "Only honoured for 'custom'. Waives the requirement to dispatch from release/X.Y for a plain X.Y.Z or an rc-shaped version."
         required: false
         type: boolean
         default: false
