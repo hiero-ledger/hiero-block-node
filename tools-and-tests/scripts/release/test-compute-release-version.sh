@@ -144,6 +144,15 @@ expect_ok "custom X.Y.Z from its release branch" COMPUTED_VERSION=0.45.0
 run custom main 0.45.0-SNAPSHOT --custom-version 0.45.0 --allow-custom-without-release-branch true
 expect_ok "custom X.Y.Z override flag waives the branch check" COMPUTED_VERSION=0.45.0
 
+# The rc2 incident: custom rc from main while release/0.45 exists.
+TAGS=(v0.45.0-rc1) BRANCHES=(main release/0.45)
+run custom main 0.46.0-SNAPSHOT --custom-version 0.45.0-rc2
+expect_fail "custom rc rejected from main even when release branch exists" "must be dispatched from release/0.45, not 'main'"
+run custom release/0.46 0.46.0-rc1 --custom-version 0.45.0-rc2
+expect_fail "custom rc rejected from another release line" "must be dispatched from release/0.45, not 'release/0.46'"
+run custom main 0.46.0-SNAPSHOT --custom-version 0.45.0-rc2 --allow-custom-without-release-branch true
+expect_ok "custom rc override flag waives the branch check" COMPUTED_VERSION=0.45.0-rc2
+
 TAGS=() BRANCHES=(main)
 run custom main 0.47.0-SNAPSHOT --custom-version 0.47.0-rc1
 expect_fail "custom rc without release branch needs the flag" "allow_custom_without_release_branch"
