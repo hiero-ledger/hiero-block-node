@@ -80,8 +80,9 @@ final class ApplicationStateUtility {
     }
 
     /// Returns {@code history} with adjacent eras that carry the same address book merged into one
-    /// era covering both block ranges. Mirror Node derived histories contain many such duplicates,
-    /// because a new era starts whenever any node entry changes, even if no RSA key changed.
+    /// era covering both block ranges. Histories built from Mirror Node data (the cloud bucket export
+    /// behind bootstrap files, or the REST API refresh) contain many such duplicates, because a new era
+    /// starts whenever any node entry changes but only node IDs and RSA keys are kept.
     ///
     /// Address books are compared ignoring node order, and a merged era keeps the later era's book.
     /// Eras are merged only when the earlier one ends exactly one block before the later one starts,
