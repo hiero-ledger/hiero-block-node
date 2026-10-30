@@ -15,6 +15,7 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -76,9 +77,6 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
 
     /** Sentinel value used by {@link RangedAddressBookHistory} for the open-ended (most-recent) era. */
     static final long OPEN_ENDED_END_BLOCK = -1L;
-
-    /** A node's account number is its node id plus this offset (node 0 is account 0.0.3). */
-    private static final long NODE_ACCOUNT_OFFSET = 3L;
 
     // JSON keys emitted by PBJ's RangedAddressBookHistory.JSON codec. Kept as constants so any
     // schema rename lands in one place and is auto-suggestable at the call site.
@@ -233,13 +231,12 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
                 if (resolved != original) {
                     System.out.printf(
                             "  Era %d: node ids were not unique, derived %d from the node accounts (accountNum - %d)%n",
-                            i, resolved.nodeAddress().size(), NODE_ACCOUNT_OFFSET);
+                            i, resolved.nodeAddress().size(), AddressBookRegistry.NODE_ACCOUNT_OFFSET);
                 }
                 resolvedBooks.add(resolved);
             } catch (IllegalArgumentException e) {
-                final Timestamp ts = era.blockTimestampOrThrow();
-                final Instant eraTime = Instant.ofEpochSecond(ts.seconds(), ts.nanos());
-                nodeIdProblems.add("era %d (block_timestamp=%s): %s".formatted(i, eraTime, e.getMessage()));
+                // Must not throw: a failure here would lose every problem collected so far.
+                nodeIdProblems.add("era %d (block_timestamp=%s): %s".formatted(i, eraTimeOf(era), e.getMessage()));
             }
         }
         if (!nodeIdProblems.isEmpty()) {
@@ -350,7 +347,7 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
                 throw new IllegalArgumentException(
                         "cannot derive a node id from the node account: " + e.getMessage(), e);
             }
-            final long nodeId = accountNum - NODE_ACCOUNT_OFFSET;
+            final long nodeId = accountNum - AddressBookRegistry.NODE_ACCOUNT_OFFSET;
             if (nodeId < 0) {
                 throw new IllegalArgumentException(
                         "derived node id " + nodeId + " from node account " + accountNum + " is negative");
@@ -361,6 +358,19 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
             throw new IllegalArgumentException("node ids are still not unique after deriving them from the accounts");
         }
         return NodeAddressBook.newBuilder().nodeAddress(derived).build();
+    }
+
+    /** The era's block timestamp for error output, or "unknown" when it is absent or out of range. */
+    private static String eraTimeOf(final DatedNodeAddressBook era) {
+        final Timestamp ts = era.blockTimestamp();
+        if (ts == null) {
+            return "unknown";
+        }
+        try {
+            return Instant.ofEpochSecond(ts.seconds(), ts.nanos()).toString();
+        } catch (DateTimeException e) {
+            return "unknown";
+        }
     }
 
     private static boolean hasUniqueNodeIds(final List<NodeAddress> nodes) {

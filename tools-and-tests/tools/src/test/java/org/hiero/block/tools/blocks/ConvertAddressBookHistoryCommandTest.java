@@ -462,8 +462,9 @@ class ConvertAddressBookHistoryCommandTest {
         }
     }
 
+    // Issue #3955
     @Nested
-    @DisplayName("Legacy eras without node ids (#3955)")
+    @DisplayName("Legacy eras without node ids")
     class LegacyNodeIds {
 
         @Test
@@ -631,6 +632,66 @@ class ConvertAddressBookHistoryCommandTest {
 
             assertThrows(IllegalArgumentException.class, () -> ConvertAddressBookHistoryCommand.resolveNodeIds(book));
         }
+
+        @Test
+        @DisplayName("Printed notice names each era whose ids were derived")
+        void derivedNoticeIsPrinted() throws IOException {
+            final List<Instant> instants = blockInstants(new long[] {100});
+            writeHistory(inputFile, List.of(dated(instants.get(0), legacyMemoOnly(3, 4))));
+
+            final PrintStream originalOut = System.out;
+            final ByteArrayOutputStream captured = new ByteArrayOutputStream();
+            System.setOut(new PrintStream(captured, true, StandardCharsets.UTF_8));
+            final int exit;
+            try {
+                exit = execute();
+            } finally {
+                System.setOut(originalOut);
+            }
+
+            assertEquals(0, exit);
+            final String stdout = captured.toString(StandardCharsets.UTF_8);
+            assertTrue(stdout.contains("Era 0: node ids were not unique, derived 4"), stdout);
+        }
+
+        @Test
+        @DisplayName("An account below the node offset fails end to end with exit 1 naming the era")
+        void negativeIdFailsEndToEnd() throws IOException {
+            final List<Instant> instants = blockInstants(new long[] {100});
+            final NodeAddressBook book =
+                    new NodeAddressBook(List.of(legacyNode("0.0.2", "aa"), legacyNode("0.0.3", "bb")));
+            writeHistory(inputFile, List.of(dated(instants.get(0), book)));
+
+            final ExecResult result = executeCapturingStderr();
+
+            assertEquals(1, result.exit());
+            assertTrue(result.stderr().contains("era 0"), result.stderr());
+            assertTrue(result.stderr().contains("negative"), result.stderr());
+            assertFalse(Files.exists(outputFile));
+        }
+
+        @Test
+        @DisplayName("A partly duplicated era derives every id from the accounts, never a mix")
+        void partlyDuplicatedEraDerivesAll() {
+            final NodeAddressBook book = new NodeAddressBook(List.of(
+                    nodeWithIdAndMemo(0, "0.0.3", "aa"),
+                    nodeWithIdAndMemo(0, "0.0.4", "bb"),
+                    nodeWithIdAndMemo(5, "0.0.5", "cc")));
+
+            final NodeAddressBook resolved = ConvertAddressBookHistoryCommand.resolveNodeIds(book);
+
+            assertEquals(
+                    List.of(0L, 1L, 2L),
+                    resolved.nodeAddress().stream().map(NodeAddress::nodeId).toList());
+        }
+
+        @Test
+        @DisplayName("An empty book counts as unique and is returned unchanged")
+        void emptyBookIsUnchanged() {
+            final NodeAddressBook empty = new NodeAddressBook(List.of());
+
+            assertSame(empty, ConvertAddressBookHistoryCommand.resolveNodeIds(empty));
+        }
     }
 
     // ----- helpers -----
@@ -653,6 +714,14 @@ class ConvertAddressBookHistoryCommandTest {
         return history.addressBooks().get(era).addressBook().nodeAddress().stream()
                 .map(NodeAddress::nodeId)
                 .toList();
+    }
+
+    private static NodeAddress nodeWithIdAndMemo(long nodeId, String memo, String rsaPubKey) {
+        return NodeAddress.newBuilder()
+                .nodeId(nodeId)
+                .memo(Bytes.wrap(memo.getBytes(StandardCharsets.UTF_8)))
+                .rsaPubKey(rsaPubKey)
+                .build();
     }
 
     /** A legacy genesis style node: only the account memo (for example "0.0.7"), no nodeId. */
