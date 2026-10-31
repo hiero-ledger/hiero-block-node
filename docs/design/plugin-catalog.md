@@ -337,8 +337,6 @@ catalog; (2) the selector guarantees exactly one is **loaded**; (3) `BlockNodeAp
 ### Image Layering
 
 ```
-block-node runtime image            JRE + lib/ (core) + empty plugins/      [unchanged]
-
 plugin-core   FROM <jre-ubi10-minimal>
               + plugin-selector.jar
               + .core-modules.txt
@@ -405,16 +403,16 @@ sequenceDiagram
     participant Vol as plugins volume (emptyDir)
     participant App as block-node container (runtime image)
 
-    K8s->>Init: run ENTRYPOINT (selector) with plugins.names + dest=/plugins
+    K8s->>Init: run selector with plugins.names, dest is plugins dir
     Init->>Init: read catalog.json + plugin.json(s)
     Init->>Init: resolve names, add required-type defaults, dedup, drop core overlaps
     Init->>Init: assert exactly-one per required type (final set)
     alt unknown name / conflict / missing required type
         Init-->>K8s: exit 1 (pod fails fast, clear message)
     else ok
-        Init->>Vol: clean, then copy selected jars into /plugins
+        Init->>Vol: clean, then copy selected jars into plugins dir
         Init-->>K8s: exit 0
-        K8s->>App: start; module path = lib/ : plugins/
+        K8s->>App: start with module path lib then plugins
         App->>Vol: ServiceLoader loads exactly the provisioned plugins
     end
 ```
@@ -423,22 +421,22 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    A[Read catalog + plugins.names] --> B{name known & unambiguous?}
-    B -- no --> X1[exit 1: list available]
-    B -- yes --> C[For each required type: 0 providers?]
-    C -- yes --> E[add default provider]
-    C -- no --> F[keep selection]
-    E --> G[gather jars]
+    A["Read catalog + plugins.names"] --> B{"name known and unambiguous?"}
+    B -- no --> X1["exit 1 - list available"]
+    B -- yes --> C{"required type has 0 providers?"}
+    C -- yes --> E["add default provider"]
+    C -- no --> F["keep selection"]
+    E --> G["gather jars"]
     F --> G
-    G --> H{jar overlaps core?}
-    H -- all packages in core --> H1[drop jar]
-    H -- partial split --> X4[exit 1: split package]
+    G --> H{"jar overlaps core?"}
+    H -- all packages in core --> H1["drop jar"]
+    H -- partial split --> X4["exit 1 - split package"]
     H -- no overlap --> I
-    H1 --> I{module -> two different jars?}
-    I -- yes --> X3[exit 1: version conflict]
-    I -- no --> J{exactly one per required type?}
-    J -- no --> X2[exit 1: required-type violation]
-    J -- yes --> K[validate plan, clean dest, copy to /plugins, exit 0]
+    H1 --> I{"module maps to two different jars?"}
+    I -- yes --> X3["exit 1 - version conflict"]
+    I -- no --> J{"exactly one per required type?"}
+    J -- no --> X2["exit 1 - required-type violation"]
+    J -- yes --> K["validate plan, clean dest, copy to plugins dir, exit 0"]
 ```
 
 ## Configuration
