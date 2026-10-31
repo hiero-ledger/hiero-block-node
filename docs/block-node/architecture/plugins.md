@@ -93,3 +93,5 @@ based on Helm chart configuration. This allows operators to select exactly which
 For deployment configuration, including pre-defined profiles and custom plugin selection, see:
 - [Helm Chart Plugin Configuration](https://github.com/hiero-ledger/hiero-block-node/blob/main/charts/block-node-server/README.md#plugin-configuration)
 - [Deployment with Selected Plugins Design](../../design/deployment-with-selected-plugins.md)
+- [Plugin Catalog & Selector Design](../../design/plugin-catalog.md) — provisioning plugins from
+  container image layers with no Maven and no network egress at pod start
