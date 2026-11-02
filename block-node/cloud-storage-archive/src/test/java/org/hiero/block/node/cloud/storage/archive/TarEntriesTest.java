@@ -2,7 +2,9 @@
 package org.hiero.block.node.cloud.storage.archive;
 
 import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.generateBlocksInRange;
+import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.sampleProofUnparsed;
 import static org.hiero.block.node.base.ParseHelper.standardParse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -10,10 +12,14 @@ import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.stream.Stream;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.base.CompressionType;
@@ -52,6 +58,29 @@ class TarEntriesTest {
             outputStream.write(new byte[1024]);
         }
         assertTrue(checkBlockTarFileContents(tempDir, tarFile, blocks));
+    }
+
+    @Test
+    @DisplayName("Tar entry modification time is the block's consensus time")
+    void testModificationTimeIsConsensusTime() throws IOException {
+        final Instant consensusTime = Instant.parse("2024-01-02T03:04:05Z");
+        final TestBlock block = generateBlocksInRange(7, 7, consensusTime, Duration.ofSeconds(2))
+                .getFirst();
+
+        final byte[] entry = TarEntries.toTarEntry(block.blockUnparsed(), block.number());
+
+        // UStar mtime field: 11 octal digits and a NUL terminator at header offset 136.
+        final String modificationTimeOctal = new String(entry, 136, 11, StandardCharsets.US_ASCII);
+        assertEquals(consensusTime.getEpochSecond(), Long.parseLong(modificationTimeOctal, 8));
+    }
+
+    @Test
+    @DisplayName("Consensus time is 0 when the block does not start with a block header")
+    void testConsensusTimeWithoutHeaderIsZero() {
+        final BlockUnparsed blockWithoutHeader =
+                BlockUnparsed.newBuilder().blockItems(sampleProofUnparsed(7)).build();
+
+        assertEquals(0L, TarEntries.consensusTimeSeconds(blockWithoutHeader));
     }
 
     private boolean checkBlockTarFileContents(Path tempDir, Path tarFile, List<TestBlock> blocks) throws Exception {
