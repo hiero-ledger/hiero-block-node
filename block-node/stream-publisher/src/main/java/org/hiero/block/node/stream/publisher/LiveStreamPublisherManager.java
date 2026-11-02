@@ -1033,16 +1033,27 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// would be lost without ever being retried.
     ///
     /// @param blockNumber the block to discard and schedule for resend
-    private void discardInconsistentBlock(final long blockNumber) {
-        LOGGER.log(
-                WARNING,
-                "Block {0} has a collected proof but unforwarded batches in its queue; discarding it and scheduling a resend",
-                blockNumber);
-        queueByBlockMap.remove(blockNumber);
-        clearCollectedBlockEnd(blockNumber);
-        activeStreamHandlerByBlock.remove(blockNumber);
-        activeResendBlocks.remove(blockNumber);
-        scheduleResend(blockNumber);
+    private boolean discardInconsistentBlock(final long blockNumber) {
+        boolean discarded = false;
+        final Deque<BlockItemSetUnparsed> unforwarded = queueByBlockMap.get(blockNumber);
+        if (endBlocksReceived.contains(blockNumber)
+                && unforwarded != null
+                && !unforwarded.isEmpty()
+                && blockProofs.containsKey(blockNumber)) {
+            // The proof was collected for a different attempt than the queued batches. Sending it
+            // alone would end a block that messaging never saw begin, so schedule a resend instead.
+            LOGGER.log(
+                    WARNING,
+                    "Block {0} has a collected proof but unforwarded batches in its queue; discarding it and scheduling a resend",
+                    blockNumber);
+            queueByBlockMap.remove(blockNumber);
+            clearCollectedBlockEnd(blockNumber);
+            activeStreamHandlerByBlock.remove(blockNumber);
+            activeResendBlocks.remove(blockNumber);
+            scheduleResend(blockNumber);
+            discarded = true;
+        }
+        return discarded;
     }
 
     /// Removes any entry in {@link #blocksToResend} whose block number is more than
@@ -1561,16 +1572,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                         publisherManager.waitForDataReady();
                     }
                 } else {
-                    final Deque<BlockItemSetUnparsed> unforwarded =
-                            publisherManager.queueByBlockMap.get(currentBlockNumber);
                     if (publisherManager.endBlocksReceived.contains(currentBlockNumber)
-                            && unforwarded != null
-                            && !unforwarded.isEmpty()
-                            && publisherManager.blockProofs.containsKey(currentBlockNumber)) {
-                        // The proof was collected for a different attempt than the queued batches. Sending it
-                        // alone would end a block that messaging never saw begin, so schedule a resend instead.
-                        publisherManager.discardInconsistentBlock(currentBlockNumber);
-                    } else if (publisherManager.endBlocksReceived.contains(currentBlockNumber)) {
+                            && !publisherManager.discardInconsistentBlock(currentBlockNumber)) {
                         // Send the proof
                         final BlockItemUnparsed proof = publisherManager.blockProofs.remove(currentBlockNumber);
                         if (proof != null) {
