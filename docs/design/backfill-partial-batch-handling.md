@@ -1,18 +1,5 @@
 # Backfill Partial Batch Handling Design
 
-## Table of Contents
-
-1. [Purpose](#purpose)
-2. [Goals](#goals)
-3. [Terms](#terms)
-4. [Entities](#entities)
-5. [Design](#design)
-6. [Diagram](#diagram)
-7. [Configuration](#configuration)
-8. [Metrics](#metrics)
-9. [Exceptions](#exceptions)
-10. [Acceptance Tests](#acceptance-tests)
-
 ## Purpose
 
 Backfill fetches missing blocks from peer Block Nodes in batches, one gRPC server
@@ -60,8 +47,9 @@ but is no longer required once this feature ships.
 2. A block that was already received **must not** be requested again, neither on
    a retry inside the fetcher nor on the next chunk planned by the runner.
 3. A block that was only partly received (items without an end of block) **must
-   never** be returned or persisted. It is requested again in full, as the first
-   block of the next request.
+   never** be part of a batch result, so it is never persisted or sent to other
+   plugins. It is requested again in full, as the first block of the next
+   request.
 4. The result of a batch request **must** be a contiguous prefix of the requested
    range, starting at the requested start block, plus an optional error.
 5. A batch that fails after at least one complete block arrived **must not**
@@ -126,8 +114,9 @@ timeouts.
 
 ### BatchResult
 
-New. The outcome of one batch request: the blocks received, in order from the
-requested start block, and the error that ended the request early, if any.
+A new class representing the outcome of one batch request: the blocks received,
+in order from the requested start block, and the error that ended the request
+early, if any.
 
 ### RequestContext and SubscribePipeline
 
@@ -210,16 +199,19 @@ gap always moves forward or ends.
 
 A fetch counts toward the peer's health as follows:
 
-|              Outcome              |               Health effect               |
-|-----------------------------------|-------------------------------------------|
-| All blocks received               | Success: failures reset, latency recorded |
-| Some blocks received, then failed | None: no failure, no backoff, no latency  |
-| No block received                 | Failure and backoff, as today             |
+|              Outcome              |                        Health effect                        |
+|-----------------------------------|-------------------------------------------------------------|
+| All blocks received               | Success: failures reset, latency recorded                   |
+| Some blocks received, then failed | No new failure, no backoff, failures kept, latency recorded |
+| No block received                 | Failure and backoff, as today                               |
 
-The recorded latency is the total time of the attempts, without the retry
-delays between them, so the health score keeps meaning the time for a full
-batch even when it took several attempts. A fetch that ends with only part of
-the batch records no latency, because its time covers fewer blocks.
+The latency in the health score becomes a time per block instead of a time per
+batch. Every fetch that received blocks adds the total time of its attempts,
+without the retry delays between them, and the number of blocks received. The
+average latency of a peer is the total time divided by the total blocks.
+
+The duration of each attempt is logged at `DEBUG`, so the raw batch time stays
+available for diagnostics.
 
 ### Stopping Abandoned Streams
 
@@ -430,10 +422,11 @@ details:
    and nothing the stream sends afterwards is added.
 4. **Resume after prefix.** A retry requests only the blocks after the prefix,
    and the whole range is returned once they arrive. The peer is marked
-   successful, with the time of both attempts as its latency, not counting the
-   retry delay between them.
+   successful, with the time of both attempts divided by the blocks returned as
+   its latency, not counting the retry delay between them.
 5. **Prefix kept when all attempts fail.** The prefix is returned, persisted,
-   and the next fetch starts after it; the peer is not put in backoff.
+   and the next fetch starts after it; the peer is not put in backoff, its
+   failures are not reset, and a latency per block is recorded for the prefix.
 6. **Short stream with success status.** The prefix is returned without
    retrying, and the rest is requested in the next round.
 7. **No block received.** The peer is put in backoff and removed from the
