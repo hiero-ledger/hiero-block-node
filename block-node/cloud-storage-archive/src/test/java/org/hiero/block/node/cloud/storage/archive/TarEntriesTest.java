@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import com.hedera.hapi.block.stream.Block;
+import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
@@ -19,6 +20,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.stream.Stream;
+import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
@@ -81,6 +83,34 @@ class TarEntriesTest {
                 BlockUnparsed.newBuilder().blockItems(sampleProofUnparsed(7)).build();
 
         assertEquals(0L, TarEntries.consensusTimeSeconds(blockWithoutHeader));
+    }
+
+    @Test
+    @DisplayName("Consensus time is 0 when the block header has no timestamp")
+    void testConsensusTimeWithoutTimestampIsZero() {
+        final Bytes headerWithoutTimestamp =
+                BlockHeader.PROTOBUF.toBytes(BlockHeader.newBuilder().number(7).build());
+        final BlockUnparsed block = BlockUnparsed.newBuilder()
+                .blockItems(BlockItemUnparsed.newBuilder()
+                        .blockHeader(headerWithoutTimestamp)
+                        .build())
+                .build();
+
+        assertEquals(0L, TarEntries.consensusTimeSeconds(block));
+    }
+
+    @Test
+    @DisplayName("Consensus time is 0 when the block header cannot be parsed")
+    void testConsensusTimeWithUnparsableHeaderIsZero() {
+        // Field 1 with the invalid wire type 7.
+        final Bytes unparsableHeader = Bytes.wrap(new byte[] {(byte) 0x0F});
+        final BlockUnparsed block = BlockUnparsed.newBuilder()
+                .blockItems(BlockItemUnparsed.newBuilder()
+                        .blockHeader(unparsableHeader)
+                        .build())
+                .build();
+
+        assertEquals(0L, TarEntries.consensusTimeSeconds(block));
     }
 
     private boolean checkBlockTarFileContents(Path tempDir, Path tarFile, List<TestBlock> blocks) throws Exception {
