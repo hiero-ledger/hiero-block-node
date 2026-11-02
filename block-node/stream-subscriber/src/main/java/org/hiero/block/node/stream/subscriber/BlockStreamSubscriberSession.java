@@ -614,7 +614,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         // then we'll also break out of the loop and return to the caller.
         // Stop if the session was closed (e.g. a send failed), as every further
         // send to a failed stream blocks for the full flow control timeout.
-        while (!isClosed() && !liveBlockQueue.isEmpty()) {
+        while (!isClosed() && !allRequestedBlocksSent() && !liveBlockQueue.isEmpty()) {
             // Peek at the block item from the queue and _possibly_ process it
             BlockItems blockItems = liveBlockQueue.peek();
             // Live _might_ be ahead or behind the next expected block (particularly if
