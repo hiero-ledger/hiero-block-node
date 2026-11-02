@@ -57,9 +57,7 @@ public class TssEnablementRegistry {
         final StringBuilder sb = new StringBuilder();
         sb.append("LedgerID=")
                 .append(fingerprint(tssData.ledgerId()))
-                .append(", WRAPS VK size=")
-                .append(tssData.wrapsVerificationKey().length())
-                .append(" bytes, roster=")
+                .append(", roster=")
                 .append(tssData.currentRosterOrThrow().rosterEntries().size())
                 .append(" nodes\n");
         long totalWeight = 0;
@@ -222,26 +220,21 @@ public class TssEnablementRegistry {
         if (body.ledgerId() == null || body.ledgerId().length() == 0) {
             throw new IllegalArgumentException("LedgerIdPublication at block " + blockNumber + " is missing ledgerId");
         }
-        if (body.historyProofVerificationKey() == null
-                || body.historyProofVerificationKey().length() == 0) {
-            throw new IllegalArgumentException(
-                    "LedgerIdPublication at block " + blockNumber + " is missing historyProofVerificationKey");
-        }
-        if (body.nodeContributions() == null || body.nodeContributions().isEmpty()) {
-            throw new IllegalArgumentException(
-                    "LedgerIdPublication at block " + blockNumber + " has no nodeContributions");
-        }
+        // The publication's history proof verification key is no longer set by consensus nodes and no
+        // longer used by the TSS library, and the node contributions are informational, so neither is
+        // required: the ledger id is the only verification input.
         final List<RosterEntry> rosterEntries = new ArrayList<>();
-        for (final LedgerIdNodeContribution c : body.nodeContributions()) {
-            rosterEntries.add(RosterEntry.newBuilder()
-                    .nodeId(c.nodeId())
-                    .weight(c.weight())
-                    .schnorrPublicKey(c.historyProofKey())
-                    .build());
+        if (body.nodeContributions() != null) {
+            for (final LedgerIdNodeContribution c : body.nodeContributions()) {
+                rosterEntries.add(RosterEntry.newBuilder()
+                        .nodeId(c.nodeId())
+                        .weight(c.weight())
+                        .schnorrPublicKey(c.historyProofKey())
+                        .build());
+            }
         }
         return TssData.newBuilder()
                 .ledgerId(body.ledgerId())
-                .wrapsVerificationKey(body.historyProofVerificationKey())
                 .currentRoster(
                         TssRoster.newBuilder().rosterEntries(rosterEntries).build())
                 .validFromBlock(blockNumber)

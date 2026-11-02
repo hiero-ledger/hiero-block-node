@@ -87,7 +87,7 @@ public class RecordBlockConverter {
                 // block time is the time of the first round that is the time of the first transaction, this is
                 // different from the record file time
                 firstTransactionTimestamp,
-                BlockHashAlgorithm.SHA2_384);
+                BlockHashAlgorithm.SHA2_256);
 
         // Get missing transactions as amendments (if any)
         // TODO: Once hiero-consensus-node releases a stable version after v0.70.0 that includes the
@@ -187,7 +187,7 @@ public class RecordBlockConverter {
                 null,
                 blockNumber,
                 firstTransactionTimestamp,
-                BlockHashAlgorithm.SHA2_384);
+                BlockHashAlgorithm.SHA2_256);
 
         // Get missing transactions as amendments (if any)
         final List<RecordStreamItem> amendments = amendmentProvider.getMissingRecordStreamItems(blockNumber);

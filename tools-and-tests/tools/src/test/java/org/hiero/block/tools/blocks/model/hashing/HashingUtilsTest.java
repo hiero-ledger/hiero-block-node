@@ -2,13 +2,14 @@
 package org.hiero.block.tools.blocks.model.hashing;
 
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.*;
+import static org.hiero.block.tools.utils.Sha256.SHA_256_HASH_SIZE;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Arrays;
 import java.util.HexFormat;
-import org.hiero.block.tools.utils.Sha384;
+import org.hiero.block.tools.utils.Sha256;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -35,7 +36,7 @@ class HashingUtilsTest {
 
     @BeforeEach
     void setUp() {
-        digest = Sha384.sha384Digest();
+        digest = Sha256.sha256Digest();
     }
 
     // ========== Prefix Constant Tests ==========
@@ -110,19 +111,19 @@ class HashingUtilsTest {
         }
 
         /**
-         * Verifies the EMPTY_TREE_HASH constant is correctly computed as sha384(0x00).
+         * Verifies the EMPTY_TREE_HASH constant is correctly computed as sha256(0x00).
          *
-         * <p>The empty tree hash is defined as the SHA-384 hash of a single zero byte,
+         * <p>The empty tree hash is defined as the SHA-256 hash of a single zero byte,
          * which is the LEAF_PREFIX. This provides a well-defined hash for empty merkle trees.
          */
         @Test
-        @DisplayName("EMPTY_TREE_HASH should be sha384(0x00)")
+        @DisplayName("EMPTY_TREE_HASH should be sha256(0x00)")
         void testEmptyTreeHashValue() {
-            // Manually compute sha384(0x00)
+            // Manually compute sha256(0x00)
             byte[] expectedHash = digest.digest(new byte[] {0x00});
 
-            assertArrayEquals(EMPTY_TREE_HASH, expectedHash, "EMPTY_TREE_HASH must be sha384(new byte[]{0x00})");
-            assertEquals(48, EMPTY_TREE_HASH.length, "EMPTY_TREE_HASH must be 48 bytes (SHA-384)");
+            assertArrayEquals(EMPTY_TREE_HASH, expectedHash, "EMPTY_TREE_HASH must be sha256(new byte[]{0x00})");
+            assertEquals(SHA_256_HASH_SIZE, EMPTY_TREE_HASH.length, "EMPTY_TREE_HASH must be 32 bytes (SHA-256)");
         }
     }
 
@@ -156,15 +157,15 @@ class HashingUtilsTest {
         }
 
         /**
-         * Verifies that leaf hashes are 48 bytes (SHA-384 output).
+         * Verifies that leaf hashes are 32 bytes (SHA-256 output).
          */
         @Test
-        @DisplayName("Leaf hash should be 48 bytes (SHA-384)")
+        @DisplayName("Leaf hash should be 32 bytes (SHA-256)")
         void testLeafHashLength() {
             byte[] leafData = "any data".getBytes(StandardCharsets.UTF_8);
             byte[] hash = hashLeaf(digest, leafData);
 
-            assertEquals(48, hash.length, "SHA-384 hash must be 48 bytes");
+            assertEquals(SHA_256_HASH_SIZE, hash.length, "SHA-256 hash must be 32 bytes");
         }
 
         /**
@@ -227,8 +228,8 @@ class HashingUtilsTest {
         @Test
         @DisplayName("hashInternalNode with both children should compute hash(0x02 || left || right)")
         void testTwoChildInternalNodeFormula() {
-            byte[] leftChild = new byte[48];
-            byte[] rightChild = new byte[48];
+            byte[] leftChild = new byte[SHA_256_HASH_SIZE];
+            byte[] rightChild = new byte[SHA_256_HASH_SIZE];
             Arrays.fill(leftChild, (byte) 0xAA);
             Arrays.fill(rightChild, (byte) 0xBB);
 
@@ -254,7 +255,7 @@ class HashingUtilsTest {
         @Test
         @DisplayName("hashInternalNode with only first child should compute hash(0x01 || firstChild)")
         void testSingleChildInternalNodeFormula() {
-            byte[] firstChild = new byte[48];
+            byte[] firstChild = new byte[SHA_256_HASH_SIZE];
             Arrays.fill(firstChild, (byte) 0xCC);
 
             // Compute using HashingUtils with null second child
@@ -271,16 +272,16 @@ class HashingUtilsTest {
         }
 
         /**
-         * Verifies that internal node hashes are 48 bytes (SHA-384 output).
+         * Verifies that internal node hashes are 32 bytes (SHA-256 output).
          */
         @Test
-        @DisplayName("Internal node hash should be 48 bytes (SHA-384)")
+        @DisplayName("Internal node hash should be 32 bytes (SHA-256)")
         void testInternalNodeHashLength() {
-            byte[] leftChild = new byte[48];
-            byte[] rightChild = new byte[48];
+            byte[] leftChild = new byte[SHA_256_HASH_SIZE];
+            byte[] rightChild = new byte[SHA_256_HASH_SIZE];
 
             byte[] hash = hashInternalNode(digest, leftChild, rightChild);
-            assertEquals(48, hash.length, "SHA-384 hash must be 48 bytes");
+            assertEquals(SHA_256_HASH_SIZE, hash.length, "SHA-256 hash must be 32 bytes");
         }
 
         /**
@@ -289,7 +290,7 @@ class HashingUtilsTest {
         @Test
         @DisplayName("hashInternalNode should throw NullPointerException when firstChild is null")
         void testNullFirstChildThrows() {
-            byte[] rightChild = new byte[48];
+            byte[] rightChild = new byte[SHA_256_HASH_SIZE];
 
             //noinspection DataFlowIssue
             assertThrows(
@@ -304,8 +305,8 @@ class HashingUtilsTest {
         @Test
         @DisplayName("Swapping children should produce different hashes (order matters)")
         void testChildOrderMatters() {
-            byte[] child1 = new byte[48];
-            byte[] child2 = new byte[48];
+            byte[] child1 = new byte[SHA_256_HASH_SIZE];
+            byte[] child2 = new byte[SHA_256_HASH_SIZE];
             Arrays.fill(child1, (byte) 0x11);
             Arrays.fill(child2, (byte) 0x22);
 
@@ -331,7 +332,7 @@ class HashingUtilsTest {
         @Test
         @DisplayName("Leaf hash should differ from internal node hash of same data (domain separation)")
         void testLeafVsInternalNodeDomainSeparation() {
-            byte[] data = new byte[48];
+            byte[] data = new byte[SHA_256_HASH_SIZE];
             Arrays.fill(data, (byte) 0xFF);
 
             // Hash as leaf
@@ -352,7 +353,7 @@ class HashingUtilsTest {
         @Test
         @DisplayName("Single-child hash should differ from two-child hash (different prefixes)")
         void testSingleVsTwoChildDomainSeparation() {
-            byte[] child = new byte[48];
+            byte[] child = new byte[SHA_256_HASH_SIZE];
             Arrays.fill(child, (byte) 0xAB);
 
             // Single child: hash(0x01 || child)
@@ -377,17 +378,17 @@ class HashingUtilsTest {
         @DisplayName("Prefix scheme should prevent creating collisions between node types")
         void testPrefixPreventsCollisions() {
             // Create leaf data that starts with 0x01 (internal node prefix)
-            byte[] maliciousData = new byte[49];
+            byte[] maliciousData = new byte[SHA_256_HASH_SIZE + 1];
             maliciousData[0] = 0x01;
-            Arrays.fill(maliciousData, 1, 49, (byte) 0xDD);
+            Arrays.fill(maliciousData, 1, SHA_256_HASH_SIZE + 1, (byte) 0xDD);
 
             // Hash as leaf: hash(0x00 || 0x01 || DD...)
             byte[] leafHash = hashLeaf(digest, maliciousData);
 
             // Create internal node hash with same bytes after prefix
-            byte[] childHash = new byte[48];
-            System.arraycopy(maliciousData, 1, childHash, 0, 48);
-            // Internal node: hash(0x01 || childHash) where childHash = maliciousData[1:49]
+            byte[] childHash = new byte[SHA_256_HASH_SIZE];
+            System.arraycopy(maliciousData, 1, childHash, 0, SHA_256_HASH_SIZE);
+            // Internal node: hash(0x01 || childHash) where childHash = maliciousData[1:33]
             byte[] internalHash = hashInternalNode(digest, childHash, null);
 
             assertFalse(
@@ -464,12 +465,12 @@ class HashingUtilsTest {
          * Verifies that hashes can be formatted as hex for debugging/logging.
          */
         @Test
-        @DisplayName("Hash output should be convertible to 96-character hex string")
+        @DisplayName("Hash output should be convertible to 64-character hex string")
         void testHashToHexFormat() {
             byte[] hash = hashLeaf(digest, "test".getBytes(StandardCharsets.UTF_8));
             String hex = HexFormat.of().formatHex(hash);
 
-            assertEquals(96, hex.length(), "SHA-384 hash as hex should be 96 characters (48 bytes * 2)");
+            assertEquals(64, hex.length(), "SHA-256 hash as hex should be 64 characters (32 bytes * 2)");
             assertTrue(hex.matches("[0-9a-f]+"), "Hex string should only contain hex characters");
         }
     }

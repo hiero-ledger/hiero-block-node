@@ -21,6 +21,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.api.BlockStreamSubscribeServiceInterface;
 import org.hiero.block.api.SubscribeStreamRequest;
@@ -147,6 +149,8 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
 
         private final ExecutorService virtualThreadExecutor;
         private volatile CompletionService<BlockStreamSubscriberSession> streamSessions;
+        /** Dedicated executor for the periodic session reaper, separate from {@link #virtualThreadExecutor}. */
+        private final ScheduledExecutorService reaperExecutor;
 
         private SubscribeBlockStreamHandler(@NonNull final BlockNodeContext context) {
             this.context = requireNonNull(context);
@@ -163,9 +167,50 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
                     .register(LongCounter.builder(METRIC_SUBSCRIBER_ERRORS)
                             .setDescription("Errors while streaming to subscribers"))
                     .getOrCreateNotLabeled();
+            reaperExecutor = context.threadPoolManager()
+                    .createVirtualThreadScheduledExecutor(
+                            1, "SubscriberSessionReaper", this::onReaperUncaughtException);
+            final long reapIntervalSeconds = context.configuration()
+                    .getConfigData(SubscriberConfig.class)
+                    .completedSessionReapIntervalSeconds();
+            reaperExecutor.scheduleAtFixedRate(
+                    this::reapCompletedSessions, reapIntervalSeconds, reapIntervalSeconds, TimeUnit.SECONDS);
+        }
+
+        private void onReaperUncaughtException(final Thread thread, final Throwable error) {
+            LOGGER.log(
+                    Level.ERROR, "Uncaught exception in subscriber session reaper thread {0}", thread.getName(), error);
+        }
+
+        /** Drains already-completed sessions; non-blocking, so it never stalls on a running one. */
+        private void reapCompletedSessions() {
+            final CompletionService<BlockStreamSubscriberSession> streams = streamSessions;
+            if (streams == null) {
+                return;
+            }
+            try {
+                Future<BlockStreamSubscriberSession> completedSessionFuture;
+                while (!Thread.currentThread().isInterrupted() && (completedSessionFuture = streams.poll()) != null) {
+                    handleCompletedStream(completedSessionFuture);
+                }
+            } catch (final InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (final RuntimeException e) {
+                LOGGER.log(Level.WARNING, "Subscriber session reaper run failed, retrying next interval", e);
+            }
         }
 
         private void stop() {
+            // Stop the reaper and wait out an in-flight run, so it can't take a future the drain below waits on.
+            reaperExecutor.shutdown();
+            try {
+                if (!reaperExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    reaperExecutor.shutdownNow();
+                }
+            } catch (final InterruptedException e) {
+                reaperExecutor.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
             // Stop allowing new connection threads.
             CompletionService<BlockStreamSubscriberSession> sessionsToClose = streamSessions;
             streamSessions = null;
@@ -194,7 +239,6 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
             }
         }
 
-        @SuppressWarnings("NestedAssignment")
         @Override
         public void apply(
                 @NonNull final SubscribeStreamRequest request,
@@ -210,17 +254,12 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
                 final SessionContext sessionContext = SessionContext.create(clientId, request, context);
                 final BlockStreamSubscriberSession blockStreamSession =
                         new BlockStreamSubscriberSession(sessionContext, responsePipeline, context, sessionReadyLatch);
+                // Register before submitting, so the reaper can never reap it before it's tracked.
+                sessions.put(clientId, blockStreamSession);
+                numberOfSubscribers.set(sessionCount.incrementAndGet());
                 streams.submit(blockStreamSession);
                 // Wait for the session to start
                 sessionReadyLatch.await();
-                // add the session to the set of open sessions
-                sessions.put(clientId, blockStreamSession);
-                numberOfSubscribers.set(sessionCount.incrementAndGet());
-                Future<BlockStreamSubscriberSession> completedSessionFuture;
-                // Get any available completed sessions and log success/failure.
-                while ((completedSessionFuture = streams.poll()) != null) {
-                    handleCompletedStream(completedSessionFuture);
-                }
             } else {
                 failStreamRequest(responsePipeline);
             }

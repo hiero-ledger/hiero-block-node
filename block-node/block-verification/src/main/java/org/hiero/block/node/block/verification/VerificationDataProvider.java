@@ -19,9 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
-import org.hiero.block.api.RosterEntry;
 import org.hiero.block.api.TssData;
-import org.hiero.block.api.TssRoster;
 import org.hiero.block.node.spi.BlockNodeContext;
 
 /// Provider for verification data.
@@ -32,6 +30,9 @@ public final class VerificationDataProvider {
     private static final System.Logger LOGGER = System.getLogger(VerificationDataProvider.class.getName());
     private final BlockNodeContext context;
     private final AtomicReference<TssData> currentTssData;
+    /// The TSS data the TSS library last rejected a verification under with an exception, so that rejection
+    /// is reported once per TSS data rather than once per block.
+    private final AtomicReference<TssData> lastRejectedTssData;
     /// One-entry cache: avoids re-parsing RSA keys for every block in the same address-book era.
     /// Held as an atomic pair so no thread can observe the new book alongside the old key map.
     private final AtomicReference<CachedKeyMap> cachedKeyMap;
@@ -48,6 +49,7 @@ public final class VerificationDataProvider {
     public VerificationDataProvider(final BlockNodeContext context) {
         this.context = Objects.requireNonNull(context);
         this.currentTssData = new AtomicReference<>(null);
+        this.lastRejectedTssData = new AtomicReference<>(null);
         this.cachedKeyMap = new AtomicReference<>(null);
     }
 
@@ -63,6 +65,17 @@ public final class VerificationDataProvider {
     /// @return `true` when [#currentTssData()] would return a non-null value
     public boolean hasTssData() {
         return currentTssData.get() != null;
+    }
+
+    /// Records that the TSS library rejected a verification under the given TSS data with an exception and
+    /// reports whether it is the first such rejection under that data. The verifier reports the first one
+    /// prominently; the same rejection usually repeats for every following block until the data changes.
+    ///
+    /// @param tssData the TSS data the rejected verification used, must not be null
+    /// @return `true` for the first rejection under this TSS data, `false` for the following ones
+    public boolean firstLibraryRejectionFor(final TssData tssData) {
+        Objects.requireNonNull(tssData);
+        return !tssData.equals(lastRejectedTssData.getAndSet(tssData));
     }
 
     /// Returns the RSA public key map for the address book era that covers `blockNumber`,
@@ -111,56 +124,57 @@ public final class VerificationDataProvider {
         }
     }
 
-    /// Update the TSS data if the given data is new and valid from a later block
-    /// than the current data. On a successful update, the TSS library address book
-    /// and the WRAPS verification key are set before the new data is published.
+    /// Update the TSS data if the given data carries a ledger id, differs from the
+    /// current data and is valid from a later block than the current data. TSS data
+    /// SHALL carry a ledger id (`node_service.proto`), so data without one is ignored;
+    /// beyond that the ledger id is opaque. Nothing is installed into the TSS library:
+    /// the ledger id is handed to it on every verification, and the roster is kept for
+    /// information only, so data without a roster is accepted.
     ///
     /// @param updatedTssData the new TSS data, must not be null
     /// @param sendUpdateToAppState if `true`, a successful update is also forwarded
     ///     to the application state facility
     private void updateTssData(final TssData updatedTssData, final boolean sendUpdateToAppState) {
         final TssData localCurrentTss = currentTssData.get();
-        // Only update if we see new TSS data
-        if (!updatedTssData.equals(localCurrentTss)) {
-            LOGGER.log(INFO, "Updating TSS data from application state");
-            if (localCurrentTss == null || updatedTssData.validFromBlock() > localCurrentTss.validFromBlock()) {
-                final TssRoster roster = updatedTssData.currentRoster();
-                if (roster != null) {
-                    final List<RosterEntry> contributions = roster.rosterEntries();
-                    if (contributions != null && !contributions.isEmpty()) {
-                        final int nodeCount = contributions.size();
-                        byte[][] publicKeys = new byte[nodeCount][];
-                        long[] nodeIds = new long[nodeCount];
-                        long[] weights = new long[nodeCount];
-                        for (int i = 0; i < nodeCount; i++) {
-                            final RosterEntry contribution = contributions.get(i);
-                            publicKeys[i] = contribution.schnorrPublicKey().toByteArray();
-                            nodeIds[i] = contribution.nodeId();
-                            weights[i] = contribution.weight();
-                        }
-                        // NativeVerificationLibrary serializes these native calls against verifies; the
-                        // address book and WRAPS key mutate the shared native state that verifyTSS reads.
-                        NativeVerificationLibrary.updateVerificationKeys(
-                                publicKeys,
-                                weights,
-                                nodeIds,
-                                updatedTssData.wrapsVerificationKey().toByteArray());
-                        if (currentTssData.compareAndSet(localCurrentTss, updatedTssData)) {
-                            if (sendUpdateToAppState) {
-                                context.applicationStateFacility().updateTssData(currentTssData.get());
-                            }
-                            LOGGER.log(INFO, "Successfully updated TSS data");
-                        } else {
-                            LOGGER.log(WARNING, "Failed to CAS TSS data from application state");
-                        }
-                    } else {
-                        LOGGER.log(INFO, "No contributions in TSS data roster found");
-                    }
-                } else {
-                    LOGGER.log(INFO, "No roster in TSS data found");
-                }
+        if (updatedTssData.ledgerId().length() == 0) {
+            LOGGER.log(
+                    WARNING,
+                    "Ignoring TSS data valid from block {0}: it carries no ledger id",
+                    updatedTssData.validFromBlock());
+        } else if (updatedTssData.equals(localCurrentTss)) {
+            LOGGER.log(DEBUG, "TSS data update carries the current TSS data, nothing to update");
+        } else if (localCurrentTss != null && updatedTssData.validFromBlock() <= localCurrentTss.validFromBlock()) {
+            LOGGER.log(
+                    DEBUG,
+                    "Ignoring TSS data valid from block {0}, the current TSS data is valid from block {1}",
+                    updatedTssData.validFromBlock(),
+                    localCurrentTss.validFromBlock());
+        } else if (currentTssData.compareAndSet(localCurrentTss, updatedTssData)) {
+            if (sendUpdateToAppState) {
+                context.applicationStateFacility().updateTssData(currentTssData.get());
             }
+            LOGGER.log(
+                    INFO,
+                    "Updated TSS data, valid from block {0}, roster entries {1}",
+                    updatedTssData.validFromBlock(),
+                    rosterSize(updatedTssData));
+        } else {
+            LOGGER.log(WARNING, "Failed to CAS TSS data from application state");
         }
+    }
+
+    /// Returns the number of entries in the informational roster of the given TSS data.
+    ///
+    /// @param tssData the TSS data to inspect
+    /// @return the number of roster entries, `0` when the data carries no roster
+    private static int rosterSize(final TssData tssData) {
+        final int size;
+        if (tssData.hasCurrentRoster()) {
+            size = tssData.currentRosterOrThrow().rosterEntries().size();
+        } else {
+            size = 0;
+        }
+        return size;
     }
 
     /// Builds an immutable `node_id → PublicKey` map from the given address book,

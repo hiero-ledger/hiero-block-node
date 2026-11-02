@@ -115,10 +115,9 @@ public final class BlockUtils {
                 "3c421aac698b04fccdd46acad435125ea53af91fe404e787c8ccf4c23a11aa69190468ea1dd797af11d75335f4840749",
                 0),
         /**
-         * Transition block — the first block with a WRAPS (post-settled) signature after the
-         * Schnorr → WRAPS TSS transition. Kept for {@code BackfillPluginTest.testBackfillOnDemandTssWrapsBlock}
-         * which specifically exercises backfill of a transition block; the harness can't
-         * synthesize the transition boundary.
+         * A large (31 MB) real block with a TSS signature from a TSS library before
+         * hedera-cryptography 3.17. Kept for the backfill and block access tests that need a large real block
+         * without verifying its proof; the harness cannot synthesize a block of this size.
          */
         BLOCK_322(
                 "CN_11_12_TSS_WRAPS/322.blk.gz",
@@ -226,10 +225,11 @@ public final class BlockUtils {
     }
 
     /**
-     * Sample blocks containing state proofs from a Schnorr TSS capture. Every 5th block
-     * (0, 5, ...) is directly signed; blocks in between have state proofs referencing the
-     * next signed block. Block 0 contains LedgerIdPublicationTransactionBody for TSS
-     * initialization. Same fixture files as ResourceTestBlockBuilder.StateProof.
+     * Sample blocks containing state proofs from a TSS capture made with a TSS library before
+     * hedera-cryptography 3.17. Every 5th block (0, 5, ...) is directly signed;
+     * blocks in between have state proofs referencing the next signed block. Block 0 contains
+     * LedgerIdPublicationTransactionBody for TSS initialization. Same fixture files as
+     * ResourceTestBlockBuilder.StateProof.
      */
     public enum SAMPLE_BLOCKS_STATE_PROOFS implements SampleBlock {
         /** Genesis block — bootstraps TSS parameters and ledger ID. Direct Schnorr proof. */

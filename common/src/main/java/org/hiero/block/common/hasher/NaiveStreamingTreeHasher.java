@@ -5,7 +5,6 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.nio.ByteBuffer;
 import java.security.NoSuchAlgorithmException;
 import java.util.LinkedList;
-import java.util.Objects;
 
 /**
  * A naive implementation of {@link StreamingTreeHasher} that computes the root hash of a Merkle tree
@@ -35,7 +34,6 @@ public class NaiveStreamingTreeHasher implements StreamingTreeHasher {
 
     @Override
     public void addLeaf(final ByteBuffer hash) throws NoSuchAlgorithmException {
-        Objects.requireNonNull(hash);
         if (rootHashRequested) {
             throw new IllegalStateException("Root hash already requested");
         } else if (hash.remaining() < HASH_SIZE) {

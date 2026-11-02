@@ -7,7 +7,7 @@
 #
 #   lfh (block-node-1):     chart-default plugin set; receives live stream from CN1,
 #                           serves MN, backfills with BN3.
-#   minimal (block-node-2): only facility-messaging, block-access-service, health,
+#   minimal (block-node-2): only facility-app-state, facility-messaging, block-access-service, health,
 #                           server-status plugins; cannot receive blocks by any path --
 #                           pod boots and stays healthy, but never sees a block.
 #   all (block-node-3):     lfh + cloud-storage-archive + cloud-storage-expanded;

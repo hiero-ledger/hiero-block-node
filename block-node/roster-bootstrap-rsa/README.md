@@ -26,7 +26,7 @@ ensure at least one source is configured before Phase 2a cutover.
 
 ## How it works
 
-1. **File-first:** `BlockNodeApp.loadApplicationState()` reads `app.state.rsaBootstrapFilePath`
+1. **File-first:** `ApplicationStateFacilityPlugin.start()` reads `app.state.rsaBootstrapFilePath`
    before plugins start. The file is parsed as a `RangedAddressBookHistory`; if that yields no eras
    it is parsed as a legacy single `NodeAddressBook` and wrapped into one open-ended era
    (block 0 - ∞). A corrupt or invalid file aborts startup with `IllegalStateException`.

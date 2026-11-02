@@ -166,7 +166,7 @@ resources:
     memory: "32Gi"
 
 plugins:
-  names: "facility-messaging,block-access-service,health,server-status,blocks-file-historic"
+  names: "facility-app-state,facility-messaging,block-access-service,health,server-status,blocks-file-historic"
 
 blockNode:
   config:
@@ -227,7 +227,7 @@ cd block-node
 files.historic.rootPath=/data/historic
 files.historic.compression=ZSTD
 producer.type=NO_OP
-plugins.names=facility-messaging,block-access-service,health,server-status,blocks-file-historic
+plugins.names=facility-app-state,facility-messaging,block-access-service,health,server-status,blocks-file-historic
 ```
 
 3. **Download wrapped blocks**:
@@ -438,5 +438,5 @@ jq '.differences' detailed-diff.json
 
 For issues or questions:
 - GitHub Issues: https://github.com/hiero-ledger/hiero-block-node/issues
-- Documentation: https://docs.hiero.org/block-node
+- Documentation: https://docs.hiero.org/block-node-home
 - Community: https://discord.gg/hiero

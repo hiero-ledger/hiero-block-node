@@ -31,21 +31,43 @@ readonly BN_REPO="hiero-ledger/hiero-block-node"
 readonly RELAY_REPO="hiero-ledger/hiero-json-rpc-relay"
 readonly TCK_REPO="hiero-ledger/hiero-sdk-tck"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/semver.sh
+source "${SCRIPT_DIR}/lib/semver.sh"
+# shellcheck source=lib/cn-application-properties.sh
+source "${SCRIPT_DIR}/lib/cn-application-properties.sh"
+
 # Compatibility matrix: maps CN version ranges to required MN and BN minimums.
-# Tiers are evaluated highest-first; first matching tier wins.
+# The Nova WRAPS tier is chosen by cn_is_nova_wraps (lib/cn-application-properties.sh): a CN
+# release from CN_NOVA_WRAPS_MIN_VERSION, or any CN with CN_NOVA_WRAPS=true. A CN pre-release
+# counts as earlier, since the CN 0.79.0 and 0.80.0 pre-releases published so far are on the
+# earlier TSS library. The other tiers are evaluated highest-first; first matching tier wins.
 # CN is also floored at the lowest tier's cn_min.
 #
-# | CN Version        | MN Minimum    | BN Minimum   | Notes                          |
-# |-------------------|---------------|--------------|--------------------------------|
-# | >= 0.75.0-rc.4    | 0.154.0       | 0.35.0       | WRB streaming + RSA roster      |
+# | CN Version                   | MN Minimum | BN Minimum | Notes                                   |
+# |------------------------------|------------|------------|-----------------------------------------|
+# | Nova WRAPS (release 0.79.0+) | 0.166.0    | 0.45.0     | Nova WRAPS TSS library: one block proof |
+# |                              |            |            | layout on every block; older MN and BN  |
+# |                              |            |            | cannot verify these TSS block proofs    |
+# | >= 0.75.0-rc.4               | 0.154.0    | 0.35.0     | WRB streaming + RSA roster              |
+#
+# TODO(#3689): confirm the Nova WRAPS tier once CN 0.79.0 (hiero-consensus-node#27506 cherry-picked)
+# is released, and the MN minimum (0.166.0, hiero-mirror-node#14399) once that MN release exists.
 #
 # Note: 0.154.0 is the floor for WRB cutover support (added in 0.153.0); newer MN is fine.
 # Separately, MN 0.155.x/0.156.x ship broken GraalVM-native importer/grpc images; that is
 # worked around in the Mirror Node overlay by overriding those modules to the JVM images
 # (see generate-chart-values-config-overlays.sh), NOT by pinning the MN version here.
+readonly NOVA_WRAPS_MN_MIN_VERSION="0.166.0"
 readonly COMPAT_CN_MINS=("0.75.0-rc.4")
 readonly COMPAT_MN_MINS=("0.154.0")
 readonly COMPAT_BN_MINS=("0.35.0")
+
+# The same pairing seen from the Block Node: a BN from NOVA_WRAPS_BN_MIN_VERSION verifies
+# only the TSS block proof layout of the Nova WRAPS library, which Consensus Nodes ship from
+# CN_NOVA_WRAPS_MIN_VERSION, so such a BN raises the CN floor. A BN pre-release (for example
+# 0.45.0-rc2) sorts below 0.45.0 and does not raise it.
+readonly NOVA_WRAPS_BN_MIN_VERSION="0.45.0"
 
 # Lowest tier CN floor (used to enforce CN minimum before tier selection)
 # Note: bash 3.2 (macOS default) does not support negative array indices — use explicit last index
@@ -87,59 +109,6 @@ function end_task {
   printf "%s\n" "${1:-DONE}" >&2
 }
 
-# Compares two semver strings (with optional pre-release suffix).
-# Strips leading 'v', compares major.minor.patch numerically,
-# then treats pre-release (e.g., -rc1, -rc.2) as lower than GA.
-# Arguments:
-#   $1 - Version A
-#   $2 - Version B
-# Returns (via stdout):
-#   -1 if A < B, 0 if A == B, 1 if A > B
-function compare_semver {
-  local ver_a="${1#v}"
-  local ver_b="${2#v}"
-
-  # Split into base version and pre-release suffix
-  local base_a="${ver_a%%-*}"
-  local base_b="${ver_b%%-*}"
-  local pre_a="" pre_b=""
-  [[ "${ver_a}" == *-* ]] && pre_a="${ver_a#*-}"
-  [[ "${ver_b}" == *-* ]] && pre_b="${ver_b#*-}"
-
-  # Compare major.minor.patch
-  IFS='.' read -r a_major a_minor a_patch <<< "${base_a}"
-  IFS='.' read -r b_major b_minor b_patch <<< "${base_b}"
-
-  for pair in "${a_major:-0}:${b_major:-0}" "${a_minor:-0}:${b_minor:-0}" "${a_patch:-0}:${b_patch:-0}"; do
-    local left="${pair%%:*}" right="${pair##*:}"
-    if (( left < right )); then echo "-1"; return; fi
-    if (( left > right )); then echo "1"; return; fi
-  done
-
-  # Base versions are equal — compare pre-release.
-  # No pre-release (GA) is higher than any pre-release.
-  if [[ -z "${pre_a}" && -n "${pre_b}" ]]; then echo "1"; return; fi
-  if [[ -n "${pre_a}" && -z "${pre_b}" ]]; then echo "-1"; return; fi
-  if [[ -z "${pre_a}" && -z "${pre_b}" ]]; then echo "0"; return; fi
-
-  # Both have pre-release — lexicographic with numeric awareness.
-  # Extract numeric suffix from pre-release (e.g., rc1 -> 1, rc.2 -> 2)
-  local pre_a_label="${pre_a%%[0-9]*}" pre_b_label="${pre_b%%[0-9]*}"
-  local pre_a_num pre_b_num
-  pre_a_num=$(echo "${pre_a}" | grep -o '[0-9]\+$') || pre_a_num="0"
-  pre_b_num=$(echo "${pre_b}" | grep -o '[0-9]\+$') || pre_b_num="0"
-
-  # Compare labels first (alpha < beta < rc)
-  if [[ "${pre_a_label}" < "${pre_b_label}" ]]; then echo "-1"; return; fi
-  if [[ "${pre_a_label}" > "${pre_b_label}" ]]; then echo "1"; return; fi
-
-  # Same label, compare numeric suffix
-  if (( pre_a_num < pre_b_num )); then echo "-1"; return; fi
-  if (( pre_a_num > pre_b_num )); then echo "1"; return; fi
-
-  echo "0"
-}
-
 # Enforces a minimum version floor for a component.
 # If the resolved version is below the minimum, logs a warning and returns the minimum version.
 # If the resolved version meets the minimum, returns the resolved version unchanged.
@@ -172,6 +141,33 @@ function enforce_minimum_version {
   fi
 }
 
+# Raises the CN floor for a Block Node that verifies only the Nova WRAPS TSS block proof layout.
+# SNAPSHOT versions on either side skip enforcement (unreleased builds may mix freely), the same
+# rule resolve_compatibility_mins applies.
+# Arguments:
+#   $1 - Resolved CN version string
+#   $2 - Resolved BN version string
+# Returns (via stdout):
+#   The effective CN version to use
+function enforce_nova_wraps_cn_floor {
+  local cn_version="${1}"
+  local bn_version="${2}"
+
+  if [[ "${cn_version}" == *-SNAPSHOT || "${bn_version}" == *-SNAPSHOT ]]; then
+    echo "${cn_version}"
+  elif [[ "$(compare_semver "${bn_version}" "${NOVA_WRAPS_BN_MIN_VERSION}")" == "-1" ]]; then
+    echo "${cn_version}"
+  elif cn_is_nova_wraps "${cn_version}"; then
+    echo "${cn_version}"
+  elif [[ "$(compare_semver "${cn_version}" "${CN_NOVA_WRAPS_MIN_VERSION}")" == "-1" ]]; then
+    log_line "Block Node ${bn_version} verifies only Nova WRAPS TSS block proofs, which need CN >=${CN_NOVA_WRAPS_MIN_VERSION}"
+    enforce_minimum_version "${cn_version}" "${CN_NOVA_WRAPS_MIN_VERSION}" "Consensus Node"
+  else
+    log_line "WARNING: Block Node ${bn_version} verifies only Nova WRAPS TSS block proofs, and CN ${cn_version} counts as earlier (a pre-release); set CN_NOVA_WRAPS=true if it carries the Nova WRAPS library"
+    echo "${cn_version}"
+  fi
+}
+
 # Resolves the MN and BN minimum versions required for a given CN version.
 # Evaluates the compatibility matrix tiers from highest to lowest.
 # SNAPSHOT CN versions skip enforcement (unreleased builds may mix freely).
@@ -186,6 +182,13 @@ function resolve_compatibility_mins {
     log_line "Skipping compatibility matrix enforcement (CN is SNAPSHOT: ${cn_version})"
     echo "mn_min="
     echo "bn_min="
+    return
+  fi
+
+  if cn_is_nova_wraps "${cn_version}"; then
+    log_line "Compatibility tier: CN ${cn_version} is on the Nova WRAPS TSS library, needs MN >=${NOVA_WRAPS_MN_MIN_VERSION} and BN >=${NOVA_WRAPS_BN_MIN_VERSION}"
+    echo "mn_min=${NOVA_WRAPS_MN_MIN_VERSION}"
+    echo "bn_min=${NOVA_WRAPS_BN_MIN_VERSION}"
     return
   fi
 
@@ -354,6 +357,10 @@ function main {
   local relay_input="${4:-latest}"
   local tck_input="${5:-latest}"
 
+  # Validate CN_NOVA_WRAPS and CN_NOVA_WRAPS_MIN_VERSION here: the checks below run in
+  # subshells, where an invalid value would only end the subshell.
+  cn_is_nova_wraps "" || true
+
   log_line "Resolving Component Versions"
   log_line "============================"
   log_line ""
@@ -372,8 +379,10 @@ function main {
   mn_resolved=$(resolve_version "${mn_input}" "${MN_REPO}" "Mirror Node")
   bn_resolved=$(resolve_version "${bn_input}" "${BN_REPO}" "Block Node")
 
-  # Enforce CN minimum floor (lowest compatibility tier), then derive MN/BN minimums from CN
+  # Enforce CN minimum floor (lowest compatibility tier) and the floor a Nova WRAPS Block Node
+  # needs, then derive MN/BN minimums from CN
   cn_resolved=$(enforce_minimum_version "${cn_resolved}" "${CN_MIN_VERSION}" "Consensus Node")
+  cn_resolved=$(enforce_nova_wraps_cn_floor "${cn_resolved}" "${bn_resolved}")
   local compat_out mn_min bn_min
   compat_out=$(resolve_compatibility_mins "${cn_resolved}")
   mn_min=$(echo "${compat_out}" | grep "^mn_min=" | cut -d= -f2)

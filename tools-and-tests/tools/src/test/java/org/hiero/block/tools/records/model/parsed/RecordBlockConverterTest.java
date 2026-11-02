@@ -30,6 +30,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.hapi.node.base.BlockHashAlgorithm;
 import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.hapi.node.base.Transaction;
 import com.hedera.hapi.node.transaction.TransactionRecord;
@@ -43,6 +45,7 @@ import java.util.HexFormat;
 import java.util.List;
 import org.hiero.block.tools.blocks.AmendmentProvider;
 import org.hiero.block.tools.blocks.NoOpAmendmentProvider;
+import org.hiero.block.tools.blocks.model.PreVerifiedBlock;
 import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.MethodOrderer;
@@ -58,12 +61,11 @@ import org.junit.jupiter.api.TestMethodOrder;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class RecordBlockConverterTest {
-    /** Dummy root hash for a block hashes merkle tree (48 bytes for SHA-384) */
-    private static final byte[] DUMMY_ROOT_HASH = new byte[48];
-    /** Dummy previous block hash (48 bytes for SHA-384) */
-    private static final byte[] DUMMY_PREVIOUS_BLOCK_HASH = HexFormat.of()
-            .parseHex(
-                    "52939c10ed7d382366e636c4c071287ed0a4ebcab144a750b6293a4dee11f5a021e81f3e093a29b5b53bf3d1fd870080");
+    /** Dummy root hash for a block hashes merkle tree (32 bytes for SHA-256) */
+    private static final byte[] DUMMY_ROOT_HASH = new byte[32];
+    /** Dummy previous block hash (32 bytes for SHA-256) */
+    private static final byte[] DUMMY_PREVIOUS_BLOCK_HASH =
+            HexFormat.of().parseHex("52939c10ed7d382366e636c4c071287ed0a4ebcab144a750b6293a4dee11f5a0");
 
     /** V2 parsed block for testing */
     private ParsedRecordBlock v2ParsedBlock;
@@ -730,6 +732,49 @@ public class RecordBlockConverterTest {
 
         // Verify amendments are separate
         assertEquals(1, recordFileItem.amendments().size(), "Amendments should be in separate field");
+    }
+
+    @Test
+    @Order(17)
+    @DisplayName("Test toBlock(ParsedRecordBlock, ...) writes SHA2_256 in the block header")
+    void testHeaderHashAlgorithmIsSha256() {
+        assertNotNull(v6ParsedBlock, "V6 parsed block must be set up first");
+
+        Block block = RecordBlockConverter.toBlock(
+                v6ParsedBlock,
+                V6_TEST_BLOCK_NUMBER,
+                DUMMY_PREVIOUS_BLOCK_HASH,
+                DUMMY_ROOT_HASH,
+                V6_TEST_BLOCK_ADDRESS_BOOK,
+                new NoOpAmendmentProvider());
+
+        assertSha256Header(block);
+    }
+
+    @Test
+    @Order(18)
+    @DisplayName("Test toBlock(PreVerifiedBlock, ...) writes SHA2_256 in the block header")
+    void testPreVerifiedHeaderHashAlgorithmIsSha256() {
+        assertNotNull(v6ParsedBlock, "V6 parsed block must be set up first");
+
+        Block block = RecordBlockConverter.toBlock(
+                new PreVerifiedBlock(v6ParsedBlock, V6_TEST_BLOCK_ADDRESS_BOOK, List.of()),
+                V6_TEST_BLOCK_NUMBER,
+                DUMMY_PREVIOUS_BLOCK_HASH,
+                DUMMY_ROOT_HASH,
+                new NoOpAmendmentProvider());
+
+        assertSha256Header(block);
+    }
+
+    /**
+     * Asserts the block header names SHA2_256, which must be proto ordinal 0 so it is not serialized and the
+     * header bytes (and so the block hash) stay the same as before the CN enum renumbering.
+     */
+    private static void assertSha256Header(final Block block) {
+        final BlockHeader header = block.items().getFirst().blockHeaderOrThrow();
+        assertEquals(BlockHashAlgorithm.SHA2_256, header.hashAlgorithm());
+        assertEquals(0, header.hashAlgorithm().protoOrdinal());
     }
 
     /**

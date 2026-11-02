@@ -266,6 +266,51 @@ class BlockFileHistoricPluginTest {
             assertThat(subDir1.resolve("1000.zip")).exists();
             assertThat(subDir2.resolve("10000.zip")).exists();
         }
+
+        @Test
+        @DisplayName("should delete a stray accessor link next to a zip archive")
+        void testDeleteStrayAccessorLinksRemovesStrayLink(@TempDir final Path tempDir) throws IOException {
+            final StrayLinkLayout layout = createStrayLinkLayout(tempDir);
+
+            new BlockFileHistoricPlugin().deleteStrayAccessorLinks(tempDir);
+
+            assertThat(layout.strayLink()).doesNotExist();
+        }
+
+        @Test
+        @DisplayName("should keep the zip archive when deleting stray accessor links")
+        void testDeleteStrayAccessorLinksKeepsZip(@TempDir final Path tempDir) throws IOException {
+            final StrayLinkLayout layout = createStrayLinkLayout(tempDir);
+
+            new BlockFileHistoricPlugin().deleteStrayAccessorLinks(tempDir);
+
+            assertThat(layout.zip()).hasContent("zip content");
+        }
+
+        @Test
+        @DisplayName("should keep a file named like a stray link outside a numeric block directory")
+        void testDeleteStrayAccessorLinksKeepsFileOutsideBlockDirectory(@TempDir final Path tempDir)
+                throws IOException {
+            final StrayLinkLayout layout = createStrayLinkLayout(tempDir);
+
+            new BlockFileHistoricPlugin().deleteStrayAccessorLinks(tempDir);
+
+            assertThat(layout.decoy()).exists();
+        }
+
+        /** Creates a zip with a stray hard link next to it, as older versions left behind, plus a decoy. */
+        private StrayLinkLayout createStrayLinkLayout(final Path root) throws IOException {
+            final Path blockDirectory = root.resolve("000").resolve("008");
+            Files.createDirectories(blockDirectory);
+            final Path zip = Files.writeString(blockDirectory.resolve("80000.zip"), "zip content");
+            final Path strayLink = Files.createLink(blockDirectory.resolve("80000.zip.3"), zip);
+            final Path otherDirectory = root.resolve("backup");
+            Files.createDirectories(otherDirectory);
+            final Path decoy = Files.writeString(otherDirectory.resolve("80000.zip.3"), "not a link");
+            return new StrayLinkLayout(zip, strayLink, decoy);
+        }
+
+        private record StrayLinkLayout(Path zip, Path strayLink, Path decoy) {}
     }
 
     /**

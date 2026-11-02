@@ -99,6 +99,7 @@ Observes the messaging system that connects the publisher with subscribers and t
 | Counter | `messaging_address_book_history_update_notifications`   | Address book history update notifications sent         |
 | Counter | `messaging_stored_blocks_update_notifications`          | Stored blocks update notifications sent                |
 | Counter | `messaging_available_blocks_update_notifications`       | Available blocks update notifications sent             |
+| Counter | `messaging_handler_failures`                            | Messages skipped after a message handler failed        |
 
 ---
 
@@ -113,6 +114,8 @@ Observes inbound streams from publishers.
 | Gauge   | `publisher_lowest_block_number_inbound`      | Lowest incoming block number                                                                                |
 | Gauge   | `publisher_highest_block_number_inbound`     | Highest incoming block number                                                                               |
 | Gauge   | `publisher_open_connections`                 | Connected publishers                                                                                        |
+| Gauge   | `publisher_active_handlers`                  | Connected publishers not in passive mode: newly connected, or most recent request was not `AcknowledgeOnly` |
+| Gauge   | `publisher_passive_handlers`                 | Connected publishers whose most recent request was `AcknowledgeOnly`                                        |
 | Counter | `publisher_blocks_ack_sent`                  | Block‑ack messages sent                                                                                     |
 | Gauge   | `publisher_latest_block_number_acknowledged` | Latest block number acknowledged by the Block Node                                                          |
 | Counter | `publisher_stream_errors`                    | Publisher connection streams that end in an error                                                           |
@@ -237,6 +240,22 @@ Observes the server status API that provides information about the node.
 | Counter | `server_status_requests`         | Number of server status requests         |
 | Counter | `server_status_details_requests` | Number of server status details requests |
 
+### Throttle
+
+**Plugin:** `server-status [block-node-server-status]`
+Per-client and node-wide throttling of the `serverStatus` and `serverStatusDetail` methods. See [Throttle Configuration](./configuration.md#throttle-configuration).
+
+|  Type   |               Name                |                                                                                   Description                                                                                    |
+|---------|-----------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Counter | `throttle_calls`                  | Calls to a throttled method, labels: `service`, `method`, `outcome={admitted,rejected_global_concurrency,rejected_client_concurrency,rejected_rate}`                             |
+| Gauge   | `throttle_client_state_count`     | Number of distinct clients currently tracked by the throttle for a method, labels: `service`, `method`                                                                           |
+| Gauge   | `throttle_in_flight`              | Current node-wide count of in-flight calls holding a concurrency permit for a method, labels: `service`, `method`                                                                |
+| Gauge   | `throttle_clients_in_flight`      | Number of distinct clients currently holding at least one in-flight call for a method, labels: `service`, `method`                                                               |
+| Counter | `throttle_permits_reaped`         | Permits force-released by the sweep after exceeding `maxPermitHoldSeconds`, labels: `service`, `method`. A sustained non-zero rate means calls are abandoned without completing. |
+| Counter | `throttle_unknown_remote_address` | Calls whose client address could not be determined and were grouped under a shared fallback key                                                                                  |
+
+> **Note:** The throttle counters are registered without a `_total` suffix; Prometheus appends `_total` at scrape time (for example `throttle_calls_total`).
+
 ### Backfill
 
 **Plugin:** `backfill [block-node-backfill]`
@@ -267,8 +286,8 @@ Tracks the count and byte data size regarding single block uploads
 | Counter | `cloud_expanded_total_upload_bytes`    | Total compressed bytes successfully uploaded.                                                                                                                     |
 | Counter | `cloud_expanded_upload_latency_ns`     | Total time in nanoseconds for upload.                                                                                                                             |
 | Gauge   | `cloud_expanded_pending_retry_blocks`  | Current count of blocks buffered in memory and awaiting a background retry upload.                                                                                |
-| Counter | `cloud_expanded_retry_success_total`   | Blocks recovered by a later background retry after an initial upload failure.                                                                                     |
-| Counter | `cloud_expanded_retry_exhausted_total` | Blocks dropped after exhausting all retry attempts, evicted from the retry buffer to make room for a newer failure, or still buffered when the plugin shuts down. |
+| Counter | `cloud_expanded_retry_success`         | Blocks recovered by a later background retry after an initial upload failure.                                                                                     |
+| Counter | `cloud_expanded_retry_exhausted`       | Blocks dropped after exhausting all retry attempts, evicted from the retry buffer to make room for a newer failure, or still buffered when the plugin shuts down. |
 
 ---
 
@@ -354,6 +373,7 @@ is a block-count cap, not a disk-size cap (see [Host / Volume](#host--volume-ext
 |----------|---------------------------------------------|-----------------------------------------------------------|
 | L        | `messaging_item_queue_percent_used`         | If percentage exceeds 60%, otherwise, configure as needed |
 | L        | `messaging_notification_queue_percent_used` | If percentage exceeds 60%, otherwise, configure as needed |
+| M        | `messaging_handler_failures`                | If value increases, otherwise, configure as needed        |
 
 **Latency**: Alerts for latency metrics in receiving, hashing, verifying, and persisting blocks
 

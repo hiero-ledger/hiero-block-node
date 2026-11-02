@@ -36,12 +36,14 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
+import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher;
 import org.hiero.block.tools.records.model.parsed.ParsedRecordBlock;
 import org.hiero.block.tools.records.model.parsed.ParsedV2RecordFileTest;
 import org.hiero.block.tools.records.model.parsed.RecordBlockConverter;
@@ -60,6 +62,19 @@ class WrbFixtureGeneratorTest {
 
     /** Output directory for generated WRB fixtures (relative to subproject working directory). */
     private static final Path WRB_OUTPUT_DIR = Path.of("src/test/resources/record-files/wrb");
+
+    /*
+     * Expected SHA-256 block root hashes of the V2, V5 and V6 WRB fixtures. The CN cannot wrap V2 or V5 record files,
+     * so there is no CN value for them; these pin the CLI's own output so any change to conversion or hashing shows up
+     * here. Each fixture is wrapped with EMPTY_TREE_HASH as previous block hash and all-blocks tree root, which makes
+     * the V2 fixture (block 0) the genesis case.
+     */
+    /** Expected block root hash of the V2 WRB fixture */
+    private static final String V2_WRB_ROOT_HASH = "b7ce3010caf301168d9a7fc8f2b852e5337db55488bda670940d8b65f50325fa";
+    /** Expected block root hash of the V5 WRB fixture */
+    private static final String V5_WRB_ROOT_HASH = "6ba9d907707f8e20c665d0a1e25503105c4c8389f2ef41ae18da430669c4fba1";
+    /** Expected block root hash of the V6 WRB fixture */
+    private static final String V6_WRB_ROOT_HASH = "6b1471fb30eac399ce467764c08efbb5fbaed96055b5bf8fceebab4c7c3195ed";
 
     @Test
     @DisplayName("Generate and validate V2 WRB fixture")
@@ -94,6 +109,7 @@ class WrbFixtureGeneratorTest {
         // Validate block structure
         assertBlockStructure(block, 2);
         assertBlockNumber(block, V2_TEST_BLOCK_NUMBER);
+        assertRootHash(block, V2_WRB_ROOT_HASH);
 
         // Serialize and save
         final Path outputPath = saveBlockAsGzip(block, "v2-block.blk.gz");
@@ -145,6 +161,7 @@ class WrbFixtureGeneratorTest {
         // Validate block structure
         assertBlockStructure(block, 5);
         assertBlockNumber(block, V5_TEST_BLOCK_NUMBER);
+        assertRootHash(block, V5_WRB_ROOT_HASH);
 
         // Serialize and save
         final Path outputPath = saveBlockAsGzip(block, "v5-block.blk.gz");
@@ -210,6 +227,7 @@ class WrbFixtureGeneratorTest {
                         .sidecarFileContents()
                         .size(),
                 "V6 block should contain 1 sidecar file");
+        assertRootHash(block, V6_WRB_ROOT_HASH);
 
         // Serialize and save
         final Path outputPath = saveBlockAsGzip(block, "v6-block.blk.gz");
@@ -237,6 +255,7 @@ class WrbFixtureGeneratorTest {
             final Block block = loadBlockFromResource("/record-files/wrb/v2-block.blk.gz");
             assertBlockStructure(block, 2);
             assertBlockNumber(block, V2_TEST_BLOCK_NUMBER);
+            assertRootHash(block, V2_WRB_ROOT_HASH);
             assertEquals(
                     V2_TEST_BLOCK_NUMBER,
                     block.items().get(0).blockHeaderOrThrow().number());
@@ -255,6 +274,7 @@ class WrbFixtureGeneratorTest {
             final Block block = loadBlockFromResource("/record-files/wrb/v5-block.blk.gz");
             assertBlockStructure(block, 5);
             assertBlockNumber(block, V5_TEST_BLOCK_NUMBER);
+            assertRootHash(block, V5_WRB_ROOT_HASH);
             assertEquals(
                     V5_TEST_BLOCK_NUMBER,
                     block.items().get(0).blockHeaderOrThrow().number());
@@ -273,6 +293,7 @@ class WrbFixtureGeneratorTest {
             final Block block = loadBlockFromResource("/record-files/wrb/v6-block.blk.gz");
             assertBlockStructure(block, 6);
             assertBlockNumber(block, V6_TEST_BLOCK_NUMBER);
+            assertRootHash(block, V6_WRB_ROOT_HASH);
             assertEquals(
                     V6_TEST_BLOCK_NUMBER,
                     block.items().get(0).blockHeaderOrThrow().number());
@@ -353,6 +374,19 @@ class WrbFixtureGeneratorTest {
                 expectedBlockNumber,
                 actualBlockNumber,
                 "RecordFileItem.record_file_contents.block_number should match expected block number");
+    }
+
+    /**
+     * Asserts that the block's SHA-256 root hash matches the expected value.
+     *
+     * @param block the block to hash
+     * @param expectedRootHash the expected root hash as hex
+     */
+    private static void assertRootHash(Block block, String expectedRootHash) {
+        assertEquals(
+                expectedRootHash,
+                HexFormat.of().formatHex(BlockStreamBlockHasher.hashBlock(block)),
+                "Block root hash should match the pinned value");
     }
 
     /**

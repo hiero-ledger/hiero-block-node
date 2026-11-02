@@ -38,6 +38,7 @@ import org.hiero.block.simulator.mode.impl.PublishClientManager;
 import org.hiero.block.simulator.mode.impl.PublisherClientModeHandler;
 import org.hiero.block.simulator.startup.SimulatorStartupData;
 import org.hiero.block.simulator.startup.impl.SimulatorStartupDataImpl;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -53,6 +54,7 @@ class PublishClientManagerTest {
 
     private BlockStreamManager blockStreamManager;
     private PublishClientManager publishClientManager;
+    private MetricsService metricsService;
 
     @BeforeEach
     void setUp() throws IOException {
@@ -66,7 +68,7 @@ class PublishClientManagerTest {
         final BlockGeneratorConfig blockGeneratorConfig = configuration.getConfigData(BlockGeneratorConfig.class);
         final UnorderedStreamConfig unorderedStreamConfig = configuration.getConfigData(UnorderedStreamConfig.class);
 
-        final MetricsService metricsService = new MetricsServiceImpl(configuration);
+        metricsService = new MetricsServiceImpl(configuration);
         final SimulatorStartupData startupData =
                 new SimulatorStartupDataImpl(simulatorStartupDataConfig, blockGeneratorConfig);
         blockStreamManager = new CraftBlockStreamManager(blockGeneratorConfig, startupData, unorderedStreamConfig);
@@ -82,6 +84,11 @@ class PublishClientManagerTest {
                 streamEnabled,
                 publishStreamGrpcClient,
                 publisherClientModeHandler);
+    }
+
+    @AfterEach
+    void tearDown() throws IOException {
+        metricsService.close();
     }
 
     @Test

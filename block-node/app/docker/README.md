@@ -7,6 +7,10 @@ Gradle tasks are of group `docker`
 - startDockerContainer
 - stopDockerContainer
 
+The Block Node Grafana dashboards are not in this folder: `copyDockerFolder` copies them from
+`charts/block-node-server/dashboards/block-node/` into the staged `metrics/dashboards/block-node/`. Running
+`docker compose` directly from this folder starts Grafana without them.
+
 `createDockerImage` builds three images from the `Dockerfile` stages:
 - `block-node-server` (`base-image`): core only; plugins are mounted or downloaded into `plugins/`.
 - `block-node-server-solo-dev` (`solo-dev`): every `blockNodePlugins` jar in `plugins/`, plus dev tools.

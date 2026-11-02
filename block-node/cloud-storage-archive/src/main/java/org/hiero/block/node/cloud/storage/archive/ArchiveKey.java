@@ -10,9 +10,14 @@ import java.util.List;
 /// Encodes and decodes S3 object keys for tar archive groups.
 ///
 /// Keys are structured paths of 4-digit segments derived from the group's first block number,
-/// e.g. `0000/0000/0000/0001/23.tar` for grouping level 2, first block 1230.
-/// The last segment has its leading zeros stripped (standard integer formatting), so the
-/// round-trip `parse(format(groupStart, level), level) == groupStart` always holds.
+/// e.g. `0000/0000/0000/0001/2.tar` for grouping level 2, group starting at block 1200, or
+/// `0000/0000/0000/12.tar` for the default grouping level 5, group starting at block 1200000.
+///
+/// The number of path segments is **not** fixed: [format] drops the `groupingLevel` trailing
+/// digits (always zero, since they define the group boundary) before splitting the remainder into
+/// 4-character segments, so a higher grouping level yields a shorter key. The last segment has its
+/// leading zeros stripped (standard integer formatting), so the round-trip
+/// `parse(format(groupStart, level), level) == groupStart` always holds.
 final class ArchiveKey {
 
     private static final System.Logger LOGGER = System.getLogger(ArchiveKey.class.getName());

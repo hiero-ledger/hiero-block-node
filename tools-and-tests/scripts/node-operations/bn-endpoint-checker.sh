@@ -17,8 +17,8 @@
 #                                    (only when --detailed-server-status is passed)
 #   4. Fetching the latest block   → reports the block proof type and effective
 #                                    download throughput; proof types: WRB/RSA
-#                                    (Phase 2a), TSS hinTS + WRAPS proof, or
-#                                    TSS hinTS + Aggregate Schnorr (Phase 2b)
+#                                    (Phase 2a), TSS hinTS + WRAPS (Phase 2b), or
+#                                    the TSS layouts of an earlier TSS library
 #                                    (only when --latest-block-proof is passed)
 #
 # Endpoints are supplied as positional arguments in <host:port> form.
@@ -49,9 +49,10 @@
 #                           proof type observed in it. Useful for confirming that
 #                           a node can serve blocks and for tracking the network's
 #                           current proof phase:
-#                             WRB/RSA            — Phase 2a (SignedRecordFileProof)
-#                             TSS WRAPS proof    — Phase 2b, WRAPS-based hinTS
-#                             TSS Agg. Schnorr   — Phase 2b, Aggregate Schnorr
+#                             WRB/RSA            - Phase 2a (SignedRecordFileProof)
+#                             TSS hinTS + WRAPS  - Phase 2b, hiero-cryptography 3.17 or newer
+#                             TSS (earlier)      - Phase 2b, earlier TSS library, WRAPS or
+#                                                  Aggregate Schnorr
 #                           Requires the proto package to contain the
 #                           block_access_service.proto file (same archive as the
 #                           node_service.proto already required).
@@ -172,28 +173,19 @@ GRPC_SERVICE="org.hiero.block.api.BlockNodeService"
 BLOCK_ACCESS_PROTO="block-node/api/block_access_service.proto"
 BLOCK_ACCESS_SERVICE="org.hiero.block.api.BlockAccessService"
 
-# ── TSS block_signature sub-type byte-length constants ───────────────────────
+# ── TSS block_signature byte-length constants (diagnostics only) ─────────────
 #
-# TssSignedBlockProof.block_signature is a flat byte concatenation:
-#   hints_verification_key  (1096 B)
-#   hints_signature         (1632 B)
-#   [wraps_proof | aggregate_schnorr_signature]
+# The signature is opaque to the Block Node, which hands it to the TSS library.
+# For a quick diagnosis this script only recognizes the known total lengths,
+# which tell which TSS library produced a proof:
+#   hiero-cryptography 3.17 or newer: one layout for every block, 13712 B
+#   earlier TSS library: 3432 B (WRAPS) or 2920 B (Aggregate Schnorr)
 #
-# The sub-type is identified by the total byte length alone — there is no
-# delimiter or header byte between the three components.
-#
-# These constants come from the hinTS protocol specification. If the network
-# upgrades and changes roster size or cryptographic parameters, the totals
-# will shift and the "unknown sub-type" branch in jq will surface the new
-# length for investigation.
-readonly _TSS_HINTS_VK_LEN=1096     # HINTS_VERIFICATION_KEY_LENGTH
-readonly _TSS_HINTS_SIG_LEN=1632    # HINTS_SIGNATURE_LENGTH
-readonly _TSS_WRAPS_LEN=704         # COMPRESSED_WRAPS_PROOF_LENGTH
-readonly _TSS_SCHNORR_LEN=192       # AGGREGATE_SCHNORR_SIGNATURE_LENGTH
-# Totals passed as --argjson to jq so the values live in bash, not in the
-# jq string, keeping the filter readable and avoiding magic numbers.
-readonly TSS_WRAPS_TOTAL=$(( _TSS_HINTS_VK_LEN + _TSS_HINTS_SIG_LEN + _TSS_WRAPS_LEN ))     # 3432
-readonly TSS_SCHNORR_TOTAL=$(( _TSS_HINTS_VK_LEN + _TSS_HINTS_SIG_LEN + _TSS_SCHNORR_LEN )) # 2920
+# If a library changes its parameters the length shifts and the "unknown
+# sub-type" branch in jq surfaces the new length for investigation.
+readonly TSS_NOVA_TOTAL=13712           # current TSS library
+readonly TSS_LEGACY_WRAPS_TOTAL=3432    # earlier TSS library, WRAPS
+readonly TSS_LEGACY_SCHNORR_TOTAL=2920  # earlier TSS library, Aggregate Schnorr
 
 # ── ANSI colours (disabled automatically when stdout is not a terminal) ───────
 # Check file descriptor 1 (stdout) with -t; when the script is piped or
@@ -584,11 +576,8 @@ grpc_call_block_proof() {
 #     signedBlockProof       → TSS (Phase 2b) — sub-type determined by byte length
 #     blockStateProof        → State proof
 #
-#   For TSS blocks, TssSignedBlockProof.blockSignature is a flat byte sequence:
-#     hints_verification_key (1096 B) || hints_signature (1632 B) || sub-type payload
-#   The sub-type payload is either:
-#     wraps_proof (704 B)         → total 3432 B  (TSS_WRAPS_TOTAL)
-#     aggregate_schnorr (192 B)   → total 2920 B  (TSS_SCHNORR_TOTAL)
+#   For TSS blocks the total length of TssSignedBlockProof.blockSignature tells
+#   which TSS library produced it (see the constants above).
 #
 #   grpcurl encodes bytes fields as standard base64 strings. The byte count is
 #   recovered without decoding:
@@ -597,8 +586,9 @@ print_block_proof() {
   local json="$1"
 
   echo "$json" | jq -r \
-    --argjson wraps   "${TSS_WRAPS_TOTAL}" \
-    --argjson schnorr "${TSS_SCHNORR_TOTAL}" \
+    --argjson nova    "${TSS_NOVA_TOTAL}" \
+    --argjson wraps   "${TSS_LEGACY_WRAPS_TOTAL}" \
+    --argjson schnorr "${TSS_LEGACY_SCHNORR_TOTAL}" \
     '
       # Extract block number from the blockHeader item (if present).
       (.block.items[]? | select(has("blockHeader")) | .blockHeader.number // "?") as $num |
@@ -622,12 +612,14 @@ print_block_proof() {
         # padded and unpadded encodings give the same result.
         ( $p.signedBlockProof.blockSignature // ""
           | gsub("=+$"; "") | length * 3 / 4 | floor ) as $n |
-        if   $n == $wraps   then
-          "block \($num): TSS — hinTS + WRAPS proof  (\($n) B)"
+        if   $n == $nova    then
+          "block \($num): TSS - hinTS + WRAPS  (\($n) B)"
+        elif $n == $wraps   then
+          "block \($num): TSS - earlier TSS library, hinTS + WRAPS  (\($n) B)"
         elif $n == $schnorr then
-          "block \($num): TSS — hinTS + Aggregate Schnorr  (\($n) B)"
+          "block \($num): TSS - earlier TSS library, hinTS + Aggregate Schnorr  (\($n) B)"
         else
-          "block \($num): TSS — unknown sub-type  (\($n) B — check hinTS constants)"
+          "block \($num): TSS - unknown sub-type  (\($n) B, check the TSS library version)"
         end
 
       elif ($p | has("blockStateProof")) then
@@ -1025,7 +1017,7 @@ check_endpoint() {
   # Fetches the most recent block from the node and reports the proof type and
   # effective download throughput. This confirms two things at once:
   #   a) The node can serve block data via BlockAccessService/getBlock.
-  #   b) The current network proof phase (WRB/RSA vs TSS WRAPS vs TSS Schnorr).
+  #   b) The current network proof phase (WRB/RSA vs TSS, and which TSS library).
   # Throughput is labelled "approx" because JSON response size > proto wire size.
   #
   # Failure is non-fatal: a node may have serverStatus working before it has

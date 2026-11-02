@@ -48,6 +48,9 @@
 #   NODE_ALIASES        (default "node1,node2,node3")
 #   CN_UPGRADE_VERSION  (default "rc"; overridden by $1 if given)
 #   READY_TIMEOUT       (default 300)
+#   CN_NOVA_WRAPS       (optional; see cn_needs_wraps_proving_key in
+#                        lib/cn-application-properties.sh: whether the upgrade version
+#                        is on the Nova WRAPS TSS library and so needs no WRAPS proving key)
 
 set -euo pipefail
 
@@ -129,9 +132,17 @@ ensure_wraps_keys_cached() {
 source "${SCRIPT_DIR}/../lib/cn-application-properties.sh"
 
 TSS_ENABLE_PROPERTIES_FILE="${TMPDIR:-/tmp}/wrb-dist-cn-upgrade-tss-application.properties"
-TSS_ENABLED=true WRB_RSA=false generate_cn_application_properties "${TSS_ENABLE_PROPERTIES_FILE}"
+TSS_ENABLED=true WRB_RSA=false generate_cn_application_properties "${TSS_ENABLE_PROPERTIES_FILE}" "${CN_UPGRADE_VERSION}"
 
-ensure_wraps_keys_cached
+# A CN on the Nova WRAPS TSS library (see cn_needs_wraps_proving_key in
+# lib/cn-application-properties.sh) needs no proving key; older CNs still need it staged.
+WRAPS_KEY_ARGS=()
+if cn_needs_wraps_proving_key "${CN_UPGRADE_VERSION}"; then
+    ensure_wraps_keys_cached
+    WRAPS_KEY_ARGS=(--wraps-key-path "${WRAPS_KEYS_DIR}")
+else
+    log "CN ${CN_UPGRADE_VERSION} is on the Nova WRAPS TSS library, no WRAPS proving key is staged"
+fi
 
 # SOLO-5068 workaround: two distinct issues that both block `helm upgrade`:
 #
@@ -213,7 +224,7 @@ solo consensus network upgrade \
     --deployment "${DEPLOYMENT}" \
     --node-aliases "${NODE_ALIASES}" \
     --upgrade-version "${CN_UPGRADE_VERSION}" \
-    --wraps-key-path "${WRAPS_KEYS_DIR}" \
+    ${WRAPS_KEY_ARGS[@]+"${WRAPS_KEY_ARGS[@]}"} \
     --application-properties "${TSS_ENABLE_PROPERTIES_FILE}" \
     -q \
     || fail "solo consensus network upgrade failed"

@@ -30,9 +30,10 @@ resources:
 
 blockNode:
   config:
-    # Real verification against the real fixture blocks (CN_11_12_TSS_WRAPS), whose chain starts at
-    # block 0 with the embedded TSS bootstrap. JAVA_OPTS sized for the kind envelope; SERVER_PORT
-    # inherits the chart default.
+    # Real verification against harness-signed blocks whose chain starts at block 0 with the
+    # embedded TSS bootstrap. JAVA_OPTS sized for the kind envelope; the TSS library keeps its
+    # native code and verification key off heap, so the heap stays below the container limit.
+    # SERVER_PORT inherits the chart default.
     JAVA_OPTS: "-Xms1G -Xmx2G -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/dump.hprof"
   # Relax liveness so a cold BN boot in kind isn't killed before it binds :40840.
   health:
@@ -71,7 +72,7 @@ blockNode:
         - name: plugins-storage
           mountPath: /plugins-pvc
   # Only PVC sizes are overridden; volume names/mounts/claims use the chart defaults. On 0.37+ the
-  # provisioner-owned state existingClaim persists across the upgrade (tss-parameters.bin + blocks intact).
+  # provisioner-owned state existingClaim persists across the upgrade (tss-bootstrap-roster.json + blocks intact).
   persistence:
     archive:
       size: 1Gi

@@ -5,7 +5,7 @@
 # Injects 100 ms ± 20 ms bidirectional latency between all Consensus Nodes
 # while NLG load is running. Verifies that consensus rounds still produce
 # blocks, that all Block Nodes continue receiving them, and (with TSS on, the
-# default) that block signatures transition Schnorr -> WRAPS under latency.
+# default) that the TSS block proofs match one TSS library era under latency.
 #
 # Selectors:
 #   source: solo.hedera.com/type=network-node
@@ -97,11 +97,12 @@ assertions:
       comparator: "=="
       value: 0
 
-  # Proves TSS is active end-to-end under latency: block signatures transition
-  # Schnorr -> WRAPS (proof size 2920 -> 3432). Auto-skips when TSS is disabled.
-  - id: tss-signature-transition
-    type: signature-transition
-    description: "TSS signatures transition Schnorr -> WRAPS during the run"
+  # Proves TSS is active end-to-end under latency: the block proofs show the Schnorr
+  # then WRAPS transition (signature size 2920, then 3432) of the older TSS library, or
+  # the 13712 byte Nova layout on every sampled block. Auto-skips when TSS is disabled.
+  - id: tss-block-proofs
+    type: tss-block-proofs
+    description: "TSS block proofs match one TSS library era during the run"
     target: block-node-1
     args:
       max_block: 1000

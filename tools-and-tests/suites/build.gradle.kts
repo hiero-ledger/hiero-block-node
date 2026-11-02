@@ -14,6 +14,7 @@ application {
 mainModuleInfo {
     runtimeOnly("com.swirlds.config.impl")
     runtimeOnly("org.hiero.block.node.access.service")
+    runtimeOnly("org.hiero.block.node.app.state")
     runtimeOnly("org.hiero.block.node.backfill")
     runtimeOnly("org.hiero.block.node.block.verification")
     runtimeOnly("org.hiero.block.node.blocks.files.historic")

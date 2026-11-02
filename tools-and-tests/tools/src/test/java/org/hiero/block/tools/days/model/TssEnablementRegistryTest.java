@@ -80,7 +80,7 @@ class TssEnablementRegistryTest {
             LedgerIdPublicationTransactionBody body = createPublication(LEDGER_ID, WRAPS_VK, 0, 1000, 1, 2000);
             String result = registry.recordPublication(Instant.ofEpochSecond(100), 42, body);
             assertNotNull(result);
-            assertTrue(result.contains("WRAPS VK size=5 bytes"));
+            assertTrue(result.contains("LedgerID=01020304..., roster=2 nodes"));
             assertTrue(result.contains("roster=2 nodes"));
             assertTrue(result.contains("node 0: weight=1000"));
             assertTrue(result.contains("node 1: weight=2000"));
@@ -113,6 +113,29 @@ class TssEnablementRegistryTest {
             assertEquals(20, latest.blockNumber());
         }
 
+        /**
+         * This test aims to assert that a publication without a history proof verification key and
+         * without node contributions, as a consensus node on the current TSS library may publish it,
+         * is recorded and converts to TssData carrying the ledger id and an empty roster.
+         */
+        @Test
+        @DisplayName("records a publication without verification key and contributions")
+        void recordsPublicationWithoutKeyAndContributions() {
+            TssEnablementRegistry registry = new TssEnablementRegistry();
+            LedgerIdPublicationTransactionBody publication = LedgerIdPublicationTransactionBody.newBuilder()
+                    .ledgerId(LEDGER_ID)
+                    .build();
+
+            registry.recordPublication(Instant.ofEpochSecond(100), 42, publication);
+
+            TssData tssData = registry.getLatestTssData();
+            assertNotNull(tssData);
+            assertEquals(LEDGER_ID, tssData.ledgerId());
+            assertEquals(Bytes.EMPTY, tssData.wrapsVerificationKey());
+            assertEquals(0, tssData.currentRosterOrThrow().rosterEntries().size());
+            assertEquals(42, tssData.validFromBlock());
+        }
+
         @Test
         @DisplayName("getLatestTssData converts correctly to TssData format")
         void convertsTssDataCorrectly() {
@@ -123,7 +146,7 @@ class TssEnablementRegistryTest {
             TssData tssData = registry.getLatestTssData();
             assertNotNull(tssData);
             assertEquals(LEDGER_ID, tssData.ledgerId());
-            assertEquals(WRAPS_VK, tssData.wrapsVerificationKey());
+            assertEquals(Bytes.EMPTY, tssData.wrapsVerificationKey());
             assertEquals(2, tssData.currentRosterOrThrow().rosterEntries().size());
             assertEquals(
                     0, tssData.currentRosterOrThrow().rosterEntries().getFirst().nodeId());
@@ -198,7 +221,7 @@ class TssEnablementRegistryTest {
             Bytes fileBytes = Bytes.wrap(Files.readAllBytes(binFile));
             TssData parsed = standardParse(TssData.PROTOBUF, fileBytes);
             assertEquals(LEDGER_ID, parsed.ledgerId());
-            assertEquals(WRAPS_VK, parsed.wrapsVerificationKey());
+            assertEquals(Bytes.EMPTY, parsed.wrapsVerificationKey());
             assertEquals(2, parsed.currentRosterOrThrow().rosterEntries().size());
         }
 
@@ -230,7 +253,7 @@ class TssEnablementRegistryTest {
             Bytes fileBytes = Bytes.wrap(Files.readAllBytes(jsonFile));
             TssData parsed = standardParse(TssData.JSON, fileBytes);
             assertEquals(LEDGER_ID, parsed.ledgerId());
-            assertEquals(WRAPS_VK, parsed.wrapsVerificationKey());
+            assertEquals(Bytes.EMPTY, parsed.wrapsVerificationKey());
             assertEquals(2, parsed.currentRosterOrThrow().rosterEntries().size());
         }
 

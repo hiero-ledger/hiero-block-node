@@ -1107,7 +1107,7 @@ spec:
         - -c
         - |
           set -e
-          DESIRED_HASH=\$(echo "${bn_version}:facility-messaging,block-access-service,health,server-status,stream-publisher,stream-subscriber,verification,blocks-file-historic,blocks-file-recent,backfill::[{\"id\":\"central\",\"url\":\"https://repo1.maven.org/maven2\"},{\"id\":\"besu-maven\",\"url\":\"https://artifacts.hashgraph.io/artifactory/hyperledger-besu-maven-external/\"},{\"id\":\"consensys\",\"url\":\"https://artifacts.consensys.net/public/maven/maven/\"},{\"id\":\"sonatype-snapshots\",\"snapshots\":true,\"url\":\"https://central.sonatype.com/repository/maven-snapshots\"}]" | sha256sum | cut -d' ' -f1)
+          DESIRED_HASH=\$(echo "${bn_version}:facility-app-state,facility-messaging,block-access-service,health,server-status,stream-publisher,stream-subscriber,verification,blocks-file-historic,blocks-file-recent,backfill::[{\"id\":\"central\",\"url\":\"https://repo1.maven.org/maven2\"},{\"id\":\"besu-maven\",\"url\":\"https://artifacts.hashgraph.io/artifactory/hyperledger-besu-maven-external/\"},{\"id\":\"consensys\",\"url\":\"https://artifacts.consensys.net/public/maven/maven/\"},{\"id\":\"sonatype-snapshots\",\"snapshots\":true,\"url\":\"https://central.sonatype.com/repository/maven-snapshots\"}]" | sha256sum | cut -d' ' -f1)
           if [ -f /plugins/.resolved-hash ] && [ "\$(cat /plugins/.resolved-hash)" = "\$DESIRED_HASH" ]; then
             echo "Plugins already resolved. Skipping."
             exit 0
@@ -1136,6 +1136,7 @@ spec:
               <repository><id>sonatype-snapshots</id><url>https://central.sonatype.com/repository/maven-snapshots</url><snapshots><enabled>true</enabled></snapshots></repository>
             </repositories>
             <dependencies>
+              <dependency><groupId>org.hiero.block-node</groupId><artifactId>facility-app-state</artifactId><version>${bn_version}</version></dependency>
               <dependency><groupId>org.hiero.block-node</groupId><artifactId>facility-messaging</artifactId><version>${bn_version}</version></dependency>
               <dependency><groupId>org.hiero.block-node</groupId><artifactId>block-access-service</artifactId><version>${bn_version}</version></dependency>
               <dependency><groupId>org.hiero.block-node</groupId><artifactId>health</artifactId><version>${bn_version}</version></dependency>

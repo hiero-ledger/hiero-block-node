@@ -22,6 +22,30 @@ mainModuleInfo {
     runtimeOnly("io.helidon.logging.jul")
 }
 
+// The TSS library is resolved through its 'verifier' variant, which leaves out the
+// parameters only needed to construct proofs. Gradle selects that variant by capability
+// (the '|verifier' suffix in gradle/modules.properties) and does not translate a
+// capability into a classifier when it writes this module's POM. The Helm chart resolves
+// plugin jars with Maven from that POM (the resolve-plugins init container), so the
+// classifier is added here: Maven then downloads the same verifier jar Gradle selects.
+publishing.publications.withType<MavenPublication>().configureEach {
+    pom.withXml {
+        val dependencies = asElement().getElementsByTagName("dependency")
+        for (index in 0 until dependencies.length) {
+            val dependency = dependencies.item(index) as org.w3c.dom.Element
+            val artifactId = dependency.getElementsByTagName("artifactId").item(0)?.textContent
+            if (
+                artifactId == "hedera-cryptography-wraps" &&
+                    dependency.getElementsByTagName("classifier").length == 0
+            ) {
+                val classifier = dependency.ownerDocument.createElement("classifier")
+                classifier.textContent = "verifier"
+                dependency.appendChild(classifier)
+            }
+        }
+    }
+}
+
 testModuleInfo {
     requires("org.hiero.block.node.app.test.fixtures")
     requires("org.hiero.block.node.block.verification.test.fixtures")

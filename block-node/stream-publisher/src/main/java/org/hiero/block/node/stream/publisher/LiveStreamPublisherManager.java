@@ -20,6 +20,7 @@ import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_STALL_TIMEOUTS_SENT;
 
 import com.hedera.pbj.runtime.grpc.Pipeline;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import java.util.ArrayList;
@@ -34,13 +35,13 @@ import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.TreeSet;
 import java.util.concurrent.Callable;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -56,6 +57,7 @@ import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.app.config.node.NodeConfig;
+import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
@@ -116,7 +118,17 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// nanoTime of the last penalty-count reset (tumbling window).
     private long lastPenaltyResetNanos;
     /// Scheduled handle for the flow-control refresh task.
-    private ScheduledFuture<?> flowControlRefreshFuture;
+    volatile ScheduledFuture<?> flowControlRefreshFuture;
+    /// The refresh body run by the scheduled task. Package-private so tests can inject failures.
+    volatile Runnable flowControlRefreshAction = this::refreshFlowControl;
+    /// Held by the one caller that is currently rescheduling the flow-control refresh task.
+    private final AtomicBoolean flowControlRescheduling = new AtomicBoolean(false);
+    /// Number of consecutive failed flow-control refresh runs; only touched by the refresh task.
+    private int consecutiveFlowControlRefreshFailures;
+    /// Held by the one caller that is currently replacing a finished queue forwarder task.
+    private final AtomicBoolean forwarderRestarting = new AtomicBoolean(false);
+    /// Set once on shutdown so recovery checks never start tasks on a stopped manager.
+    private volatile boolean stopped;
     /// Reference to application state facility, used to update the next
     /// expected block value.
     private final ApplicationStateFacility applicationState;
@@ -141,9 +153,18 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private final ConcurrentSkipListMap<Long, BlockItemUnparsed> blockProofs;
     private final ConcurrentSkipListSet<Long> endBlocksReceived;
     private final ConcurrentSkipListSet<Long> blocksToResend;
+    /// Blocks successfully persisted (by any source) that the acknowledgement tracker has not
+    /// yet moved past. A verification failure or stall for one of these blocks concerns a block
+    /// this node already holds, so no resend may be scheduled for it. Kept as ranges so a long
+    /// run of blocks costs almost nothing. Entries are dropped once acknowledged, or when they
+    /// fall more than {@link #staleResendPruneBuffer} behind.
+    private final ConcurrentLongRangeSet persistedAheadOfAck;
     private final ConcurrentSkipListMap<Long, Long> activeResendBlocks;
     /// Flow state per handler ID; created in addHandler, removed in removeHandler.
     private final ConcurrentSkipListMap<Long, HandlerFlowState> handlerFlowState;
+    /// The latest acknowledged block together with its root hash, replaced as one value so a
+    /// reader never pairs a hash with a different block number.
+    private final AtomicReference<AckedBlock> latestAckedBlock;
     /// Maps block number to the ID of the handler that currently holds ACCEPT for that block.
     /// An entry is added when a handler wins ACCEPT via registerQueueForBlock().
     /// An entry is removed when endOfBlock() is called for that block, when blockIsEnding()
@@ -181,9 +202,11 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         blockProofs = new ConcurrentSkipListMap<>();
         endBlocksReceived = new ConcurrentSkipListSet<>();
         blocksToResend = new ConcurrentSkipListSet<>();
+        persistedAheadOfAck = new ConcurrentLongRangeSet();
         activeResendBlocks = new ConcurrentSkipListMap<>();
         activeStreamHandlerByBlock = new ConcurrentSkipListMap<>();
         handlerFlowState = new ConcurrentSkipListMap<>();
+        latestAckedBlock = new AtomicReference<>(AckedBlock.NONE);
         initializeBlockNumbers(storedBlocks);
         scheduleFlowControlRefresh();
         resetIsActive.compareAndSet(true, false);
@@ -207,6 +230,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             @NonNull final PublisherHandler.MetricsHolder handlerMetrics,
             final String correlationId) {
         awaitReset();
+        ensureFlowControlRefreshScheduled();
         final long handlerId = nextHandlerId.getAndIncrement();
         final PublisherHandler newHandler =
                 new PublisherHandler(handlerId, replies, handlerMetrics, this, correlationId);
@@ -251,6 +275,12 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         metrics.currentPublisherCount().set(handlers.size());
         sendPublisherStatusUpdate(UpdateType.PUBLISHER_DISCONNECTED, handlers);
         LOGGER.log(DEBUG, "Removed handler {0}", handlerId);
+    }
+
+    @Override
+    public Bytes getLatestAckedBlockRootHash(final long blockNumber) {
+        final AckedBlock acked = latestAckedBlock.get();
+        return acked.blockNumber() == blockNumber ? acked.rootHash() : Bytes.EMPTY;
     }
 
     @Override
@@ -333,7 +363,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             if (blockNumber > lastPersistedBlockNumber.get() && blockNumber < nextUnstreamedBlockNumber.get()) {
                 final String message = "Block {0} will be resent due to handler {1} ending mid block";
                 LOGGER.log(DEBUG, message, blockNumber, handlerId);
-                blocksToResend.add(blockNumber);
+                scheduleResend(blockNumber);
             }
         }
     }
@@ -369,16 +399,19 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             }
         }
         handlers.clear();
+        // Set before cancelling anything so the recovery checks cannot restart a task we are stopping.
+        stopped = true;
         // Cancel the queue forwarder task if it is running.
-        final var lastResult = queueForwarderResult.getAndSet(null);
+        final Future<Long> lastResult = queueForwarderResult.getAndSet(null);
         if (lastResult != null) {
             lastResult.cancel(true);
         }
         queueByBlockMap.clear();
         activeStreamHandlerByBlock.clear();
         // Cancel the flow control refresh task before executor shutdown.
-        if (flowControlRefreshFuture != null) {
-            flowControlRefreshFuture.cancel(false);
+        final ScheduledFuture<?> refreshFuture = flowControlRefreshFuture;
+        if (refreshFuture != null) {
+            refreshFuture.cancel(false);
         }
         // We can safely shut down the scheduled executor abruptly. The timeout
         // tasks can be ignored completely as we shut down the manager.
@@ -549,6 +582,19 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 // @todo(#1841) reconsider this conditional in light of other changes.
                 // Persistence success (as from backfill) can also detect stalled handlers...
                 checkForStalledHandlers(blockNumber);
+                // Record the block as stored _before_ clearing any scheduled resend, so a
+                // concurrent scheduleResend either sees it stored or is cleaned up below.
+                // Blocks at or below the acknowledged number (such as historic backfill) are
+                // not tracked, they cannot be scheduled for resend in the first place.
+                if (blockNumber > lastPersistedBlockNumber.get()) {
+                    persistedAheadOfAck.add(blockNumber);
+                }
+                // A block that is persisted no longer needs to be resent, whichever copy of it
+                // was persisted (another publisher, or backfill). Left in place, the entry would
+                // clamp every acknowledgement below it and keep asking publishers to resend a
+                // block they may no longer hold. Only the exact block is removed; persisting a
+                // block says nothing about the blocks before it.
+                blocksToResend.remove(blockNumber);
                 if (blockNumber > lastPersistedBlockNumber.get()) {
                     // Drop stale resend entries that no publisher could realistically still
                     // supply. Without this, an entry left behind by a TOCTOU race between
@@ -565,13 +611,24 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                     // acknowledged isn't greater than previous acknowledgement(s).
                     if (blockToAcknowledge >= 0 && blockToAcknowledge > lastPersistedBlockNumber.get()) {
                         // Update internal manager state before sending acknowledgement
+                        // The hash belongs to the notified block, which is not necessarily the block
+                        // acknowledged when a known gap clamps the acknowledgement.
+                        final Bytes rootHash =
+                                blockToAcknowledge == blockNumber ? notification.blockRootHash() : Bytes.EMPTY;
+                        latestAckedBlock.set(new AckedBlock(blockToAcknowledge, rootHash));
                         lastPersistedBlockNumber.set(blockToAcknowledge);
                         handlers.values().parallelStream().unordered().forEach(handler -> {
                             // _Important_, we only need the last persisted block number
                             // all previous blocks are implicitly acknowledged.
-                            handler.sendAcknowledgement(lastPersistedBlockNumber.get());
+                            handler.sendAcknowledgement(blockToAcknowledge, rootHash);
                         });
                         metrics.latestBlockNumberAcknowledged.set(blockToAcknowledge);
+                    }
+                    // Forget blocks the ack tracker has passed, and any that fell too far behind.
+                    final long forgetThrough =
+                            Math.max(lastPersistedBlockNumber.get(), blockNumber - staleResendPruneBuffer);
+                    if (forgetThrough >= 0) {
+                        persistedAheadOfAck.remove(0, forgetThrough);
                     }
                     // This needs to advance regardless, because we must handle that
                     // backfill might be _ahead_ of the current blocks...
@@ -793,14 +850,14 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                     && activeStreamHandlerByBlock.remove(candidateBlock, handlerId)) {
                 // This thread won the CAS — execute the stall action.
                 endStalledBlock(completedBlockNumber, handlerId, candidateBlock, STALL_DETECTED_LOG_MESSAGE);
-                blocksToResend.add(candidateBlock);
+                scheduleResend(candidateBlock);
             } else if (isResendingLive(candidateBlock)
                     && activeResendBlocks.containsKey(candidateBlock)
                     && completedBlockNumber > activeResendBlocks.get(candidateBlock) + maxBlocksBeforeStalled
                     && activeStreamHandlerByBlock.remove(candidateBlock, handlerId)) {
                 activeResendBlocks.remove(candidateBlock);
                 endStalledBlock(completedBlockNumber, handlerId, candidateBlock, RESEND_STALL_LOG_MESSAGE);
-                blocksToResend.add(candidateBlock);
+                scheduleResend(candidateBlock);
             }
         }
     }
@@ -921,6 +978,36 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                     LOGGER.log(INFO, "Publisher unavailability timeout task completed exceptionally", e);
                 }
             }
+        }
+    }
+
+    /// Schedules a resend of a block, unless this node already holds it. A failed copy of a
+    /// block can arrive after another copy (for example from backfill) was persisted; asking
+    /// publishers to resend it would be futile, and the entry would clamp every
+    /// acknowledgement below it until pruned.
+    ///
+    /// The check follows the add on purpose. [#handlePersisted] records the block as stored
+    /// before it clears the resend entry, so either that clear sees this entry or this check
+    /// sees the block stored. No lock is needed.
+    ///
+    /// Callers check `blockNumber > lastPersistedBlockNumber` before calling, but
+    /// [#handlePersisted] can persist and acknowledge the block between that check and the add.
+    /// The block is then forgotten by `persistedAheadOfAck` and the add lands below the
+    /// acknowledgement, where it would clamp acks until pruned. `lastPersistedBlockNumber` is
+    /// set before `persistedAheadOfAck` is trimmed, so checking it after the add closes that window.
+    ///
+    /// Blocks below `earliestManagedBlock` are not managed by this node, so no resend is ever
+    /// scheduled for them. Such a block can only be in flight right after a restart, via the
+    /// pre-earliest-managed accept path in [#streamBeforeEmbOrElse].
+    ///
+    /// @param blockNumber the block to schedule for resend
+    void scheduleResend(final long blockNumber) {
+        if (blockNumber < earliestManagedBlock) {
+            return;
+        }
+        blocksToResend.add(blockNumber);
+        if (persistedAheadOfAck.contains(blockNumber) || blockNumber <= lastPersistedBlockNumber.get()) {
+            blocksToResend.remove(blockNumber);
         }
     }
 
@@ -1128,23 +1215,60 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     }
 
     /// Check the queue forwarder task and start, or restart, if it is
-    /// null or completed, respectively.
-    private void checkLogAndRestartForwarderTask() {
-        final Future<Long> currentResult = queueForwarderResult.get();
-        if (currentResult != null && currentResult.isDone()) {
+    /// null or completed, respectively. A completed task is logged and replaced.
+    /// This also checks that the flow control refresh task is still scheduled.
+    void checkLogAndRestartForwarderTask() {
+        if (stopped) {
+            return;
+        }
+        ensureFlowControlRefreshScheduled();
+        // Only one caller replaces the forwarder, a caller that loses the race has nothing to do because the
+        // winner is already restarting it.
+        if (needsForwarderRestart() && forwarderRestarting.compareAndSet(false, true)) {
             try {
-                final long blocksForwarded = currentResult.get();
+                restartForwarderTask();
+            } finally {
+                forwarderRestarting.set(false);
+            }
+        }
+    }
+
+    private boolean needsForwarderRestart() {
+        final Future<Long> currentResult = queueForwarderResult.get();
+        return currentResult == null || currentResult.isDone();
+    }
+
+    private void restartForwarderTask() {
+        // Look again now that this caller owns the restart, another caller may have just finished it.
+        final Future<Long> finishedResult = queueForwarderResult.get();
+        if (finishedResult != null) {
+            if (!finishedResult.isDone()) {
+                return;
+            }
+            logForwarderOutcome(finishedResult);
+        }
+        queueForwarderResult.set(launchQueueForwarder());
+        // The manager may have been stopped while the replacement was launched, make sure it does not outlive it.
+        if (stopped) {
+            final Future<Long> orphan = queueForwarderResult.getAndSet(null);
+            if (orphan != null) {
+                orphan.cancel(true);
+            }
+        }
+    }
+
+    private void logForwarderOutcome(final Future<Long> finishedResult) {
+        switch (finishedResult.state()) {
+            case SUCCESS -> {
+                final long blocksForwarded = finishedResult.resultNow();
                 metrics.blockBatchesMessaged().increment(blocksForwarded);
                 final String formatString = "Queue forwarder task completed normally after forwarding %d blocks.";
                 LOGGER.log(DEBUG, formatString.formatted(blocksForwarded));
-            } catch (CancellationException | ExecutionException e) {
-                LOGGER.log(INFO, "Queue forwarder task completed exceptionally.", e);
-            } catch (InterruptedException e) {
-                LOGGER.log(DEBUG, "Interrupted retrieving queue forwarder task result.");
             }
-        }
-        if (queueForwarderResult.get() == null) {
-            queueForwarderResult.compareAndSet(null, launchQueueForwarder());
+            case FAILED ->
+                LOGGER.log(WARNING, "Queue forwarder task failed, restarting it.", finishedResult.exceptionNow());
+            case CANCELLED -> LOGGER.log(INFO, "Queue forwarder task was cancelled, restarting it.");
+            case RUNNING -> LOGGER.log(DEBUG, "Queue forwarder task is still running.");
         }
     }
 
@@ -1159,14 +1283,63 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     ///
     /// @return a Future representing pending completion of the task
     private Future<Long> launchQueueForwarder() {
-        return threadManager.getVirtualThreadExecutor().submit(new MessagingForwarderTask(this));
+        try {
+            return threadManager.getVirtualThreadExecutor().submit(new MessagingForwarderTask(this));
+        } catch (final RejectedExecutionException e) {
+            // Return no task so the reference stays empty and the next block proof tries again.
+            LOGGER.log(WARNING, "Unable to launch the queue forwarder task, will retry.", e);
+            return null;
+        }
     }
 
     private void scheduleFlowControlRefresh() {
+        startFlowControlRefreshTask();
+        lastPenaltyResetNanos = System.nanoTime();
+    }
+
+    private void startFlowControlRefreshTask() {
         final long intervalNanos = publisherConfig.flowControlRefreshIntervalNanos();
         flowControlRefreshFuture = scheduledExecutor.scheduleAtFixedRate(
-                this::refreshFlowControl, intervalNanos, intervalNanos, TimeUnit.NANOSECONDS);
-        lastPenaltyResetNanos = System.nanoTime();
+                this::refreshFlowControlSafely, intervalNanos, intervalNanos, TimeUnit.NANOSECONDS);
+    }
+
+    /// Reschedule the flow control refresh task if its future is gone or finished. A periodic
+    /// task that throws is silently dropped by the executor, so without this check a single
+    /// failure would stop all budget refills for the life of the process.
+    void ensureFlowControlRefreshScheduled() {
+        if (stopped || isRunning(flowControlRefreshFuture)) {
+            return;
+        }
+        // Only one caller reschedules, a caller that loses the race has nothing to do because the winner is
+        // already rescheduling it.
+        if (flowControlRescheduling.compareAndSet(false, true)) {
+            try {
+                // Look again now that this caller owns the reschedule, another caller may have just finished it.
+                if (!stopped && !isRunning(flowControlRefreshFuture)) {
+                    LOGGER.log(WARNING, "Flow control refresh task is not running, rescheduling it.");
+                    startFlowControlRefreshTask();
+                }
+            } finally {
+                flowControlRescheduling.set(false);
+            }
+        }
+    }
+
+    private static boolean isRunning(final ScheduledFuture<?> future) {
+        return future != null && !future.isDone();
+    }
+
+    private void refreshFlowControlSafely() {
+        try {
+            flowControlRefreshAction.run();
+            consecutiveFlowControlRefreshFailures = 0;
+        } catch (final RuntimeException e) {
+            if (consecutiveFlowControlRefreshFailures++ == 0) {
+                LOGGER.log(WARNING, "Flow control refresh failed, will retry on the next interval.", e);
+            } else {
+                LOGGER.log(DEBUG, "Flow control refresh failed again.", e);
+            }
+        }
     }
 
     private void refreshFlowControl() {
@@ -1415,6 +1588,14 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         }
     }
 
+    /// A block number paired with the root hash it was acknowledged with.
+    ///
+    /// @param blockNumber the acknowledged block number
+    /// @param rootHash the root hash of that block, or [Bytes#EMPTY] when unknown
+    private record AckedBlock(long blockNumber, Bytes rootHash) {
+        static final AckedBlock NONE = new AckedBlock(-1L, Bytes.EMPTY);
+    }
+
     /// Metrics for tracking publisher handler activity:
     /// blockItemsMessaged - Number of block items delivered to the messaging service
     /// currentPublisherCount - Number of currently connected publishers
@@ -1586,7 +1767,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             // no resend is scheduled for it.
             if (shouldResend && !failureInfo.isInformational()) {
                 // Schedule a resend for the block before any end of stream message
-                manager.blocksToResend.add(blockNumber);
+                manager.scheduleResend(blockNumber);
             }
             switch (scope) {
                 case NO_STREAM_ACTION -> {

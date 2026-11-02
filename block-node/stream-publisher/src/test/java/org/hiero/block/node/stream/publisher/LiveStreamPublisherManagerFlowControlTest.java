@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
 import org.hiero.block.api.PublishStreamResponse;
-import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
@@ -40,10 +39,10 @@ class LiveStreamPublisherManagerFlowControlTest {
     @DisplayName("Streak and Penalty Tests")
     class StreakAndPenaltyTests {
 
-        private TestMetricsExporter metricsExporter;
         private LiveStreamPublisherManager manager;
         private TestThreadPoolManager<BlockingExecutor, ScheduledBlockingExecutor> threadPoolManager;
         private PublisherHandler handler;
+        private MetricsHolder managerMetrics;
 
         @BeforeEach
         void setup() {
@@ -63,10 +62,8 @@ class LiveStreamPublisherManagerFlowControlTest {
             final BlockNodeContext context =
                     generateContext(config, historicalBlockFacility, threadPoolManager, messagingFacility);
             historicalBlockFacility.init(context, null);
-            metricsExporter = new TestMetricsExporter();
-            final MetricRegistry registry =
-                    MetricRegistry.builder().setMetricsExporter(metricsExporter).build();
-            final MetricsHolder managerMetrics = MetricsHolder.createMetrics(registry);
+            final MetricRegistry registry = MetricRegistry.builder().build();
+            managerMetrics = MetricsHolder.createMetrics(registry);
             final PublisherHandler.MetricsHolder handlerMetrics =
                     PublisherHandler.MetricsHolder.createMetrics(registry);
             manager = new LiveStreamPublisherManager(context, managerMetrics, List.of());
@@ -81,9 +78,7 @@ class LiveStreamPublisherManagerFlowControlTest {
             exhaustBudgetAndRunRefresh(handler, 10);
 
             assertThat(handler.getMessageBudget()).isEqualTo(-1L);
-            assertThat(metricsExporter.getMetricValue(
-                            StreamPublisherPlugin.METRIC_PUBLISHER_FLOW_CONTROL_PENALTIES_APPLIED.name()))
-                    .isEqualTo(1L);
+            assertThat(managerMetrics.flowControlPenaltiesApplied().get()).isEqualTo(1L);
         }
 
         @Test
@@ -101,9 +96,7 @@ class LiveStreamPublisherManagerFlowControlTest {
             // Run 9 more exhaust+refresh cycles — streak goes to 9, which is still below threshold 10.
             exhaustBudgetAndRunRefresh(handler, 9);
 
-            assertThat(metricsExporter.getMetricValue(
-                            StreamPublisherPlugin.METRIC_PUBLISHER_FLOW_CONTROL_PENALTIES_APPLIED.name()))
-                    .isZero();
+            assertThat(managerMetrics.flowControlPenaltiesApplied().get()).isZero();
         }
 
         @Test
@@ -113,9 +106,7 @@ class LiveStreamPublisherManagerFlowControlTest {
         void secondPenaltyMultipliesDuration() throws InterruptedException {
             // Trigger penalty #1 by exhausting 10 times.
             exhaustBudgetAndRunRefresh(handler, 10);
-            assertThat(metricsExporter.getMetricValue(
-                            StreamPublisherPlugin.METRIC_PUBLISHER_FLOW_CONTROL_PENALTIES_APPLIED.name()))
-                    .isEqualTo(1L);
+            assertThat(managerMetrics.flowControlPenaltiesApplied().get()).isEqualTo(1L);
 
             // Wait for penalty #1 to expire (penaltyDurationSeconds=2 so penalty = 2*1 = 2s).
             // After expiry the next refresh will see snapshotBudget=-1 which is <=0 (fullyConsumed=true),
@@ -132,9 +123,7 @@ class LiveStreamPublisherManagerFlowControlTest {
             // The first post-expiry refresh already incremented streak to 1, so 9 more = 10.
             exhaustBudgetAndRunRefresh(handler, 9);
 
-            assertThat(metricsExporter.getMetricValue(
-                            StreamPublisherPlugin.METRIC_PUBLISHER_FLOW_CONTROL_PENALTIES_APPLIED.name()))
-                    .isEqualTo(2L);
+            assertThat(managerMetrics.flowControlPenaltiesApplied().get()).isEqualTo(2L);
         }
 
         /// Clears the handler budget to 0 (simulating full exhaustion), then calls
@@ -156,11 +145,11 @@ class LiveStreamPublisherManagerFlowControlTest {
     @DisplayName("Aggregate Limit Tests")
     class AggregateLimitTests {
 
-        private TestMetricsExporter metricsExporter;
         private LiveStreamPublisherManager manager;
         private TestThreadPoolManager<BlockingExecutor, ScheduledBlockingExecutor> threadPoolManager;
         private PublisherHandler handler1;
         private PublisherHandler handler2;
+        private MetricsHolder managerMetrics;
 
         @BeforeEach
         void setup() {
@@ -178,10 +167,8 @@ class LiveStreamPublisherManagerFlowControlTest {
             final BlockNodeContext context =
                     generateContext(config, historicalBlockFacility, threadPoolManager, messagingFacility);
             historicalBlockFacility.init(context, null);
-            metricsExporter = new TestMetricsExporter();
-            final MetricRegistry registry =
-                    MetricRegistry.builder().setMetricsExporter(metricsExporter).build();
-            final MetricsHolder managerMetrics = MetricsHolder.createMetrics(registry);
+            final MetricRegistry registry = MetricRegistry.builder().build();
+            managerMetrics = MetricsHolder.createMetrics(registry);
             final PublisherHandler.MetricsHolder handlerMetrics =
                     PublisherHandler.MetricsHolder.createMetrics(registry);
             manager = new LiveStreamPublisherManager(context, managerMetrics, List.of());
@@ -201,9 +188,7 @@ class LiveStreamPublisherManagerFlowControlTest {
 
             // handler2 had a positive budget; aggregate path clears it.
             assertThat(handler2.getMessageBudget()).isZero();
-            assertThat(metricsExporter.getMetricValue(
-                            StreamPublisherPlugin.METRIC_PUBLISHER_FLOW_CONTROL_AGGREGATE_PAUSES.name()))
-                    .isEqualTo(1L);
+            assertThat(managerMetrics.flowControlAggregatePauses().get()).isEqualTo(1L);
         }
 
         @Test
@@ -220,9 +205,7 @@ class LiveStreamPublisherManagerFlowControlTest {
                 threadPoolManager.scheduledExecutor().executeSerially();
             }
 
-            assertThat(metricsExporter.getMetricValue(
-                            StreamPublisherPlugin.METRIC_PUBLISHER_FLOW_CONTROL_PENALTIES_APPLIED.name()))
-                    .isZero();
+            assertThat(managerMetrics.flowControlPenaltiesApplied().get()).isZero();
         }
     }
 
@@ -235,7 +218,6 @@ class LiveStreamPublisherManagerFlowControlTest {
     @DisplayName("Budget Refresh Tests")
     class BudgetRefreshTests {
 
-        private TestMetricsExporter metricsExporter;
         private LiveStreamPublisherManager manager;
         private TestThreadPoolManager<BlockingExecutor, ScheduledBlockingExecutor> threadPoolManager;
         private PublisherHandler handler;
@@ -255,9 +237,7 @@ class LiveStreamPublisherManagerFlowControlTest {
             final BlockNodeContext context =
                     generateContext(config, historicalBlockFacility, threadPoolManager, messagingFacility);
             historicalBlockFacility.init(context, null);
-            metricsExporter = new TestMetricsExporter();
-            final MetricRegistry registry =
-                    MetricRegistry.builder().setMetricsExporter(metricsExporter).build();
+            final MetricRegistry registry = MetricRegistry.builder().build();
             final MetricsHolder managerMetrics = MetricsHolder.createMetrics(registry);
             final PublisherHandler.MetricsHolder handlerMetrics =
                     PublisherHandler.MetricsHolder.createMetrics(registry);

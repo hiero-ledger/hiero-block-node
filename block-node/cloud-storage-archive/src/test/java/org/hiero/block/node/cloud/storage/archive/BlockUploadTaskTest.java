@@ -38,7 +38,6 @@ import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
-import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
@@ -134,9 +133,9 @@ class BlockUploadTaskTest {
                 "cloud.storage.archive.secretKey", MINIO_PASSWORD);
     }
 
-    private CloudStorageArchivePlugin.MetricsHolder createMetricsHolder(TestMetricsExporter exporter) {
+    private CloudStorageArchivePlugin.MetricsHolder createMetricsHolder() {
         return CloudStorageArchivePlugin.MetricsHolder.createMetrics(
-                MetricRegistry.builder().setMetricsExporter(exporter).build());
+                MetricRegistry.builder().build());
     }
 
     private static ApplicationStateFacility noOpAsf() {
@@ -162,7 +161,7 @@ class BlockUploadTaskTest {
                 0,
                 groupSize,
                 queue,
-                createMetricsHolder(new TestMetricsExporter()),
+                createMetricsHolder(),
                 noOpAsf());
 
         // Pre-fill the queue with enough large blocks to trigger at least one part flush
@@ -209,7 +208,7 @@ class BlockUploadTaskTest {
                 0,
                 groupSize,
                 queue,
-                createMetricsHolder(new TestMetricsExporter()),
+                createMetricsHolder(),
                 noOpAsf());
 
         // Small blocks (100 bytes each) so the total buffer stays well below PART_SIZE_MB,
@@ -255,7 +254,7 @@ class BlockUploadTaskTest {
                 0,
                 groupSize,
                 queue,
-                createMetricsHolder(new TestMetricsExporter()),
+                createMetricsHolder(),
                 noOpAsf());
 
         final Random rng = new Random(0xDEADBEEFL);
@@ -295,8 +294,8 @@ class BlockUploadTaskTest {
                 ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
         pluginConfig(groupingLevel, PART_SIZE_MB).forEach(builder::withValue);
         final CloudStorageArchiveConfig config = builder.build().getConfigData(CloudStorageArchiveConfig.class);
-        final FailFirstCompleteTask task = new FailFirstCompleteTask(
-                config, messaging, 0, groupSize, queue, createMetricsHolder(new TestMetricsExporter()), noOpAsf());
+        final FailFirstCompleteTask task =
+                new FailFirstCompleteTask(config, messaging, 0, groupSize, queue, createMetricsHolder(), noOpAsf());
 
         final Random rng = new Random(0xDEADBEEFL);
         for (int i = 0; i < groupSize; i++) {
@@ -339,7 +338,7 @@ class BlockUploadTaskTest {
                 0,
                 groupSize,
                 queue,
-                createMetricsHolder(new TestMetricsExporter()),
+                createMetricsHolder(),
                 noOpAsf());
 
         // Even blocks → PUBLISHER, odd blocks → BACKFILL
@@ -383,7 +382,7 @@ class BlockUploadTaskTest {
                 0,
                 groupSize,
                 queue,
-                createMetricsHolder(new TestMetricsExporter()),
+                createMetricsHolder(),
                 noOpAsf());
 
         final Random rng = new Random(0xDEADBEEFL);
@@ -413,9 +412,9 @@ class BlockUploadTaskTest {
     @DisplayName("Successful upload tracks correct blocksWritten and storedBytes")
     void testSuccessfulUploadTracksMetrics() throws Exception {
         final int groupSize = (int) Math.pow(10, GROUPING_LEVEL);
-        final TestMetricsExporter exporter = new TestMetricsExporter();
         final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
         final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
+        final CloudStorageArchivePlugin.MetricsHolder metricsHolder = createMetricsHolder();
 
         final ConfigurationBuilder builder =
                 ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
@@ -426,7 +425,7 @@ class BlockUploadTaskTest {
                 0,
                 groupSize,
                 queue,
-                createMetricsHolder(exporter),
+                metricsHolder,
                 noOpAsf());
 
         final Random rng = new Random(0xDEADBEEFL);
@@ -444,10 +443,8 @@ class BlockUploadTaskTest {
 
         assertThat(task.call()).isEqualTo(UploadResult.SUCCESS);
 
-        assertThat(exporter.getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_BLOCKS_WRITTEN.name()))
-                .isEqualTo(groupSize);
-        assertThat(exporter.getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_STORED_BYTES.name()))
-                .isGreaterThan(0L);
+        assertThat(metricsHolder.blocksWritten().get()).isEqualTo(groupSize);
+        assertThat(metricsHolder.storedBytes().get()).isGreaterThan(0L);
     }
 
     /// Verifies that a failed upload leaves both [blocksWritten] and [storedBytes] at zero,
@@ -456,9 +453,9 @@ class BlockUploadTaskTest {
     @DisplayName("Failed upload leaves blocksWritten and storedBytes at zero")
     void testFailedUploadDoesNotTrackMetrics() throws Exception {
         final int groupSize = (int) Math.pow(10, GROUPING_LEVEL);
-        final TestMetricsExporter exporter = new TestMetricsExporter();
         final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
         final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
+        final CloudStorageArchivePlugin.MetricsHolder metricsHolder = createMetricsHolder();
 
         final ConfigurationBuilder builder =
                 ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
@@ -469,7 +466,7 @@ class BlockUploadTaskTest {
                 0,
                 groupSize,
                 queue,
-                createMetricsHolder(exporter),
+                metricsHolder,
                 noOpAsf());
 
         final Random rng = new Random(0xDEADBEEFL);
@@ -487,10 +484,8 @@ class BlockUploadTaskTest {
 
         assertThat(task.call()).isEqualTo(UploadResult.FAILED);
 
-        assertThat(exporter.getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_BLOCKS_WRITTEN.name()))
-                .isZero();
-        assertThat(exporter.getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_STORED_BYTES.name()))
-                .isZero();
+        assertThat(metricsHolder.blocksWritten().get()).isZero();
+        assertThat(metricsHolder.storedBytes().get()).isZero();
     }
 
     /// Verifies that [ApplicationStateFacility#addStoredBlockRange] is called exactly once
@@ -513,7 +508,7 @@ class BlockUploadTaskTest {
                 0,
                 groupSize,
                 queue,
-                createMetricsHolder(new TestMetricsExporter()),
+                createMetricsHolder(),
                 asf);
 
         // Small blocks so the buffer never reaches PART_SIZE_MB — only a final part is uploaded.
@@ -555,7 +550,7 @@ class BlockUploadTaskTest {
                 0,
                 groupSize,
                 queue,
-                createMetricsHolder(new TestMetricsExporter()),
+                createMetricsHolder(),
                 asf);
 
         // Large blocks (~600 KB each) so the buffer overflows the 5 MB part threshold, triggering
@@ -603,7 +598,7 @@ class BlockUploadTaskTest {
                 0,
                 groupSize,
                 queue,
-                createMetricsHolder(new TestMetricsExporter()),
+                createMetricsHolder(),
                 asf);
 
         final Random rng = new Random(0xDEADBEEFL);
@@ -642,8 +637,8 @@ class BlockUploadTaskTest {
                 ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
         pluginConfig(GROUPING_LEVEL, PART_SIZE_MB).forEach(builder::withValue);
         final CloudStorageArchiveConfig config = builder.build().getConfigData(CloudStorageArchiveConfig.class);
-        final BlockUploadTask task = new BlockUploadTask(
-                config, messaging, 0, groupSize, queue, createMetricsHolder(new TestMetricsExporter()), noOpAsf());
+        final BlockUploadTask task =
+                new BlockUploadTask(config, messaging, 0, groupSize, queue, createMetricsHolder(), noOpAsf());
 
         // Enough large blocks to overflow the 5 MB part threshold and trigger exactly one flush;
         // deliberately no more are enqueued, so the task blocks in blockQueue.take() afterward.
@@ -710,14 +705,7 @@ class BlockUploadTaskTest {
                     BlockSource.PUBLISHER));
         }
         final BlockUploadTask resumeTask = new BlockUploadTask(
-                config,
-                messaging,
-                0,
-                groupSize,
-                resumeQueue,
-                recovery,
-                createMetricsHolder(new TestMetricsExporter()),
-                noOpAsf());
+                config, messaging, 0, groupSize, resumeQueue, recovery, createMetricsHolder(), noOpAsf());
 
         assertThat(resumeTask.call()).isEqualTo(UploadResult.SUCCESS);
         assertThat(getAllObjects()).contains(key);

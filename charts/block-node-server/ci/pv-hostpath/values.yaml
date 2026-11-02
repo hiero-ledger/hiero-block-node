@@ -1,0 +1,19 @@
+blockNode:
+  persistence:
+    live:
+      size: 6Ti
+      pv:
+        path: /mnt/block-node/live
+    archive:
+      size: 10Ti
+      pv:
+        type: local
+        path: /mnt/block-node/archive
+        storageClassName: local-storage
+        nodeAffinity:
+          required:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values: [bn-node-1]

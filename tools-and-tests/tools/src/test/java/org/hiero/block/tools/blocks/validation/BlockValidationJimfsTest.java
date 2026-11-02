@@ -3,6 +3,7 @@ package org.hiero.block.tools.blocks.validation;
 
 import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
+import static org.hiero.block.tools.utils.Sha256.SHA_256_HASH_SIZE;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -182,9 +183,9 @@ class BlockValidationJimfsTest {
     @Test
     void inMemoryTreeHasher_saveAndLoad_onJimfs() throws Exception {
         InMemoryTreeHasher original = new InMemoryTreeHasher();
-        byte[] hash1 = new byte[48];
+        byte[] hash1 = new byte[SHA_256_HASH_SIZE];
         hash1[0] = 1;
-        byte[] hash2 = new byte[48];
+        byte[] hash2 = new byte[SHA_256_HASH_SIZE];
         hash2[0] = 2;
         original.addNodeByHash(hash1);
         original.addNodeByHash(hash2);
@@ -204,7 +205,7 @@ class BlockValidationJimfsTest {
     @Test
     void streamingHasher_saveAndLoad_onJimfs() throws Exception {
         StreamingHasher original = new StreamingHasher();
-        byte[] hash = new byte[48];
+        byte[] hash = new byte[SHA_256_HASH_SIZE];
         hash[0] = 42;
         original.addNodeByHash(hash);
 
@@ -223,7 +224,7 @@ class BlockValidationJimfsTest {
      *
      * @param path output path
      * @param blockNumber the block number
-     * @param blockHash 48-byte block hash
+     * @param blockHash 32-byte block hash
      * @param hasher the streaming hasher whose state to write
      */
     private static void writeJumpstartFile(Path path, long blockNumber, byte[] blockHash, StreamingHasher hasher)
@@ -233,8 +234,8 @@ class BlockValidationJimfsTest {
                 DataOutputStream dos = new DataOutputStream(fos)) {
             dos.writeLong(blockNumber);
             dos.write(blockHash);
-            dos.write(new byte[48]); // consensus timestamp hash placeholder
-            dos.write(new byte[48]); // output items tree root hash placeholder
+            dos.write(new byte[SHA_256_HASH_SIZE]); // consensus timestamp hash placeholder
+            dos.write(new byte[SHA_256_HASH_SIZE]); // output items tree root hash placeholder
             dos.writeLong(hasher.leafCount());
             dos.writeInt(state.size());
             for (byte[] h : state) {

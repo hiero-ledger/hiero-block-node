@@ -1,0 +1,69 @@
+{{- /*
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+{{- range $key := list "archive" "live" "logging" "applicationState" "plugins" }}
+{{- $ctx := dict "root" $ "key" $key }}
+{{- include "hiero-block-node.persistence.validate" $ctx }}
+{{- if include "hiero-block-node.persistence.managed" $ctx }}
+{{- $cfg := index $.Values.blockNode.persistence $key }}
+{{- $pv := $cfg.pv }}
+{{- $pvcName := include "hiero-block-node.persistence.pvcName" $ctx }}
+{{- $pvName := default (printf "%s-%s" $.Release.Namespace $pvcName) $pv.name }}
+{{- $accessModes := default (list "ReadWriteOnce") $pv.accessModes }}
+{{- $volumeMode := default "Filesystem" $pv.volumeMode }}
+{{- $storageClassName := default "" $pv.storageClassName }}
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ $pvName }}
+  labels:
+    {{- include "hiero-block-node.labels" $ | nindent 4 }}
+    block-node.hiero.com/volume: {{ $key }}
+spec:
+  capacity:
+    storage: {{ $cfg.size }}
+  accessModes:
+    {{- toYaml $accessModes | nindent 4 }}
+  volumeMode: {{ $volumeMode }}
+  persistentVolumeReclaimPolicy: {{ default "Retain" $pv.reclaimPolicy }}
+  storageClassName: {{ $storageClassName | quote }}
+  {{- with $pv.mountOptions }}
+  mountOptions:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  claimRef:
+    name: {{ $pvcName }}
+    namespace: {{ $.Release.Namespace }}
+  {{- if eq (default "hostPath" $pv.type) "local" }}
+  local:
+    path: {{ $pv.path }}
+  {{- else }}
+  hostPath:
+    path: {{ $pv.path }}
+    type: {{ default "DirectoryOrCreate" $pv.hostPathType }}
+  {{- end }}
+  {{- with $pv.nodeAffinity }}
+  nodeAffinity:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $pvcName }}
+  labels:
+    {{- include "hiero-block-node.labels" $ | nindent 4 }}
+    block-node.hiero.com/volume: {{ $key }}
+spec:
+  accessModes:
+    {{- toYaml $accessModes | nindent 4 }}
+  volumeMode: {{ $volumeMode }}
+  storageClassName: {{ $storageClassName | quote }}
+  volumeName: {{ $pvName }}
+  resources:
+    requests:
+      storage: {{ $cfg.size }}
+{{- end }}
+{{- end }}

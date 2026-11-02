@@ -252,6 +252,11 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         }
     }
 
+    /// @return the metrics holder, may be `null` if the plugin was not initialized or the configuration was invalid.
+    MetricsHolder metricsHolder() {
+        return metricsHolder;
+    }
+
     /// Checks whether the active [BlockUploadTask] has finished and cleans up its state.
     /// Returns `true` if the task was cancelled, signalling the caller to skip further processing.
     private boolean checkCompletedUpload() {

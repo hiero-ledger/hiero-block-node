@@ -66,12 +66,16 @@ public class ResourceTestBlockBuilder {
         }
     }
 
-    /// Real TSS WRAPS test blocks, the consecutive blocks 0 to 5 of a consensus node capture.
+    /// Real TSS test blocks, the consecutive blocks 0 to 5 of a consensus node capture.
     /// They are the real-data oracle for {@code BlockHasherTest.PositiveBlockHasher} (the "our
-    /// hasher matches the real-CN captured hash" invariant) and for
-    /// {@code VerificationServicePluginTest.RealBlocksTests}. All other WRAPS tests generate
-    /// their blocks via the harness ({@code HarnessChainBuilder}); the E2E lifecycle workflow
-    /// generates its blocks at CI time via {@code :block-verification:generateHarnessBlocks}.
+    /// hasher matches the real-CN captured hash" invariant). Their block proofs and ledger id come
+    /// from a consensus node on a TSS library before hedera-cryptography 3.17, which the current
+    /// TSS library no longer verifies, so they are hashed but not signature-verified until
+    /// re-captured from a consensus node on the current TSS library; see
+    /// [#realBlockChainsWithVerifiableProofs()].
+    /// All other TSS tests generate their blocks via the harness ({@code HarnessChainBuilder}); the
+    /// E2E lifecycle workflow generates its blocks at CI time via
+    /// {@code :block-verification:generateHarnessBlocks}.
     public enum WRAPS implements ResourceBlock {
         /// Genesis block: bootstraps TSS parameters and ledger ID.
         BLOCK_0("CN_11_12_TSS_WRAPS/0.blk.gz", "3c5008ebb8a7b75dea226bc80070de857f0013c4e66cd06ab4f76e005bd41848", 0),
@@ -202,12 +206,13 @@ public class ResourceTestBlockBuilder {
         }
     }
 
-    /// Sample blocks containing state proofs from a hapiTestWraps capture with Schnorr TSS signatures.
-    /// Every 5th block (0, 5, ...) is directly signed with Schnorr; blocks in between carry
-    /// state proofs referencing the next signed block. Block 0 contains
-    /// LedgerIdPublicationTransactionBody for TSS initialization.
+    /// Sample blocks containing state proofs from a hapiTestWraps capture. Every 5th block
+    /// (0, 5, ...) is directly signed; blocks in between carry state proofs referencing the next
+    /// signed block. Block 0 contains LedgerIdPublicationTransactionBody for TSS initialization.
+    /// Like [WRAPS], the signatures come from a TSS library before hedera-cryptography 3.17, so
+    /// these blocks are hashed but not signature-verified until re-captured.
     public enum StateProof implements ResourceBlock {
-        /// Genesis block — bootstraps TSS parameters and ledger ID. Direct Schnorr proof.
+        /// Genesis block, bootstraps TSS parameters and ledger ID. Direct TSS proof.
         BLOCK_0("CN_11_12_TSS_SCHNORR/0.blk.gz", "45595f0f6fbc1cc9f01a8844b4558446f38961c728ac3e22a60dadd4374d8c5f", 0),
         /// Indirect proof — 4-gap state proof, references signed block 5.
         BLOCK_1("CN_11_12_TSS_SCHNORR/1.blk.gz", "2324591602f1fc8a7e7c2800fd64afab23d1d2129a0462ff6d9d1534fdcb605d", 1),
@@ -301,6 +306,16 @@ public class ResourceTestBlockBuilder {
     /// fully qualified name of this method.
     public static Stream<Arguments> realBlockChains() throws IOException, ParseException {
         return loadRealBlockChains().stream().map(chain -> Arguments.of(chain.name(), chain.blocks()));
+    }
+
+    /// The real fixture chains whose block proofs the current verifier can check, as parameterized
+    /// test arguments like [#realBlockChains()]. Today this is the wrapped record block chain only:
+    /// the two TSS captures come from a TSS library before hedera-cryptography 3.17 and will rejoin
+    /// once re-captured from a consensus node on the current TSS library.
+    public static Stream<Arguments> realBlockChainsWithVerifiableProofs() throws IOException, ParseException {
+        return loadRealBlockChains().stream()
+                .filter(chain -> "WRB SOLO_4N".equals(chain.name()))
+                .map(chain -> Arguments.of(chain.name(), chain.blocks()));
     }
 
     /// Every block of the real fixture chains as parameterized test arguments: a display name

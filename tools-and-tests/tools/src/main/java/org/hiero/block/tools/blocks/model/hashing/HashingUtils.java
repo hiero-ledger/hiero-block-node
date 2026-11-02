@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.model.hashing;
 
-import static org.hiero.block.tools.utils.Sha384.hashSha384;
+import static org.hiero.block.tools.utils.Sha256.hashSha256;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -12,7 +12,7 @@ import java.util.Objects;
 /**
  * Utility methods for Merkle tree hashing following the Block &amp; State Merkle Tree Design.
  *
- * <p>This class provides domain-separated hashing for Merkle tree nodes using SHA-384.
+ * <p>This class provides domain-separated hashing for Merkle tree nodes using SHA-256.
  * Domain separation is achieved through single-byte prefixes that ensure leaf hashes
  * and internal node hashes occupy distinct hash spaces, preventing collision attacks.
  *
@@ -49,16 +49,16 @@ public class HashingUtils {
     /**
      * Precomputed hash of an empty tree (no branches or leaves).
      */
-    public static final byte[] EMPTY_TREE_HASH = hashSha384(LEAF_PREFIX);
+    public static final byte[] EMPTY_TREE_HASH = hashSha256(LEAF_PREFIX);
 
     /**
      * Hash a leaf node with the appropriate prefix.
      *
      * <p>Computes: {@code hash(0x00 || leafData)}
      *
-     * @param digest the MessageDigest instance to use for hashing (should be SHA-384)
+     * @param digest the MessageDigest instance to use for hashing (should be SHA-256)
      * @param leafData the serialized data of the leaf (typically protobuf-encoded)
-     * @return the 48-byte SHA-384 hash of the prefixed leaf data
+     * @return the 32-byte SHA-256 hash of the prefixed leaf data
      */
     public static byte[] hashLeaf(@NonNull final MessageDigest digest, @NonNull final byte[] leafData) {
         digest.update(LEAF_PREFIX);
@@ -70,9 +70,9 @@ public class HashingUtils {
      *
      * <p>Computes: {@code hash(0x00 || leafData)}
      *
-     * @param digest the MessageDigest instance to use for hashing (should be SHA-384)
+     * @param digest the MessageDigest instance to use for hashing (should be SHA-256)
      * @param leafData the serialized data of the leaf (typically protobuf-encoded)
-     * @return the 48-byte SHA-384 hash of the prefixed leaf data
+     * @return the 32-byte SHA-256 hash of the prefixed leaf data
      */
     public static byte[] hashLeaf(@NonNull final MessageDigest digest, @NonNull final Bytes leafData) {
         digest.update(LEAF_PREFIX);
@@ -90,10 +90,10 @@ public class HashingUtils {
      *   <li>Only secondChild: {@code hash(0x01 || secondChild)}</li>
      * </ul>
      *
-     * @param digest the MessageDigest instance to use for hashing (should be SHA-384)
+     * @param digest the MessageDigest instance to use for hashing (should be SHA-256)
      * @param firstChild the hash of the first (left) child, can never be null
      * @param secondChild the hash of the second (right) child, or null if missing
-     * @return the 48-byte SHA-384 hash of the prefixed internal node
+     * @return the 32-byte SHA-256 hash of the prefixed internal node
      */
     public static byte[] hashInternalNode(
             @NonNull final MessageDigest digest, @NonNull final byte[] firstChild, @Nullable final byte[] secondChild) {

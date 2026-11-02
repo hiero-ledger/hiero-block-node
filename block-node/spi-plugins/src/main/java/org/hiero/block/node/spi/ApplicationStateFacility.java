@@ -11,9 +11,10 @@ import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 /**
  * Interface for the Application and block node plugins to exchange state information. The `ApplicationStateFacility`
- * is passed to all block node plugins in the BlockNodeContext.
+ * is itself a {@link BlockNodePlugin}, provided by the {@code facility-app-state} module, and is passed to all block
+ * node plugins in the BlockNodeContext.
  * */
-public interface ApplicationStateFacility {
+public interface ApplicationStateFacility extends BlockNodePlugin {
     /**
      * Used by plugins to update the TssData for this application. i.e. {@code TssBootstrapPlugin}, and
      * {@code VerificationPlugin}. The update will be forwarded to all registered
@@ -31,7 +32,7 @@ public interface ApplicationStateFacility {
      * instances.
      *
      * <p>The default implementation is a no-op that returns {@code false}. Implementations that
-     * support the history file (i.e. {@code BlockNodeApp}) override this method.
+     * support the history file (i.e. {@code ApplicationStateFacilityPlugin}) override this method.
      *
      * @param history the {@code RangedAddressBookHistory} to store; must not be {@code null}
      * @return {@code true} if the history is accepted and dispatched, {@code false} if it was not

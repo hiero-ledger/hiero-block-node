@@ -2,11 +2,12 @@
 package org.hiero.block.tools.blocks.model.hashing;
 
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
+import static org.hiero.block.tools.utils.Sha256.SHA_256_HASH_SIZE;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.security.MessageDigest;
 import java.util.Arrays;
-import org.hiero.block.tools.utils.Sha384;
+import org.hiero.block.tools.utils.Sha256;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -52,7 +53,7 @@ class BlockStreamBlockHasherTest {
 
     @BeforeEach
     void setUp() {
-        digest = Sha384.sha384Digest();
+        digest = Sha256.sha256Digest();
     }
 
     // ========== Tree Structure Tests ==========
@@ -74,7 +75,7 @@ class BlockStreamBlockHasherTest {
             byte[] hash = hasher.computeRootHash();
 
             assertNotNull(hash, "StreamingHasher should produce non-null hash");
-            assertEquals(48, hash.length, "StreamingHasher should produce 48-byte SHA-384 hash");
+            assertEquals(SHA_256_HASH_SIZE, hash.length, "StreamingHasher should produce 32-byte SHA-256 hash");
         }
 
         /**
@@ -93,7 +94,7 @@ class BlockStreamBlockHasherTest {
             assertArrayEquals(
                     EMPTY_TREE_HASH,
                     rootHash,
-                    "Empty StreamingHasher should return EMPTY_TREE_HASH (sha384Hash(new byte[]{0x00}))");
+                    "Empty StreamingHasher should return EMPTY_TREE_HASH (sha256Hash(new byte[]{0x00}))");
         }
     }
 
@@ -131,13 +132,13 @@ class BlockStreamBlockHasherTest {
         @Test
         @DisplayName("Internal node with two children should use 0x02 prefix")
         void testTwoChildInternalNodePrefix() {
-            byte[] leftChild = new byte[48];
-            byte[] rightChild = new byte[48];
+            byte[] leftChild = new byte[SHA_256_HASH_SIZE];
+            byte[] rightChild = new byte[SHA_256_HASH_SIZE];
 
             byte[] hash = HashingUtils.hashInternalNode(digest, leftChild, rightChild);
 
             assertNotNull(hash, "Internal node hash should not be null");
-            assertEquals(48, hash.length, "Internal node hash should be 48 bytes");
+            assertEquals(SHA_256_HASH_SIZE, hash.length, "Internal node hash should be 32 bytes");
         }
 
         /**
@@ -148,12 +149,12 @@ class BlockStreamBlockHasherTest {
         @Test
         @DisplayName("Internal node with single child should use 0x01 prefix")
         void testSingleChildInternalNodePrefix() {
-            byte[] singleChild = new byte[48];
+            byte[] singleChild = new byte[SHA_256_HASH_SIZE];
 
             byte[] hash = HashingUtils.hashInternalNode(digest, singleChild, null);
 
             assertNotNull(hash, "Single-child internal node hash should not be null");
-            assertEquals(48, hash.length, "Single-child internal node hash should be 48 bytes");
+            assertEquals(SHA_256_HASH_SIZE, hash.length, "Single-child internal node hash should be 32 bytes");
         }
     }
 
@@ -176,12 +177,12 @@ class BlockStreamBlockHasherTest {
         void testBlockRootStructure() {
             // Simulate block root computation structure
             byte[] consensusTimeHash = HashingUtils.hashLeaf(digest, "consensus timestamp bytes".getBytes());
-            byte[] fixedRootTreeHash = new byte[48]; // Placeholder for subtree hash
+            byte[] fixedRootTreeHash = new byte[SHA_256_HASH_SIZE]; // Placeholder for subtree hash
 
             byte[] blockRoot = HashingUtils.hashInternalNode(digest, consensusTimeHash, fixedRootTreeHash);
 
             assertNotNull(blockRoot, "Block root should not be null");
-            assertEquals(48, blockRoot.length, "Block root should be 48 bytes");
+            assertEquals(SHA_256_HASH_SIZE, blockRoot.length, "Block root should be 32 bytes");
         }
 
         /**
@@ -196,13 +197,13 @@ class BlockStreamBlockHasherTest {
             // The design doc shows the root tree has reserved branches for future use
             // These are represented as null children in hashInternalNode
 
-            byte[] leftSubtree = new byte[48];
+            byte[] leftSubtree = new byte[SHA_256_HASH_SIZE];
             byte[] rightReserved = null; // Reserved for future use
 
             byte[] hash = HashingUtils.hashInternalNode(digest, leftSubtree, rightReserved);
 
             assertNotNull(hash, "Hash with reserved null branch should not be null");
-            assertEquals(48, hash.length, "Hash should be 48 bytes");
+            assertEquals(SHA_256_HASH_SIZE, hash.length, "Hash should be 32 bytes");
         }
     }
 
@@ -330,10 +331,10 @@ class BlockStreamBlockHasherTest {
             }
         }
 
-        /// Deterministic 48-byte hash where every byte equals {@code (index + 1)}, guaranteed
+        /// Deterministic 32-byte hash where every byte equals {@code (index + 1)}, guaranteed
         /// different from {@link HashingUtils#EMPTY_TREE_HASH}.
         private byte[] deterministicHash(final int index) {
-            final byte[] hash = new byte[48];
+            final byte[] hash = new byte[SHA_256_HASH_SIZE];
             Arrays.fill(hash, (byte) (index + 1));
             return hash;
         }

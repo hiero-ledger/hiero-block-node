@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#
+# Fake grpcurl for the real monitor-block-proofs.sh: every block carries a 4000 byte
+# signature, which matches no known layout, so the monitor must fail on the first sample.
+set -euo pipefail
+FIXTURES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# The monitor passes -d {"block_number": N}; pick N out of the arguments.
+block=$(printf "%s\n" "$@" | sed -n 's/.*"block_number": *\([0-9][0-9]*\).*/\1/p')
+"${FIXTURES_DIR}/fake-block-json.sh" signed 4000

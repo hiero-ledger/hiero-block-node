@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# TSS Block Proofs Test
+#
+# Verifies that the TSS block proofs the network produces match one TSS library era.
+# The era is read from the block proofs themselves (the block signature size), so the
+# test works with Consensus Nodes on either library:
+#
+#   - Older library: the network signs with Schnorr signatures first (2920 bytes) while
+#     building its WRAPS keys, then switches to WRAPS signatures (3432 bytes, typically
+#     around block ~500). The test finds that transition.
+#   - Nova WRAPS library: every signed block proof, block 0 included, carries the same
+#     13712 byte signature; there is no transition. The test passes once several sampled
+#     blocks all carry that layout.
+#
+# A signed block with a signature of any other size, or a chain mixing the two eras,
+# fails the test. If neither condition is met before max_block, the test fails.
+#
+# Prerequisites:
+#   - Any topology deployed with TSS_ENABLED=true (task up)
+#   - Port forwards active (task port-forward)
+#
+# Usage:
+#   task test:run TEST_FILE=tests/tss-block-proofs.yaml
+
+name: tss-block-proofs
+description: "Verify TSS block proofs match one TSS library era"
+
+events:
+  - id: initial-status
+    type: network-status
+    description: "Network status before the block proof check"
+    delay: 5
+
+assertions:
+  - id: all-healthy
+    type: node-healthy
+    description: "All Block Nodes are healthy"
+    target: all
+
+  - id: tss-block-proofs
+    type: tss-block-proofs
+    description: "Block proofs show the Schnorr then WRAPS transition, or the Nova layout on every sampled block"
+    target: block-node-1
+    args:
+      max_block: 1000

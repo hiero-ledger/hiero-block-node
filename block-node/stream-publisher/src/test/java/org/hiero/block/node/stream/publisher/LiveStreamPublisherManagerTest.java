@@ -21,6 +21,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Function;
 import org.hiero.block.api.BlockRange;
+import org.hiero.block.api.PublishStreamRequest.AcknowledgeOnly;
 import org.hiero.block.api.PublishStreamRequest.EndStream;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
@@ -29,7 +30,6 @@ import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
-import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
@@ -73,8 +73,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 /// Tests for the [LiveStreamPublisherManager].
 @DisplayName("LiveStreamPublisherManager Tests")
 class LiveStreamPublisherManagerTest {
-
-    private TestMetricsExporter metricsExporter;
 
     /// The application state facility backing the most recently generated context. Retained so
     /// tests can assert next-expected-block values published by successful next-unstreamed CAS
@@ -456,6 +454,90 @@ class LiveStreamPublisherManagerTest {
                 assertThat(embManager.getNextUnstreamed()).isEqualTo(51L);
                 assertThat(testApplicationState.nextExpectedBlock()).isEqualTo(-1L);
             }
+
+            /// Creates a fresh manager with `earliestManagedBlock=100`, no stored blocks, and one
+            /// registered handler (id `0`), then accepts [#PRE_EMB_BLOCK] via the pre-EMB path in
+            /// `streamBeforeEmbOrElse` and registers its queue. Afterwards next-unstreamed is
+            /// `PRE_EMB_BLOCK + 1`, which is below `earliestManagedBlock`.
+            private LiveStreamPublisherManager managerWithAcceptedPreEmbBlock() {
+                final Configuration embConfig = TestStreamPublisherManager.createTestConfiguration(
+                        Map.of("block.node.earliestManagedBlock", "100"));
+                final SimpleInMemoryHistoricalBlockFacility embHistorical = new SimpleInMemoryHistoricalBlockFacility();
+                final BlockNodeContext embContext =
+                        generateContext(embHistorical, threadPoolManager, messagingFacility, embConfig);
+                embHistorical.init(embContext, null);
+                final LiveStreamPublisherManager embManager =
+                        new LiveStreamPublisherManager(embContext, generateManagerMetrics(), List.of());
+                embManager.addHandler(new TestResponsePipeline<>(), sharedHandlerMetrics, null);
+                assertThat(embManager.getActionForBlock(PRE_EMB_BLOCK, null, PRE_EMB_HANDLER_ID))
+                        .isEqualTo(BlockAction.ACCEPT);
+                assertThat(embManager.getNextUnstreamed()).isEqualTo(PRE_EMB_BLOCK + 1L);
+                embManager.registerQueueForBlock(PRE_EMB_HANDLER_ID, new ConcurrentLinkedDeque<>(), PRE_EMB_BLOCK);
+                return embManager;
+            }
+
+            private static final long PRE_EMB_BLOCK = 50L;
+            private static final long PRE_EMB_HANDLER_ID = 0L; // first handler on the fresh manager
+
+            /// After a restart, a block below `earliestManagedBlock` can be accepted via the
+            /// pre-EMB path in `streamBeforeEmbOrElse`, which leaves next-unstreamed (block + 1)
+            /// below `earliestManagedBlock`. Blocks below `earliestManagedBlock` are not managed
+            /// by this node, so if the handler drops mid-block no resend may be scheduled for it.
+            ///
+            /// This test is expected to FAIL until resends are suppressed for blocks below
+            /// `earliestManagedBlock`.
+            @Test
+            @DisplayName("No resend is scheduled for a mid-block drop of a block below earliestManagedBlock")
+            void noResendForPreEarliestManagedBlockAfterMidBlockDrop() {
+                final LiveStreamPublisherManager embManager = managerWithAcceptedPreEmbBlock();
+
+                // The handler drops mid-block (no end-of-block was received).
+                embManager.blockIsEnding(PRE_EMB_BLOCK, PRE_EMB_HANDLER_ID);
+
+                // Completing a different block is where a pending resend would be offered.
+                final ActionForBlock action = embManager.endOfBlock(PRE_EMB_BLOCK + 1L);
+                assertThat(action.action()).isNotEqualTo(BlockAction.RESEND);
+            }
+
+            /// Same restart edge case as above, but the block fails verification. A failure
+            /// type that normally schedules a resend (`UNABLE_TO_PARSE`) must not do so for a
+            /// block below `earliestManagedBlock`.
+            ///
+            /// This test is expected to FAIL until resends are suppressed for blocks below
+            /// `earliestManagedBlock`.
+            @Test
+            @DisplayName("No resend is scheduled for a verification failure of a block below earliestManagedBlock")
+            void noResendForPreEarliestManagedBlockAfterVerificationFailure() {
+                final LiveStreamPublisherManager embManager = managerWithAcceptedPreEmbBlock();
+
+                embManager.handleVerification(new VerificationNotification(
+                        false,
+                        FailureInfo.standard(FailureType.UNABLE_TO_PARSE),
+                        PRE_EMB_BLOCK,
+                        null,
+                        null,
+                        BlockSource.PUBLISHER));
+
+                final ActionForBlock action = embManager.endOfBlock(PRE_EMB_BLOCK + 1L);
+                assertThat(action.action()).isNotEqualTo(BlockAction.RESEND);
+            }
+
+            /// Same restart edge case as above, but the handler goes silent: the accepted block
+            /// never ends while later blocks complete past `MaxFutureBlocksBeforeStalled` (default
+            /// `3`). Stall detection must not schedule a resend for a block below
+            /// `earliestManagedBlock`.
+            ///
+            /// This test is expected to FAIL until resends are suppressed for blocks below
+            /// `earliestManagedBlock`.
+            @Test
+            @DisplayName("No resend is scheduled for a stalled block below earliestManagedBlock")
+            void noResendForPreEarliestManagedBlockAfterStall() {
+                final LiveStreamPublisherManager embManager = managerWithAcceptedPreEmbBlock();
+
+                // Complete a block more than MaxFutureBlocksBeforeStalled past the stalled block.
+                final ActionForBlock action = embManager.endOfBlock(PRE_EMB_BLOCK + 10L);
+                assertThat(action.action()).isNotEqualTo(BlockAction.RESEND);
+            }
         }
 
         @Nested
@@ -597,7 +679,7 @@ class LiveStreamPublisherManagerTest {
                 // Busy-wait in short sleeps until the batches metric increases beyond the 'before' baseline.
                 while (System.currentTimeMillis() < deadline) {
                     // If the forwarder has completed at least one batch, the metric will be greater than baseline.
-                    if (getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_BATCHES_MESSAGED) > before) return;
+                    if (managerMetrics.blockBatchesMessaged().get() > before) return;
                     // Sleep briefly to avoid a hot spin while still reacting quickly when the metric changes.
                     Thread.sleep(10L);
                 }
@@ -631,10 +713,9 @@ class LiveStreamPublisherManagerTest {
                 endThisBlock(publisherHandler, blockNumber);
 
                 // Capture the starting value for the async batches counter.
-                final long beforeBatches =
-                        getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_BATCHES_MESSAGED);
+                final long beforeBatches = managerMetrics.blockBatchesMessaged().get();
                 // Capture the starting value for the immediate-close counter.
-                final long beforeClosed = getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_CLOSED_COMPLETE);
+                final long beforeClosed = managerMetrics.blocksClosedComplete().get();
 
                 // Sanity check: no messages have been pushed yet before we trigger close.
                 assertThat(messagingFacility.getSentBlockItems()).isEmpty();
@@ -645,8 +726,7 @@ class LiveStreamPublisherManagerTest {
 
                 // Immediate metric should reflect one close; the messaging facility remains empty until the forwarder
                 // runs.
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_CLOSED_COMPLETE))
-                        .isEqualTo(beforeClosed + 1);
+                assertThat(managerMetrics.blocksClosedComplete().get()).isEqualTo(beforeClosed + 1);
                 assertThat(messagingFacility.getSentBlockItems()).isEmpty();
 
                 // Execute the queued task.
@@ -655,10 +735,8 @@ class LiveStreamPublisherManagerTest {
                 awaitBatchesIncrement(beforeBatches, 3_000L);
 
                 // Post-forwarder: both onNext() and closeBlock() may schedule; expect two batches produced.
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_CLOSED_COMPLETE))
-                        .isEqualTo(beforeBatches + 2);
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_OPEN_CONNECTIONS))
-                        .isEqualTo(beforeBatches + 2);
+                assertThat(managerMetrics.blocksClosedComplete().get()).isEqualTo(beforeBatches + 2);
+                assertThat(managerMetrics.currentPublisherCount().get()).isEqualTo(beforeBatches + 2);
                 // The in-memory messaging facility should now have reset the block number to -1.
                 assertThat(toTest.getLatestBlockNumber()).isEqualTo(blockNumber - 1);
             }
@@ -668,8 +746,7 @@ class LiveStreamPublisherManagerTest {
             @DisplayName("batches increment only after forwarder completes (gating)")
             void testBatchesIncrementOnlyAfterForwarderCompletes() throws InterruptedException {
                 // Baseline the async batches counter.
-                final long beforeBatches =
-                        getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_BATCHES_MESSAGED);
+                final long beforeBatches = managerMetrics.blockBatchesMessaged().get();
                 // Use a distinct block number for isolation from other tests.
                 final long blockNumber = 0L;
 
@@ -696,10 +773,8 @@ class LiveStreamPublisherManagerTest {
                 awaitBatchesIncrement(beforeBatches, 3_000L);
 
                 // After forwarder completion, batches should have increased and facility should contain messages.
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_CLOSED_COMPLETE))
-                        .isEqualTo(beforeBatches + 2);
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_OPEN_CONNECTIONS))
-                        .isEqualTo(beforeBatches + 2);
+                assertThat(managerMetrics.blocksClosedComplete().get()).isEqualTo(beforeBatches + 2);
+                assertThat(managerMetrics.currentPublisherCount().get()).isEqualTo(beforeBatches + 2);
                 // The in-memory messaging facility should now have reset the block number to -1.
                 assertThat(toTest.getLatestBlockNumber()).isEqualTo(-1);
             }
@@ -723,21 +798,18 @@ class LiveStreamPublisherManagerTest {
                 // Mark block b0 as ended.
                 endThisBlock(publisherHandler, b0);
                 // Baseline both async batches and immediate close counters.
-                final long beforeBatches =
-                        getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_BATCHES_MESSAGED);
-                final long beforeClosed = getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_CLOSED_COMPLETE);
+                final long beforeBatches = managerMetrics.blockBatchesMessaged().get();
+                final long beforeClosed = managerMetrics.blocksClosedComplete().get();
                 // Close the block (immediate metric should +1).
                 toTest.closeBlock(b0);
                 // Verify immediate close counter progressed by exactly one.
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_CLOSED_COMPLETE))
-                        .isEqualTo(beforeClosed + 1);
+                assertThat(managerMetrics.blocksClosedComplete().get()).isEqualTo(beforeClosed + 1);
                 // Execute the queued tasks; the test pool throws if the queue is empty, enforcing correct sequencing.
                 threadPoolManager.executor().executeAsync(1_000L, false);
                 // Wait until batches surpass baseline.
                 awaitBatchesIncrement(beforeBatches, 3_000L);
                 // After completion, we expect two batches (onNext + closeBlock scheduling).
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_CLOSED_COMPLETE))
-                        .isEqualTo(beforeBatches + 2);
+                assertThat(managerMetrics.blocksClosedComplete().get()).isEqualTo(beforeBatches + 2);
                 // The in-memory messaging facility should now have reset the block number to -1.
                 assertThat(toTest.getLatestBlockNumber()).isEqualTo(-1);
 
@@ -757,16 +829,14 @@ class LiveStreamPublisherManagerTest {
                 endThisBlock(publisherHandler, b1);
                 // Close the block
                 toTest.closeBlock(b1);
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_CLOSED_COMPLETE))
-                        .isEqualTo(beforeClosed + 3);
+                assertThat(managerMetrics.blocksClosedComplete().get()).isEqualTo(beforeClosed + 3);
 
                 // Wait until batches surpass the +2 baseline from the first run.
                 awaitBatchesIncrement(beforeBatches + 2, 3_000L);
 
                 // After the second completion, we expect four batches total (two per run).
                 // After completion, we expect two batches (onNext + closeBlock scheduling).
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_CLOSED_COMPLETE))
-                        .isEqualTo(beforeBatches + 4);
+                assertThat(managerMetrics.blocksClosedComplete().get()).isEqualTo(beforeBatches + 4);
                 // The in-memory messaging facility should now have reset the block number to -1.
                 assertThat(toTest.getLatestBlockNumber()).isEqualTo(-1);
             }
@@ -791,8 +861,7 @@ class LiveStreamPublisherManagerTest {
                 endThisBlock(publisherHandler, blockNumber);
 
                 // Baseline metrics.
-                final long beforeBatches =
-                        getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_BATCHES_MESSAGED);
+                final long beforeBatches = managerMetrics.blockBatchesMessaged().get();
 
                 // Call closeBlock multiple times before draining; implementation should record only one completion
                 // immediately.
@@ -807,8 +876,7 @@ class LiveStreamPublisherManagerTest {
                 assertThat(toTest.getLatestBlockNumber()).isEqualTo(-1);
 
                 // After drain we expect at most one forwarder cycle to have run; verify that something was forwarded.
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_CLOSED_COMPLETE))
-                        .isEqualTo(beforeBatches + 4);
+                assertThat(managerMetrics.blocksClosedComplete().get()).isEqualTo(beforeBatches + 4);
                 // The in-memory messaging facility should now have reset the block number to -1.
                 assertThat(toTest.getLatestBlockNumber()).isEqualTo(-1);
             }
@@ -1109,8 +1177,7 @@ class LiveStreamPublisherManagerTest {
                 // Assert that no more responses are sent
                 assertThat(onNextCalls).isEmpty();
                 assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(1);
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
-                        .isEqualTo(1);
+                assertThat(sharedHandlerMetrics.endOfStreamsSent().get()).isEqualTo(1);
                 // Assert no other responses sent
                 assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
                 assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
@@ -1161,8 +1228,7 @@ class LiveStreamPublisherManagerTest {
                 // Call
                 toTest.handleVerification(notification);
                 // Assert that no shared metrics are updated
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT))
-                        .isEqualTo(0);
+                assertThat(sharedHandlerMetrics.blockResendsSent().get()).isEqualTo(0);
                 // Assert that no responses of any kind have been sent
                 assertThat(responsePipeline.getOnNextCalls()).isEmpty();
                 assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
@@ -1224,8 +1290,7 @@ class LiveStreamPublisherManagerTest {
                 threadPoolManager.scheduledExecutor().executeSerially();
                 // Assert that the response pipeline has received no responses and the shared metrics is not updated.
                 assertThat(responsePipeline.getOnNextCalls()).isEmpty();
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT))
-                        .isEqualTo(0);
+                assertThat(sharedHandlerMetrics.blockResendsSent().get()).isEqualTo(0);
                 // Assert no other responses sent
                 assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
                 assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
@@ -1299,8 +1364,7 @@ class LiveStreamPublisherManagerTest {
                 // Assert that the response pipeline of the first publisher has received no responses.
                 // Also no metrics for resends is updated
                 assertThat(responsePipeline.getOnNextCalls()).isEmpty();
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT))
-                        .isEqualTo(0);
+                assertThat(sharedHandlerMetrics.blockResendsSent().get()).isEqualTo(0);
                 // Assert no other responses sent
                 assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
                 assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
@@ -1317,8 +1381,7 @@ class LiveStreamPublisherManagerTest {
                         // below block number in the response is the latest known, -1L because none are stored
                         .returns(-1L, endStreamBlockNumberExtractor);
                 assertThat(responsePipeline2.getOnCompleteCalls().get()).isEqualTo(1);
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
-                        .isEqualTo(1);
+                assertThat(sharedHandlerMetrics.endOfStreamsSent().get()).isEqualTo(1);
                 // Assert no other responses sent
                 assertThat(responsePipeline2.getOnErrorCalls()).isEmpty();
                 assertThat(responsePipeline2.getOnSubscriptionCalls()).isEmpty();
@@ -1396,10 +1459,8 @@ class LiveStreamPublisherManagerTest {
                 // Call
                 toTest.handleVerification(notification);
                 // Assert that no shared metrics are updated
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
-                        .isEqualTo(0);
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT))
-                        .isEqualTo(0);
+                assertThat(sharedHandlerMetrics.endOfStreamsSent().get()).isEqualTo(0);
+                assertThat(sharedHandlerMetrics.blockResendsSent().get()).isEqualTo(0);
                 // Assert that no responses of any kind have been sent.
                 // Notably, the handler that supplied the block must not have
                 // sent an EndOfStream with BAD_BLOCK_PROOF code.
@@ -1467,6 +1528,81 @@ class LiveStreamPublisherManagerTest {
                         .first()
                         .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
                         .returns(1L, acknowledgementBlockNumberExtractor);
+            }
+
+            /// This test aims to assert that when a block whose verification failed (so a resend is
+            /// scheduled) is later persisted from another copy, the scheduled resend is dropped.
+            /// Otherwise the stale entry would clamp acknowledgements below the persisted block and
+            /// keep asking publishers to resend a block they may no longer hold.
+            @Test
+            @DisplayName("handlePersisted() drops the scheduled resend of a block that is later persisted")
+            void testHandlePersistedDropsScheduledResend() {
+                // Establish lastPersisted=0 and advance nextUnstreamed past block 1.
+                assertThat(toTest.getActionForBlock(0L, null, publisherHandlerId))
+                        .isEqualTo(BlockAction.ACCEPT);
+                toTest.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.PUBLISHER));
+                assertThat(toTest.getActionForBlock(1L, null, publisherHandlerId))
+                        .isEqualTo(BlockAction.ACCEPT);
+                // Block 1 fails verification from one copy, so a resend is scheduled.
+                toTest.handleVerification(new VerificationNotification(
+                        false, FailureInfo.standard(FailureType.CANCELLED), 1L, null, null, BlockSource.PUBLISHER));
+                // Another copy of block 1 is persisted.
+                toTest.handlePersisted(new PersistedNotification(1L, true, 0, BlockSource.BACKFILL));
+                assertThat(toTest.getLatestBlockNumber())
+                        .as("the acknowledgement must not be clamped below the persisted block")
+                        .isEqualTo(1L);
+                // No publisher is asked to resend the persisted block.
+                assertThat(toTest.endOfBlock(1L)).returns(BlockAction.ACCEPT, ActionForBlock::action);
+            }
+
+            /// A failed publisher copy of a block can arrive after another copy was already
+            /// persisted (for example by backfill). The manager must not schedule a resend
+            /// for a block it already holds, as that entry would clamp every acknowledgement
+            /// below it and ask publishers to resend a block no longer needed.
+            @Test
+            @DisplayName("handleVerification() schedules no resend for a block persisted before the failure arrived")
+            void testHandleVerificationNoResendForAlreadyPersistedBlock() {
+                assertThat(toTest.getActionForBlock(0L, null, publisherHandlerId))
+                        .isEqualTo(BlockAction.ACCEPT);
+                toTest.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.PUBLISHER));
+                assertThat(toTest.getActionForBlock(1L, null, publisherHandlerId))
+                        .isEqualTo(BlockAction.ACCEPT);
+                assertThat(toTest.getActionForBlock(2L, null, publisherHandlerId))
+                        .isEqualTo(BlockAction.ACCEPT);
+                // Block 1 fails first, so a resend is scheduled and clamps the acknowledgement.
+                toTest.handleVerification(new VerificationNotification(
+                        false, FailureInfo.standard(FailureType.CANCELLED), 1L, null, null, BlockSource.PUBLISHER));
+                // Block 2 is persisted by backfill; the acknowledgement stays clamped below block 1.
+                toTest.handlePersisted(new PersistedNotification(2L, true, 0, BlockSource.BACKFILL));
+                assertThat(toTest.getLatestBlockNumber()).isEqualTo(0L);
+                // The publisher's copy of block 2 then fails verification, after the persist.
+                toTest.handleVerification(new VerificationNotification(
+                        false, FailureInfo.standard(FailureType.CANCELLED), 2L, null, null, BlockSource.PUBLISHER));
+                // Block 1 is now persisted too, which clears its own resend.
+                toTest.handlePersisted(new PersistedNotification(1L, true, 0, BlockSource.BACKFILL));
+                // No publisher is asked to resend block 2, which is already stored.
+                assertThat(toTest.endOfBlock(2L)).returns(BlockAction.ACCEPT, ActionForBlock::action);
+            }
+
+            /// Callers check the block is above the acknowledged block before scheduling a resend, but a
+            /// persist and acknowledgement of the same block can run between that check and the add. The
+            /// late add must not leave an entry at or below the acknowledged block, as it would clamp
+            /// every later acknowledgement until pruned.
+            @Test
+            @DisplayName("scheduleResend() leaves no entry for a block acknowledged after the caller's check")
+            void testScheduleResendIgnoresAcknowledgedBlock() {
+                assertThat(toTest.getActionForBlock(0L, null, publisherHandlerId))
+                        .isEqualTo(BlockAction.ACCEPT);
+                toTest.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.PUBLISHER));
+                assertThat(toTest.getActionForBlock(1L, null, publisherHandlerId))
+                        .isEqualTo(BlockAction.ACCEPT);
+                // Block 1 is persisted and acknowledged, so it is no longer tracked as persisted-ahead.
+                toTest.handlePersisted(new PersistedNotification(1L, true, 0, BlockSource.PUBLISHER));
+                assertThat(toTest.getLatestBlockNumber()).isEqualTo(1L);
+                // The racing add from a caller that checked before the persist.
+                toTest.scheduleResend(1L);
+                // No publisher is asked to resend the acknowledged block.
+                assertThat(toTest.endOfBlock(1L)).returns(BlockAction.ACCEPT, ActionForBlock::action);
             }
 
             /// This test aims to assert that the
@@ -1595,8 +1731,7 @@ class LiveStreamPublisherManagerTest {
                         .returns(Code.ERROR, endStreamResponseCodeExtractor)
                         // below block number in the response is the latest known, -1L because none are stored
                         .returns(-1L, endStreamBlockNumberExtractor);
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
-                        .isEqualTo(2);
+                assertThat(sharedHandlerMetrics.endOfStreamsSent().get()).isEqualTo(2);
                 // As a pre-check, we expect no onComplete calls
                 assertThat(responsePipeline.getOnCompleteCalls().get()).isZero();
                 assertThat(responsePipeline2.getOnCompleteCalls().get()).isZero();
@@ -1662,19 +1797,19 @@ class LiveStreamPublisherManagerTest {
                         false, FailureInfo.standard(failureType), 1L, null, null, BlockSource.PUBLISHER));
                 // Assert that no end of stream was sent and no handler was
                 // shut down.
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
-                        .isEqualTo(0);
+                assertThat(sharedHandlerMetrics.endOfStreamsSent().get()).isEqualTo(0);
                 assertThat(responsePipeline.getOnNextCalls()).isEmpty();
                 assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(0);
                 assertThat(responsePipeline2.getOnNextCalls()).isEmpty();
                 assertThat(responsePipeline2.getOnCompleteCalls().get()).isEqualTo(0);
-                // Block 1 is persisted. Because a resend is pending for it, gap
-                // detection must clamp the acknowledgement below block 1.
-                toTest.handlePersisted(new PersistedNotification(1L, true, 0, BlockSource.PUBLISHER));
+                // A resend is pending for block 1, so a publisher that has completed it is asked to
+                // resend it, and no acknowledgement for block 1 has been sent.
                 assertThat(toTest.getLatestBlockNumber())
                         .as("latest known block must stay at block 0, a resend is pending for block 1")
                         .isEqualTo(0L);
-                // Assert that no acknowledgement was sent for block 1.
+                assertThat(toTest.endOfBlock(1L))
+                        .returns(BlockAction.RESEND, ActionForBlock::action)
+                        .returns(1L, ActionForBlock::blockNumber);
                 assertThat(responsePipeline.getOnNextCalls()).isEmpty();
                 assertThat(responsePipeline2.getOnNextCalls()).isEmpty();
             }
@@ -1734,10 +1869,8 @@ class LiveStreamPublisherManagerTest {
                 // Call
                 toTest.handleVerification(notification);
                 // Assert that no shared metrics are updated
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
-                        .isEqualTo(0);
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT))
-                        .isEqualTo(0);
+                assertThat(sharedHandlerMetrics.endOfStreamsSent().get()).isEqualTo(0);
+                assertThat(sharedHandlerMetrics.blockResendsSent().get()).isEqualTo(0);
                 // Assert that no responses of any kind have been sent.
                 // Notably, the handler that supplied the block must not have
                 // sent an EndOfStream of any kind.
@@ -1819,8 +1952,7 @@ class LiveStreamPublisherManagerTest {
                 // Invoke the delayed shutdown so it actually runs
                 threadPoolManager.scheduledExecutor().executeSerially();
                 assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(1);
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
-                        .isEqualTo(1);
+                assertThat(sharedHandlerMetrics.endOfStreamsSent().get()).isEqualTo(1);
                 // Assert that no resend was scheduled for the block: a
                 // subsequent persisted notification for it must be
                 // acknowledged normally.
@@ -1897,8 +2029,7 @@ class LiveStreamPublisherManagerTest {
                         .returns(Code.ERROR, endStreamResponseCodeExtractor)
                         // below block number in the response is the latest known, -1L because none are stored
                         .returns(-1L, endStreamBlockNumberExtractor);
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
-                        .isEqualTo(2);
+                assertThat(sharedHandlerMetrics.endOfStreamsSent().get()).isEqualTo(2);
                 // Invoke the delayed shutdown so it actually runs
                 threadPoolManager.scheduledExecutor().executeSerially();
                 assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(1);
@@ -1932,8 +2063,7 @@ class LiveStreamPublisherManagerTest {
                 // As a precondition, assert that the responses pipeline is empty (nothing has been sent yet)
                 // Also as a precondition establish the last acknowledged block metric's value
                 assertThat(responsePipeline.getOnNextCalls()).isEmpty();
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_LATEST_BLOCK_NUMBER_ACKNOWLEDGED))
-                        .isEqualTo(0L);
+                assertThat(managerMetrics.latestBlockNumberAcknowledged().get()).isEqualTo(0L);
                 // Build the notification with end block number.
                 final PersistedNotification notification =
                         new PersistedNotification(blockNumber, true, 0, BlockSource.PUBLISHER);
@@ -1946,8 +2076,7 @@ class LiveStreamPublisherManagerTest {
                         .first()
                         .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
                         .returns(blockNumber, acknowledgementBlockNumberExtractor);
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_LATEST_BLOCK_NUMBER_ACKNOWLEDGED))
-                        .isEqualTo(blockNumber);
+                assertThat(managerMetrics.latestBlockNumberAcknowledged().get()).isEqualTo(blockNumber);
                 // Assert no other responses sent
                 assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
                 assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
@@ -1973,8 +2102,7 @@ class LiveStreamPublisherManagerTest {
                 // As a precondition, assert that the responses pipeline is empty (nothing has been sent yet)
                 // Also as a precondition establish the last acknowledged block metric's value
                 assertThat(responsePipeline.getOnNextCalls()).isEmpty();
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_LATEST_BLOCK_NUMBER_ACKNOWLEDGED))
-                        .isEqualTo(0L);
+                assertThat(managerMetrics.latestBlockNumberAcknowledged().get()).isEqualTo(0L);
                 // Then we need to stream the next expected block, which is 0L now, but do not end it.
                 // It must remain active when we send the notification.
                 final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(0L);
@@ -2004,8 +2132,7 @@ class LiveStreamPublisherManagerTest {
                         .first()
                         .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
                         .returns(block0.number(), acknowledgementBlockNumberExtractor);
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_LATEST_BLOCK_NUMBER_ACKNOWLEDGED))
-                        .isEqualTo(block0.number());
+                assertThat(managerMetrics.latestBlockNumberAcknowledged().get()).isEqualTo(block0.number());
                 // Assert no other responses sent
                 assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
                 assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
@@ -2029,8 +2156,7 @@ class LiveStreamPublisherManagerTest {
                 // As a precondition, assert that the responses pipeline is empty (nothing has been sent yet)
                 // Also as a precondition establish the last acknowledged block metric's value
                 assertThat(responsePipeline.getOnNextCalls()).isEmpty();
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_LATEST_BLOCK_NUMBER_ACKNOWLEDGED))
-                        .isEqualTo(0L);
+                assertThat(managerMetrics.latestBlockNumberAcknowledged().get()).isEqualTo(0L);
                 // Then we need to stream the next expected block, which is 0L now, but do not end it.
                 // It must remain active when we send the notification.
                 final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(0L);
@@ -2043,8 +2169,7 @@ class LiveStreamPublisherManagerTest {
                 // Call
                 toTest.handlePersisted(notification);
                 // Assert no metrics for last acknowledged are updated
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_LATEST_BLOCK_NUMBER_ACKNOWLEDGED))
-                        .isEqualTo(0L);
+                assertThat(managerMetrics.latestBlockNumberAcknowledged().get()).isEqualTo(0L);
                 // Assert no responses
                 assertThat(responsePipeline.getOnNextCalls()).isEmpty();
                 assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
@@ -2411,8 +2536,7 @@ class LiveStreamPublisherManagerTest {
                 publisherHandler.onNext(endStreamRequest);
                 // Invoke the delayed shutdown so it actually runs
                 threadPoolManager.scheduledExecutor().executeSerially();
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDSTREAM_RECEIVED))
-                        .isEqualTo(1);
+                assertThat(sharedHandlerMetrics.endStreamsReceived().get()).isEqualTo(1);
                 // Now we must assert that the publisher has shutdown
                 assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(1);
                 // Assert no other responses sent
@@ -2430,8 +2554,7 @@ class LiveStreamPublisherManagerTest {
                         .first()
                         .returns(ResponseOneOfType.SKIP_BLOCK, responseKindExtractor)
                         .returns(block.number(), skipBlockNumberExtractor);
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_SKIPS_SENT))
-                        .isEqualTo(1);
+                assertThat(sharedHandlerMetrics.blockSkipsSent().get()).isEqualTo(1);
                 // Assert no other responses sent
                 assertThat(responsePipeline2.getOnErrorCalls()).isEmpty();
                 assertThat(responsePipeline2.getOnSubscriptionCalls()).isEmpty();
@@ -2483,8 +2606,7 @@ class LiveStreamPublisherManagerTest {
                 threadPoolManager.scheduledExecutor().executeSerially();
                 // Now we must assert that the publisher has shutdown
                 assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(1);
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDSTREAM_RECEIVED))
-                        .isEqualTo(1);
+                assertThat(sharedHandlerMetrics.endStreamsReceived().get()).isEqualTo(1);
                 // Assert no other responses sent
                 assertThat(responsePipeline.getOnNextCalls()).isEmpty();
                 assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
@@ -2649,10 +2771,10 @@ class LiveStreamPublisherManagerTest {
                         .first()
                         .returns(ResponseOneOfType.SKIP_BLOCK, responseKindExtractor)
                         .returns(block0.number(), skipBlockNumberExtractor);
-                // Now end any block, by any publisher in order to assert that block 1, which the publisher was in the
-                // middle of streaming before receiving a premature header, is scheduled for resend.
-                // To assert in this test, we will simply end it directly, not through a publisher.
-                final ActionForBlock actionForBlock = toTest.endOfBlock(block0.number());
+                // Now end block 1 directly (not through a publisher) in order to assert that it, which the publisher
+                // was in the middle of streaming before receiving a premature header, is scheduled for resend.
+                // A resend is only offered once the ending publisher has reached the block.
+                final ActionForBlock actionForBlock = toTest.endOfBlock(block1.number());
                 final ActionForBlock expected = new ActionForBlock(BlockAction.RESEND, block1.number());
                 assertThat(actionForBlock).isEqualTo(expected);
             }
@@ -2932,10 +3054,8 @@ class LiveStreamPublisherManagerTest {
                         .returns(ResponseOneOfType.RESEND_BLOCK, responseKindExtractor)
                         .returns(0L, resendBlockNumberExtractor);
                 // Assert the metrics reflect the disconnect and the resend
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_DISCONNECTED_OVERSIZE))
-                        .isEqualTo(1);
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT))
-                        .isEqualTo(1);
+                assertThat(sharedHandlerMetrics.disconnectedOversize().get()).isEqualTo(1);
+                assertThat(sharedHandlerMetrics.blockResendsSent().get()).isEqualTo(1);
             }
 
             /// This test aims to assert that a block scheduled for resend
@@ -3235,13 +3355,11 @@ class LiveStreamPublisherManagerTest {
             @DisplayName("addHandler() updates the current active publishers count metric")
             void testAddHandlerUpdatesActivePublishersMetric() {
                 // Make a pre-check that the active publishers metric is zero.
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_OPEN_CONNECTIONS))
-                        .isZero();
+                assertThat(managerMetrics.currentPublisherCount().get()).isZero();
                 // Add a new handler.
                 toTest.addHandler(responsePipeline, sharedHandlerMetrics, "");
                 // Assert that the active publishers metric is now 1.
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_OPEN_CONNECTIONS))
-                        .isEqualTo(1);
+                assertThat(managerMetrics.currentPublisherCount().get()).isEqualTo(1);
             }
         }
 
@@ -3289,10 +3407,9 @@ class LiveStreamPublisherManagerTest {
             @DisplayName("removeHandler() with non-existent handler ID is a no-op")
             void testRemoveHandlerNonExistentIdIsNoOp() {
                 final long nonExistentId = 999L;
-                final long countBefore = getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_OPEN_CONNECTIONS);
+                final long countBefore = managerMetrics.currentPublisherCount().get();
                 toTest.removeHandler(nonExistentId);
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_OPEN_CONNECTIONS))
-                        .isEqualTo(countBefore);
+                assertThat(managerMetrics.currentPublisherCount().get()).isEqualTo(countBefore);
             }
 
             /// This test aims to assert that removing a handler
@@ -3302,18 +3419,15 @@ class LiveStreamPublisherManagerTest {
             @DisplayName("removeHandler() updates the current active publishers count metric")
             void testRemoveHandlerUpdatesActivePublishersMetric() {
                 // Make a pre-check that the active publishers metric is 2 from original setup.
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_OPEN_CONNECTIONS))
-                        .isEqualTo(2);
+                assertThat(managerMetrics.currentPublisherCount().get()).isEqualTo(2);
                 // Remove one handler.
                 toTest.removeHandler(publisherHandlerId);
                 // Assert that the active publishers metric is now 1.
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_OPEN_CONNECTIONS))
-                        .isEqualTo(1);
+                assertThat(managerMetrics.currentPublisherCount().get()).isEqualTo(1);
                 // Remove the second handler.
                 toTest.removeHandler(publisherHandlerId2);
                 // Assert that the active publishers metric is now 0.
-                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_OPEN_CONNECTIONS))
-                        .isZero();
+                assertThat(managerMetrics.currentPublisherCount().get()).isZero();
             }
         }
 
@@ -3789,6 +3903,130 @@ class LiveStreamPublisherManagerTest {
         }
     }
 
+    /// Tests for how the [LiveStreamPublisherManager] acknowledges persisted blocks to handlers, including
+    /// the retained root hash of the latest acknowledged block and passive handlers still receiving acks.
+    @Nested
+    @DisplayName("Acknowledgement Root Hash Tests")
+    class AcknowledgementRootHashTests {
+        private LiveStreamPublisherManager toTest;
+
+        @BeforeEach
+        void setup() {
+            toTest = new LiveStreamPublisherManager(generateContext(), generateManagerMetrics(), List.of());
+        }
+
+        @Test
+        @DisplayName("No root hash is retained before anything is acknowledged")
+        void noHashBeforeFirstAck() {
+            assertThat(toTest.getLatestAckedBlockRootHash(-1L)).isEqualTo(Bytes.EMPTY);
+            assertThat(toTest.getLatestAckedBlockRootHash(0L)).isEqualTo(Bytes.EMPTY);
+        }
+
+        @Test
+        @DisplayName("The root hash on a PersistedNotification reaches the Acknowledgement and is retained")
+        void persistedHashReachesAckAndIsRetained() {
+            final TestResponsePipeline<PublishStreamResponse> replies = new TestResponsePipeline<>();
+            toTest.addHandler(replies, generateHandlerMetrics(), null);
+            final Bytes hash = Bytes.wrap(new byte[] {9, 8, 7});
+
+            toTest.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.PUBLISHER, hash));
+
+            assertThat(replies.getOnNextCalls()).hasSize(1);
+            assertThat(replies.getOnNextCalls().get(0).acknowledgement().blockNumber())
+                    .isEqualTo(0L);
+            assertThat(replies.getOnNextCalls().get(0).acknowledgement().blockRootHash())
+                    .isEqualTo(hash);
+            assertThat(toTest.getLatestAckedBlockRootHash(0L)).isEqualTo(hash);
+        }
+
+        @Test
+        @DisplayName("The retained root hash is only returned for the latest acknowledged block")
+        void retainedHashIsForLatestBlockOnly() {
+            toTest.addHandler(new TestResponsePipeline<>(), generateHandlerMetrics(), null);
+            final Bytes first = Bytes.wrap(new byte[] {1});
+            final Bytes second = Bytes.wrap(new byte[] {2});
+
+            toTest.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.PUBLISHER, first));
+            toTest.handlePersisted(new PersistedNotification(1L, true, 0, BlockSource.PUBLISHER, second));
+
+            assertThat(toTest.getLatestBlockNumber()).isEqualTo(1L);
+            assertThat(toTest.getLatestAckedBlockRootHash(1L)).isEqualTo(second);
+            assertThat(toTest.getLatestAckedBlockRootHash(0L)).isEqualTo(Bytes.EMPTY);
+        }
+
+        @Test
+        @DisplayName("A notification that does not advance the acknowledgement does not replace the retained hash")
+        void staleNotificationKeepsRetainedHash() {
+            toTest.addHandler(new TestResponsePipeline<>(), generateHandlerMetrics(), null);
+            final Bytes first = Bytes.wrap(new byte[] {1});
+            toTest.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.PUBLISHER, first));
+
+            toTest.handlePersisted(
+                    new PersistedNotification(0L, true, 0, BlockSource.PUBLISHER, Bytes.wrap(new byte[] {5})));
+
+            assertThat(toTest.getLatestAckedBlockRootHash(0L)).isEqualTo(first);
+        }
+
+        @Test
+        @DisplayName("A notification without a root hash acknowledges with an empty hash")
+        void notificationWithoutHashAcksWithEmptyHash() {
+            final TestResponsePipeline<PublishStreamResponse> replies = new TestResponsePipeline<>();
+            toTest.addHandler(replies, generateHandlerMetrics(), null);
+
+            toTest.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.PUBLISHER));
+
+            assertThat(replies.getOnNextCalls().get(0).acknowledgement().blockRootHash())
+                    .isEqualTo(Bytes.EMPTY);
+            assertThat(toTest.getLatestAckedBlockRootHash(0L)).isEqualTo(Bytes.EMPTY);
+        }
+
+        @Test
+        @DisplayName("An AcknowledgeOnly for an acknowledged block gets the retained hash of the latest block")
+        void acknowledgeOnlyGetsRetainedHash() {
+            final TestResponsePipeline<PublishStreamResponse> replies = new TestResponsePipeline<>();
+            final PublisherHandler handler = toTest.addHandler(replies, generateHandlerMetrics(), null);
+            final Bytes hash = Bytes.wrap(new byte[] {4, 5, 6});
+            toTest.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.PUBLISHER, hash));
+            final int acksBefore = replies.getOnNextCalls().size();
+
+            handler.onNext(PublishStreamRequestUnparsed.newBuilder()
+                    .acknowledgeOnly(
+                            AcknowledgeOnly.newBuilder().blockNumber(0L).build())
+                    .build());
+
+            assertThat(replies.getOnNextCalls()).hasSize(acksBefore + 1);
+            final var ack = replies.getOnNextCalls().getLast().acknowledgement();
+            assertThat(ack.blockNumber()).isEqualTo(0L);
+            assertThat(ack.blockRootHash()).isEqualTo(hash);
+        }
+
+        @Test
+        @DisplayName("Passive handler receives Acknowledgement on next handlePersisted broadcast")
+        void passiveHandlerStillGetsAcksOnPersistedBroadcast() {
+            final PublisherHandler.MetricsHolder handlerMetrics = generateHandlerMetrics();
+            final TestResponsePipeline<PublishStreamResponse> aReplies = new TestResponsePipeline<>();
+            final PublisherHandler handlerA = toTest.addHandler(aReplies, handlerMetrics, null);
+            final TestResponsePipeline<PublishStreamResponse> bReplies = new TestResponsePipeline<>();
+            toTest.addHandler(bReplies, handlerMetrics, null);
+
+            handlerA.onNext(PublishStreamRequestUnparsed.newBuilder()
+                    .acknowledgeOnly(
+                            AcknowledgeOnly.newBuilder().blockNumber(50L).build())
+                    .build());
+            assertThat(aReplies.getOnNextCalls()).isEmpty();
+            assertThat(handlerMetrics.passiveHandlers().get()).isEqualTo(1L);
+            assertThat(handlerMetrics.activeHandlers().get()).isEqualTo(1L);
+
+            toTest.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.PUBLISHER));
+
+            assertThat(bReplies.getOnNextCalls()).hasSize(1);
+            assertThat(aReplies.getOnNextCalls()).hasSize(1);
+            assertThat(aReplies.getOnNextCalls().get(0).response().kind()).isEqualTo(ResponseOneOfType.ACKNOWLEDGEMENT);
+            assertThat(aReplies.getOnNextCalls().get(0).acknowledgement().blockNumber())
+                    .isEqualTo(0L);
+        }
+    }
+
     /// This method generates a [BlockNodeContext] instance with default
     /// facilities that can be used in tests.
     private BlockNodeContext generateContext() {
@@ -3850,8 +4088,7 @@ class LiveStreamPublisherManagerTest {
     /// This method generates a [MetricsHolder] instance with default
     /// metrics that can be used in tests.
     private MetricRegistry newRegistry() {
-        metricsExporter = new TestMetricsExporter();
-        return MetricRegistry.builder().setMetricsExporter(metricsExporter).build();
+        return TestUtils.createMetrics();
     }
 
     /// Creates a new [PublisherHandler.MetricsHolder] with default counters for testing.
@@ -3864,9 +4101,5 @@ class LiveStreamPublisherManagerTest {
     /// These counters could be queried to verify the metrics' states.
     private PublisherHandler.MetricsHolder generateHandlerMetrics() {
         return PublisherHandler.MetricsHolder.createMetrics(TestUtils.createMetrics());
-    }
-
-    private long getMetricValue(org.hiero.metrics.core.MetricKey<?> metricKey) {
-        return metricsExporter.getMetricValue(metricKey.name());
     }
 }

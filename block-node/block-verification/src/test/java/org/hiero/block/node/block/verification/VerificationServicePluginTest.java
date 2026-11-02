@@ -15,6 +15,7 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -39,6 +40,7 @@ import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.block.verification.harness.HarnessChainBuilder;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
@@ -131,7 +133,7 @@ class VerificationServicePluginTest {
                 plugin.handleBlockItemsReceived(chain.get(i).block().asBlockItems());
             }
             final List<VerificationNotification> notifications =
-                    blockMessaging.getSentVerificationNotifications(chain.size());
+                    awaitTssChainNotifications(blockMessaging, chain.size());
             assertThat(notifications).hasSize(chain.size());
             for (int i = 0; i < notifications.size(); i++) {
                 final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed signed = chain.get(i);
@@ -160,7 +162,7 @@ class VerificationServicePluginTest {
                 plugin.handleBackfilled(chain.get(i).block().asBackfilledNotification());
             }
             final List<VerificationNotification> notifications =
-                    blockMessaging.getSentVerificationNotifications(chain.size());
+                    awaitTssChainNotifications(blockMessaging, chain.size());
             assertThat(notifications).hasSize(chain.size());
             for (int i = 0; i < notifications.size(); i++) {
                 final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed signed = chain.get(i);
@@ -198,7 +200,7 @@ class VerificationServicePluginTest {
                 }
             }
             final List<VerificationNotification> notifications =
-                    blockMessaging.getSentVerificationNotifications(chain.size());
+                    awaitTssChainNotifications(blockMessaging, chain.size());
             assertThat(notifications).hasSize(chain.size());
             for (int i = 0; i < notifications.size(); i++) {
                 final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed signed = chain.get(i);
@@ -446,7 +448,7 @@ class VerificationServicePluginTest {
                 plugin.handleBlockItemsReceived(chain.get(i).block().asBlockItems());
             }
             final List<VerificationNotification> notifications =
-                    blockMessaging.getSentVerificationNotifications(chain.size());
+                    awaitTssChainNotifications(blockMessaging, chain.size());
             assertThat(notifications).hasSize(chain.size());
             for (int i = 0; i < notifications.size(); i++) {
                 final org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed s = chain.get(i);
@@ -471,7 +473,7 @@ class VerificationServicePluginTest {
                 plugin.handleBackfilled(chain.get(i).block().asBackfilledNotification());
             }
             final List<VerificationNotification> notifications =
-                    blockMessaging.getSentVerificationNotifications(chain.size());
+                    awaitTssChainNotifications(blockMessaging, chain.size());
             assertThat(notifications).hasSize(chain.size());
             for (int i = 0; i < notifications.size(); i++) {
                 final org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed s = chain.get(i);
@@ -505,7 +507,7 @@ class VerificationServicePluginTest {
                 }
             }
             final List<VerificationNotification> notifications =
-                    blockMessaging.getSentVerificationNotifications(chain.size());
+                    awaitTssChainNotifications(blockMessaging, chain.size());
             assertThat(notifications).hasSize(chain.size());
             for (int i = 0; i < notifications.size(); i++) {
                 final org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed s = chain.get(i);
@@ -1006,9 +1008,12 @@ class VerificationServicePluginTest {
         /// is reported as a success, in order, with the block root hash recorded for the fixture.
         /// For wrapped record blocks the network address book is loaded first so the RSA
         /// signatures can be checked; TSS blocks need no setup because the genesis block
-        /// publishes the TSS parameters in band.
+        /// publishes the ledger id in band. Only chains whose proofs the current TSS library can
+        /// verify take part: the TSS captures made with an earlier TSS library are covered by the
+        /// hashing tests until they are re-captured.
         @ParameterizedTest(name = "{0}")
-        @MethodSource("org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder#realBlockChains")
+        @MethodSource(
+                "org.hiero.block.node.app.fixtures.blocks.ResourceTestBlockBuilder#realBlockChainsWithVerifiableProofs")
         @DisplayName("Successful consecutive verification of real blocks - Live RB")
         void testSuccessfulConsecutiveRealBlocksVerificationLiveRB(
                 final String family, final List<? extends ResourceTestBlock> blocks) {
@@ -1561,11 +1566,13 @@ class VerificationServicePluginTest {
     @DisplayName("Block Order Tests")
     class BlockOrderTests extends PluginTestBase<VerificationServicePlugin, ExecutorService, ScheduledExecutorService> {
 
-        /// Deterministic signer cached at class level so the hinTS ceremony runs once for the
-        /// full 200 @RepeatedTest iterations instead of once per iteration. Safe because every
+        /// Deterministic signer cached at class level so the hinTS ceremony runs once for all
+        /// @RepeatedTest iterations instead of once per iteration. Each iteration verifies the whole
+        /// TSS signed chain again, which costs real time per block, so the iteration count is kept
+        /// to what still varies the arrival order of the shuffled blocks well. Safe because every
         /// iteration creates a fresh plugin whose TSS state is provisioned from cachedChain[0]'s
         /// LedgerIdPublication.
-        private static final TssBlockSigner CACHED_SIGNER = TssBlockSigner.createDeterministic();
+        private static final TssBlockSigner CACHED_SIGNER = TssBlockSigner.create();
 
         /// Length-5 signed chain built once from CACHED_SIGNER by [#buildCachedChain()]. Blocks are
         /// immutable so every iteration reuses them without conflict.
@@ -1596,7 +1603,7 @@ class VerificationServicePluginTest {
 
         /// This test aims to assert that when blocks are received out of order, order will be preserved
         /// when completing verification. Proof type and source are irrelevant here.
-        @RepeatedTest(100)
+        @RepeatedTest(20)
         @DisplayName("Block Order Preserved for Out of Order Blocks Received")
         void testOutOfOrderBlocksPreserveOrderingOnCompletion() {
             plugin.handleBlockItemsReceived(cachedChain.get(0).block().asBlockItems());
@@ -1608,7 +1615,7 @@ class VerificationServicePluginTest {
                 plugin.handleBlockItemsReceived(signed.block().asBlockItems());
             }
             final List<VerificationNotification> notifications =
-                    blockMessaging.getSentVerificationNotifications(cachedChain.size());
+                    awaitTssChainNotifications(blockMessaging, cachedChain.size());
             assertThat(notifications).hasSize(cachedChain.size());
             for (int i = 0; i < notifications.size(); i++) {
                 final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed signed =
@@ -1625,7 +1632,7 @@ class VerificationServicePluginTest {
 
         /// This test aims to assert that when a block is submitted for verification but it is below
         /// the high watermark, it will pass immediately and no strict ordering applies.
-        @RepeatedTest(100)
+        @RepeatedTest(20)
         @DisplayName("No Strict Ordering Below High Water Mark")
         void testNoStrictOrderingBelowHighWaterMark() {
             plugin.handleBlockItemsReceived(cachedChain.get(0).block().asBlockItems());
@@ -1636,7 +1643,7 @@ class VerificationServicePluginTest {
                 plugin.handleBlockItemsReceived(signed.block().asBlockItems());
             }
             final List<VerificationNotification> notifications =
-                    blockMessaging.getSentVerificationNotifications(cachedChain.size());
+                    awaitTssChainNotifications(blockMessaging, cachedChain.size());
             assertThat(notifications).hasSize(cachedChain.size());
             for (int i = 0; i < notifications.size(); i++) {
                 final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed signed =
@@ -1829,5 +1836,19 @@ class VerificationServicePluginTest {
                 .returns(true, multiProof -> proofToAppend
                         .blockProof()
                         .equals(multiProof.proofs().getLast()));
+    }
+    /// Longest time to wait for the verification of one TSS signed block: verifying its signature costs
+    /// a noticeable amount of CPU time, and a loaded CI runner verifies much slower than a laptop.
+    private static final Duration TSS_BLOCK_AWAIT = Duration.ofSeconds(5);
+
+    /// Awaits the verification notifications of a chain of TSS signed blocks, allowing
+    /// [#TSS_BLOCK_AWAIT] per block instead of the fixture's fixed timeout for any number of blocks.
+    ///
+    /// @param messaging the messaging facility the notifications are sent to
+    /// @param count the number of notifications to wait for
+    /// @return the list of sent verification notifications
+    private static List<VerificationNotification> awaitTssChainNotifications(
+            final TestBlockMessagingFacility messaging, final int count) {
+        return messaging.getSentVerificationNotifications(count, TSS_BLOCK_AWAIT.multipliedBy(count));
     }
 }

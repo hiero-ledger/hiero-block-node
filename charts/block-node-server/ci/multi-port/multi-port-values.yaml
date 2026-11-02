@@ -42,4 +42,4 @@ resources:
     memory: "3Gi"
 
 plugins:
-  names: "facility-messaging,health,server-status,block-access-service,stream-publisher,stream-subscriber"
+  names: "facility-app-state,facility-messaging,health,server-status,block-access-service,stream-publisher,stream-subscriber"

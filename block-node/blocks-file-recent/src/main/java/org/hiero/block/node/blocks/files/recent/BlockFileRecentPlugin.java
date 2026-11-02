@@ -313,7 +313,11 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
             LOGGER.log(DEBUG, "Persistence Handle verification started for block {0}", notification.blockNumber());
             if (notification != null && notification.success()) {
                 // write the block to the live path and send notification of block persisted
-                writeBlockToLivePath(notification.block(), notification.blockNumber(), notification.source());
+                writeBlockToLivePath(
+                        notification.block(),
+                        notification.blockNumber(),
+                        notification.source(),
+                        notification.blockHash());
                 // we do a round of retention only if the retention threshold is set to
                 // a positive value, otherwise we do not run it
                 if (blockRetentionThreshold > 0L) {
@@ -356,7 +360,8 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
      * @param block the block to write
      * @param blockNumber the block number of the block to write
      */
-    private void writeBlockToLivePath(final BlockUnparsed block, final long blockNumber, final BlockSource source) {
+    private void writeBlockToLivePath(
+            final BlockUnparsed block, final long blockNumber, final BlockSource source, final Bytes blockHash) {
         final BlockSource effectiveSource = source == null ? UNKNOWN : source;
         if (block != null && block.blockItems() != null && !block.blockItems().isEmpty()) {
             if (block.blockItems().getFirst().hasBlockHeader()) {
@@ -368,32 +373,34 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
                             "Block number mismatch between notification {0} and block header {1}, not writing block",
                             blockNumber,
                             headerNumber);
-                    sendBlockNotification(blockNumber, false, effectiveSource);
+                    sendBlockNotification(blockNumber, false, effectiveSource, Bytes.EMPTY);
                 } else {
                     final Path verifiedBlockPath = RecentBlockPath.computeBlockPath(config, blockNumber)
                             .path();
                     try {
                         final boolean success = createDirectoryOrFail(verifiedBlockPath)
                                 && writeBlockOrFail(block, blockNumber, verifiedBlockPath);
-                        sendBlockNotification(blockNumber, success, effectiveSource);
+                        sendBlockNotification(blockNumber, success, effectiveSource, success ? blockHash : Bytes.EMPTY);
                     } catch (final RuntimeException e) {
                         final String message = "Failed to persist block %d due to %s".formatted(blockNumber, e);
                         LOGGER.log(WARNING, message, e);
-                        sendBlockNotification(blockNumber, false, effectiveSource);
+                        sendBlockNotification(blockNumber, false, effectiveSource, Bytes.EMPTY);
                     }
                 }
             } else {
                 LOGGER.log(INFO, "Block {0} has no block header, cannot write to live path", blockNumber);
-                sendBlockNotification(blockNumber, false, effectiveSource);
+                sendBlockNotification(blockNumber, false, effectiveSource, Bytes.EMPTY);
             }
         } else {
             LOGGER.log(WARNING, "Block {0} is null or has no block items, cannot write to live path", blockNumber);
-            sendBlockNotification(blockNumber, false, effectiveSource);
+            sendBlockNotification(blockNumber, false, effectiveSource, Bytes.EMPTY);
         }
     }
 
-    private void sendBlockNotification(final long number, final boolean succeeded, final BlockSource source) {
-        blockMessaging.sendBlockPersisted(new PersistedNotification(number, succeeded, defaultPriority(), source));
+    private void sendBlockNotification(
+            final long number, final boolean succeeded, final BlockSource source, final Bytes blockHash) {
+        blockMessaging.sendBlockPersisted(
+                new PersistedNotification(number, succeeded, defaultPriority(), source, blockHash));
     }
 
     private BlockHeader getBlockHeader(final BlockUnparsed block) {

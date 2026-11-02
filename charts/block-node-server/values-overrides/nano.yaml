@@ -4,13 +4,16 @@
 # This is useful for testing and development purposes with limited resources.
 # ie: minikube
 
+# 192Mi fits the TSS library (native code, verification key and verification threads, ~129 MB peak at
+# 1 CPU) with headroom; at 128M the node is OOM-killed while verifying TSS block proofs.
+# MemoryRegressionTests runs the node with these limits.
 resources:
   requests:
     cpu: "500m"
-    memory: "128M"
+    memory: "192Mi"
   limits:
     cpu: "1"
-    memory: "128M"
+    memory: "192Mi"
 
 blockNode:
   config:
@@ -19,6 +22,10 @@ blockNode:
     SERVER_SOCKET_SEND_BUFFER_SIZE_BYTES: "131072"
     MESSAGING_BLOCK_ITEM_QUEUE_SIZE: "128"
     MESSAGING_BLOCK_NOTIFICATION_QUEUE_SIZE: "16"
+    # The TSS library verifies block proofs on several native threads; without a cap each grows its own
+    # glibc malloc arena, which adds 60 to 130 MB of native memory. Two arenas keep the node within the
+    # nano envelope (MemoryRegressionTests guards this).
+    MALLOC_ARENA_MAX: "2"
     BACKFILL_FETCH_BATCH_SIZE: "5"
   persistence:
     archive:

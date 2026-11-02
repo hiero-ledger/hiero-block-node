@@ -18,9 +18,7 @@ import org.hiero.block.api.TssData;
 import org.hiero.block.api.TssRoster;
 import org.hiero.block.internal.BlockNodeSource;
 import org.hiero.block.internal.BlockNodeSourceConfig;
-import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.base.client.BlockNodeClient;
-import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -32,7 +30,6 @@ import org.junit.jupiter.api.Timeout;
 class TssDataFetcherTest {
 
     private static RosterBootstrapTssPlugin.MetricsHolder metricsHolder;
-    private static TestMetricsExporter testMetricsExporter;
 
     private static BlockNodeSourceConfig node(String host, int port, int priority) {
         return BlockNodeSourceConfig.newBuilder()
@@ -60,10 +57,7 @@ class TssDataFetcherTest {
 
     private static RosterBootstrapTssPlugin.MetricsHolder createTestMetricsHolder() {
         if (metricsHolder == null) {
-            testMetricsExporter = new TestMetricsExporter();
-            final MetricRegistry metricRegistry = MetricRegistry.builder()
-                    .setMetricsExporter(testMetricsExporter)
-                    .build();
+            final MetricRegistry metricRegistry = MetricRegistry.builder().build();
             metricsHolder = RosterBootstrapTssPlugin.MetricsHolder.createMetrics(metricRegistry, new AtomicLong());
         }
         return metricsHolder;
@@ -93,7 +87,7 @@ class TssDataFetcherTest {
             BlockNodeClient successClient = mockClientReturning();
             TssDataFetcher fetcher = createFetcherWithClient(nodeConfig, metrics, successClient);
             assertEquals(1, fetcher.getTssData().size());
-            assertEquals(1, getMetricValue(RosterBootstrapTssPlugin.METRIC_TSS_DATA_REQUESTS));
+            assertEquals(1, metrics.tssDataRequests().get());
         }
 
         private BlockNodeClient mockClientReturning() {
@@ -135,10 +129,6 @@ class TssDataFetcherTest {
                 return client;
             }
         };
-    }
-
-    private static long getMetricValue(MetricKey<?> metricKey) {
-        return testMetricsExporter.getMetricValue(metricKey.name());
     }
 
     /// build a `TssData` object from individual fields from the `TssBootstrapConfig`

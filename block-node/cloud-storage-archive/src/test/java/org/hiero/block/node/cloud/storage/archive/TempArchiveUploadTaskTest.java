@@ -33,7 +33,6 @@ import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
-import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
@@ -153,9 +152,8 @@ class TempArchiveUploadTaskTest {
     }
 
     private CloudStorageArchivePlugin.MetricsHolder createMetricsHolder() {
-        return CloudStorageArchivePlugin.MetricsHolder.createMetrics(MetricRegistry.builder()
-                .setMetricsExporter(new TestMetricsExporter())
-                .build());
+        return CloudStorageArchivePlugin.MetricsHolder.createMetrics(
+                MetricRegistry.builder().build());
     }
 
     private TempArchiveUploadTask buildTask(

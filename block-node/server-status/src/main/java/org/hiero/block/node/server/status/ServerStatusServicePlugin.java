@@ -8,8 +8,10 @@ import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
+import com.swirlds.config.api.Configuration;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.api.BlockNodeServiceInterface;
@@ -19,6 +21,7 @@ import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
 import org.hiero.block.api.TssData;
+import org.hiero.block.node.app.config.GlobalThrottleConfig;
 import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -31,6 +34,8 @@ import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
+import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
+import org.hiero.block.node.spi.throttle.ThrottleSpec;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
@@ -39,7 +44,7 @@ import org.hiero.metrics.core.MetricRegistry;
  * Plugin that implements the BlockNodeService and provides the 'serverStatus' RPC.
  */
 public class ServerStatusServicePlugin
-        implements BlockNodePlugin, BlockNodeServiceInterface, ApplicationStateNotificationHandler {
+        implements BlockNodePlugin, BlockNodeServiceInterface, ApplicationStateNotificationHandler, ThrottleSpec {
     /** Metric key for the number of server status requests */
     public static final MetricKey<LongCounter> METRIC_SERVER_STATUS_REQUESTS =
             MetricKey.of("server_status_requests", LongCounter.class).addCategory(METRICS_CATEGORY);
@@ -66,6 +71,13 @@ public class ServerStatusServicePlugin
     private volatile List<BlockRange> availableBlocks = List.of();
     private volatile TssData tssData = null;
     private volatile RangedAddressBookHistory rangedAddressBookHistory = null;
+    /**
+     * This service's per-client throttle settings, computed once in {@link #init}; see {@link ThrottleSpec}.
+     * {@code serverStatus} and {@code serverStatusDetail} each have their own settings and client-state table.
+     */
+    private volatile Map<String, PerClientThrottleSettings> throttleSettings;
+    /** This service's node-wide concurrency ceilings per method, computed once in {@link #init}; see {@link ThrottleSpec}. */
+    private volatile Map<String, Integer> globalConcurrencyCeilings;
 
     /**
      * Handle a request for server status
@@ -172,11 +184,40 @@ public class ServerStatusServicePlugin
                         .setDescription("Number of server status details requests"))
                 .getOrCreateNotLabeled();
 
+        final Configuration configuration = context.configuration();
+        this.throttleSettings = Map.of(
+                BlockNodeServiceInterface.BlockNodeServiceMethod.serverStatus.name(),
+                configuration.getConfigData(ServerStatusThrottleConfig.class).toSettings(),
+                BlockNodeServiceInterface.BlockNodeServiceMethod.serverStatusDetail.name(),
+                configuration
+                        .getConfigData(ServerStatusDetailThrottleConfig.class)
+                        .toSettings());
+        final GlobalThrottleConfig globalThrottleConfig = configuration.getConfigData(GlobalThrottleConfig.class);
+        this.globalConcurrencyCeilings = Map.of(
+                BlockNodeServiceInterface.BlockNodeServiceMethod.serverStatus.name(),
+                globalThrottleConfig.serverStatusMaxConcurrent(),
+                BlockNodeServiceInterface.BlockNodeServiceMethod.serverStatusDetail.name(),
+                globalThrottleConfig.serverStatusDetailMaxConcurrent());
+
         // Register this service; a null port (the default) shares server.port
         final Integer port =
                 context.configuration().getConfigData(ServerStatusConfig.class).port();
         serviceBuilder.registerGrpcService(port, this);
         context.blockMessaging().registerApplicationStateNotificationHandler(this, false, name());
+    }
+
+    /// {@inheritDoc}
+    @NonNull
+    @Override
+    public Map<String, PerClientThrottleSettings> perClientSettings() {
+        return throttleSettings;
+    }
+
+    /// {@inheritDoc}
+    @NonNull
+    @Override
+    public Map<String, Integer> globalConcurrencyCeilings() {
+        return globalConcurrencyCeilings;
     }
 
     @Override

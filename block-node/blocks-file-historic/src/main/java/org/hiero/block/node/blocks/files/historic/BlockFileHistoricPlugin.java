@@ -30,6 +30,7 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.regex.Pattern;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.BlockFile;
@@ -152,6 +153,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             // create the executor service for moving blocks to zip files
             zipMoveExecutorService = context.threadPoolManager().createSingleThreadExecutor("FilesHistoricZipMove");
             renameOldFormatArchives(config.rootPath());
+            deleteStrayAccessorLinks(config.rootPath());
             zipBlockArchive = new ZipBlockArchive(context, config);
             // get the first and last block numbers from the zipBlockArchive
             final long firstZippedBlock = zipBlockArchive.minStoredBlockNumber();
@@ -215,6 +217,28 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             }
         } catch (final IOException e) {
             LOGGER.log(WARNING, "Failed to rename old format archives", e);
+        }
+    }
+
+    /**
+     * Deletes accessor hard links left next to the zip archives by older versions.
+     *
+     * <p>Older versions created each accessor's temporary hard link beside its zip, named
+     * {@code <zip name>.<n>} (for example {@code 80000.zip.3}), and links left behind on shutdown or
+     * failure were never removed. This must run before any accessor exists. It only matches that
+     * name pattern inside numeric block directories, so it never touches a real archive.
+     */
+    void deleteStrayAccessorLinks(final Path archivesPath) {
+        try {
+            if (Files.isDirectory(archivesPath, LinkOption.NOFOLLOW_LINKS)) {
+                final StrayAccessorLinkDeleteVisitor visitor = new StrayAccessorLinkDeleteVisitor();
+                Files.walkFileTree(archivesPath, visitor);
+                if (visitor.deletedCount > 0) {
+                    LOGGER.log(INFO, "Deleted {0} stray accessor links from {1}", visitor.deletedCount, archivesPath);
+                }
+            }
+        } catch (final IOException e) {
+            LOGGER.log(WARNING, "Failed to delete stray accessor links", e);
         }
     }
 
@@ -748,6 +772,59 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                 throws IOException {
             if (e == null) {
                 Files.delete(Objects.requireNonNull(dir));
+                return CONTINUE;
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    /**
+     * Deletes regular files named {@code <digits>.zip.<digits>} whose parent directory name is all digits.
+     */
+    private class StrayAccessorLinkDeleteVisitor implements FileVisitor<Path> {
+        private static final Pattern STRAY_LINK_NAME = Pattern.compile("\\d+\\.zip\\.\\d+");
+        private static final Pattern BLOCK_DIRECTORY_NAME = Pattern.compile("\\d+");
+        private int deletedCount;
+
+        @Override
+        public FileVisitResult preVisitDirectory(final Path dir, final BasicFileAttributes attrs) {
+            Objects.requireNonNull(dir);
+            return CONTINUE;
+        }
+
+        @Override
+        @NonNull
+        public FileVisitResult visitFile(@NonNull final Path file, @NonNull final BasicFileAttributes attrs) {
+            Objects.requireNonNull(file);
+            final Path parent = file.getParent();
+            if (attrs.isRegularFile()
+                    && parent != null
+                    && parent.getFileName() != null
+                    && BLOCK_DIRECTORY_NAME
+                            .matcher(parent.getFileName().toString())
+                            .matches()
+                    && STRAY_LINK_NAME.matcher(file.getFileName().toString()).matches()) {
+                try {
+                    Files.delete(file);
+                    deletedCount++;
+                } catch (final IOException e) {
+                    LOGGER.log(INFO, "Failed to delete stray accessor link: %s".formatted(file), e);
+                }
+            }
+            return CONTINUE;
+        }
+
+        @Override
+        public FileVisitResult visitFileFailed(final Path file, final IOException exc) throws IOException {
+            throw Objects.requireNonNull(exc);
+        }
+
+        @Override
+        @NonNull
+        public FileVisitResult postVisitDirectory(@NonNull final Path dir, @Nullable final IOException e)
+                throws IOException {
+            if (e == null) {
                 return CONTINUE;
             } else {
                 throw e;

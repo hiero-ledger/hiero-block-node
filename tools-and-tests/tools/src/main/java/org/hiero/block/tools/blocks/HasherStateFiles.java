@@ -2,9 +2,11 @@
 package org.hiero.block.tools.blocks;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import org.hiero.block.tools.blocks.model.hashing.LegacyHashFormatException;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
 
 /**
@@ -22,7 +24,8 @@ import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
  * <p>{@link #loadWithFallback} tries the primary file first. If the file is missing or its
  * {@link StateLoader#load} throws (e.g. an {@link java.io.EOFException} from a truncated write),
  * the {@code .bak} copy is tried. If both fail the hasher is left in its initial empty state
- * and a warning is printed.
+ * and a warning is printed. A {@link LegacyHashFormatException} is the exception: it is rethrown
+ * and the file is kept, so an older CLI's SHA-384 state is never silently discarded.
  */
 public final class HasherStateFiles {
 
@@ -35,6 +38,7 @@ public final class HasherStateFiles {
      *
      * @param primaryPath the primary state file path
      * @param loader function that restores hasher state from a given path
+     * @throws UncheckedIOException if the primary or backup file is legacy SHA-384 state; neither file is deleted
      */
     public static void loadWithFallback(Path primaryPath, StateLoader loader) {
         if (!Files.exists(primaryPath)) {
@@ -44,6 +48,8 @@ public final class HasherStateFiles {
                 try {
                     loader.load(bakPath);
                     System.err.println("Warning: loaded state from backup: " + bakPath);
+                } catch (LegacyHashFormatException legacyEx) {
+                    throw new UncheckedIOException(legacyEx.getMessage(), legacyEx);
                 } catch (Exception bakEx) {
                     System.err.println("Warning: backup also failed (" + bakEx.getMessage() + "), starting fresh.");
                     try {
@@ -56,6 +62,8 @@ public final class HasherStateFiles {
         }
         try {
             loader.load(primaryPath);
+        } catch (LegacyHashFormatException legacyEx) {
+            throw new UncheckedIOException(legacyEx.getMessage(), legacyEx);
         } catch (Exception e) {
             System.err.println(
                     "Warning: corrupt primary state file " + primaryPath + " (" + e.getMessage() + "). Trying backup.");
@@ -68,6 +76,8 @@ public final class HasherStateFiles {
                 try {
                     loader.load(bakPath);
                     System.err.println("Warning: loaded state from backup: " + bakPath);
+                } catch (LegacyHashFormatException legacyEx) {
+                    throw new UncheckedIOException(legacyEx.getMessage(), legacyEx);
                 } catch (Exception bakEx) {
                     System.err.println("Warning: backup also failed (" + bakEx.getMessage() + "), starting fresh.");
                     try {

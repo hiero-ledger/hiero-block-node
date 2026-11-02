@@ -22,14 +22,20 @@ public class BlockFooterHandler extends AbstractBlockItemHandler {
      * Constructs a new BlockFooterHandler.
      *
      * @param previousBlockHash Hash of the previous block
-     * @param hashOfAllBlockHashesTree Root hash of the all previous block hashes tree
-     * @throws NullPointerException if previousBlockHash or hashOfAllBlockHashesTree is null
+     * @param hashOfAllBlockHashesTree Root hash of the all previous block hashes tree, when null the
+     *     footer carries one zero filled digest instead
+     * @throws NullPointerException if previousBlockHash is null
      */
     public BlockFooterHandler(final byte[] previousBlockHash, final byte[] hashOfAllBlockHashesTree) {
         this.previousBlockHash = requireNonNull(previousBlockHash);
         // the crafted blocks carry no state, so the state root placeholder is one zero filled digest
         this.previousStateRootHash = new byte[BLOCK_HASH_ALGORITHM.hashSize()];
-        this.hashOfAllBlockHashesTree = requireNonNull(hashOfAllBlockHashesTree);
+        if (hashOfAllBlockHashesTree == null) {
+            // no tree root given, the placeholder is one zero filled digest as for the state root
+            this.hashOfAllBlockHashesTree = new byte[BLOCK_HASH_ALGORITHM.hashSize()];
+        } else {
+            this.hashOfAllBlockHashesTree = hashOfAllBlockHashesTree;
+        }
     }
 
     @Override

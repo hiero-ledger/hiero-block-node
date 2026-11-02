@@ -17,6 +17,14 @@ on:
         description: "Consensus Node version ('latest', 'rc', or tag like 'v0.68.6')"
         type: string
         default: "rc"
+      consensus-node-ref:
+        description: "Consensus Node git ref (branch, tag or SHA) built from source when the resolved CN version is a -SNAPSHOT"
+        type: string
+        default: "main"
+      consensus-node-nova-wraps:
+        description: "Whether the CN is on the Nova WRAPS TSS library: 'auto' (decide from the CN version, or from the source of a CN built here), 'true' or 'false'"
+        type: string
+        default: "auto"
       mirror-node-version:
         description: "Mirror Node version ('latest', 'rc', or tag like 'v0.146.0')"
         type: string
@@ -82,7 +90,7 @@ on:
         type: string
         default: "5"
       test-definition:
-        description: "Test definitions (comma-separated): smoke-test, basic-load, high-load, node-restart-resilience, full-history-backfill, archive-backfill, plugin-profiles, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-cli-jumpstart-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-steps1-12, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, high-load, node-restart-resilience, full-history-backfill, archive-backfill, plugin-profiles, tss-block-proofs, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-cli-jumpstart-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-steps1-12, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe"
         type: string
         default: "none"
     outputs:
@@ -124,6 +132,19 @@ on:
         description: "Consensus Node version ('latest', 'rc' or tag like 'v0.73.0-rc3')"
         required: false
         default: "rc"
+      consensus-node-ref:
+        description: "Consensus Node git ref (branch, tag or SHA) built from source when the resolved CN version is a -SNAPSHOT"
+        required: false
+        default: "main"
+      consensus-node-nova-wraps:
+        description: "Whether the CN is on the Nova WRAPS TSS library ('auto' decides from the CN version, or from the source of a CN built here)"
+        required: false
+        default: "auto"
+        type: choice
+        options:
+          - auto
+          - "true"
+          - "false"
       mirror-node-version:
         description: "Mirror Node version ('latest', 'rc' or tag like 'v0.150.0')"
         required: false
@@ -202,7 +223,7 @@ on:
         required: false
         default: "5"
       test-definition:
-        description: "Test definitions (comma-separated): smoke-test, basic-load, high-load, node-restart-resilience, full-history-backfill, archive-backfill, plugin-profiles, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-cli-jumpstart-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-steps1-12, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, high-load, node-restart-resilience, full-history-backfill, archive-backfill, plugin-profiles, tss-block-proofs, wrb-cli-hash-validation, wrb-cli-wrapping-validation, wrb-cli-jumpstart-validation, wrb-differential-test, wrb-core-validation, rsa-roster-verification, wrb-distribution-steps1-12, chaos-foundation-smoke, latency-cn-to-cn, latency-cn-to-bn, latency-bn-to-bn, latency-all-three, latency-stress, latency-severe"
         required: false
         default: "none"
 
@@ -239,7 +260,7 @@ jobs:
       resolved-versions: ${{ steps.versions.outputs.cn_version }},${{ steps.versions.outputs.mn_version }},${{ steps.versions.outputs.bn_version }}
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
         with:
           egress-policy: audit
 
@@ -255,7 +276,7 @@ jobs:
           echo "workflow_start=$(date +%s)" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
 
@@ -267,7 +288,7 @@ jobs:
           version: v3.14.4
 
       - name: Setup Kind
-        uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
         with:
           install_only: true
           node_image: kindest/node:v1.31.4@sha256:2cb39f7295fe7eafee0842b1052a599a4fb0f8bcf3f83d96c7f4864c357c6c30
@@ -277,7 +298,7 @@ jobs:
           wait: 120s
 
       - name: Install JDK
-        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: "temurin"
           java-version: "25.0.2"
@@ -290,6 +311,8 @@ jobs:
       # Resolve 'latest' versions to actual GA releases
       - name: Resolve component versions
         id: versions
+        env:
+          CN_NOVA_WRAPS_INPUT: ${{ inputs.consensus-node-nova-wraps }}
         run: |
           OUTPUT=$(./tools-and-tests/scripts/solo-e2e-test/scripts/resolve-versions.sh \
             "${{ inputs.consensus-node-version }}" \
@@ -336,13 +359,30 @@ jobs:
             echo "cn_needs_local_build=false" >> "${GITHUB_OUTPUT}"
           fi
 
+          # CN_NOVA_WRAPS tells the deploy and CN upgrade scripts whether the Consensus Node is on
+          # the Nova WRAPS TSS library, which needs no WRAPS proving key and no tss.wraps*
+          # properties (cn_needs_wraps_proving_key in lib/cn-application-properties.sh). 'auto'
+          # leaves it unset here: a CN built from source below is checked directly, any other CN
+          # is decided from its version.
+          case "${CN_NOVA_WRAPS_INPUT:-auto}" in
+            true|false)
+              echo "CN_NOVA_WRAPS=${CN_NOVA_WRAPS_INPUT}" >> "${GITHUB_ENV}"
+              ;;
+            auto|"")
+              ;;
+            *)
+              echo "::error::consensus-node-nova-wraps must be 'auto', 'true' or 'false', got '${CN_NOVA_WRAPS_INPUT}'"
+              exit 1
+              ;;
+          esac
+
       # Only for a -SNAPSHOT Consensus Node: build it from source, since no artifact exists.
       - name: Checkout Consensus Node source
         if: steps.versions.outputs.cn_needs_local_build == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: hiero-ledger/hiero-consensus-node
-          ref: main
+          ref: ${{ inputs.consensus-node-ref || 'main' }}
           path: hiero-consensus-node
           fetch-depth: 1
 
@@ -350,8 +390,28 @@ jobs:
         id: cn-build
         if: steps.versions.outputs.cn_needs_local_build == 'true'
         working-directory: hiero-consensus-node
+        env:
+          CN_REF: ${{ inputs.consensus-node-ref || 'main' }}
         run: |
-          echo "Building Consensus Node $(cat version.txt) at $(git rev-parse --short HEAD)"
+          echo "Building Consensus Node $(cat version.txt) at $(git rev-parse --short HEAD) (ref ${CN_REF})"
+
+          # A CN built from source reports its branch's version.txt (CN main still reads
+          # 0.79.0-SNAPSHOT), which cannot tell whether it carries the Nova WRAPS TSS library.
+          # That library removed the tss.wrapsProvingKey* properties from the CN's TssConfig, so
+          # read the answer from the source unless consensus-node-nova-wraps already set it.
+          TSS_CONFIG="hedera-node/hedera-config/src/main/java/com/hedera/node/config/data/TssConfig.java"
+          if [[ -n "${CN_NOVA_WRAPS:-}" ]]; then
+            echo "CN_NOVA_WRAPS=${CN_NOVA_WRAPS} (set by the consensus-node-nova-wraps input)"
+          elif [[ ! -f "${TSS_CONFIG}" ]]; then
+            echo "::warning::${TSS_CONFIG} not found; the Nova WRAPS TSS library is decided from the CN version ${CN_VERSION}"
+          elif grep -q 'wrapsProvingKeyDownloadEnabled' "${TSS_CONFIG}"; then
+            echo "CN_NOVA_WRAPS=false" >> "${GITHUB_ENV}"
+            echo "CN_NOVA_WRAPS=false (TssConfig still defines the WRAPS proving key properties)"
+          else
+            echo "CN_NOVA_WRAPS=true" >> "${GITHUB_ENV}"
+            echo "CN_NOVA_WRAPS=true (TssConfig defines no WRAPS proving key properties)"
+          fi
+
           ./gradlew assemble --no-daemon
           # Solo wants the data directory itself and validates it holds apps/ and lib/.
           CN_DATA_DIR="${PWD}/hedera-node/data"
@@ -479,6 +539,8 @@ jobs:
             echo "| Component | Requested | Resolved |"
             echo "|-----------|-----------|----------|"
             echo "| Consensus Node | \`${{ inputs.consensus-node-version || 'latest' }}\` | \`${{ steps.versions.outputs.cn_version }}\` |"
+            echo "| Consensus Node source ref (-SNAPSHOT only) | \`${{ inputs.consensus-node-ref || 'main' }}\` | |"
+            echo "| CN on Nova WRAPS TSS library | \`${{ inputs.consensus-node-nova-wraps || 'auto' }}\` | \`${CN_NOVA_WRAPS:-by version}\` |"
             echo "| Mirror Node | \`${{ inputs.mirror-node-version || 'latest' }}\` | \`${{ steps.versions.outputs.mn_version }}\` |"
             echo "| Block Node | \`${{ inputs.block-node-version || 'latest' }}\` | \`${{ steps.versions.outputs.bn_version }}\` |"
             echo "| Relay | \`${{ inputs.relay-version || 'latest' }}\` | \`${{ steps.versions.outputs.relay_version }}\` |"
@@ -1008,7 +1070,7 @@ jobs:
           fi
 
       - name: BN Based - SDK TCK Regression Test Report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled()  &&  inputs.run-tck-regression-tests }}
         with:
           name: SDK TCK Regression Test Report-${{ inputs.topology }}
@@ -1160,7 +1222,7 @@ jobs:
       - name: Upload CN Logs
         if: always()
         id: upload_logs_cn
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cn-logs-${{ inputs.topology }}
           path: ${{ env.CN_LOG_FOLDER }}/
@@ -1169,7 +1231,7 @@ jobs:
         if: always()
         continue-on-error: true
         id: upload_logs_bn
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: BN-logs-${{ inputs.topology }}
           path: bn-logs/
@@ -1178,7 +1240,7 @@ jobs:
         if: always()
         continue-on-error: true
         id: upload_logs_mn
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: MN-logs-${{ inputs.topology }}
           path: mn-logs/

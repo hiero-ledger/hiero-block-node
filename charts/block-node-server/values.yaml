@@ -33,6 +33,8 @@ securityContext: {}
   #   drop:
   #   - ALL
   # readOnlyRootFilesystem: true
+  #   With a read-only root filesystem, mount a writable emptyDir at /tmp (not noexec): the TSS
+  #   library extracts its native libraries (a few MB) into java.io.tmpdir at start.
   # runAsNonRoot: true
 # runAsUser: 1000
 
@@ -110,7 +112,7 @@ affinity: {}
 plugins:
   # maven: download plugins.names at pod start; image: select them from hiero-block-node-full's catalog
   source: maven
-  names: "backfill,block-access-service,block-verification,blocks-file-historic,blocks-file-recent,facility-messaging,health,roster-bootstrap-rsa,roster-bootstrap-tss,server-status,stream-publisher,stream-subscriber"
+  names: "backfill,block-access-service,block-verification,blocks-file-historic,blocks-file-recent,facility-app-state,facility-messaging,health,roster-bootstrap-rsa,roster-bootstrap-tss,server-status,stream-publisher,stream-subscriber"
   # image for resolving and downloading the above plugins, should have JDK 25 and maven
   mavenImage: "maven:3-eclipse-temurin-25-alpine"
   # Third-party plugins with full Maven coordinates (groupId:artifactId:version).
@@ -227,6 +229,20 @@ blockNode:
       # storageClass: "your-storage-class"
       # Optionally specify an existing PVC name instead of creating via volumeClaimTemplate
       # existingClaim: "my-archive-pvc"
+      # Optionally have the chart create a PV and bound PVC (same options on every volume).
+      # Mutually exclusive with existingClaim.
+      # pv:
+      #   path: /mnt/fast-storage/block-node/archive
+      #   type: hostPath  # hostPath | local (local requires nodeAffinity)
+      #   hostPathType: DirectoryOrCreate
+      #   nodeAffinity: {}
+      #   storageClassName: ""
+      #   reclaimPolicy: Retain
+      #   mountOptions: []
+      #   accessModes: [ReadWriteOnce]
+      #   volumeMode: Filesystem
+      #   name: ""
+      #   claimName: ""
     logging:
       # name of the volume within the statefulset
       volumeName: "logging-storage"

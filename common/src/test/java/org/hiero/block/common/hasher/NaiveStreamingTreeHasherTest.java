@@ -157,6 +157,20 @@ class NaiveStreamingTreeHasherTest {
             final ByteBuffer anotherLeaf = ByteBuffer.wrap(randomHash());
             assertThatThrownBy(() -> hasher.addLeaf(anotherLeaf)).isInstanceOf(IllegalStateException.class);
         }
+
+        /// This test aims to assert that a null buffer fails before the state changes, so it can
+        /// never enter the tree: the root afterwards is the root of the leaves added before.
+        @Test
+        @DisplayName("addLeaf() fails on a null buffer without changing the state")
+        void testNullBufferFailsWithoutChangingState() throws NoSuchAlgorithmException {
+            final byte[] first = randomHash();
+            final byte[] second = randomHash();
+            final NaiveStreamingTreeHasher hasher = new NaiveStreamingTreeHasher();
+            hasher.addLeaf(ByteBuffer.wrap(first));
+            assertThatThrownBy(() -> hasher.addLeaf(null)).isInstanceOf(NullPointerException.class);
+            hasher.addLeaf(ByteBuffer.wrap(second));
+            assertThat(hasher.rootHash()).isEqualTo(Bytes.wrap(refNode(first, second)));
+        }
     }
 
     private static byte[][] randomHashes(final int count) {

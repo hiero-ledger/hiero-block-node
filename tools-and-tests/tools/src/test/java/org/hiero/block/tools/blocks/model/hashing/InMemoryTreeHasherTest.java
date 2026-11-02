@@ -2,6 +2,7 @@
 package org.hiero.block.tools.blocks.model.hashing;
 
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
+import static org.hiero.block.tools.utils.Sha256.SHA_256_HASH_SIZE;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.nio.file.Path;
@@ -196,8 +197,8 @@ class InMemoryTreeHasherTest {
         assertArrayEquals(
                 EMPTY_TREE_HASH,
                 rootHash,
-                "Empty tree root hash should equal EMPTY_TREE_HASH (sha384Hash(new byte[]{0x00}))");
-        assertEquals(48, rootHash.length, "Empty tree hash should be 48 bytes (SHA-384)");
+                "Empty tree root hash should equal EMPTY_TREE_HASH (sha256Hash(new byte[]{0x00}))");
+        assertEquals(SHA_256_HASH_SIZE, rootHash.length, "Empty tree hash should be 32 bytes (SHA-256)");
     }
 
     /**

@@ -16,7 +16,7 @@ jobs:
     runs-on: hl-bn-lin-md
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
         with:
           egress-policy: audit
 
@@ -31,7 +31,7 @@ jobs:
           version: v3.14.4
 
       - name: Setup Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.11" # we need 3.11 as latest since ct is not compatible with > 3.12 yet
           check-latest: false
@@ -40,7 +40,7 @@ jobs:
         uses: helm/chart-testing-action@6ec842c01de15ebb84c8627d2744a0c2f2755c9f # v2.8.0
 
       - name: Set up Java
-        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: 25
@@ -61,7 +61,7 @@ jobs:
         id: install-needed
         run: |
           changed_files=$(git diff --name-only origin/${{ github.event.repository.default_branch }}...HEAD)
-          if echo "$changed_files" | grep -qE "^(block-node/app/(docker/|start-script/|build\.gradle\.kts)|charts/|tools-and-tests/simulator/(docker/|build\.gradle\.kts))"; then
+          if echo "$changed_files" | grep -qE "^(block-node/app/(docker/|start-script/|build\.gradle\.kts)|charts/|tools-and-tests/scripts/(chart-tests|lib)/|tools-and-tests/simulator/(docker/|start-script/|build\.gradle\.kts))"; then
             echo "needed=true" >> "$GITHUB_OUTPUT"
             echo "Image/chart/build files changed - will build and test"
           else
@@ -71,7 +71,7 @@ jobs:
 
       - name: Create kind cluster
         if: steps.install-needed.outputs.needed == 'true'
-        uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
 
       - name: Build Docker images
         if: steps.install-needed.outputs.needed == 'true'
@@ -93,6 +93,10 @@ jobs:
           helm repo add grafana https://grafana.github.io/helm-charts
           helm dependency update charts/block-node-server
 
+      - name: Use PR build of plugins not yet in Maven
+        if: steps.install-needed.outputs.needed == 'true'
+        run: bash tools-and-tests/scripts/chart-tests/prepare-pr-plugins.sh "$(cat version.txt)" chart-testing
+
       - name: Run chart-testing (install)
         if: steps.install-needed.outputs.needed == 'true'
         run: ${CGEXEC} ct install --config ct.yaml --all
@@ -103,7 +107,7 @@ jobs:
     runs-on: hl-bn-lin-md
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
         with:
           egress-policy: audit
 
@@ -169,13 +173,61 @@ jobs:
             exit 1
           fi
 
+      - name: Verify chart-managed PV/PVC render
+        if: steps.render-needed.outputs.needed == 'true'
+        run: |
+          helm template pv-render-test charts/block-node-server --namespace bn \
+            --values charts/block-node-server/ci/pv-hostpath/values.yaml \
+            --show-only templates/persistence.yaml --show-only templates/statefulset.yaml > rendered-pv.yaml
+          for expected in \
+            "name: bn-pv-render-test-block-node-server-live-storage" \
+            "volumeName: bn-pv-render-test-block-node-server-live-storage" \
+            "claimName: pv-render-test-block-node-server-live-storage" \
+            "claimName: pv-render-test-block-node-server-archive-storage" \
+            "path: /mnt/block-node/live" \
+            "type: DirectoryOrCreate" \
+            "path: /mnt/block-node/archive" \
+            "storageClassName: \"local-storage\"" \
+            "- bn-node-1"; do
+            if ! grep -qF -- "$expected" rendered-pv.yaml; then
+              echo "::error::rendered PV/PVC output is missing: $expected"
+              exit 1
+            fi
+          done
+          if sed -n '/volumeClaimTemplates:/,$p' rendered-pv.yaml | grep -qE "name: (live|archive)-storage$"; then
+            echo "::error::chart-managed volumes must not render a volumeClaimTemplate"
+            exit 1
+          fi
+
+      - name: Verify chart-managed PV/PVC validation
+        if: steps.render-needed.outputs.needed == 'true'
+        run: |
+          expect_fail() {
+            local expected=$1
+            shift
+            local out
+            if out=$(helm template pv-render-test charts/block-node-server \
+                --values charts/block-node-server/ci/pv-hostpath/values.yaml "$@" 2>&1); then
+              echo "::error::render succeeded, expected failure: $expected"
+              exit 1
+            fi
+            if ! grep -qF -- "$expected" <<<"$out"; then
+              echo "::error::expected '$expected', got: $out"
+              exit 1
+            fi
+          }
+          expect_fail "pv.nodeAffinity is required when pv.type is local" --set blockNode.persistence.archive.pv.nodeAffinity=null
+          expect_fail "pv.path and blockNode.persistence.live.existingClaim are mutually exclusive" --set blockNode.persistence.live.existingClaim=my-pvc
+          expect_fail "cannot be shared by 2 replicas" --set replicaCount=2
+          expect_fail 'pv.type must be one of hostPath, local, got "nfs"' --set blockNode.persistence.live.pv.type=nfs
+
   multi-port-install-test:
     timeout-minutes: 30
     name: Multi-Port Plugin Install Test
     runs-on: hl-bn-lin-md
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
         with:
           egress-policy: audit
 
@@ -188,7 +240,7 @@ jobs:
         id: install-needed
         run: |
           changed_files=$(git diff --name-only origin/${{ github.event.repository.default_branch }}...HEAD)
-          if echo "$changed_files" | grep -qE "^(block-node/app/(docker/|start-script/|build\.gradle\.kts)|charts/|tools-and-tests/simulator/(docker/|build\.gradle\.kts))"; then
+          if echo "$changed_files" | grep -qE "^(block-node/app/(docker/|start-script/|build\.gradle\.kts)|charts/|tools-and-tests/scripts/(chart-tests|lib)/|tools-and-tests/simulator/(docker/|start-script/|build\.gradle\.kts))"; then
             echo "needed=true" >> "$GITHUB_OUTPUT"
             echo "Image/chart/build files changed - will run multi-port test"
           else
@@ -204,14 +256,14 @@ jobs:
 
       - name: Set up Java
         if: steps.install-needed.outputs.needed == 'true'
-        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: 25
 
       - name: Create kind cluster
         if: steps.install-needed.outputs.needed == 'true'
-        uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
 
       - name: Build Docker images
         if: steps.install-needed.outputs.needed == 'true'
@@ -230,6 +282,10 @@ jobs:
           helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
           helm repo add grafana https://grafana.github.io/helm-charts
           helm dependency update charts/block-node-server
+
+      - name: Use PR build of plugins not yet in Maven
+        if: steps.install-needed.outputs.needed == 'true'
+        run: bash tools-and-tests/scripts/chart-tests/prepare-pr-plugins.sh "$(cat version.txt)" chart-testing
 
       - name: Install chart with multi-port values
         if: steps.install-needed.outputs.needed == 'true'
@@ -332,7 +388,7 @@ jobs:
     runs-on: hl-bn-lin-md
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
         with:
           egress-policy: audit
 
@@ -345,7 +401,7 @@ jobs:
         id: install-needed
         run: |
           changed_files=$(git diff --name-only origin/${{ github.event.repository.default_branch }}...HEAD)
-          if echo "$changed_files" | grep -qE "^(block-node/app/(docker/|start-script/|build\.gradle\.kts)|charts/|tools-and-tests/simulator/(docker/|build\.gradle\.kts))"; then
+          if echo "$changed_files" | grep -qE "^(block-node/app/(docker/|start-script/|build\.gradle\.kts)|charts/|tools-and-tests/scripts/(chart-tests|lib)/|tools-and-tests/simulator/(docker/|start-script/|build\.gradle\.kts))"; then
             echo "needed=true" >> "$GITHUB_OUTPUT"
             echo "Image/chart/build files changed - will run LB multi-port test"
           else
@@ -361,14 +417,14 @@ jobs:
 
       - name: Set up Java
         if: steps.install-needed.outputs.needed == 'true'
-        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: 25
 
       - name: Create kind cluster
         if: steps.install-needed.outputs.needed == 'true'
-        uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
 
       - name: Build Docker images
         if: steps.install-needed.outputs.needed == 'true'
@@ -387,6 +443,10 @@ jobs:
           helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
           helm repo add grafana https://grafana.github.io/helm-charts
           helm dependency update charts/block-node-server
+
+      - name: Use PR build of plugins not yet in Maven
+        if: steps.install-needed.outputs.needed == 'true'
+        run: bash tools-and-tests/scripts/chart-tests/prepare-pr-plugins.sh "$(cat version.txt)" chart-testing
 
       - name: Install chart with LB multi-port values
         if: steps.install-needed.outputs.needed == 'true'

@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#
+# Fake grpcurl for the real monitor-block-proofs.sh: blocks below 25 carry the older
+# Schnorr layout (2920 bytes), later blocks the Nova layout (13712 bytes). A chain never
+# mixes the two, so the monitor must fail as soon as it samples both.
+set -euo pipefail
+FIXTURES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# The monitor passes -d {"block_number": N}; pick N out of the arguments.
+block=$(printf "%s\n" "$@" | sed -n 's/.*"block_number": *\([0-9][0-9]*\).*/\1/p')
+if [[ "${block}" -lt 25 ]]; then
+  "${FIXTURES_DIR}/fake-block-json.sh" signed 2920
+else
+  "${FIXTURES_DIR}/fake-block-json.sh" signed 13712
+fi

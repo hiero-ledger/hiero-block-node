@@ -2,6 +2,7 @@
 package org.hiero.block.common.hasher;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.nio.ByteBuffer;
@@ -13,6 +14,8 @@ import java.util.Random;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /// Tests for the [StreamingHasher] class, the hasher of the all previous block hashes tree.
 /// Expected values are produced by a local reference implementation of the leaf and node hashes
@@ -143,6 +146,99 @@ class StreamingHasherTest {
             assertThat(hasher.leafCount()).isEqualTo(1L);
             hasher.addNodeByHash(randomBytes(HASH_SIZE));
             assertThat(hasher.leafCount()).isEqualTo(2L);
+        }
+
+        /// This test aims to assert that a state with an entry that is not one SHA-256 digest, for
+        /// example a state saved while the tree was hashed with SHA-384, is refused when resuming,
+        /// instead of being mixed into a tree of SHA-256 digests.
+        @ParameterizedTest(name = "entry of {0} bytes")
+        @ValueSource(ints = {0, 31, 33, 48})
+        @DisplayName("resume refuses a state entry that is not one SHA-256 digest")
+        void testResumeRefusesEntryOfOtherSize(final int entrySize) {
+            final List<byte[]> savedState = List.of(randomBytes(HASH_SIZE), randomBytes(entrySize));
+            assertThatThrownBy(() -> new StreamingHasher(savedState, 3L))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("entry 1")
+                    .hasMessageContaining(String.valueOf(entrySize));
+        }
+    }
+
+    /// Tests for the handling of leaf data and node hashes the hasher cannot use as given.
+    @Nested
+    @DisplayName("Input Handling Tests")
+    class InputHandlingTests {
+        /// This test aims to assert that a null leaf is hashed as a leaf without data, the prefixed
+        /// digest of no bytes `hash(0x00)`, rather than failing.
+        @Test
+        @DisplayName("addLeaf() hashes a null leaf as empty leaf data")
+        void testNullLeafHashedAsEmptyLeaf() throws NoSuchAlgorithmException {
+            final StreamingHasher hasher = new StreamingHasher();
+            hasher.addLeaf(null);
+            assertThat(hasher.computeRootHash()).isEqualTo(refLeaf(new byte[0]));
+            assertThat(hasher.leafCount()).isEqualTo(1L);
+        }
+
+        /// This test aims to assert that a null leaf in the middle of a sequence takes exactly the
+        /// place of an empty leaf: the hasher stays usable and the root equals the root of the same
+        /// sequence with an empty leaf in that position.
+        @Test
+        @DisplayName("addLeaf() with a null leaf keeps the hasher usable")
+        void testNullLeafKeepsHasherUsable() throws NoSuchAlgorithmException {
+            final byte[][] data = {randomBytes(10), randomBytes(20), randomBytes(30)};
+            final StreamingHasher withNull = new StreamingHasher();
+            final StreamingHasher withEmpty = new StreamingHasher();
+            withNull.addLeaf(data[0]);
+            withEmpty.addLeaf(data[0]);
+            withNull.addLeaf(null);
+            withEmpty.addLeaf(new byte[0]);
+            withNull.addLeaf(data[1]);
+            withEmpty.addLeaf(data[1]);
+            withNull.addLeaf(data[2]);
+            withEmpty.addLeaf(data[2]);
+            assertThat(withNull.computeRootHash()).isEqualTo(withEmpty.computeRootHash());
+            final byte[] expected = refNode(
+                    refNode(refLeaf(data[0]), refLeaf(new byte[0])), refNode(refLeaf(data[1]), refLeaf(data[2])));
+            assertThat(withNull.computeRootHash()).isEqualTo(expected);
+        }
+
+        /// This test aims to assert that a node hash that is not one SHA-256 digest, for example a
+        /// SHA-384 block root hash, is refused before the state changes: the leaf count and the root
+        /// are the same as before the call, and the hasher keeps computing correct roots.
+        @ParameterizedTest(name = "node hash of {0} bytes")
+        @ValueSource(ints = {0, 31, 33, 48})
+        @DisplayName("addNodeByHash() refuses a hash that is not one SHA-256 digest")
+        void testNodeOfOtherSizeRefused(final int hashSize) throws NoSuchAlgorithmException {
+            final byte[] first = randomBytes(HASH_SIZE);
+            final StreamingHasher hasher = new StreamingHasher();
+            hasher.addNodeByHash(first);
+            final byte[] rootBefore = hasher.computeRootHash();
+            final byte[] wrongSize = randomBytes(hashSize);
+            assertThatThrownBy(() -> hasher.addNodeByHash(wrongSize))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining(String.valueOf(hashSize));
+            assertThat(hasher.leafCount()).isEqualTo(1L);
+            assertThat(hasher.computeRootHash()).isEqualTo(rootBefore);
+            final byte[] second = randomBytes(HASH_SIZE);
+            hasher.addNodeByHash(second);
+            assertThat(hasher.computeRootHash()).isEqualTo(refNode(first, second));
+        }
+
+        /// This test aims to assert that a null node hash fails before the state changes, so it
+        /// can never enter the tree: the leaf count and the root are the same as before the call,
+        /// and the hasher keeps computing correct roots afterwards.
+        @Test
+        @DisplayName("addNodeByHash() fails on a null hash without changing the state")
+        void testNullNodeFailsWithoutChangingState() throws NoSuchAlgorithmException {
+            final byte[] first = randomBytes(HASH_SIZE);
+            final StreamingHasher hasher = new StreamingHasher();
+            hasher.addNodeByHash(first);
+            final byte[] rootBefore = hasher.computeRootHash();
+            assertThatThrownBy(() -> hasher.addNodeByHash(null)).isInstanceOf(NullPointerException.class);
+            assertThat(hasher.leafCount()).isEqualTo(1L);
+            assertThat(hasher.computeRootHash()).isEqualTo(rootBefore);
+            final byte[] second = randomBytes(HASH_SIZE);
+            hasher.addNodeByHash(second);
+            assertThat(hasher.computeRootHash()).isEqualTo(refNode(first, second));
         }
     }
 
