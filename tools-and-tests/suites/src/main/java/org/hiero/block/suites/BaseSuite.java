@@ -434,6 +434,31 @@ public abstract class BaseSuite {
     }
 
     /**
+     * Starts a publisher simulator and waits until the block node has answered it once, which
+     * proves the publisher is connected and streaming. Tests that only need a live publisher
+     * should use this rather than waiting for several acknowledgements, whose rate depends on
+     * runner load.
+     *
+     * @param publisher the publisher simulator to start
+     * @param timeout the maximum time to wait for the first response
+     * @return a {@link Future} representing the asynchronous execution of the publisher simulator
+     */
+    protected Future<?> startPublisherAndAwaitFirstResponse(
+            final BlockStreamSimulatorApp publisher, final Duration timeout) {
+        final Future<?> publisherThread = startSimulatorInThread(publisher);
+        waitFor(
+                () -> !publisher
+                        .getStreamStatus()
+                        .lastKnownPublisherClientStatuses()
+                        .isEmpty(),
+                timeout);
+        if (!publisher.isRunning()) {
+            fail("Publisher simulator stopped after its first response");
+        }
+        return publisherThread;
+    }
+
+    /**
      * Polls the given condition until it becomes true, sleeping briefly between polls. Fails the
      * calling test if the condition is not met within the timeout, so a dead counterpart (for
      * example a simulator that never produced a status) fails fast instead of spinning until the
