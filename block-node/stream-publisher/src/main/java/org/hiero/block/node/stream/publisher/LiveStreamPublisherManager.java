@@ -306,13 +306,14 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     @Override
     public void registerQueueForBlock(
             final long handlerId, final Deque<BlockItemSetUnparsed> queue, final long blockNumber) {
-        queueByBlockMap.put(blockNumber, queue);
         // A new queue always starts a fresh attempt at this block. Any proof or end-of-block marker
         // collected for an earlier attempt belongs to a different publisher stream and must not be
         // combined with this queue, whether or not the previous queue is still in the map. A stale
         // proof would otherwise hide the new queue from the forwarder and be sent on its own as the
-        // end of a block whose header and body were never forwarded.
+        // end of a block whose header and body were never forwarded. Clear before publishing the
+        // queue so the forwarder can never see the new queue together with stale state.
         clearCollectedBlockEnd(blockNumber);
+        queueByBlockMap.put(blockNumber, queue);
         // Record which handler won ACCEPT for this block so stall detection
         // can identify and terminate a silent publisher.
         activeStreamHandlerByBlock.put(blockNumber, handlerId);
@@ -760,8 +761,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                         || hasBlockProof(queueByBlockMap.get(candidate))
                         || isResendingLive(candidate))) {
                     queueByBlockMap.remove(candidate);
-                    // possibly remove a just collected block proof
-                    blockProofs.remove(candidate);
+                    // possibly remove a just collected block proof and end-of-block marker
+                    clearCollectedBlockEnd(candidate);
                     // remove from stall-detection tracking; this block is now obsolete
                     // This should not actually be needed, but it's here for a rare corner case
                     activeStreamHandlerByBlock.remove(candidate);
@@ -884,7 +885,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         String correlationId = stalledHandler != null ? stalledHandler.getCorrelationId() : "";
         LOGGER.log(DEBUG, logMessage, correlationId, handlerId, stalledBlock, completedBlock);
         queueByBlockMap.remove(stalledBlock);
-        blockProofs.remove(stalledBlock);
+        clearCollectedBlockEnd(stalledBlock);
         if (stalledHandler != null) {
             stalledHandler.endStreamWithCode(TIMEOUT, true, stalledBlock);
         }
@@ -1032,8 +1033,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// messaging an end-of-block for a block whose header and body it never received, and the block
     /// would be lost without ever being retried.
     ///
-    /// @param blockNumber the block to discard and schedule for resend
-    private boolean discardInconsistentBlock(final long blockNumber) {
+    /// @param blockNumber the block to check, and to discard and schedule for resend if inconsistent
+    /// @return true if the block was inconsistent and has been discarded, false otherwise
+    private boolean discardIfInconsistent(final long blockNumber) {
         boolean discarded = false;
         final Deque<BlockItemSetUnparsed> unforwarded = queueByBlockMap.get(blockNumber);
         if (endBlocksReceived.contains(blockNumber)
@@ -1534,7 +1536,11 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                             final int itemsSent;
                             if (hasBlockProof) {
                                 final List<BlockItemUnparsed> currentItems = currentBatch.blockItems();
-                                publisherManager.blockProofs.put(currentBlockNumber, currentItems.getLast());
+                                // Only record the proof if this queue is still the registered one; a
+                                // new attempt may have replaced it while we were forwarding.
+                                if (publisherManager.queueByBlockMap.get(currentBlockNumber) == queueToForward) {
+                                    publisherManager.blockProofs.put(currentBlockNumber, currentItems.getLast());
+                                }
                                 if (currentItems.size() > 1) {
                                     // send all but the block proof
                                     final List<BlockItemUnparsed> blocksToSend =
@@ -1573,7 +1579,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                     }
                 } else {
                     if (publisherManager.endBlocksReceived.contains(currentBlockNumber)
-                            && !publisherManager.discardInconsistentBlock(currentBlockNumber)) {
+                            && !publisherManager.discardIfInconsistent(currentBlockNumber)) {
                         // Send the proof
                         final BlockItemUnparsed proof = publisherManager.blockProofs.remove(currentBlockNumber);
                         if (proof != null) {
