@@ -2,6 +2,7 @@
 package org.hiero.block.node.backfill;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -19,6 +20,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
@@ -315,6 +317,14 @@ class BackfillRunnerTest {
             verify(mockFetcher).fetchBlocksFromNode(eq(nodeConfig), any());
         }
 
+        /**
+         * This test aims to assert that when the first selected node cannot serve a chunk (its range does not cover
+         * the gap start, so no chunk can be computed), the runner moves on to the next node and backfills the whole
+         * gap from it. The block fetched from the good node is sent to the unvalidated block handler, which confirms
+         * its persistence, so the runner must report the gap end as the last successful block. If the fetched block
+         * were never delivered, its persistence would time out and the runner would report the block before the gap
+         * start instead.
+         */
         @Test
         @DisplayName("should continue when chunk is null but other nodes available")
         void shouldContinueWhenChunkNullButOtherNodesAvailable() throws Exception {
@@ -339,7 +349,7 @@ class BackfillRunnerTest {
             when(mockFetcher.fetchBlocksFromNode(eq(goodNode), any())).thenReturn(List.of(testBlock));
 
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
-            messaging.registerBlockNotificationHandler(
+            messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
                         public void handleBackfilled(BackfilledBlockNotification notification) {
@@ -351,13 +361,22 @@ class BackfillRunnerTest {
                     "test-persistence-handler");
 
             // when
-            subject.run(gap);
+            long lastSuccessful = subject.run(gap);
 
             // then - should have fetched from goodNode after badNode's chunk was null
             verify(mockFetcher).fetchBlocksFromNode(eq(goodNode), any());
+            // and - the fetched block was confirmed persisted, so the whole gap counts as backfilled
+            assertEquals(105L, lastSuccessful, "The whole gap should be backfilled from the good node");
             verify(mockFetchedBlocksCounter).increment();
         }
 
+        /**
+         * This test aims to assert that when no node can be selected for the first chunk, the runner records a fetch
+         * error, plans the availability again and backfills the gap from the node the new plan offers. The fetched
+         * block is sent to the unvalidated block handler, which confirms its persistence, so the runner must report
+         * the gap end as the last successful block. If the fetched block were never delivered, its persistence would
+         * time out and the runner would report the block before the gap start instead.
+         */
         @Test
         @DisplayName("should continue after replan when selectNextChunk returns empty")
         void shouldContinueAfterReplanOnEmptySelection() throws Exception {
@@ -384,7 +403,7 @@ class BackfillRunnerTest {
             when(mockFetcher.fetchBlocksFromNode(eq(nodeConfig), any())).thenReturn(List.of(testBlock));
 
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
-            messaging.registerBlockNotificationHandler(
+            messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
                         public void handleBackfilled(BackfilledBlockNotification notification) {
@@ -396,13 +415,21 @@ class BackfillRunnerTest {
                     "test-persistence-handler");
 
             // when
-            subject.run(gap);
+            long lastSuccessful = subject.run(gap);
 
             // then - should have succeeded after replan
             verify(mockFetchErrorsCounter).increment(); // First attempt failed
             verify(mockFetchedBlocksCounter).increment(); // After replan succeeded
+            assertEquals(0L, lastSuccessful, "The gap should be backfilled after the replan");
         }
 
+        /**
+         * This test aims to assert that when the selected node returns no blocks, the runner plans the availability
+         * again and backfills the gap from the other node the new plan offers. The block fetched from the good node is
+         * sent to the unvalidated block handler, which confirms its persistence, so the runner must report the gap end
+         * as the last successful block. If the fetched block were never delivered, its persistence would time out and
+         * the runner would report the block before the gap start instead.
+         */
         @Test
         @DisplayName("should continue after replan when fetch returns empty")
         void shouldContinueAfterReplanOnEmptyFetch() throws Exception {
@@ -430,7 +457,7 @@ class BackfillRunnerTest {
             when(mockFetcher.fetchBlocksFromNode(eq(goodNode), any())).thenReturn(List.of(testBlock));
 
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
-            messaging.registerBlockNotificationHandler(
+            messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
                         public void handleBackfilled(BackfilledBlockNotification notification) {
@@ -442,12 +469,13 @@ class BackfillRunnerTest {
                     "test-persistence-handler");
 
             // when
-            subject.run(gap);
+            long lastSuccessful = subject.run(gap);
 
             // then - should have succeeded with goodNode after replan
             verify(mockFetcher).fetchBlocksFromNode(eq(badNode), any());
             verify(mockFetcher).fetchBlocksFromNode(eq(goodNode), any());
             verify(mockFetchedBlocksCounter).increment();
+            assertEquals(0L, lastSuccessful, "The gap should be backfilled from the good node after the replan");
         }
 
         @Test
@@ -477,6 +505,15 @@ class BackfillRunnerTest {
     @DisplayName("Backpressure Tests")
     class BackpressureTests {
 
+        /**
+         * This test aims to assert that the runner tracks a block with the persistence awaiter before it sends the
+         * block, and that the awaiter no longer tracks the block once its persistence is confirmed. The test messaging
+         * facility delivers the block on the sending thread, and the unvalidated block handler confirms persistence
+         * right away, so the confirmation arrives before the send returns. The awaiter only counts a confirmation for
+         * a tracked block, so the runner reports the block as backfilled only if it tracked the block before sending
+         * it. Afterwards, tracking the same block again must start a fresh wait that nothing has released yet, which
+         * shows the runner's entry for it was cleared.
+         */
         @Test
         @DisplayName("should track blocks before sending and clear after persistence")
         void shouldTrackBlocksBeforeSending() throws Exception {
@@ -497,7 +534,7 @@ class BackfillRunnerTest {
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
 
             // Register a handler that simulates immediate persistence (verification + persist flow)
-            messaging.registerBlockNotificationHandler(
+            messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
                         public void handleBackfilled(BackfilledBlockNotification notification) {
@@ -510,12 +547,16 @@ class BackfillRunnerTest {
                     "test-persistence-handler");
 
             // when
-            subject.run(gap);
+            long lastSuccessful = subject.run(gap);
 
-            // then
+            // then - the confirmation sent during the send was counted, so the block was tracked before it
             verify(mockFetchedBlocksCounter).increment();
-            // pendingBackfillBlocks was incremented when block was dispatched
-            // Note: we can't easily verify the exact increment since it's an AtomicLong, but the test passed
+            assertEquals(0L, lastSuccessful, "The block should count as persisted, so it was tracked before sending");
+            // and - tracking the block again starts a fresh wait, so the confirmed entry was cleared
+            persistenceAwaiter.trackBlock(0L);
+            assertFalse(
+                    persistenceAwaiter.awaitPersistence(0L, 0L),
+                    "The awaiter should no longer hold the confirmed entry for the block");
         }
 
         @Test
@@ -536,7 +577,7 @@ class BackfillRunnerTest {
 
             // Register persistence awaiter and simulate persistence
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
-            messaging.registerBlockNotificationHandler(
+            messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
                         public void handleBackfilled(BackfilledBlockNotification notification) {
@@ -639,7 +680,7 @@ class BackfillRunnerTest {
             when(mockFetcher.fetchBlocksFromNode(eq(nodeConfig), any())).thenReturn(List.of(testBlock));
 
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
-            messaging.registerBlockNotificationHandler(
+            messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
                         public void handleBackfilled(BackfilledBlockNotification notification) {
@@ -707,7 +748,7 @@ class BackfillRunnerTest {
             when(mockFetcher.fetchBlocksFromNode(eq(nodeConfig), any())).thenReturn(List.of(testBlock));
 
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
-            messaging.registerBlockNotificationHandler(
+            messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
                         public void handleBackfilled(BackfilledBlockNotification notification) {
@@ -850,7 +891,7 @@ class BackfillRunnerTest {
                     .thenReturn(List.of(createTestBlock(blockNumber)));
 
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
-            messaging.registerBlockNotificationHandler(
+            messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
                         public void handleBackfilled(BackfilledBlockNotification notification) {
@@ -888,7 +929,7 @@ class BackfillRunnerTest {
 
             // Register handlers for persistence flow
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
-            messaging.registerBlockNotificationHandler(
+            messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
                         public void handleBackfilled(BackfilledBlockNotification notification) {
@@ -954,7 +995,7 @@ class BackfillRunnerTest {
 
             // Register handlers for persistence flow
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
-            messaging.registerBlockNotificationHandler(
+            messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
                         public void handleBackfilled(BackfilledBlockNotification notification) {
@@ -1010,7 +1051,7 @@ class BackfillRunnerTest {
 
             // Register handlers for persistence flow
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
-            messaging.registerBlockNotificationHandler(
+            messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
                         public void handleBackfilled(BackfilledBlockNotification notification) {
@@ -1028,6 +1069,11 @@ class BackfillRunnerTest {
             verify(mockFetchedBlocksCounter).increment();
         }
 
+        /**
+         * This test aims to assert that the runner counts every block it dispatches as pending, and that a dispatched
+         * block actually reaches the unvalidated block handler. The gap holds a single block, so after the run the
+         * pending counter must be exactly one and the handler must have received exactly that block.
+         */
         @Test
         @DisplayName("should report block dispatched metric")
         void shouldReportBlockDispatched() throws Exception {
@@ -1044,12 +1090,14 @@ class BackfillRunnerTest {
                     .thenReturn(Optional.of(new NodeSelectionStrategy.NodeSelection(nodeConfig, 0L)));
             when(mockFetcher.fetchBlocksFromNode(eq(nodeConfig), any())).thenReturn(List.of(testBlock));
 
-            // Register handlers for persistence flow
+            // Register handlers for persistence flow, recording every block the handler receives
+            final List<Long> receivedBlocks = new CopyOnWriteArrayList<>();
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
-            messaging.registerBlockNotificationHandler(
+            messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
                         public void handleBackfilled(BackfilledBlockNotification notification) {
+                            receivedBlocks.add(notification.blockNumber());
                             messaging.sendBlockPersisted(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
                         }
@@ -1060,10 +1108,17 @@ class BackfillRunnerTest {
             // when
             subject.run(gap);
 
-            // then - pendingBackfillBlocks was incremented
-            assertTrue(pendingBackfillBlocks.get() >= 0, "pendingBackfillBlocks should have been incremented");
+            // then - the single block was counted as pending once and reached the handler
+            assertEquals(1L, pendingBackfillBlocks.get(), "The single dispatched block should be counted once");
+            assertEquals(List.of(0L), receivedBlocks, "The dispatched block should reach the handler");
         }
 
+        /**
+         * This test aims to assert that when a chunk holds several blocks, the runner counts every one of them as
+         * fetched and as pending, and that every one of them reaches the unvalidated block handler in order. The gap
+         * holds three blocks fetched in a single chunk, so after the run both counters must show exactly three and the
+         * handler must have received blocks 10, 11 and 12.
+         */
         @Test
         @DisplayName("should report multiple blocks fetched and dispatched")
         void shouldReportMultipleBlocks() throws Exception {
@@ -1084,12 +1139,14 @@ class BackfillRunnerTest {
             when(mockFetcher.fetchBlocksFromNode(eq(nodeConfig), any()))
                     .thenReturn(List.of(testBlock10, testBlock11, testBlock12));
 
-            // Register handlers for persistence flow
+            // Register handlers for persistence flow, recording every block the handler receives
+            final List<Long> receivedBlocks = new CopyOnWriteArrayList<>();
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
-            messaging.registerBlockNotificationHandler(
+            messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
                         public void handleBackfilled(BackfilledBlockNotification notification) {
+                            receivedBlocks.add(notification.blockNumber());
                             messaging.sendBlockPersisted(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
                         }
@@ -1100,9 +1157,10 @@ class BackfillRunnerTest {
             // when
             subject.run(gap);
 
-            // then
+            // then - each of the three blocks was counted as fetched and as pending once, and reached the handler
             verify(mockFetchedBlocksCounter, times(3)).increment();
-            // pendingBackfillBlocks was incremented 3 times when blocks were dispatched
+            assertEquals(3L, pendingBackfillBlocks.get(), "Each dispatched block should be counted once");
+            assertEquals(List.of(10L, 11L, 12L), receivedBlocks, "Every dispatched block should reach the handler");
         }
     }
 }
