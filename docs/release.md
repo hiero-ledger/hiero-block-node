@@ -60,12 +60,12 @@ Before triggering any workflow:
 
 **Inputs:**
 
-|      Input       |            Values             |                                                       Description                                                       |
-|------------------|-------------------------------|-------------------------------------------------------------------------------------------------------------------------|
-| `release_type`   | `rc`, `alpha`, `GA`, `custom` | No default — must be picked explicitly every run. The four types behave too differently to have a safe implicit choice. |
-| `custom_version` | free text                     | Required only when `release_type` is `custom` (e.g. `0.39.1`). Ignored for all other types.                             |
-| `allow_custom_without_release_branch` | boolean (default `false`) | `custom` only. Waives the rule that a plain `X.Y.Z` or rc-shaped `custom_version` must be dispatched from `release/X.Y`. |
-| `dry_run`        | boolean (default `true`)      | Computes the version and writes a job summary of what would happen. Creates no branch, commit, tag, release, milestone rollover or PR. Untick to release for real. |
+|                 Input                 |            Values             |                                                                            Description                                                                             |
+|---------------------------------------|-------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `release_type`                        | `rc`, `alpha`, `GA`, `custom` | No default — must be picked explicitly every run. The four types behave too differently to have a safe implicit choice.                                            |
+| `custom_version`                      | free text                     | Required only when `release_type` is `custom` (e.g. `0.39.1`). Ignored for all other types.                                                                        |
+| `allow_custom_without_release_branch` | boolean (default `false`)     | `custom` only. Waives the rule that a plain `X.Y.Z` or rc-shaped `custom_version` must be dispatched from `release/X.Y`.                                           |
+| `dry_run`                             | boolean (default `true`)      | Computes the version and writes a job summary of what would happen. Creates no branch, commit, tag, release, milestone rollover or PR. Untick to release for real. |
 
 Guards applied when computing the version: `rc` from `main` is only `rc1`; `rc` and `GA` must run
 from `release/X.Y` with a matching `version.txt`; `GA` is built from the highest `vX.Y.Z-rcN` tag
