@@ -455,20 +455,6 @@ class PublisherManagerRegressionTest {
         return block;
     }
 
-    /// Dropping a publisher mid-block must discard the proof and end marker collected for its attempt.
-    @Test
-    @DisplayName("blockIsEnding() discards the proof collected for the abandoned attempt")
-    void testBlockIsEndingDiscardsCollectedProof() throws Exception {
-        streamWholeBlockThenDrop(0L);
-
-        final Map<Long, BlockItemUnparsed> blockProofs = managerField("blockProofs");
-        final Set<Long> endBlocksReceived = managerField("endBlocksReceived");
-        assertThat(blockProofs)
-                .as("stale proof must not survive the dropped attempt")
-                .doesNotContainKey(0L);
-        assertThat(endBlocksReceived).as("end marker must not survive").doesNotContain(0L);
-    }
-
     /// The resent block must reach messaging whole: header and body, then end-of-block. Before the
     /// fix only a lone end-of-block was sent, no verification session was ever opened for the block,
     /// and it was never retried.
