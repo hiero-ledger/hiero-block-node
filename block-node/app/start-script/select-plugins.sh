@@ -9,7 +9,7 @@ if [ -n "${BN_PLUGINS:-}" ]; then
   [ -f "$manifest" ] && (cd "$APP_HOME/plugins" && xargs rm -f < "$manifest")
   : > "$manifest"
   for p in $selected; do
-    cp "$APP_HOME/plugin-catalog/$p/"*.jar "$APP_HOME/plugins/"
+    cp "$APP_HOME/plugin-catalog/$p/"*.jar "$APP_HOME/plugins/" || die "ERROR: could not copy plugin '$p' into $APP_HOME/plugins"
     ls "$APP_HOME/plugin-catalog/$p" >> "$manifest"
   done
 fi
