@@ -572,4 +572,3 @@ jobs:
 
           kill ${PF_PID} 2>/dev/null || true
           exit ${failed}
-
