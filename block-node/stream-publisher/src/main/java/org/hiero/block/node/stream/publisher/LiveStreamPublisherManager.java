@@ -1536,11 +1536,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                             final int itemsSent;
                             if (hasBlockProof) {
                                 final List<BlockItemUnparsed> currentItems = currentBatch.blockItems();
-                                // Only record the proof if this queue is still the registered one; a
-                                // new attempt may have replaced it while we were forwarding.
-                                if (publisherManager.queueByBlockMap.get(currentBlockNumber) == queueToForward) {
-                                    publisherManager.blockProofs.put(currentBlockNumber, currentItems.getLast());
-                                }
+                                publisherManager.blockProofs.put(currentBlockNumber, currentItems.getLast());
                                 if (currentItems.size() > 1) {
                                     // send all but the block proof
                                     final List<BlockItemUnparsed> blocksToSend =

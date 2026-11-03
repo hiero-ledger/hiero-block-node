@@ -11,9 +11,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.locks.Condition;
-import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.Predicate;
 import org.hiero.block.node.spi.blockmessaging.AddressBookHistoryNotification;
 import org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.AvailableBlocksNotification;
@@ -79,11 +76,6 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     private final Set<BlockItemHandler> handlersWithBackpressure =
             new ConcurrentSkipListSet<>(Comparator.comparingInt(Object::hashCode));
 
-    /** Guards the wait for block items, signalled each time block items are sent. */
-    private final ReentrantLock blockItemsLock = new ReentrantLock();
-    /** Signalled whenever new block items are recorded. */
-    private final Condition blockItemsSent = blockItemsLock.newCondition();
-
     /**
      * Get all block items sent to the block messaging facility.
      *
@@ -91,33 +83,6 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
      */
     public List<BlockItems> getSentBlockItems() {
         return sentBlockBlockItems;
-    }
-
-    /**
-     * Wait until a sent block item satisfies the given condition. The waiting thread is woken each time block items
-     * are sent, so no polling is involved. Meant for tests where another thread, such as a queue forwarder,
-     * delivers the block items.
-     *
-     * @param condition the condition a sent {@link BlockItems} must satisfy
-     * @param timeout the longest time to wait
-     * @return true if a sent block item satisfied the condition before the timeout, false otherwise
-     * @throws InterruptedException if the waiting thread is interrupted
-     */
-    public boolean awaitSentBlockItems(final Predicate<BlockItems> condition, final Duration timeout)
-            throws InterruptedException {
-        long remainingNanos = timeout.toNanos();
-        blockItemsLock.lock();
-        try {
-            while (!sentBlockBlockItems.stream().anyMatch(condition)) {
-                if (remainingNanos <= 0L) {
-                    return false;
-                }
-                remainingNanos = blockItemsSent.awaitNanos(remainingNanos);
-            }
-            return true;
-        } finally {
-            blockItemsLock.unlock();
-        }
     }
 
     /**
@@ -294,13 +259,7 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
                 blockItems.blockItems().size(),
                 blockItems.blockNumber(),
                 handlerCount);
-        blockItemsLock.lock();
-        try {
-            sentBlockBlockItems.add(blockItems);
-            blockItemsSent.signalAll();
-        } finally {
-            blockItemsLock.unlock();
-        }
+        sentBlockBlockItems.add(blockItems);
         boolean handlerHasBackpressure = false;
         for (BlockItemHandler handler : blockItemHandlers) {
             if (handlersWithBackpressure.contains(handler)) {
