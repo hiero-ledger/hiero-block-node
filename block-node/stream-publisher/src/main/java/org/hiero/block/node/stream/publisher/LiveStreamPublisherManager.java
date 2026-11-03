@@ -361,10 +361,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         // Remove this block from the ACCEPT winner tracking in all cases;
         // if the handler dropped mid-block there is no stall to detect here.
         activeStreamHandlerByBlock.remove(blockNumber);
-        // Drop the proof and end-of-block marker collected for the abandoned attempt, as
-        // endStalledBlock() does. The forwarder may already have polled the proof from the
-        // queue, and a proof left behind would be paired with the next attempt at this block.
-        clearCollectedBlockEnd(blockNumber);
         if (deque != null) {
             if (blockNumber > lastPersistedBlockNumber.get() && blockNumber < nextUnstreamedBlockNumber.get()) {
                 final String message = "Block {0} will be resent due to handler {1} ending mid block";
