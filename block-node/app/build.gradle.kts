@@ -16,12 +16,12 @@ description = "Hiero Block Node Server App"
 tasks.withType<JavaCompile>().configureEach { options.compilerArgs.add("-Xlint:-exports") }
 
 tasks.startScripts {
-    val modulePathSnippet = layout.projectDirectory.file("start-script/module-path.sh")
-    inputs.file(modulePathSnippet)
+    val selectPluginsSnippet = layout.projectDirectory.file("start-script/select-plugins.sh")
+    inputs.file(selectPluginsSnippet)
     classpath = files()
     doLast {
         unixScript.writeText(
-            unixScript.readText().replace("MODULE_PATH=\n", modulePathSnippet.asFile.readText())
+            unixScript.readText().replace("MODULE_PATH=\n", selectPluginsSnippet.asFile.readText())
         )
     }
 }
@@ -133,17 +133,15 @@ dependencies {
 
     // Cloud storage
     blockNodePlugins(project(":cloud-storage-archive"))
+    blockNodePlugins(project(":cloud-storage-expanded"))
 
     // Extended functionality
     blockNodePlugins(project(":backfill"))
-    // when running the BN locally, we don't need or want to have the S3 plugins by default
-    // blockNodePlugins(project(":cloud-storage-expanded"))
-    // blockNodePlugins(project(":cloud-storage-archive"))
 }
 
 val catalogPluginPaths: List<String> =
     blockNodePlugins.dependencies.withType<ProjectDependency>().map { it.path } -
-        ":hiero-dependency-versions" + ":cloud-storage-expanded"
+        ":hiero-dependency-versions"
 
 val coreRuntimeClasspath: Configuration = configurations.runtimeClasspath.get()
 
@@ -337,7 +335,9 @@ val assemblePluginCatalog =
         val coreFiles: FileCollection = configurations.runtimeClasspath.get()
         val pluginClasspaths: Map<String, FileCollection> = pluginCatalogClasspaths
         val outputDir: File = layout.buildDirectory.dir("plugin-catalog").get().asFile
+        val catalogVersion: String = project.version.toString()
 
+        inputs.property("version", catalogVersion)
         inputs.files(coreFiles).withPropertyName("core")
         pluginClasspaths.forEach { (plugin, files) ->
             inputs.files(files).withPropertyName("plugin.$plugin")
@@ -379,6 +379,10 @@ val assemblePluginCatalog =
                     }
                 }
             }
+            File(outputDir, ".manifest")
+                .writeText(
+                    "version=$catalogVersion\nplugins=${pluginClasspaths.keys.sorted().joinToString(",")}\n"
+                )
             logger.lifecycle(
                 "Assembled plugin catalog: ${pluginClasspaths.size} plugins, ${copiedJars.size} unique jars"
             )

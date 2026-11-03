@@ -255,10 +255,10 @@ plugins:
 
 `plugins.source` selects where plugin jars come from:
 
-| Source  |                                                                                    Behavior                                                                                    |
-|---------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `maven` | Default. Init containers resolve `plugins.names` from Maven into the plugins PVC at pod start.                                                                                 |
-| `image` | Requires the `hiero-block-node-full` image. The chart sets `BN_PLUGINS` from `plugins.names`, and the image loads those plugins from its prebuilt `plugin-catalog/` directory. |
+| Source  |                                                                                                 Behavior                                                                                                 |
+|---------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `maven` | Default. Init containers resolve `plugins.names` from Maven into the plugins PVC at pod start.                                                                                                           |
+| `image` | Requires the `hiero-block-node-full` image. The chart sets `BN_PLUGINS` from `plugins.names`, and the image copies those plugins from its prebuilt `plugin-catalog/` directory into `plugins/` at start. |
 
 With `source: image`, the pod starts without init containers, Maven or network access, and changing `plugins.names` rolls the pod:
 
@@ -270,7 +270,8 @@ helm install "${RELEASE}" charts/block-node-server \
 
 - `plugins.names: ""` with the full image loads every catalog plugin.
 - An unknown plugin name makes the pod exit with the list of available plugins.
-- Pinned versions (`name:version`) and `plugins.thirdParty` require `source: maven`. Third-party jars can still be mounted into `plugins/` via `blockNode.persistence.plugins.existingClaim`. Do not reuse a claim that holds Maven-resolved jars, because they would load in addition to the selected plugins.
+- Pinned versions (`name:version`) and `plugins.thirdParty` require `source: maven`. Third-party jars can still be provided in `plugins/` via `blockNode.persistence.plugins.existingClaim`, which is mounted read-write with `source: image` because the selected plugins are copied into it. Jars copied from the catalog are listed in `plugins/.catalog-jars` and removed on the next start. Do not reuse a claim that holds Maven-resolved jars, because they would load in addition to the selected plugins.
+- The container's root filesystem must be writable (`securityContext.readOnlyRootFilesystem` unset) unless `existingClaim` provides a writable `plugins/`.
 - The plugins PVC is still created when `plugins.names` is set, but it is not mounted, so switching `source` on an existing release keeps `helm upgrade` working.
 
 #### Per-Plugin Port Configuration

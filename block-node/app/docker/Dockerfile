@@ -119,3 +119,11 @@ ENV BN_PLUGINS=all
 COPY --from=catalog --chown=2000:2000 . app-${VERSION}/plugin-catalog/
 # no "|| sleep 30d" so a bad BN_PLUGINS crash-loops
 ENTRYPOINT ["/bin/bash", "-c", "${BN_WORKDIR}/app-${VERSION}/bin/app"]
+
+FROM busybox:1.37 AS plugins
+ARG VERSION
+ARG PLUGINS
+ENV PLUGIN_CATALOG_DIR=/plugin-catalog
+LABEL org.opencontainers.image.version="${VERSION}" \
+      org.hiero.block-node.plugins="${PLUGINS}"
+COPY --from=catalog --chown=2000:2000 . /plugin-catalog/

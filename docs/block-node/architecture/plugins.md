@@ -77,18 +77,20 @@ classpath, then filter out any jars already present in the core runtime to avoid
 
 ### Plugin Catalog (Full Image)
 
-The `assemblePluginCatalog` task builds `build/plugin-catalog/<plugin>/` for every
-`blockNodePlugins` entry plus `cloud-storage-expanded`. Each directory holds the plugin jar and
-its dependencies that are not in core. Each plugin is resolved like the core `runtimeClasspath`
-(same versions, same module patching), so core jars are removed by JPMS module name. The build
-fails if a remaining jar shares a package with core, or if one module resolves to different jars
-across plugins. Identical jars are hardlinked across directories.
+`assemblePluginCatalog` builds `build/plugin-catalog/<plugin>/` for every `blockNodePlugins` entry:
+the plugin jar plus its dependencies that are not in core. Each plugin is resolved like the core
+`runtimeClasspath`, so core jars are removed by JPMS module name. The build fails if a remaining jar
+shares a package with core, or if one module resolves to different jars across plugins. Identical jars
+are hardlinked.
 
-The `hiero-block-node-full` image ships this catalog. The start script builds the module path
-from `lib/`, then the `plugin-catalog/<plugin>/` directories listed in the comma-separated
-`BN_PLUGINS` env var (`all` selects every directory), then `plugins/`. A module present in several
-directories is loaded from the first one. With `BN_PLUGINS` unset, the module path is
-`lib/:plugins/`, as in the other images.
+The `hiero-block-node-full` image ships this catalog. When `BN_PLUGINS` (comma-separated, or `all`) is
+set, the start script copies the selected plugins into `plugins/`, so the module path stays
+`lib/:plugins/` for every image. Jars it copied are listed in `plugins/.catalog-jars` and removed on the
+next start; other jars in `plugins/`, such as third-party plugins, are left alone. `plugins/` must be
+writable.
+
+The `hiero-block-node-plugins` image holds only the catalog, to combine with the plain
+`hiero-block-node` image. See [`block-node/app/docker/README.md`](../../../block-node/app/docker/README.md).
 
 ### How Other Projects Consume Plugins
 
