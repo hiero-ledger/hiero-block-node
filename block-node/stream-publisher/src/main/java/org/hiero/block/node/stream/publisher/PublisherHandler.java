@@ -28,7 +28,6 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
@@ -958,9 +957,12 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     private void shutdown() {
         closeMode();
         safeRemoveHandler(publisherManager, handlerId);
-        safeComplete(replies);
+        runQuietly("onComplete", replies::onComplete);
         messageBudget.set(1); // release the onNext thread enough to close
-        safeCloseConnection(replies);
+        // @todo() Add labeled metric when possible.
+        //    Metric: "handler-closed" Labels: "clean" or "with-exception"
+        //    with-exception should be set in all exception cases, even if not logged.
+        runQuietly("shutdown", replies::closeConnection);
         LOGGER.log(DEBUG, "[{0}] Handler {1} issued onComplete/closeConnection", correlationIdPrefix, handlerId);
     }
 
@@ -981,48 +983,26 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         }
     }
 
-    /// Call onComplete for the provided pipeline, but catch and handle any
-    /// exceptions thrown on the assumption that immediately after calling this
-    /// method the caller will close the network connection.
-    /// @param replies a Pipeline to "complete".
-    private void safeComplete(final Pipeline<? super PublishStreamResponse> replies) {
+    /// Run one step of closing the response pipeline and never let it fail, on the assumption that the
+    /// connection is closed right after and the handler is not used again. The peer resetting the connection
+    /// is the normal way a stream ends, so that case is not logged.
+    /// @param stepName how the step is named in the log.
+    /// @param step the step to run.
+    private void runQuietly(final String stepName, final Runnable step) {
         try {
-            replies.onComplete();
-        } catch (final UncheckedIOException wrapper) {
-            IOException wrapped = wrapper.getCause();
-            if (!(wrapped instanceof SocketException)) {
-                final String message = "[%2$s] IO Exception during onComplete for handler %1$d"
-                        .formatted(handlerId, correlationIdPrefix);
-                LOGGER.log(DEBUG, message, wrapper);
-            }
+            step.run();
         } catch (final RuntimeException e) {
-            final String message = "[%2$s] RuntimeException during onComplete for handler %1$d"
-                    .formatted(handlerId, correlationIdPrefix);
-            LOGGER.log(DEBUG, message, e);
-        }
-    }
-
-    /// Call closeConnection for the provided pipeline, but catch and handle any
-    /// exceptions thrown on the assumption that immediately after calling this
-    /// method the handler will no longer be used.
-    /// @param replies a Pipeline to close and disconnect.
-    private void safeCloseConnection(final Pipeline<? super PublishStreamResponse> replies) {
-        try {
-            replies.closeConnection();
-            // @todo() Add labeled metric when possible.
-            //    Metric: "handler-closed" Labels: "clean" or "with-exception"
-            //    with-exception should be set in all exception cases, even if not logged.
-        } catch (final UncheckedIOException wrapper) {
-            IOException wrapped = wrapper.getCause();
-            if (!(wrapped instanceof SocketException)) {
-                final String message = "[%2$s] IO Exception during shutdown for handler %1$d"
-                        .formatted(handlerId, correlationIdPrefix);
-                LOGGER.log(DEBUG, message, wrapper);
+            if (e instanceof UncheckedIOException wrapper) {
+                if (!(wrapper.getCause() instanceof SocketException)) {
+                    final String message = "[%2$s] IO Exception during %3$s for handler %1$d"
+                            .formatted(handlerId, correlationIdPrefix, stepName);
+                    LOGGER.log(DEBUG, message, wrapper);
+                }
+            } else {
+                final String message = "[%2$s] RuntimeException during %3$s for handler %1$d"
+                        .formatted(handlerId, correlationIdPrefix, stepName);
+                LOGGER.log(DEBUG, message, e);
             }
-        } catch (final RuntimeException e) {
-            final String message = "[%2$s] RuntimeException during shutdown for handler %1$d"
-                    .formatted(handlerId, correlationIdPrefix);
-            LOGGER.log(DEBUG, message, e);
         }
     }
 

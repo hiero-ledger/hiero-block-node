@@ -3,7 +3,6 @@ package org.hiero.block.node.stream.publisher;
 
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
-import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.hiero.block.api.PublishStreamResponse.EndOfStream.Code.TIMEOUT;
@@ -27,11 +26,11 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.NavigableSet;
-import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.TreeSet;
 import java.util.concurrent.Callable;
@@ -39,7 +38,6 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ConcurrentSkipListSet;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
@@ -117,9 +115,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private volatile ScheduledFuture<Boolean> publisherUnavailabilityTimeoutFuture;
     /// nanoTime of the last penalty-count reset (tumbling window).
     private long lastPenaltyResetNanos;
-    /// Scheduled handle for the flow-control refresh task.
+    /// Scheduled handle for the flow-control refresh task. Visible for testing.
     volatile ScheduledFuture<?> flowControlRefreshFuture;
-    /// The refresh body run by the scheduled task. Package-private so tests can inject failures.
+    /// The refresh body run by the scheduled task. Visible for testing, so tests can inject failures.
     volatile Runnable flowControlRefreshAction = this::refreshFlowControl;
     /// Held by the one caller that is currently rescheduling the flow-control refresh task.
     private final AtomicBoolean flowControlRescheduling = new AtomicBoolean(false);
@@ -306,12 +304,14 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     @Override
     public void registerQueueForBlock(
             final long handlerId, final Deque<BlockItemSetUnparsed> queue, final long blockNumber) {
-        final Deque<BlockItemSetUnparsed> previousValue = queueByBlockMap.put(blockNumber, queue);
-        if (previousValue != null) {
-            // If there is a previous value, this means that the publisher that streamed this block is now
-            // re-starting it mid-block. We need to remove a potentially collected block proof.
-            blockProofs.remove(blockNumber);
-        }
+        // A new queue always starts a fresh attempt at this block. Any proof or end-of-block marker
+        // collected for an earlier attempt belongs to a different publisher stream and must not be
+        // combined with this queue, whether or not the previous queue is still in the map. A stale
+        // proof would otherwise hide the new queue from the forwarder and be sent on its own as the
+        // end of a block whose header and body were never forwarded. Clear before publishing the
+        // queue so the forwarder can never see the new queue together with stale state.
+        clearCollectedBlockEnd(blockNumber);
+        queueByBlockMap.put(blockNumber, queue);
         // Record which handler won ACCEPT for this block so stall detection
         // can identify and terminate a silent publisher.
         activeStreamHandlerByBlock.put(blockNumber, handlerId);
@@ -755,8 +755,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                         || hasBlockProof(queueByBlockMap.get(candidate))
                         || isResendingLive(candidate))) {
                     queueByBlockMap.remove(candidate);
-                    // possibly remove a just collected block proof
-                    blockProofs.remove(candidate);
+                    // possibly remove a just collected block proof and end-of-block marker
+                    clearCollectedBlockEnd(candidate);
                     // remove from stall-detection tracking; this block is now obsolete
                     // This should not actually be needed, but it's here for a rare corner case
                     activeStreamHandlerByBlock.remove(candidate);
@@ -799,15 +799,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     ///    `null` or empty
     @Nullable
     private <T> T getLastDequeItem(final Deque<T> deque) {
-        try {
-            if (deque != null && !deque.isEmpty()) {
-                return deque.getLast();
-            } else {
-                return null;
-            }
-        } catch (final NoSuchElementException e) {
-            return null;
-        }
+        return deque == null ? null : deque.peekLast();
     }
 
     /// Checks whether any currently accepted block is stalled relative to the
@@ -879,7 +871,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         String correlationId = stalledHandler != null ? stalledHandler.getCorrelationId() : "";
         LOGGER.log(DEBUG, logMessage, correlationId, handlerId, stalledBlock, completedBlock);
         queueByBlockMap.remove(stalledBlock);
-        blockProofs.remove(stalledBlock);
+        clearCollectedBlockEnd(stalledBlock);
         if (stalledHandler != null) {
             stalledHandler.endStreamWithCode(TIMEOUT, true, stalledBlock);
         }
@@ -969,13 +961,11 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             // If done and not cancelled, get the result so we can log
             // any exceptions
             else if (localFuture.isDone() && !localFuture.isCancelled()) {
-                try {
-                    localFuture.get();
-                } catch (final InterruptedException e) {
+                if (localFuture.state() == Future.State.FAILED) {
                     LOGGER.log(
-                            TRACE, "Interrupted while waiting for publisher unavailability timeout task to complete");
-                } catch (final ExecutionException e) {
-                    LOGGER.log(INFO, "Publisher unavailability timeout task completed exceptionally", e);
+                            INFO,
+                            "Publisher unavailability timeout task completed exceptionally",
+                            localFuture.exceptionNow());
                 }
             }
         }
@@ -1009,6 +999,47 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         if (persistedAheadOfAck.contains(blockNumber) || blockNumber <= lastPersistedBlockNumber.get()) {
             blocksToResend.remove(blockNumber);
         }
+    }
+
+    /// Removes the block proof and the end-of-block marker collected for a block. Both belong to a
+    /// single publisher's attempt at the block, so they must be discarded whenever that attempt is
+    /// abandoned or a new attempt starts.
+    ///
+    /// @param blockNumber the block whose collected proof and end-of-block marker are discarded
+    private void clearCollectedBlockEnd(final long blockNumber) {
+        blockProofs.remove(blockNumber);
+        endBlocksReceived.remove(blockNumber);
+    }
+
+    /// Discards a block whose collected end cannot be forwarded consistently and schedules it for
+    /// resend. This is used when a proof and end-of-block marker are collected for a block while its
+    /// own queue still holds batches that were never forwarded. Forwarding the proof alone would give
+    /// messaging an end-of-block for a block whose header and body it never received, and the block
+    /// would be lost without ever being retried.
+    ///
+    /// @param blockNumber the block to check, and to discard and schedule for resend if inconsistent
+    /// @return true if the block was inconsistent and has been discarded, false otherwise
+    private boolean discardIfInconsistent(final long blockNumber) {
+        boolean discarded = false;
+        final Deque<BlockItemSetUnparsed> unforwarded = queueByBlockMap.get(blockNumber);
+        if (endBlocksReceived.contains(blockNumber)
+                && unforwarded != null
+                && !unforwarded.isEmpty()
+                && blockProofs.containsKey(blockNumber)) {
+            // The proof was collected for a different attempt than the queued batches. Sending it
+            // alone would end a block that messaging never saw begin, so schedule a resend instead.
+            LOGGER.log(
+                    WARNING,
+                    "Block {0} has a collected proof but unforwarded batches in its queue; discarding it and scheduling a resend",
+                    blockNumber);
+            queueByBlockMap.remove(blockNumber);
+            clearCollectedBlockEnd(blockNumber);
+            activeStreamHandlerByBlock.remove(blockNumber);
+            activeResendBlocks.remove(blockNumber);
+            scheduleResend(blockNumber);
+            discarded = true;
+        }
+        return discarded;
     }
 
     /// Removes any entry in {@link #blocksToResend} whose block number is more than
@@ -1049,19 +1080,10 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// This method could also return {@link org.hiero.block.node.spi.BlockNodePlugin#UNKNOWN_BLOCK_NUMBER} if no
     /// more blocks are awaiting resend.
     private long nextBlockToResend() {
-        long nextBlock;
-        if (!blocksToResend.isEmpty()) {
-            try {
-                // The blocksToResend set is a SortedSet, so first item will be the lowest one.
-                nextBlock = blocksToResend.first();
-            } catch (final NoSuchElementException e) {
-                // do nothing; we have no more blocks to resend.
-                nextBlock = UNKNOWN_BLOCK_NUMBER;
-            }
-        } else {
-            nextBlock = UNKNOWN_BLOCK_NUMBER;
-        }
-        return nextBlock;
+        // The blocksToResend set is sorted, so the first item is the lowest one. Reading it through an
+        // iterator avoids a separate emptiness check that could race with a concurrent removal.
+        final Iterator<Long> lowestFirst = blocksToResend.iterator();
+        return lowestFirst.hasNext() ? lowestFirst.next() : UNKNOWN_BLOCK_NUMBER;
     }
 
     /// todo(1420) add documentation
@@ -1217,6 +1239,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// Check the queue forwarder task and start, or restart, if it is
     /// null or completed, respectively. A completed task is logged and replaced.
     /// This also checks that the flow control refresh task is still scheduled.
+    /// Visible for testing.
     void checkLogAndRestartForwarderTask() {
         if (stopped) {
             return;
@@ -1262,8 +1285,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             case SUCCESS -> {
                 final long blocksForwarded = finishedResult.resultNow();
                 metrics.blockBatchesMessaged().increment(blocksForwarded);
-                final String formatString = "Queue forwarder task completed normally after forwarding %d blocks.";
-                LOGGER.log(DEBUG, formatString.formatted(blocksForwarded));
+                LOGGER.log(
+                        DEBUG, "Queue forwarder task completed normally after forwarding {0} blocks.", blocksForwarded);
             }
             case FAILED ->
                 LOGGER.log(WARNING, "Queue forwarder task failed, restarting it.", finishedResult.exceptionNow());
@@ -1306,6 +1329,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// Reschedule the flow control refresh task if its future is gone or finished. A periodic
     /// task that throws is silently dropped by the executor, so without this check a single
     /// failure would stop all budget refills for the life of the process.
+    /// Visible for testing.
     void ensureFlowControlRefreshScheduled() {
         if (stopped || isRunning(flowControlRefreshFuture)) {
             return;
@@ -1331,9 +1355,16 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
 
     private void refreshFlowControlSafely() {
         try {
+            // Closing a block only checks the forwarder when block traffic arrives. If the forwarder ended
+            // while a block is still queued (for example after an exception), nothing else would restart it
+            // until the next block closes or a handler connects, so check on the timer when work is pending.
+            if (!stopped && !queueByBlockMap.isEmpty()) {
+                checkLogAndRestartForwarderTask();
+            }
             flowControlRefreshAction.run();
             consecutiveFlowControlRefreshFailures = 0;
         } catch (final RuntimeException e) {
+            // Must not escape: the executor cancels a periodic task that throws, which stops all refills.
             if (consecutiveFlowControlRefreshFailures++ == 0) {
                 LOGGER.log(WARNING, "Flow control refresh failed, will retry on the next interval.", e);
             } else {
@@ -1527,7 +1558,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                         publisherManager.waitForDataReady();
                     }
                 } else {
-                    if (publisherManager.endBlocksReceived.contains(currentBlockNumber)) {
+                    if (publisherManager.endBlocksReceived.contains(currentBlockNumber)
+                            && !publisherManager.discardIfInconsistent(currentBlockNumber)) {
                         // Send the proof
                         final BlockItemUnparsed proof = publisherManager.blockProofs.remove(currentBlockNumber);
                         if (proof != null) {
