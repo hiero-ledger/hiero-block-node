@@ -45,7 +45,10 @@ Before triggering any workflow:
 4. **Alpha/custom exception** — `alpha` and `custom` ignore the branch-selection guidance above:
    `alpha` always tags off `main` regardless of which branch you dispatch from, and `custom` tags
    off whichever branch you actually dispatch from. Neither ever creates a release branch or
-   commits a version bump anywhere — only the resulting tag is pushed.
+   commits a version bump anywhere — only the resulting tag is pushed. A `custom` plain `X.Y.Z` or
+   rc-shaped version must be dispatched from `release/X.Y`.
+5. **Dry run first** — `dry_run` defaults to `true`. The first run only reports the computed tag
+   and what would happen in the job summary. Untick `dry_run` and re-run to release for real.
 
 ---
 
@@ -61,6 +64,13 @@ Before triggering any workflow:
 |------------------|-------------------------------|-------------------------------------------------------------------------------------------------------------------------|
 | `release_type`   | `rc`, `alpha`, `GA`, `custom` | No default — must be picked explicitly every run. The four types behave too differently to have a safe implicit choice. |
 | `custom_version` | free text                     | Required only when `release_type` is `custom` (e.g. `0.39.1`). Ignored for all other types.                             |
+| `allow_custom_without_release_branch` | boolean (default `false`) | `custom` only. Waives the rule that a plain `X.Y.Z` or rc-shaped `custom_version` must be dispatched from `release/X.Y`. |
+| `dry_run`        | boolean (default `true`)      | Computes the version and writes a job summary of what would happen. Creates no branch, commit, tag, release, milestone rollover or PR. Untick to release for real. |
+
+Guards applied when computing the version: `rc` from `main` is only `rc1`; `rc` and `GA` must run
+from `release/X.Y` with a matching `version.txt`; `GA` is built from the highest `vX.Y.Z-rcN` tag
+reachable from the branch (an rc cut on another branch is skipped, and GA fails if none is on the
+branch); the computed tag must not already exist.
 
 `release_type` semantics:
 
@@ -222,11 +232,10 @@ workflows run concurrently after the tag push.
 4. Enter the exact version string in `custom_version` (e.g. `0.39.1`).
 5. Follow steps 6–9 from the GA flow above.
 
-> `custom` isn't limited to `release/X.Y` — it tags off whichever branch you dispatch it from
-> (`main`, a release branch, or anything else), and never creates a branch or commits a version
-> bump anywhere; only the resulting tag is pushed. The steps above cover the most common case (a
-> patch off `release/X.Y`); the branch you select in step 2/3 is simply whatever the tag should
-> point at.
+> `custom` tags off whichever branch you dispatch it from and never creates a branch or commits a
+> version bump anywhere; only the resulting tag is pushed. A plain `X.Y.Z` or rc-shaped version
+> must be dispatched from `release/X.Y` (override with `allow_custom_without_release_branch`).
+> Other shapes (alpha, hotfix) can be tagged from any branch.
 
 #### Cutting another GA on an already-released line
 
