@@ -15,17 +15,21 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.internal.AddressBookHistory;
 import org.hiero.block.internal.DatedNodeAddressBook;
+import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.hiero.block.tools.metadata.MetadataFiles;
 import org.hiero.block.tools.mirrornode.BlockTimeReader;
 import picocli.CommandLine.Command;
@@ -56,6 +60,11 @@ import picocli.CommandLine.Option;
  *
  * <p>{@code endBlock} for the last era is {@code -1}, the open-ended sentinel used by
  * {@code RangedAddressBookHistory}. For all other eras {@code endBlock} is {@code (next.startBlock - 1)}.
+ *
+ * <p>The legacy genesis address book carries no {@code nodeId}, only the node account in its memo, so
+ * every node would decode to id 0. For an era whose ids are not unique the ids are derived from the
+ * node accounts ({@code accountNum - 3}); the command fails without writing if an era still cannot be
+ * given unique ids. Eras that already have unique ids are left untouched.
  *
  * <p>Intended consumer: the BN's historical RSA-roster bootstrap (issue #2958 / T4).
  */
@@ -211,9 +220,35 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
 
     private int convertAndWrite(List<DatedNodeAddressBook> sorted, long[] startBlocks) throws IOException {
         requireSameLength(sorted, startBlocks);
+        // Resolve every era's node ids before anything is written, so a bad era leaves no output behind.
+        final List<NodeAddressBook> resolvedBooks = new ArrayList<>(sorted.size());
+        final List<String> nodeIdProblems = new ArrayList<>();
+        for (int i = 0; i < sorted.size(); i++) {
+            final DatedNodeAddressBook era = sorted.get(i);
+            final NodeAddressBook original = era.addressBookOrThrow();
+            try {
+                final NodeAddressBook resolved = resolveNodeIds(original);
+                if (resolved != original) {
+                    System.out.printf(
+                            "  Era %d: node ids were not unique, derived %d from the node accounts (accountNum - %d)%n",
+                            i, resolved.nodeAddress().size(), AddressBookRegistry.NODE_ACCOUNT_OFFSET);
+                }
+                resolvedBooks.add(resolved);
+            } catch (IllegalArgumentException e) {
+                // Must not throw: a failure here would lose every problem collected so far.
+                nodeIdProblems.add("era %d (block_timestamp=%s): %s".formatted(i, eraTimeOf(era), e.getMessage()));
+            }
+        }
+        if (!nodeIdProblems.isEmpty()) {
+            System.err.printf("Error: node ids could not be resolved for %d era(s):%n", nodeIdProblems.size());
+            for (final String problem : nodeIdProblems) {
+                System.err.printf("  * %s%n", problem);
+            }
+            return 1;
+        }
         final List<RangedNodeAddressBook> ranged = new ArrayList<>(sorted.size());
         for (int i = 0; i < sorted.size(); i++) {
-            final NodeAddressBook book = slimAddressBook(sorted.get(i).addressBookOrThrow());
+            final NodeAddressBook book = slimAddressBook(resolvedBooks.get(i));
             final long start = startBlocks[i];
             final long end = (i + 1 < sorted.size()) ? startBlocks[i + 1] - 1 : OPEN_ENDED_END_BLOCK;
             ranged.add(RangedNodeAddressBook.newBuilder()
@@ -283,6 +318,69 @@ public class ConvertAddressBookHistoryCommand implements Callable<Integer> {
                     + "A crash mid-rename could leave the destination in a partial state.");
             Files.move(src, dest, StandardCopyOption.REPLACE_EXISTING);
         }
+    }
+
+    /**
+     * Make sure every node in {@code book} has its own {@code nodeId}.
+     *
+     * <p>The legacy genesis address book has no {@code nodeId} on its entries, only the node account in
+     * the {@code memo} (for example {@code 0.0.7}), so every node decodes to the proto default of 0. Node
+     * id 0 is also a real id, so 0 alone cannot mean "missing". A book whose ids are already unique is
+     * returned unchanged: later eras use ids that do not follow {@code accountNum - 3}. A book with
+     * duplicate ids has all of its ids derived from the node accounts, never a mix.
+     *
+     * @param book the era's address book
+     * @return {@code book} itself when its ids are unique, otherwise a copy with derived ids
+     * @throws IllegalArgumentException if an id cannot be derived, is negative, or is still duplicated
+     */
+    static NodeAddressBook resolveNodeIds(final NodeAddressBook book) {
+        final List<NodeAddress> nodes = book.nodeAddress();
+        if (hasUniqueNodeIds(nodes)) {
+            return book;
+        }
+        final List<NodeAddress> derived = new ArrayList<>(nodes.size());
+        for (final NodeAddress addr : nodes) {
+            final long accountNum;
+            try {
+                accountNum = AddressBookRegistry.getNodeAccountId(addr);
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException(
+                        "cannot derive a node id from the node account: " + e.getMessage(), e);
+            }
+            final long nodeId = accountNum - AddressBookRegistry.NODE_ACCOUNT_OFFSET;
+            if (nodeId < 0) {
+                throw new IllegalArgumentException(
+                        "derived node id " + nodeId + " from node account " + accountNum + " is negative");
+            }
+            derived.add(addr.copyBuilder().nodeId(nodeId).build());
+        }
+        if (!hasUniqueNodeIds(derived)) {
+            throw new IllegalArgumentException("node ids are still not unique after deriving them from the accounts");
+        }
+        return NodeAddressBook.newBuilder().nodeAddress(derived).build();
+    }
+
+    /** The era's block timestamp for error output, or "unknown" when it is absent or out of range. */
+    private static String eraTimeOf(final DatedNodeAddressBook era) {
+        final Timestamp ts = era.blockTimestamp();
+        if (ts == null) {
+            return "unknown";
+        }
+        try {
+            return Instant.ofEpochSecond(ts.seconds(), ts.nanos()).toString();
+        } catch (DateTimeException e) {
+            return "unknown";
+        }
+    }
+
+    private static boolean hasUniqueNodeIds(final List<NodeAddress> nodes) {
+        final Set<Long> seen = new HashSet<>();
+        for (final NodeAddress addr : nodes) {
+            if (!seen.add(addr.nodeId())) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
