@@ -48,6 +48,9 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     /** set of block notification handlers */
     private final Set<BlockNotificationHandler> blockNotificationHandlers =
             new ConcurrentSkipListSet<>(Comparator.comparingInt(Object::hashCode));
+    /** set of unvalidated block handlers */
+    private final Set<BlockNotificationHandler> unvalidatedBlockHandlers =
+            new ConcurrentSkipListSet<>(Comparator.comparingInt(Object::hashCode));
     /** set of application state notification handlers */
     private final Set<ApplicationStateNotificationHandler> applicationStateNotificationHandlers =
             new ConcurrentSkipListSet<>(Comparator.comparingInt(Object::hashCode));
@@ -336,12 +339,21 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
 
     /**
      * {@inheritDoc}
+     * <p>
+     * Unlike the real facility, this also delivers the notification to block notification handlers that are not
+     * registered as unvalidated block handlers, so a test can stand in for the unvalidated block handler with a plain
+     * block notification handler. No handler receives the notification twice.
      */
     @Override
     public void sendBackfilledBlockNotification(final BackfilledBlockNotification notification) {
         logNotification(notification);
-        for (final BlockNotificationHandler handler : blockNotificationHandlers) {
+        for (final BlockNotificationHandler handler : unvalidatedBlockHandlers) {
             handler.handleBackfilled(notification);
+        }
+        for (final BlockNotificationHandler handler : blockNotificationHandlers) {
+            if (!unvalidatedBlockHandlers.contains(handler)) {
+                handler.handleBackfilled(notification);
+            }
         }
     }
 
@@ -378,6 +390,23 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     @Override
     public void unregisterBlockNotificationHandler(final BlockNotificationHandler handler) {
         blockNotificationHandlers.remove(handler);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void registerUnvalidatedBlockHandler(
+            final BlockNotificationHandler handler, final boolean cpuIntensiveHandler, final String handlerName) {
+        unvalidatedBlockHandlers.add(handler);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void unregisterUnvalidatedBlockHandler(final BlockNotificationHandler handler) {
+        unvalidatedBlockHandlers.remove(handler);
     }
 
     /**

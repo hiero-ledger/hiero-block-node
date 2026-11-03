@@ -42,7 +42,7 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureI
 /// Verification Service Plugin.
 ///
 /// This plugin handles the verification of blocks received by any source.
-/// The plugin is a notification handler and listens for
+/// The plugin is an unvalidated block handler and listens for
 /// [BackfilledBlockNotification], this is one of the places data is received
 /// from. It is also a live items handler and listens for [BlockItems], another
 /// place data is received from. The plugin also listens for application state
@@ -142,6 +142,7 @@ public final class VerificationServicePlugin
                     context.applicationStateFacility().tssData(), false);
             updateLastVerifiedBlock(context.applicationStateFacility().storedBlocks());
             this.context.blockMessaging().registerBlockNotificationHandler(this, true, name());
+            this.context.blockMessaging().registerUnvalidatedBlockHandler(this, true, name());
             this.context.blockMessaging().registerBlockItemHandler(this, true, name());
             badBlockDumper.start(context.threadPoolManager());
         } else {
@@ -166,6 +167,7 @@ public final class VerificationServicePlugin
     public void stop() {
         // unregister from listening to incoming block items
         context.blockMessaging().unregisterBlockItemHandler(this);
+        context.blockMessaging().unregisterUnvalidatedBlockHandler(this);
         context.blockMessaging().unregisterBlockNotificationHandler(this);
         context.blockMessaging().unregisterApplicationStateNotificationHandler(this);
         // immediately shutdown the executor
