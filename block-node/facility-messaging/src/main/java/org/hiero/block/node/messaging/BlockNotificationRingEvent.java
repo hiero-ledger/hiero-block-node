@@ -3,7 +3,6 @@ package org.hiero.block.node.messaging;
 
 import org.hiero.block.node.spi.blockmessaging.AddressBookHistoryNotification;
 import org.hiero.block.node.spi.blockmessaging.AvailableBlocksNotification;
-import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.NextExpectedPublisherBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
@@ -23,8 +22,6 @@ public final class BlockNotificationRingEvent {
     private VerificationNotification verificationNotification;
     /** The block persistence notification to be published to downstream subscribers through the LMAX Disruptor. */
     private PersistedNotification persistedNotification;
-    /** The Backfilled block notification to be published to downstream subscribers through the LMAX Disruptor. */
-    private BackfilledBlockNotification backfilledBlockNotification;
     /** The newest block known to network notification to be published to downstream subscribers through the LMAX Disruptor. */
     private NewestBlockKnownToNetworkNotification newestBlockKnownToNetworkNotification;
     /** The next expected publisher block notification to be published to downstream subscribers through the LMAX Disruptor. */
@@ -49,7 +46,6 @@ public final class BlockNotificationRingEvent {
     public void set(final VerificationNotification notification) {
         this.verificationNotification = notification;
         this.persistedNotification = null;
-        this.backfilledBlockNotification = null;
         this.newestBlockKnownToNetworkNotification = null;
         this.nextExpectedPublisherBlockNotification = null;
         this.publisherStatusUpdateNotification = null;
@@ -68,26 +64,6 @@ public final class BlockNotificationRingEvent {
     public void set(final PersistedNotification notification) {
         this.persistedNotification = notification;
         this.verificationNotification = null;
-        this.backfilledBlockNotification = null;
-        this.newestBlockKnownToNetworkNotification = null;
-        this.nextExpectedPublisherBlockNotification = null;
-        this.publisherStatusUpdateNotification = null;
-        this.tssDataNotification = null;
-        this.addressBookHistoryNotification = null;
-        this.storedBlocksNotification = null;
-        this.availableBlocksNotification = null;
-    }
-
-    /**
-     * Sets the given notification to be published to downstream subscribers
-     * through the LMAX Disruptor.
-     *
-     * @param notification to set
-     */
-    public void set(final BackfilledBlockNotification notification) {
-        this.backfilledBlockNotification = notification;
-        this.verificationNotification = null;
-        this.persistedNotification = null;
         this.newestBlockKnownToNetworkNotification = null;
         this.nextExpectedPublisherBlockNotification = null;
         this.publisherStatusUpdateNotification = null;
@@ -106,7 +82,6 @@ public final class BlockNotificationRingEvent {
     public void set(final NewestBlockKnownToNetworkNotification notification) {
         this.newestBlockKnownToNetworkNotification = notification;
         this.nextExpectedPublisherBlockNotification = null;
-        this.backfilledBlockNotification = null;
         this.verificationNotification = null;
         this.persistedNotification = null;
         this.publisherStatusUpdateNotification = null;
@@ -125,7 +100,6 @@ public final class BlockNotificationRingEvent {
     public void set(final NextExpectedPublisherBlockNotification notification) {
         this.nextExpectedPublisherBlockNotification = notification;
         this.newestBlockKnownToNetworkNotification = null;
-        this.backfilledBlockNotification = null;
         this.verificationNotification = null;
         this.persistedNotification = null;
         this.publisherStatusUpdateNotification = null;
@@ -145,7 +119,6 @@ public final class BlockNotificationRingEvent {
         this.publisherStatusUpdateNotification = notification;
         this.newestBlockKnownToNetworkNotification = null;
         this.nextExpectedPublisherBlockNotification = null;
-        this.backfilledBlockNotification = null;
         this.verificationNotification = null;
         this.persistedNotification = null;
         this.tssDataNotification = null;
@@ -164,7 +137,6 @@ public final class BlockNotificationRingEvent {
         this.tssDataNotification = notification;
         this.verificationNotification = null;
         this.persistedNotification = null;
-        this.backfilledBlockNotification = null;
         this.newestBlockKnownToNetworkNotification = null;
         this.nextExpectedPublisherBlockNotification = null;
         this.publisherStatusUpdateNotification = null;
@@ -183,7 +155,6 @@ public final class BlockNotificationRingEvent {
         this.addressBookHistoryNotification = notification;
         this.verificationNotification = null;
         this.persistedNotification = null;
-        this.backfilledBlockNotification = null;
         this.newestBlockKnownToNetworkNotification = null;
         this.nextExpectedPublisherBlockNotification = null;
         this.publisherStatusUpdateNotification = null;
@@ -202,7 +173,6 @@ public final class BlockNotificationRingEvent {
         this.storedBlocksNotification = notification;
         this.verificationNotification = null;
         this.persistedNotification = null;
-        this.backfilledBlockNotification = null;
         this.newestBlockKnownToNetworkNotification = null;
         this.nextExpectedPublisherBlockNotification = null;
         this.publisherStatusUpdateNotification = null;
@@ -221,7 +191,6 @@ public final class BlockNotificationRingEvent {
         this.availableBlocksNotification = notification;
         this.verificationNotification = null;
         this.persistedNotification = null;
-        this.backfilledBlockNotification = null;
         this.newestBlockKnownToNetworkNotification = null;
         this.nextExpectedPublisherBlockNotification = null;
         this.publisherStatusUpdateNotification = null;
@@ -252,18 +221,6 @@ public final class BlockNotificationRingEvent {
      */
     public PersistedNotification getPersistedNotification() {
         return persistedNotification;
-    }
-
-    /**
-     * Gets the backfilled block notification of the event from the LMAX
-     * Disruptor on the consumer side.
-     * If the event is not a {@link BackfilledBlockNotification}, this
-     * will return null.
-     *
-     * @return the value of the event
-     */
-    public BackfilledBlockNotification getBackfilledBlockNotification() {
-        return backfilledBlockNotification;
     }
 
     /**
