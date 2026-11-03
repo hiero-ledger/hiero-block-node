@@ -26,7 +26,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 /**
  * Golden vectors for the CLI's SHA-256 block hashing, taken from blocks produced by a consensus node.
  *
- * <p>The blocks are the CN-captured chains of the {@code ci-test-blocks} archive (fetched by {@code fetchTestBlocks}
+ * <p>The blocks are the CN-captured chains of the {@code ci} test blocks flavor (fetched by {@code fetchTestBlocks}
  * in the root build), the same files the block node tests use. The expected roots are the constants in
  * {@code ResourceTestBlockBuilder} ({@code WRB.SOLO_4N_BLOCK_0..5} and {@code WRAPS.BLOCK_0..5}), repeated here so the
  * tools module stays independent of block node test fixture code.

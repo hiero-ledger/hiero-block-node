@@ -7,9 +7,9 @@ and pushes these blocks to it before upgrading to the snapshot. A base on that l
 proofs of that library, and the snapshot's harness (`:block-verification:generateHarnessBlocks`) can no longer
 sign them, so they are kept.
 
-The blocks are no longer committed here. They live in the `ci-test-blocks` test block archive (an OCI image pinned
-in `gradle.properties`), under `tss/direct/varied/`; the workflow downloads it with `./gradlew fetchTestBlocks` and
-reads them from `.test-blocks/ci-test-blocks/tss/direct/varied/<folder>/`.
+The blocks are no longer committed here. They live in the `ci` flavor of the test blocks image (an OCI image
+pinned in `gradle.properties`), under `tss/direct/varied/`; the workflow downloads it with
+`./gradlew fetchTestBlocks` and reads them from `.test-blocks/ci/tss/direct/varied/<folder>/`.
 
 |          folder          | hash algorithm |              used for a base release               |
 |--------------------------|----------------|----------------------------------------------------|

@@ -18,7 +18,7 @@ import org.hiero.block.internal.BlockUnparsed;
 import org.junit.jupiter.params.provider.Arguments;
 
 public class ResourceTestBlockBuilder {
-    /// Root of the extracted `ci-test-blocks` archive, see `fetchTestBlocks` in the root build.
+    /// Root of the extracted `ci` test blocks flavor, see `fetchTestBlocks` in the root build.
     public static Path testBlocksRoot() {
         final String dir = System.getProperty("hiero.testBlocks.dir");
         if (dir == null) {

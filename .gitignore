@@ -79,5 +79,5 @@ agent/**
 *.local.*
 
 
-# Test block archives, downloaded by ./gradlew fetchTestBlocks
+# Test block flavors, downloaded by ./gradlew fetchTestBlocks
 /.test-blocks/
