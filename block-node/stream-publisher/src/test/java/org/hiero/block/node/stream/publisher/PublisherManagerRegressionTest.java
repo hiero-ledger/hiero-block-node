@@ -6,12 +6,18 @@ import static org.hiero.block.node.stream.publisher.PublishApiUtility.endThisBlo
 import static org.hiero.block.node.stream.publisher.PublishApiUtility.sendHeaderOnly;
 
 import com.swirlds.config.api.Configuration;
+import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.function.BooleanSupplier;
 import org.hiero.block.api.PublishStreamRequest.EndStream;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
 import org.hiero.block.api.PublishStreamResponse.ResponseOneOfType;
+import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
 import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
@@ -27,6 +33,7 @@ import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
+import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
@@ -382,6 +389,183 @@ class PublisherManagerRegressionTest {
                                 + "had been pruned from blocksToResend by handlePersisted",
                         staleResendBlock, backfilledBlock)
                 .isEqualTo(BlockAction.END_DUPLICATE);
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Stale block proof after a publisher drops mid-block.
+    //
+    // The forwarder polls a block's proof out of the queue and holds it in blockProofs until the
+    // publisher's end-of-block arrives. If the publisher drops before that, the proof belongs to an
+    // abandoned attempt. It must not survive into the resent attempt, where it hides the new queue
+    // from the forwarder and is sent on its own as the end of a block that was never started.
+    // ---------------------------------------------------------------------------------------------
+
+    /// Reads a private collection field of the manager under test.
+    @SuppressWarnings("unchecked")
+    private <T> T managerField(final String name) throws Exception {
+        final Field field = LiveStreamPublisherManager.class.getDeclaredField(name);
+        field.setAccessible(true);
+        return (T) field.get(toTest);
+    }
+
+    /// Lets the forwarder run once over whatever is queued.
+    private void runForwarder() {
+        // Make sure a forwarder task is queued, then run it until it has drained the queues. If a
+        // forwarder from an earlier call is still running it picks the new work up by itself.
+        toTest.checkLogAndRestartForwarderTask();
+        if (!threadPoolManager.executor().getQueue().isEmpty()) {
+            threadPoolManager.executor().executeAsync(1_000L, false);
+        }
+    }
+
+    /// Waits briefly for the forwarder, running on another thread, to produce the awaited messages.
+    private static void awaitForwarded(final BooleanSupplier condition) {
+        final long deadline = System.currentTimeMillis() + 3_000L;
+        while (!condition.getAsBoolean() && System.currentTimeMillis() < deadline) {
+            try {
+                Thread.sleep(25L);
+            } catch (final InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+    }
+
+    /// The forwarded messages for a block, in the order they were sent to messaging.
+    private List<BlockItems> forwardedFor(final long blockNumber) {
+        return messagingFacility.getSentBlockItems().stream()
+                .filter(items -> items.blockNumber() == blockNumber)
+                .toList();
+    }
+
+    /// A publisher streams a whole block and the forwarder collects its proof, then the publisher
+    /// drops before sending end-of-block. A second publisher is then asked to resend the block.
+    /// Returns once the first attempt has been abandoned and the forwarder has run over it.
+    private TestBlock streamWholeBlockThenDrop(final long blockNumber) {
+        final TestBlock block = TestBlockBuilder.generateBlockWithNumber(blockNumber);
+        publisherHandler.onNext(block.asPublishStreamRequestUnparsed());
+        runForwarder();
+        assertThat(forwardedFor(blockNumber))
+                .as("first attempt: header and body are forwarded, the proof is held back")
+                .isNotEmpty()
+                .noneMatch(BlockItems::isEndOfBlock)
+                .first()
+                .returns(true, BlockItems::isStartOfNewBlock);
+        // The publisher's connection is lost before it sends end-of-block.
+        toTest.blockIsEnding(blockNumber, publisherHandlerId);
+        return block;
+    }
+
+    /// The resent block must reach messaging whole: header and body, then end-of-block. Before the
+    /// fix only a lone end-of-block was sent, no verification session was ever opened for the block,
+    /// and it was never retried.
+    @Test
+    @DisplayName("a block resent after a mid-block drop is forwarded whole, not as a lone end-of-block")
+    void testResentBlockIsForwardedWholeAfterMidBlockDrop() {
+        final TestBlock block = streamWholeBlockThenDrop(0L);
+        final int sentBeforeResend = messagingFacility.getSentBlockItems().size();
+
+        // Another publisher takes the resend and delivers the whole block.
+        responsePipeline2.clear();
+        publisherHandler2.onNext(block.asPublishStreamRequestUnparsed());
+        endThisBlock(publisherHandler2, 0L);
+        runForwarder();
+        awaitForwarded(() -> forwardedFor(0L).stream().skip(sentBeforeResend).anyMatch(BlockItems::isEndOfBlock));
+
+        final List<BlockItems> resent =
+                forwardedFor(0L).subList(sentBeforeResend, forwardedFor(0L).size());
+        assertThat(resent).as("the resend attempt must forward something").isNotEmpty();
+        assertThat(resent.getFirst().isStartOfNewBlock())
+                .as("the resend must begin with the block header, not a lone proof")
+                .isTrue();
+        assertThat(resent.getLast().isEndOfBlock())
+                .as("the resend must finish with the end-of-block")
+                .isTrue();
+        assertThat(resent)
+                .as("exactly one end-of-block for the resend")
+                .filteredOn(BlockItems::isEndOfBlock)
+                .hasSize(1);
+    }
+
+    /// Dropping a publisher mid-block clears state for that block only. A block another publisher
+    /// has already streamed, with its proof collected, must still be forwarded whole afterwards.
+    @Test
+    @DisplayName("blockIsEnding() for one block leaves another block's collected proof alone")
+    void testBlockIsEndingDoesNotDisturbOtherBlocks() {
+        streamWholeBlockThenDrop(0L);
+
+        // Publisher 2 streams block 1 and the forwarder collects its proof.
+        final TestBlock block1 = TestBlockBuilder.generateBlockWithNumber(1L);
+        publisherHandler2.onNext(block1.asPublishStreamRequestUnparsed());
+        runForwarder();
+        awaitForwarded(() -> forwardedFor(1L).stream().anyMatch(BlockItems::isStartOfNewBlock));
+
+        // A drop for block 0 arrives again, as it can between handlers.
+        toTest.blockIsEnding(0L, publisherHandlerId);
+        endThisBlock(publisherHandler2, 1L);
+        runForwarder();
+        awaitForwarded(() -> forwardedFor(1L).stream().anyMatch(BlockItems::isEndOfBlock));
+
+        assertThat(forwardedFor(1L))
+                .as("block 1 is forwarded whole, with exactly one end-of-block")
+                .filteredOn(BlockItems::isEndOfBlock)
+                .hasSize(1);
+        assertThat(forwardedFor(1L).getFirst().isStartOfNewBlock()).isTrue();
+    }
+
+    /// Starting a new attempt at a block must discard a proof left by an earlier attempt even when
+    /// the earlier queue is already gone from the map, so a proof stranded by any path is cleared.
+    @Test
+    @DisplayName("registerQueueForBlock() discards a stale proof even without a previous queue")
+    void testRegisterQueueDiscardsStaleProofWithoutPreviousQueue() throws Exception {
+        final Map<Long, BlockItemUnparsed> blockProofs = managerField("blockProofs");
+        final Set<Long> endBlocksReceived = managerField("endBlocksReceived");
+        final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+        // A proof and end marker stranded by an earlier attempt, with no queue for the block.
+        blockProofs.put(0L, block.getHeaderUnparsed());
+        endBlocksReceived.add(0L);
+
+        publisherHandler.onNext(block.asPublishStreamRequestUnparsed());
+
+        assertThat(blockProofs)
+                .as("stale proof is discarded when a new queue is registered")
+                .doesNotContainKey(0L);
+        assertThat(endBlocksReceived).as("stale end marker is discarded").doesNotContain(0L);
+        endThisBlock(publisherHandler, 0L);
+        runForwarder();
+        final List<BlockItems> forwarded = forwardedFor(0L);
+        assertThat(forwarded.getFirst().isStartOfNewBlock())
+                .as("the new attempt is forwarded from its header")
+                .isTrue();
+        assertThat(forwarded.getLast().isEndOfBlock()).isTrue();
+    }
+
+    /// Safety net: if a proof and end marker are ever collected while the block's own queue still
+    /// holds unforwarded batches, the forwarder must not send the proof alone. It must drop the
+    /// block and schedule it for resend so it is not silently lost.
+    @Test
+    @DisplayName("forwarder does not send a lone proof for a queue it never forwarded; it schedules a resend")
+    void testForwarderSchedulesResendInsteadOfSendingLoneProof() throws Exception {
+        final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+        // The publisher streams the block; the forwarder has not run yet, so the queue is unforwarded.
+        publisherHandler.onNext(block.asPublishStreamRequestUnparsed());
+        // Corrupt the state the way a stale proof would: a proof and end marker with an unforwarded queue.
+        final Map<Long, BlockItemUnparsed> blockProofs = managerField("blockProofs");
+        final Set<Long> endBlocksReceived = managerField("endBlocksReceived");
+        blockProofs.put(0L, block.getHeaderUnparsed());
+        endBlocksReceived.add(0L);
+
+        runForwarder();
+
+        assertThat(forwardedFor(0L))
+                .as("no lone end-of-block may be sent for a block whose header was never forwarded")
+                .noneMatch(BlockItems::isEndOfBlock);
+        final Set<Long> blocksToResend = managerField("blocksToResend");
+        assertThat(blocksToResend).as("the block must be scheduled for resend").contains(0L);
+        final Map<Long, ?> queueByBlockMap = managerField("queueByBlockMap");
+        assertThat(queueByBlockMap).as("the inconsistent queue is dropped").doesNotContainKey(0L);
+        assertThat(blockProofs).doesNotContainKey(0L);
+        assertThat(endBlocksReceived).doesNotContain(0L);
     }
 
     @SuppressWarnings("all")
