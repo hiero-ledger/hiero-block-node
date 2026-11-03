@@ -6,11 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 
 import java.util.List;
 import org.hiero.block.api.BlockRange;
-import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.messaging.BlockNotificationRingEvent;
 import org.hiero.block.node.spi.blockmessaging.AddressBookHistoryNotification;
 import org.hiero.block.node.spi.blockmessaging.AvailableBlocksNotification;
-import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.NextExpectedPublisherBlockNotification;
@@ -36,7 +34,6 @@ class BlockNotificationRingEventTest {
         final BlockNotificationRingEvent event = new BlockNotificationRingEvent();
         assertNull(event.getVerificationNotification());
         assertNull(event.getPersistedNotification());
-        assertNull(event.getBackfilledBlockNotification());
         assertNull(event.getNewestBlockKnownToNetworkNotification());
         assertNull(event.getNextExpectedPublisherBlockNotification());
         assertNull(event.getPublisherStatusUpdateNotification());
@@ -58,7 +55,6 @@ class BlockNotificationRingEventTest {
         event.set(notification);
         assertEquals(notification, event.getVerificationNotification());
         assertNull(event.getPersistedNotification(), "Persisted notification should be null");
-        assertNull(event.getBackfilledBlockNotification(), "Backfilled notification should be null");
         assertNull(event.getPublisherStatusUpdateNotification(), "Publisher status update notification should be null");
         assertNull(
                 event.getNewestBlockKnownToNetworkNotification(),
@@ -79,7 +75,6 @@ class BlockNotificationRingEventTest {
         event.set(notification);
         assertEquals(notification, event.getPersistedNotification());
         assertNull(event.getVerificationNotification(), "Verification notification should be null");
-        assertNull(event.getBackfilledBlockNotification(), "Backfilled notification should be null");
         assertNull(event.getPublisherStatusUpdateNotification(), "Publisher status update notification should be null");
         assertNull(
                 event.getNewestBlockKnownToNetworkNotification(),
@@ -90,29 +85,7 @@ class BlockNotificationRingEventTest {
     }
 
     /**
-     * Tests setting and getting a backfilled notification.
-     */
-    @Test
-    @DisplayName("Should set and get backfilled notification correctly")
-    void shouldSetAndGetBackfilledNotification() {
-        final BlockNotificationRingEvent event = new BlockNotificationRingEvent();
-        final BackfilledBlockNotification notification =
-                new BackfilledBlockNotification(1, BlockUnparsed.newBuilder().build());
-        event.set(notification);
-        assertEquals(notification, event.getBackfilledBlockNotification());
-        assertNull(event.getVerificationNotification(), "Verification notification should be null");
-        assertNull(event.getPersistedNotification(), "Persisted notification should be null");
-        assertNull(event.getPublisherStatusUpdateNotification(), "Publisher status update notification should be null");
-        assertNull(
-                event.getNewestBlockKnownToNetworkNotification(),
-                "Newest block known to network notification should be null");
-        assertNull(
-                event.getNextExpectedPublisherBlockNotification(),
-                "Next expected publisher block notification should be null");
-    }
-
-    /**
-     * Tests setting and getting a backfilled notification.
+     * Tests setting and getting a newest block known to network notification.
      */
     @Test
     @DisplayName("Should set and get NewestBlockKnownToNetworkNotification notification correctly")
@@ -126,7 +99,6 @@ class BlockNotificationRingEventTest {
                 "Next expected publisher block notification should be null");
         assertNull(event.getVerificationNotification(), "Verification notification should be null");
         assertNull(event.getPersistedNotification(), "Persisted notification should be null");
-        assertNull(event.getBackfilledBlockNotification(), "Backfilled notification should be null");
         assertNull(event.getPublisherStatusUpdateNotification(), "Publisher status update notification should be null");
     }
 
@@ -163,7 +135,6 @@ class BlockNotificationRingEventTest {
         assertEquals(notification, event.getPublisherStatusUpdateNotification());
         assertNull(event.getVerificationNotification(), "Verification notification should be null");
         assertNull(event.getPersistedNotification(), "Persisted notification should be null");
-        assertNull(event.getBackfilledBlockNotification(), "Backfilled notification should be null");
         assertNull(
                 event.getNewestBlockKnownToNetworkNotification(),
                 "Newest block known to network notification should be null");
@@ -270,7 +241,6 @@ class BlockNotificationRingEventTest {
         assertEquals(notification, event.getTssDataNotification());
         assertNull(event.getVerificationNotification(), "Verification notification should be null");
         assertNull(event.getPersistedNotification(), "Persisted notification should be null");
-        assertNull(event.getBackfilledBlockNotification(), "Backfilled notification should be null");
         assertNull(event.getNewestBlockKnownToNetworkNotification(), "Newest block notification should be null");
         assertNull(event.getPublisherStatusUpdateNotification(), "Publisher status notification should be null");
         assertNull(event.getAddressBookHistoryNotification(), "Address book history notification should be null");
@@ -290,7 +260,6 @@ class BlockNotificationRingEventTest {
         assertEquals(notification, event.getAddressBookHistoryNotification());
         assertNull(event.getVerificationNotification(), "Verification notification should be null");
         assertNull(event.getPersistedNotification(), "Persisted notification should be null");
-        assertNull(event.getBackfilledBlockNotification(), "Backfilled notification should be null");
         assertNull(event.getNewestBlockKnownToNetworkNotification(), "Newest block notification should be null");
         assertNull(event.getPublisherStatusUpdateNotification(), "Publisher status notification should be null");
         assertNull(event.getTssDataNotification(), "TSS data notification should be null");
@@ -310,7 +279,6 @@ class BlockNotificationRingEventTest {
         assertEquals(notification, event.getStoredBlocksNotification());
         assertNull(event.getVerificationNotification(), "Verification notification should be null");
         assertNull(event.getPersistedNotification(), "Persisted notification should be null");
-        assertNull(event.getBackfilledBlockNotification(), "Backfilled notification should be null");
         assertNull(event.getNewestBlockKnownToNetworkNotification(), "Newest block notification should be null");
         assertNull(event.getPublisherStatusUpdateNotification(), "Publisher status notification should be null");
         assertNull(event.getTssDataNotification(), "TSS data notification should be null");
@@ -332,7 +300,6 @@ class BlockNotificationRingEventTest {
         assertEquals(notification, event.getAvailableBlocksNotification());
         assertNull(event.getVerificationNotification(), "Verification notification should be null");
         assertNull(event.getPersistedNotification(), "Persisted notification should be null");
-        assertNull(event.getBackfilledBlockNotification(), "Backfilled notification should be null");
         assertNull(event.getNewestBlockKnownToNetworkNotification(), "Newest block notification should be null");
         assertNull(event.getPublisherStatusUpdateNotification(), "Publisher status notification should be null");
         assertNull(event.getTssDataNotification(), "TSS data notification should be null");

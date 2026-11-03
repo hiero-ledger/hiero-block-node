@@ -49,8 +49,13 @@ import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
 
 /**
- * Implementation of the MessagingService interface. It uses the LMAX Disruptor to handle block item batches and block
- * notifications. It is designed to be thread safe and can be used by multiple threads.
+ * Implementation of the MessagingService interface. It uses the LMAX Disruptor to handle block item batches, block
+ * notifications and unvalidated blocks. It is designed to be thread safe and can be used by multiple threads.
+ * <p>
+ * Unvalidated blocks are whole blocks that are not verified yet and do not come from the live publisher, for now the
+ * blocks fetched by backfill. They have a ring of their own, so a burst of them never makes the live block item
+ * producer or the block notification senders wait. Handlers registered with {@link #registerUnvalidatedBlockHandler}
+ * receive them through their {@link BlockNotificationHandler#handleBackfilled} method, on a thread of their own.
  */
 public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
 
@@ -119,6 +124,10 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     public static final MetricKey<ObservableGauge> METRIC_MESSAGING_NOTIFICATION_QUEUE_PERCENT_USED = MetricKey.of(
                     "messaging_notification_queue_percent_used", ObservableGauge.class)
             .addCategory(METRICS_CATEGORY);
+    /** Metric key for the percent of unvalidated block queue utilised */
+    public static final MetricKey<ObservableGauge> METRIC_MESSAGING_UNVALIDATED_BLOCK_QUEUE_PERCENT_USED = MetricKey.of(
+                    "messaging_unvalidated_block_queue_percent_used", ObservableGauge.class)
+            .addCategory(METRICS_CATEGORY);
 
     // Metrics
     /** Counter for incoming block items seen by the mediator */
@@ -182,6 +191,13 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      */
     private Disruptor<BlockNotificationRingEvent> blockNotificationDisruptor;
 
+    /**
+     * The disruptor that handles the unvalidated blocks. It is used to send backfilled blocks to the unvalidated block
+     * handlers. It is a multiple producer, multiple consumer disruptor: blocks are published directly from the sending
+     * threads, without the message forwarder.
+     */
+    private Disruptor<UnvalidatedBlockRingEvent> unvalidatedBlockDisruptor;
+
     /** Map of block item handlers to their threads. So that we can stop them */
     private final Map<BlockItemHandler, Thread> blockItemHandlerToThread = new HashMap<>();
 
@@ -204,6 +220,13 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     private final Map<ApplicationStateNotificationHandler, BatchEventProcessor<BlockNotificationRingEvent>>
             applicationStateNotificationHandlerToEventProcessor = new HashMap<>();
 
+    /** Map of unvalidated block handlers to their threads. So that we can stop them */
+    private final Map<BlockNotificationHandler, Thread> unvalidatedBlockHandlerToThread = new HashMap<>();
+
+    /** Map of unvalidated block handlers to their event processors. So that we can stop them */
+    private final Map<BlockNotificationHandler, BatchEventProcessor<UnvalidatedBlockRingEvent>>
+            unvalidatedBlockHandlerToEventProcessor = new HashMap<>();
+
     /**
      * List of pre-registered block item handlers, that were registered before the service started. These will be added
      * when the service is started and the list cleared
@@ -223,6 +246,12 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      */
     private final List<PreRegisteredApplicationStateNotificationHandler>
             preRegisteredApplicationStateNotificationHandlers = new ArrayList<>();
+
+    /**
+     * List of pre-registered unvalidated block handlers, that were registered before the service started. These will be
+     * added when the service is started and the list cleared
+     */
+    private final List<PreRegisteredUnvalidatedBlockHandler> preRegisteredUnvalidatedBlockHandlers = new ArrayList<>();
 
     private ExecutorService messageForwarder;
 
@@ -244,6 +273,13 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                 VIRTUAL_THREAD_FACTORY,
                 ProducerType.SINGLE,
                 new SleepingWaitStrategy());
+        // Unvalidated blocks are published directly from the sending threads, and several threads may send at once
+        unvalidatedBlockDisruptor = new Disruptor<>(
+                UnvalidatedBlockRingEvent::new,
+                messagingConfig.unvalidatedBlockQueueSize(),
+                VIRTUAL_THREAD_FACTORY,
+                ProducerType.MULTI,
+                new SleepingWaitStrategy());
 
         // Initialize metrics
         initMetrics(context);
@@ -251,9 +287,11 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         // log successful initialization
         LOGGER.log(
                 DEBUG,
-                "BlockMessagingFacility initialized with block item queue size: {0} and block notification queue size: {1}",
+                "BlockMessagingFacility initialized with block item queue size: {0}, block notification queue size: {1}"
+                        + " and unvalidated block queue size: {2}",
                 messagingConfig.blockItemQueueSize(),
-                messagingConfig.blockNotificationQueueSize());
+                messagingConfig.blockNotificationQueueSize(),
+                messagingConfig.unvalidatedBlockQueueSize());
         messageForwarder = context.threadPoolManager().createSingleThreadExecutor("messageForwarder");
     }
 
@@ -346,6 +384,11 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                 .register(ObservableGauge.builder(METRIC_MESSAGING_NOTIFICATION_QUEUE_PERCENT_USED)
                         .setDescription("Percent of notification queue utilised"))
                 .observe(() -> getUsagePercentage(blockNotificationDisruptor));
+
+        metricRegistry
+                .register(ObservableGauge.builder(METRIC_MESSAGING_UNVALIDATED_BLOCK_QUEUE_PERCENT_USED)
+                        .setDescription("Percent of unvalidated block queue utilised"))
+                .observe(() -> getUsagePercentage(unvalidatedBlockDisruptor));
     }
 
     private <T> Double getUsagePercentage(Disruptor<T> disruptor) {
@@ -528,14 +571,15 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
 
     /**
      * {@inheritDoc}
+     * <p>
+     * The notification is published on the unvalidated block ring directly from the calling thread, without the
+     * message forwarder. While that ring is full, this call waits. Several threads may call this method at once.
      */
     @Override
-    public void sendBackfilledBlockNotification(BackfilledBlockNotification notification) {
-        forward(() -> {
-            LOGGER.log(TRACE, "Sending backfilled block notification: block={0}", notification.blockNumber());
-            blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
-            blockBackfilledNotificationsCounter.increment();
-        });
+    public void sendBackfilledBlockNotification(final BackfilledBlockNotification notification) {
+        LOGGER.log(TRACE, "Sending backfilled block notification: block={0}", notification.blockNumber());
+        unvalidatedBlockDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
+        blockBackfilledNotificationsCounter.increment();
     }
 
     @Override
@@ -681,8 +725,6 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                         handler.handleVerification(event.getVerificationNotification());
                     } else if (event.getPersistedNotification() != null) {
                         handler.handlePersisted(event.getPersistedNotification());
-                    } else if (event.getBackfilledBlockNotification() != null) {
-                        handler.handleBackfilled(event.getBackfilledBlockNotification());
                     } else if (event.getNewestBlockKnownToNetworkNotification() != null) {
                         handler.handleNewestBlockKnownToNetwork(event.getNewestBlockKnownToNetworkNotification());
                     } else if (event.getNextExpectedPublisherBlockNotification() != null) {
@@ -736,12 +778,60 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
 
     /**
      * {@inheritDoc}
+     * <p>
+     * The handler gets a thread of its own for the unvalidated block ring, separate from the thread that delivers its
+     * block notifications if it is also registered as a block notification handler.
+     */
+    @Override
+    public synchronized void registerUnvalidatedBlockHandler(
+            final BlockNotificationHandler handler, final boolean cpuIntensiveHandler, final String handlerName) {
+        final InformedEventHandler<UnvalidatedBlockRingEvent> informedEventHandler =
+                (event, sequence, endOfBatch, percentageBehindRingHead) -> handler.handleBackfilled(event.get());
+        final String unvalidatedBlockHandlerName = "UnvalidatedBlocks:" + handlerName;
+        if (unvalidatedBlockDisruptor.hasStarted()) {
+            registerHandler(
+                    handler,
+                    cpuIntensiveHandler,
+                    unvalidatedBlockHandlerName,
+                    unvalidatedBlockDisruptor.getRingBuffer(),
+                    informedEventHandler,
+                    unvalidatedBlockHandlerToEventProcessor,
+                    unvalidatedBlockHandlerToThread);
+        } else {
+            preRegisteredUnvalidatedBlockHandlers.add(new PreRegisteredUnvalidatedBlockHandler(
+                    handler, informedEventHandler, cpuIntensiveHandler, unvalidatedBlockHandlerName));
+        }
+
+        // log the registration of the handler
+        LOGGER.log(
+                DEBUG,
+                "Registering unvalidated block handler: {0}, cpuIntensive: {1}, handlerName: {2}",
+                handler.getClass().getSimpleName(),
+                cpuIntensiveHandler,
+                handlerName);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public synchronized void unregisterUnvalidatedBlockHandler(final BlockNotificationHandler handler) {
+        unregisterHandler(
+                handler,
+                unvalidatedBlockDisruptor.getRingBuffer(),
+                unvalidatedBlockHandlerToEventProcessor,
+                unvalidatedBlockHandlerToThread);
+    }
+
+    /**
+     * {@inheritDoc}
      */
     @Override
     public synchronized void start() {
         // start the disruptors
         blockItemDisruptor.start();
         blockNotificationDisruptor.start();
+        unvalidatedBlockDisruptor.start();
         // register all the pre-registered block item handlers
         for (var preRegisteredHandler : preRegisteredBlockItemHandlers) {
             registerHandler(
@@ -781,13 +871,28 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         }
         preRegisteredApplicationStateNotificationHandlers.clear();
 
+        // register all the pre-registered handlers with the unvalidated block ring
+        for (var preRegisteredHandler : preRegisteredUnvalidatedBlockHandlers) {
+            registerHandler(
+                    preRegisteredHandler.handler(),
+                    preRegisteredHandler.cpuIntensiveHandler(),
+                    preRegisteredHandler.handlerName(),
+                    unvalidatedBlockDisruptor.getRingBuffer(),
+                    preRegisteredHandler.informedHandler(),
+                    unvalidatedBlockHandlerToEventProcessor,
+                    unvalidatedBlockHandlerToThread);
+        }
+        preRegisteredUnvalidatedBlockHandlers.clear();
+
         // log successful start
         if (LOGGER.isLoggable(DEBUG)) {
             LOGGER.log(
                     DEBUG,
-                    "BlockMessagingFacility successfully started with block item queue size: {0} and block notification queue size: {1}",
+                    "BlockMessagingFacility successfully started with block item queue size: {0}, block notification"
+                            + " queue size: {1} and unvalidated block queue size: {2}",
                     blockItemDisruptor.getRingBuffer().getBufferSize(),
-                    blockNotificationDisruptor.getRingBuffer().getBufferSize());
+                    blockNotificationDisruptor.getRingBuffer().getBufferSize(),
+                    unvalidatedBlockDisruptor.getRingBuffer().getBufferSize());
         }
     }
 
@@ -821,9 +926,16 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             eventHandler.halt();
         }
         applicationStateNotificationHandlerToEventProcessor.clear();
+        // Stop all the unvalidated block event handlers, so a sender waiting on a full ring is released
+        for (var eventHandler : unvalidatedBlockHandlerToEventProcessor.values()) {
+            unvalidatedBlockDisruptor.getRingBuffer().removeGatingSequence(eventHandler.getSequence());
+            eventHandler.halt();
+        }
+        unvalidatedBlockHandlerToEventProcessor.clear();
         // Shuts down all the threads handling events.
         blockItemDisruptor.shutdown();
         blockNotificationDisruptor.shutdown();
+        unvalidatedBlockDisruptor.shutdown();
         // Stop all the block notification handlers
         for (Thread thread : blockNotificationHandlerToThread.values()) {
             thread.interrupt();
@@ -837,6 +949,12 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             LOGGER.log(DEBUG, "Stopped application state notification handler thread: {0}", thread.getName());
         }
         applicationStateNotificationHandlerToThread.clear();
+        // Stop all the unvalidated block handler threads
+        for (Thread thread : unvalidatedBlockHandlerToThread.values()) {
+            thread.interrupt();
+            LOGGER.log(DEBUG, "Stopped unvalidated block handler thread: {0}", thread.getName());
+        }
+        unvalidatedBlockHandlerToThread.clear();
         messageForwarder.shutdown();
     }
 
@@ -1087,6 +1205,20 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     private record PreRegisteredApplicationStateNotificationHandler(
             ApplicationStateNotificationHandler handler,
             InformedEventHandler<BlockNotificationRingEvent> informedHandler,
+            boolean cpuIntensiveHandler,
+            String handlerName) {}
+
+    /**
+     * Record for pre-registered unvalidated block handlers.
+     *
+     * @param handler the unvalidated block handler
+     * @param informedHandler the informed event handler
+     * @param cpuIntensiveHandler hint to the service that this handler is CPU intensive vs IO intensive
+     * @param handlerName the name of the handler, used for thread name and logging
+     */
+    private record PreRegisteredUnvalidatedBlockHandler(
+            BlockNotificationHandler handler,
+            InformedEventHandler<UnvalidatedBlockRingEvent> informedHandler,
             boolean cpuIntensiveHandler,
             String handlerName) {}
 }
