@@ -39,8 +39,7 @@ usage() {
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   usage
   exit 0
-fi
-if [[ $# -lt 1 || $# -gt 2 ]]; then
+elif [[ $# -lt 1 || $# -gt 2 ]]; then
   usage >&2
   exit 1
 fi
@@ -97,9 +96,7 @@ mismatches=$(jq -n -c --argjson h "$height" --slurpfile orig "$file" --slurpfile
 if [[ "$mismatches" != "[]" ]]; then
   echo "Verification failed, blocks resolving to a different address book: $mismatches (file untouched)" >&2
   exit 1
-fi
-
-if [[ "$(jq -S -c . "$tmp")" == "$(jq -S -c . "$file")" ]]; then
+elif [[ "$(jq -S -c . "$tmp")" == "$(jq -S -c . "$file")" ]]; then
   echo "Nothing to shrink, $file unchanged"
   exit 0
 fi
