@@ -7,6 +7,7 @@ import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.app.state.ApplicationStateUtility.filterToUniqueConnections;
 import static org.hiero.block.node.app.state.ApplicationStateUtility.isNewerHistory;
 import static org.hiero.block.node.app.state.ApplicationStateUtility.loadNetworkData;
+import static org.hiero.block.node.app.state.ApplicationStateUtility.mergeDuplicateEras;
 import static org.hiero.block.node.app.state.ApplicationStateUtility.mergeRanges;
 import static org.hiero.block.node.app.state.ApplicationStateUtility.publisherConnectionsFrom;
 import static org.hiero.block.node.app.state.ApplicationStateUtility.toBlockRange;
@@ -367,15 +368,30 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
 
     /// {@inheritDoc}
     ///
-    /// Installs the history and its index immediately if the supplied history is newer than the
-    /// currently stored value; persisting it, deriving the known publishers and dispatching the
-    /// notification happen on the ApplicationStateDispatcher thread.
+    /// Adjacent eras with the same address book are first merged into one (see
+    /// [ApplicationStateUtility#mergeDuplicateEras]), keeping the stored, persisted and dispatched
+    /// history small. Installs the history and its index immediately if the merged history is newer
+    /// than the currently stored value; persisting it, deriving the known publishers and dispatching
+    /// the notification happen on the ApplicationStateDispatcher thread.
     ///
-    /// @param history the history to store; must not be {@code null}
+    /// @param incoming the history to store; must not be {@code null}
     /// @return {@code true} if accepted, {@code false} if rejected
     @Override
-    public boolean updateAddressBookHistory(RangedAddressBookHistory history) {
-        if (history == null || !shouldInstall(history, addressBookState.get().history())) {
+    public boolean updateAddressBookHistory(final RangedAddressBookHistory incoming) {
+        if (incoming == null) {
+            return false;
+        }
+        // Merge before the newer check: the stored history is already merged, so an unmerged copy of
+        // it would otherwise look newer (later last era start, or more eras) and be installed again.
+        final RangedAddressBookHistory history = mergeDuplicateEras(incoming);
+        if (history != incoming) {
+            LOGGER.log(
+                    DEBUG,
+                    "Merged duplicate address book eras: {0} -> {1}",
+                    incoming.addressBooks().size(),
+                    history.addressBooks().size());
+        }
+        if (!shouldInstall(history, addressBookState.get().history())) {
             return false;
         }
         final AddressBookState candidate = new AddressBookState(history, AddressBookHistoryLookup.buildIndex(history));
