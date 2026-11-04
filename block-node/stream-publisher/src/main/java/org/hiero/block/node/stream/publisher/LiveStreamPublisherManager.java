@@ -287,12 +287,14 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     @Override
     public void registerQueueForBlock(
             final long handlerId, final Deque<BlockItemSetUnparsed> queue, final long blockNumber) {
-        final Deque<BlockItemSetUnparsed> previousValue = queueByBlockMap.put(blockNumber, queue);
-        if (previousValue != null) {
-            // If there is a previous value, this means that the publisher that streamed this block is now
-            // re-starting it mid-block. We need to remove a potentially collected block proof.
-            blockProofs.remove(blockNumber);
-        }
+        // A new queue always starts a fresh attempt at this block. Any proof or end-of-block marker
+        // collected for an earlier attempt belongs to a different publisher stream and must not be
+        // combined with this queue, whether or not the previous queue is still in the map. A stale
+        // proof would otherwise hide the new queue from the forwarder and be sent on its own as the
+        // end of a block whose header and body were never forwarded. Clear before publishing the
+        // queue so the forwarder can never see the new queue together with stale state.
+        clearCollectedBlockEnd(blockNumber);
+        queueByBlockMap.put(blockNumber, queue);
         // Record which handler won ACCEPT for this block so stall detection
         // can identify and terminate a silent publisher.
         activeStreamHandlerByBlock.put(blockNumber, handlerId);
@@ -714,8 +716,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                         || hasBlockProof(queueByBlockMap.get(candidate))
                         || isResendingLive(candidate))) {
                     queueByBlockMap.remove(candidate);
-                    // possibly remove a just collected block proof
-                    blockProofs.remove(candidate);
+                    // possibly remove a just collected block proof and end-of-block marker
+                    clearCollectedBlockEnd(candidate);
                     // remove from stall-detection tracking; this block is now obsolete
                     // This should not actually be needed, but it's here for a rare corner case
                     activeStreamHandlerByBlock.remove(candidate);
@@ -838,7 +840,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         String correlationId = stalledHandler != null ? stalledHandler.getCorrelationId() : "";
         LOGGER.log(DEBUG, logMessage, correlationId, handlerId, stalledBlock, completedBlock);
         queueByBlockMap.remove(stalledBlock);
-        blockProofs.remove(stalledBlock);
+        clearCollectedBlockEnd(stalledBlock);
         if (stalledHandler != null) {
             stalledHandler.endStreamWithCode(TIMEOUT, true, stalledBlock);
         }
@@ -938,6 +940,72 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 }
             }
         }
+    }
+
+    /// Schedules a resend of a block, unless this node already holds it. A failed copy of a
+    /// block can arrive after another copy (for example from backfill) was persisted; asking
+    /// publishers to resend it would be futile, and the entry would clamp every
+    /// acknowledgement below it until pruned.
+    ///
+    /// Callers check `blockNumber > lastPersistedBlockNumber` before calling, but a concurrent
+    /// persist can advance `lastPersistedBlockNumber` between that check and the add. The entry
+    /// would then sit at or below the acknowledged block and clamp acks until pruned, so the
+    /// block is checked again after the add and the entry removed if it is already persisted.
+    ///
+    /// Blocks below `earliestManagedBlock` are not managed by this node, so no resend is ever
+    /// scheduled for them. Such a block can only be in flight right after a restart, via the
+    /// pre-earliest-managed accept path in [#streamBeforeEmbOrElse].
+    ///
+    /// @param blockNumber the block to schedule for resend
+    void scheduleResend(final long blockNumber) {
+        if (blockNumber < earliestManagedBlock) {
+            return;
+        }
+        blocksToResend.add(blockNumber);
+        if (blockNumber <= lastPersistedBlockNumber.get()) {
+            blocksToResend.remove(blockNumber);
+        }
+    }
+
+    /// Removes the block proof and the end-of-block marker collected for a block. Both belong to a
+    /// single publisher's attempt at the block, so they must be discarded whenever that attempt is
+    /// abandoned or a new attempt starts.
+    ///
+    /// @param blockNumber the block whose collected proof and end-of-block marker are discarded
+    private void clearCollectedBlockEnd(final long blockNumber) {
+        blockProofs.remove(blockNumber);
+        endBlocksReceived.remove(blockNumber);
+    }
+
+    /// Discards a block whose collected end cannot be forwarded consistently and schedules it for
+    /// resend. This is used when a proof and end-of-block marker are collected for a block while its
+    /// own queue still holds batches that were never forwarded. Forwarding the proof alone would give
+    /// messaging an end-of-block for a block whose header and body it never received, and the block
+    /// would be lost without ever being retried.
+    ///
+    /// @param blockNumber the block to check, and to discard and schedule for resend if inconsistent
+    /// @return true if the block was inconsistent and has been discarded, false otherwise
+    private boolean discardIfInconsistent(final long blockNumber) {
+        boolean discarded = false;
+        final Deque<BlockItemSetUnparsed> unforwarded = queueByBlockMap.get(blockNumber);
+        if (endBlocksReceived.contains(blockNumber)
+                && unforwarded != null
+                && !unforwarded.isEmpty()
+                && blockProofs.containsKey(blockNumber)) {
+            // The proof was collected for a different attempt than the queued batches. Sending it
+            // alone would end a block that messaging never saw begin, so schedule a resend instead.
+            LOGGER.log(
+                    WARNING,
+                    "Block {0} has a collected proof but unforwarded batches in its queue; discarding it and scheduling a resend",
+                    blockNumber);
+            queueByBlockMap.remove(blockNumber);
+            clearCollectedBlockEnd(blockNumber);
+            activeStreamHandlerByBlock.remove(blockNumber);
+            activeResendBlocks.remove(blockNumber);
+            scheduleResend(blockNumber);
+            discarded = true;
+        }
+        return discarded;
     }
 
     /// Removes any entry in {@link #blocksToResend} whose block number is more than
@@ -1145,7 +1213,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
 
     /// Check the queue forwarder task and start, or restart, if it is
     /// null or completed, respectively.
-    private void checkLogAndRestartForwarderTask() {
+    void checkLogAndRestartForwarderTask() {
         final Future<Long> currentResult = queueForwarderResult.get();
         if (currentResult != null && currentResult.isDone()) {
             try {
@@ -1370,7 +1438,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                         publisherManager.waitForDataReady();
                     }
                 } else {
-                    if (publisherManager.endBlocksReceived.contains(currentBlockNumber)) {
+                    if (publisherManager.endBlocksReceived.contains(currentBlockNumber)
+                            && !publisherManager.discardIfInconsistent(currentBlockNumber)) {
                         // Send the proof
                         final BlockItemUnparsed proof = publisherManager.blockProofs.remove(currentBlockNumber);
                         if (proof != null) {
