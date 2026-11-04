@@ -3,9 +3,8 @@
 ## Purpose
 
 Backfill fetches missing blocks from peer Block Nodes in batches, one gRPC server
-stream per batch. Today a batch is all or nothing: if the stream times out or
-fails, every block that already arrived is thrown away and the same full range
-is requested again.
+stream per batch. When a batch times out or fails, every block that already
+arrived is thrown away and the same full range is requested again.
 
 This was seen on a Block Node backfilling a range of unusually large blocks
 (about 6 to 18 MB each) with `BACKFILL_FETCH_BATCH_SIZE=20`. One batch was 120 to
@@ -21,8 +20,8 @@ backfill has given up on is stopped. It covers the three sub-issues of epic
 [#3936](https://github.com/hiero-ledger/hiero-block-node/issues/3936) together
 because they change the same classes:
 
-- [#3937](https://github.com/hiero-ledger/hiero-block-node/issues/3937) return
-  the received block prefix on timeout or error and resume after it.
+- [#3937](https://github.com/hiero-ledger/hiero-block-node/issues/3937) keep
+  the complete blocks received before a timeout or error, and resume after them.
 - [#3939](https://github.com/hiero-ledger/hiero-block-node/issues/3939) stop gRPC
   streams that backfill has abandoned.
 - [#3938](https://github.com/hiero-ledger/hiero-block-node/issues/3938) use a
@@ -38,7 +37,7 @@ The guiding principle is: **never request again data we already hold.**
 The operator workaround that works without any code change, lowering
 `BACKFILL_FETCH_BATCH_SIZE` (for example to 5) and raising
 `BACKFILL_GRPC_OVERALL_TIMEOUT` (for example to 180000 to 300000 ms), stays valid
-but is no longer required once this feature ships.
+but is not needed with this design.
 
 ## Goals
 
@@ -52,10 +51,14 @@ but is no longer required once this feature ships.
    request.
 4. The result of a batch request **must** be a contiguous prefix of the requested
    range, starting at the requested start block, plus an optional error.
-5. A batch that fails after at least one complete block arrived **must not**
-   count as a node failure: it does not put the node in backoff and does not
-   remove it from the current availability. A batch that fails before any
-   complete block arrived **must** behave exactly as today.
+5. A batch that ends before the whole range arrived, by an error, a timeout or
+   an early success status, but after at least one complete block arrived,
+   **must not** count as a node failure: it does not put the node in backoff and
+   does not remove it from the current availability. A batch that ends before
+   any complete block arrived **must** count as a node failure: the peer's
+   failure count goes up, it is put in exponential backoff, its client is
+   closed, the fetch returns no blocks, and the runner removes the peer from the
+   availability of the gap and replans.
 6. A healthy but slow stream of large blocks **must** complete without tuning
    batch size and timeout together. The deadline reflects progress, and an
    absolute ceiling still bounds a peer that sends data very slowly.
@@ -80,7 +83,10 @@ Out of scope:
   `BlockStreamSubscribeUnparsedClient.getBatchOfBlocks(start, end)`. It opens
   one gRPC server stream for a closed block range and waits for it to finish.
 * **Attempt**: One batch request made by `BackfillFetcher.fetchBlocksFromNode`.
-  The fetcher makes up to `maxRetries` attempts per chunk.
+  The fetcher makes up to `maxRetries` attempts per chunk. Every attempt counts,
+  whether or not it received blocks. When the attempts run out, the fetcher
+  returns the blocks it has, and the runner's next chunk starts after them with
+  a new budget of `maxRetries` attempts.
 * **Chunk**: The block range the runner asks the fetcher for, bounded by the
   peer's available range, `fetchBatchSize` and the gap end. See
   [Backfill Plugin Design](./backfill-plugin.md).
@@ -90,8 +96,9 @@ Out of scope:
 * **Partial Block**: A block whose header and possibly some items arrived, but
   whose end of block marker did not. It is never part of a prefix.
 * **Terminal Event**: The first of: stream completed, stream error, block number
-  mismatch, unexpected response, timeout. After the terminal event a request
-  accepts no more data.
+  mismatch, unexpected response, internal error while processing a response
+  message (for example a parse error), timeout, interruption of the waiting
+  thread. After the terminal event a request accepts no more data.
 * **Abandoned Stream**: A gRPC stream whose batch request has already returned
   to the caller (because of a timeout or an error) while the peer may still be
   sending data.
@@ -108,9 +115,19 @@ Out of scope:
 ### BlockStreamSubscribeUnparsedClient
 
 The client that requests a closed range of blocks from a peer over one gRPC
-stream and waits for it to finish. It now returns a `BatchResult` instead of
-throwing when the stream ends early, and enforces the inactivity and overall
-timeouts.
+stream and waits for it to finish. It returns a `BatchResult`, also when the
+stream ends early, and enforces the inactivity and overall timeouts.
+
+This class and `BlockNodeClient` live in the `base` module, so the change
+reaches callers outside backfill:
+
+- `TssDataFetcher` (roster-bootstrap-tss) and `AddressBookFetcher`
+  (roster-bootstrap-rsa) build a `BlockNodeClient` but only query server status;
+  they never open a block stream. They keep the existing constructor, which
+  passes the overall timeout as the inactivity timeout, so they get a single
+  deadline and need no change.
+- The E2E test `BackfillMultiportSourceTests` calls `getBatchOfBlocks` directly.
+  It reads the blocks from the `BatchResult` and asserts that it has no error.
 
 ### BatchResult
 
@@ -121,64 +138,49 @@ early, if any.
 ### RequestContext and SubscribePipeline
 
 The per-request state and the pbj pipeline that turns response messages into
-blocks. The request now ends at the first terminal event, and the pipeline
-ignores everything that arrives after it.
+blocks. The request ends at the first terminal event, and the pipeline ignores
+everything that arrives after it. The completed blocks live in the same atomic
+snapshot as the outcome, so the prefix handed to the waiting thread is fixed at
+the terminal event.
 
 ### BlockNodeClient
 
 Holds the gRPC connections to one peer. Closing it is the only way to stop a
-stream the client no longer waits for.
+stream the client no longer waits for. Backfill uses a constructor that takes
+the inactivity timeout; the roster fetchers use the one without it.
 
 ### BackfillFetcher
 
 Owns the cached client and the health record of each peer, and retries a chunk
-up to `maxRetries` times. It now keeps the blocks from every attempt, resumes
+up to `maxRetries` times. It keeps the blocks from every attempt, resumes
 after them, and closes the client after a failed attempt. Each scheduler has
 its own fetcher on its own thread, so a fetcher runs one fetch at a time.
 
 ### BackfillRunner
 
 Drives one gap: selects a peer and chunk, fetches, and waits for the blocks to
-persist. It now persists a partial chunk and continues after it.
+persist. It persists a partial chunk and continues after it. Sending blocks for
+persistence and waiting for them to persist are unchanged by this design; see
+[Backfill Plugin Design](./backfill-plugin.md).
 
 ## Design
 
-### How the Code Flows Today
-
-```
-BackfillRunner.backfillGap
-  -> fetchNextChunk(currentBlock, gapEnd, batchSize, availability)
-       -> BackfillFetcher.fetchBlocksFromNode(node, chunk)   // up to maxRetries attempts
-            -> BlockStreamSubscribeUnparsedClient.getBatchOfBlocks(start, end)
-                 -> RequestContext.await(grpcOverallTimeout)  // single latch deadline
-```
-
-Blocks are lost in three places:
-
-1. **Client.** The pipeline adds every finished block to the context, but
-   `await` throws on timeout or on any error. The caller gets either every block
-   or an exception, never the blocks that already arrived.
-2. **Fetcher.** Every attempt requests the full chunk again. A short result marks
-   the node as failed and returns an empty list; so does running out of
-   attempts.
-3. **Runner.** An empty list removes the node from the availability, replans,
-   and persists nothing.
-
 ### Keeping the Received Blocks
 
-A batch request no longer fails as a whole. It returns a `BatchResult`: the
+A batch request does not fail as a whole. It returns a `BatchResult`: the
 blocks that arrived complete, in order from the requested start block, and the
 error that ended the request early, if any. A block whose end of block marker
 never arrived is not part of the result; the next request asks for it again in
 full.
 
 The request ends at its first terminal event: the stream completes, the stream
-fails, the peer sends an error status or a block with an unexpected number, a
-timeout trips, or the waiting thread is interrupted. Only that first event
-counts. Anything the stream delivers afterwards is ignored and the
-half-received block is dropped, so a stream that keeps running cannot add blocks
-to a result that was already returned. This also fixes a bug where, after a
-block number mismatch, the client could still add a wrong block.
+fails, the peer sends an error status or a block with an unexpected number,
+processing a response message fails on our side, a timeout trips, or the
+waiting thread is interrupted. The client keeps the outcome and the completed
+blocks together in one `AtomicReference` updated by `compareAndSet`, so only the
+first event counts and no block is added after it, even while the pbj reader
+thread is still running. The waiting thread then returns those blocks, together
+with the error, if any; it does not throw.
 
 ### Resuming After the Received Blocks
 
@@ -193,20 +195,25 @@ different peer.
 
 The runner persists whatever the fetcher returns and continues from the block
 after it. The peer stays available for the next selection. If it cannot serve
-the remaining blocks, the next fetch returns nothing and the peer is removed, as
-today. Every round either persists at least one block or removes a peer, so a
+the remaining blocks, the next fetch returns nothing and the peer is removed
+from the availability of the gap. Every round either persists at least one block or removes a peer, so a
 gap always moves forward or ends.
 
 A fetch counts toward the peer's health as follows:
 
-|              Outcome              |                        Health effect                        |
-|-----------------------------------|-------------------------------------------------------------|
-| All blocks received               | Success: failures reset, latency recorded                   |
-| Some blocks received, then failed | No new failure, no backoff, failures kept, latency recorded |
-| No block received                 | Failure and backoff, as today                               |
+|            Outcome            |                        Health effect                        |
+|-------------------------------|-------------------------------------------------------------|
+| All blocks received           | Success: failures reset, latency recorded                   |
+| Some blocks received, not all | No new failure, no backoff, failures kept, latency recorded |
+| No block received             | Failure: failure count raised, backoff                      |
 
-The latency in the health score becomes a time per block instead of a time per
-batch. Every fetch that received blocks adds the total time of its attempts,
+The middle row covers every way a fetch can end before the whole chunk arrived:
+an error, a timeout, or a success status sent early. A peer that ends the stream
+early with a success status is not rewarded with a reset of its failures, and a
+peer that delivered some blocks is not put in backoff, whichever way the stream
+ended.
+
+The latency in the health score is a time per block, not per batch. Every fetch that received blocks adds the total time of its attempts,
 without the retry delays between them, and the number of blocks received. The
 average latency of a peer is the total time divided by the total blocks.
 
@@ -237,13 +244,13 @@ single thread, so no status query is in flight when it closes a client.
 
 Closing the client is not a failure in itself: a peer that delivered some blocks
 is not put in backoff. After a fully successful fetch the client is kept for the
-next chunk, as today.
+next chunk.
 
 ### Progress-Based Timeout
 
-A batch request is bounded by two limits instead of one:
+A batch request is bounded by two limits:
 
-- **Inactivity timeout** (`grpcInactivityTimeout`, new). The request ends when
+- **Inactivity timeout** (`grpcInactivityTimeout`). The request ends when
   no response message arrived from the peer for this long. Every response
   message counts, not only complete blocks. A serving Block Node splits each
   block into messages of about 1 MB (`maxChunkSizeBytes` on that node), so a
@@ -269,12 +276,34 @@ only sends a ping and keeps reading. A stalled peer is therefore caught by the
 inactivity timeout, while a peer whose connection is gone ends with a stream
 error.
 
-`BACKFILL_GRPC_OVERALL_TIMEOUT` keeps the meaning it has in the code today: the
-longest time one batch request may take. An operator who set it keeps the same
-cap. Its documentation also says it controls the connect, read and poll
-timeouts; that stopped being true when those moved to the per-peer gRPC tuning,
-and the documentation is corrected. Its default rises from 60 seconds to 15
-minutes. The inactivity timeout now catches a stalled peer, and with the old
+`BACKFILL_GRPC_OVERALL_TIMEOUT` keeps its meaning: the longest time one batch
+request may take. An operator who set it keeps the same cap.
+
+Its documentation also says it is the fallback for the connect, read and poll
+timeouts. That is not the case: those come from the per-peer gRPC tuning, and a
+tuning value that is 0 or not set falls back to a fixed 10 seconds in
+`BlockNodeClient`. The claim is corrected everywhere it appears:
+
+- `protobuf-sources/src/main/proto/internal/block_node_source.proto`: the
+  `GrpcWebClientTuning` message comment and its `connect_timeout`,
+  `read_timeout` and `poll_wait_time` fields.
+- [Backfill Plugin Design](./backfill-plugin.md): the configuration table, which
+  also gets the new `grpcInactivityTimeout` row and the new default, and the
+  per-peer tuning section.
+- `docs/block-node/configuration.md`: the `BACKFILL_GRPC_OVERALL_TIMEOUT` row,
+  plus a new row for `BACKFILL_GRPC_INACTIVITY_TIMEOUT`.
+- `BackfillConfiguration`: the `grpcOverallTimeout` parameter documentation.
+- `BackfillFetcher`: the global timeout field comment and the `getNodeClient`
+  documentation.
+- `BlockNodeClient`: the `globalTimeoutMs` constructor parameter documentation.
+
+The roster bootstrap plugins have the same wrong description for their own
+`ROSTER_BOOTSTRAP_RSA_GRPC_OVERALL_TIMEOUT` and `ROSTER_GRPC_OVERALL_TIMEOUT`
+rows in `docs/block-node/configuration.md` and in `RsaRosterBootstrapConfig`.
+They get the same text correction; their behavior does not change.
+
+The default of `BACKFILL_GRPC_OVERALL_TIMEOUT` rises from 60 seconds to 15
+minutes. The inactivity timeout catches a stalled peer, and with the old
 default a default installation would still fail on the large blocks described
 in the [Purpose](#purpose). The change is announced in the release notes.
 
@@ -342,7 +371,9 @@ stateDiagram-v2
     [*] --> Receiving: request sent
     Receiving --> Receiving: response message (items, end of block)
     Receiving --> Completed: onComplete
+    [*] --> Failed: stream could not be opened
     Receiving --> Failed: onError, error status, mismatch, unexpected message
+    Receiving --> Failed: internal error while processing a message
     Receiving --> Failed: inactivity timeout or ceiling
     Receiving --> Failed: caller interrupted
     Completed --> [*]: return prefix, no error
@@ -370,16 +401,16 @@ flowchart TD
 Properties use the `backfill.` prefix, set through environment variables as
 shown.
 
-|           Property            |        Environment variable        | Type |      Default       |                                          Description                                           |
-|-------------------------------|------------------------------------|------|--------------------|------------------------------------------------------------------------------------------------|
-| `grpcInactivityTimeout` (new) | `BACKFILL_GRPC_INACTIVITY_TIMEOUT` | int  | 20000              | Longest time in ms a batch request waits without receiving any response message. Minimum 1000. |
-| `grpcOverallTimeout`          | `BACKFILL_GRPC_OVERALL_TIMEOUT`    | int  | 900000 (was 60000) | Longest time in ms one batch request may take in total. Minimum 10000.                         |
-| `fetchBatchSize`              | `BACKFILL_FETCH_BATCH_SIZE`        | int  | 10                 | Unchanged. Maximum blocks per batch request.                                                   |
-| `maxRetries`                  | `BACKFILL_MAX_RETRIES`             | int  | 3                  | Unchanged. Attempts per chunk; each attempt resumes after the received prefix.                 |
+|           Property            |        Environment variable        | Type |      Default       |                                           Description                                           |
+|-------------------------------|------------------------------------|------|--------------------|-------------------------------------------------------------------------------------------------|
+| `grpcInactivityTimeout` (new) | `BACKFILL_GRPC_INACTIVITY_TIMEOUT` | int  | 20000              | Longest time in ms a batch request waits without receiving any response message. Minimum 1000.  |
+| `grpcOverallTimeout`          | `BACKFILL_GRPC_OVERALL_TIMEOUT`    | int  | 900000 (was 60000) | Longest time in ms one batch request may take in total. Minimum 10000.                          |
+| `fetchBatchSize`              | `BACKFILL_FETCH_BATCH_SIZE`        | int  | 10                 | Unchanged. Maximum blocks per batch request.                                                    |
+| `maxRetries`                  | `BACKFILL_MAX_RETRIES`             | int  | 3                  | Unchanged. Attempts per chunk, counted with or without progress; each resumes after the prefix. |
 
 The two timeouts are not validated against each other. If the inactivity
 timeout is set at or above the overall timeout, the overall timeout always
-trips first, so the request has a single deadline, as it does today.
+trips first, so the request has a single deadline.
 
 ## Metrics
 
@@ -388,29 +419,36 @@ details:
 
 - `backfill_blocks_fetched` counts every block of a returned prefix, so it now
   also grows for partial batches.
-- `backfill_retries` counts each retry attempt inside the fetcher, as today.
-  With this design, each of those attempts requests only the blocks after the
-  prefix.
+- `backfill_retries` counts each retry attempt inside the fetcher. Each of those
+  attempts requests only the blocks after the prefix.
 
 ## Exceptions
 
 - **Stream errors.** A gRPC error, a non-success status, a block number
-  mismatch, an unexpected response and a parse error all end the request. They
-  are returned as the `error` of the `BatchResult` together with the prefix,
-  never thrown.
+  mismatch, a block outside the requested range, block items or an end of block
+  without a block header, an unexpected response, a parse error and any other
+  error while processing a response message all end the request. They are
+  returned as the `error` of the `BatchResult` together with the prefix, never
+  thrown.
+- **Stream not opened.** When creating the call or sending the request fails,
+  the batch request returns a `BatchResult` with no blocks and that error. The
+  fetcher handles it like any other attempt that received no blocks.
+- **Invalid range.** A start after the end, or a negative block number,
+  throws `IllegalArgumentException`, because it is a bug in the caller, not a
+  failure of the peer.
 - **Timeouts.** The inactivity timeout and the ceiling end the request the same
   way, each with its own `WARNING` message naming the setting and the first
   block not received.
 - **Interruption.** The interrupt flag is restored, the prefix is returned with
   an `InterruptedException`, and the fetcher stops retrying.
 - **Late callbacks.** Any callback after the terminal event is ignored. The log
-  level of `onError` now depends on when it arrives: an `onError` that ends the
-  request is still logged at `WARNING`, as today, while one that arrives after
+  level of `onError` depends on when it arrives: an `onError` that ends the
+  request is logged at `WARNING`, while one that arrives after
   the terminal event, typically because the connection of an abandoned stream
   was closed, is logged at `DEBUG`.
 - **Exhausted attempts with a prefix.** When every attempt failed but some
-  blocks arrived, the fetcher returns them and logs the last error at `WARNING`
-  instead of marking the node as failed.
+  blocks arrived, the fetcher returns them, logs the last error at `WARNING`,
+  and does not mark the node as failed.
 
 ## Acceptance Tests
 
@@ -428,9 +466,11 @@ details:
    and the next fetch starts after it; the peer is not put in backoff, its
    failures are not reset, and a latency per block is recorded for the prefix.
 6. **Short stream with success status.** The prefix is returned without
-   retrying, and the rest is requested in the next round.
-7. **No block received.** The peer is put in backoff and removed from the
-   availability, as today.
+   retrying, and the rest is requested in the next round. The peer is not put in
+   backoff, its failures are not reset, and a latency per block is recorded for
+   the prefix.
+7. **No block received.** The peer's failure count goes up, it is put in
+   backoff, and it is removed from the availability of the gap.
 8. **Abandoned stream closed.** After a failed attempt the client is closed and
    a new one is used for the next attempt; after a full success it is kept.
 9. **Slow but steady stream.** A stream that keeps sending data completes even
