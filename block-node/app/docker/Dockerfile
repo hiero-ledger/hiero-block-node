@@ -111,3 +111,19 @@ RUN echo >> /etc/sudoers && \
     echo "%hedera ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
 USER hedera
+
+FROM base-image AS full
+ENV VERSION=${VERSION}
+ENV BN_PLUGINS=all
+# single COPY keeps the catalog hardlinks
+COPY --from=catalog --chown=2000:2000 . app-${VERSION}/plugin-catalog/
+# no "|| sleep 30d" so a bad BN_PLUGINS crash-loops
+ENTRYPOINT ["/bin/bash", "-c", "${BN_WORKDIR}/app-${VERSION}/bin/app"]
+
+FROM busybox:1.37 AS plugins
+ARG VERSION
+ARG PLUGINS
+ENV PLUGIN_CATALOG_DIR=/plugin-catalog
+LABEL org.opencontainers.image.version="${VERSION}" \
+      org.hiero.block-node.plugins="${PLUGINS}"
+COPY --from=catalog --chown=2000:2000 . /plugin-catalog/

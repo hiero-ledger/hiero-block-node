@@ -53,6 +53,10 @@ jobs:
             target: base-image
           - image: ${{ github.repository }}-solo-dev
             target: solo-dev
+          - image: ${{ github.repository }}-full
+            target: full
+          - image: ${{ github.repository }}-plugins
+            target: plugins
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
@@ -73,8 +77,8 @@ jobs:
       - name: Build
         run: ${GRADLE_EXEC} clean assemble
 
-      - name: Prepare plugin JARs for solo-dev image
-        run: ${GRADLE_EXEC} :app:prepareDockerPlugins
+      - name: Prepare plugin JARs for solo-dev and full images
+        run: ${GRADLE_EXEC} :app:prepareDockerPlugins :app:assemblePluginCatalog
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
@@ -107,6 +111,9 @@ jobs:
           SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)
           echo "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}" >> $GITHUB_ENV
 
+      - name: Extract plugin names
+        run: echo "PLUGINS=$(ls ./block-node/app/build/plugin-catalog | paste -sd, -)" >> $GITHUB_ENV
+
       - name: Server - Build and push image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -120,9 +127,11 @@ jobs:
           tags: ${{ env.REGISTRY }}/${{ matrix.image }}:${{ env.VERSION }}
           build-args: |
             VERSION=${{ env.VERSION }}
+            PLUGINS=${{ env.PLUGINS }}
             SOURCE_DATE_EPOCH=${{ env.SOURCE_DATE_EPOCH }}
           build-contexts: |
             distributions=./block-node/app/build/distributions
+            catalog=./block-node/app/build/plugin-catalog
 
   publish-jars:
     timeout-minutes: 30

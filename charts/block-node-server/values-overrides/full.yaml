@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+
+image:
+  repository: ghcr.io/hiero-ledger/hiero-block-node-full
+
+plugins:
+  source: image
