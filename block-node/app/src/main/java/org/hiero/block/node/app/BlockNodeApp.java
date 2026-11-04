@@ -31,6 +31,7 @@ import java.util.stream.Collectors;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.node.app.config.AutomaticEnvironmentVariableConfigSource;
+import org.hiero.block.node.app.config.BlockReadBulkheadConfig;
 import org.hiero.block.node.app.config.GlobalThrottleConfig;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.app.config.WebServerHttp2Config;
@@ -233,8 +234,16 @@ public class BlockNodeApp implements HealthFacility {
 
         // Create HTTP & GRPC routing builders; null port in plugin registrations resolves to server.port
         final GlobalThrottleConfig globalThrottleConfig = configuration.getConfigData(GlobalThrottleConfig.class);
+        final BlockReadBulkheadConfig blockReadBulkheadConfig =
+                configuration.getConfigData(BlockReadBulkheadConfig.class);
         serviceBuilder = new ServiceBuilderImpl(
-                serverConfig, http2Config, socketOptions, globalThrottleConfig, metricRegistry, threadPoolManager);
+                serverConfig,
+                http2Config,
+                socketOptions,
+                globalThrottleConfig,
+                blockReadBulkheadConfig,
+                metricRegistry,
+                threadPoolManager);
         // ==== INITIALIZE PLUGINS =====================================================================================
         // Initialize all the facilities & plugins, adding routing for each plugin
         for (BlockNodePlugin plugin : loadedPlugins) {

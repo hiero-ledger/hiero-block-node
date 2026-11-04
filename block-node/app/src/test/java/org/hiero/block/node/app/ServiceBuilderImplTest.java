@@ -30,6 +30,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.hiero.block.node.app.config.BlockReadBulkheadConfig;
 import org.hiero.block.node.app.config.GlobalThrottleConfig;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.app.config.WebServerHttp2Config;
@@ -63,6 +64,7 @@ class ServiceBuilderImplTest {
         final SocketOptions socketOptions = SocketOptions.builder().build();
         ServerConfig testConfig = new ServerConfig(0, 0, 0, PUBLISHER_PORT, 0, 0, 0, 0, false, 0, 0);
         final GlobalThrottleConfig globalThrottleConfig = new GlobalThrottleConfig(1000, 1000, 30, 5);
+        final BlockReadBulkheadConfig blockReadBulkheadConfig = new BlockReadBulkheadConfig(50);
         final MetricRegistry metricRegistry = MetricRegistry.builder().build();
         final ThreadPoolManager threadPoolManager = mock(ThreadPoolManager.class);
         // Mock executor; only throttled-registration tests trigger the lazy sweep start, and none assert on it.
@@ -72,7 +74,26 @@ class ServiceBuilderImplTest {
                         org.mockito.ArgumentMatchers.any()))
                 .thenReturn(mock(java.util.concurrent.ScheduledExecutorService.class));
         serviceBuilder = new ServiceBuilderImpl(
-                testConfig, http2Config, socketOptions, globalThrottleConfig, metricRegistry, threadPoolManager);
+                testConfig,
+                http2Config,
+                socketOptions,
+                globalThrottleConfig,
+                blockReadBulkheadConfig,
+                metricRegistry,
+                threadPoolManager);
+    }
+
+    @Test
+    @DisplayName("blockReadBulkhead should return a non-null, correctly-sized bulkhead")
+    void blockReadBulkhead_returnsConfiguredBulkhead() {
+        assertNotNull(serviceBuilder.blockReadBulkhead());
+        assertEquals(50, serviceBuilder.blockReadBulkhead().totalPermits());
+    }
+
+    @Test
+    @DisplayName("blockReadBulkhead should return the same shared instance on every call")
+    void blockReadBulkhead_returnsSameInstance() {
+        assertSame(serviceBuilder.blockReadBulkhead(), serviceBuilder.blockReadBulkhead());
     }
 
     @Test
@@ -125,6 +146,7 @@ class ServiceBuilderImplTest {
                 Http2Config.builder().build(),
                 SocketOptions.builder().build(),
                 new GlobalThrottleConfig(1000, 1000, 30, 5),
+                new BlockReadBulkheadConfig(50),
                 MetricRegistry.builder().build(),
                 threadPoolManager);
 
@@ -640,12 +662,14 @@ class ServiceBuilderImplTest {
         final ServerConfig serverConfig =
                 new ServerConfig(1_048_576, 32_768, 32_768, PUBLISHER_PORT, 0, 1_000, 1, 1, true, 1_024, 32);
         final GlobalThrottleConfig globalThrottleConfig = new GlobalThrottleConfig(1000, 1000, 30, 5);
+        final BlockReadBulkheadConfig blockReadBulkheadConfig = new BlockReadBulkheadConfig(50);
         final MetricRegistry metricRegistry = MetricRegistry.builder().build();
         return new ServiceBuilderImpl(
                 serverConfig,
                 http2Config,
                 SocketOptions.builder().build(),
                 globalThrottleConfig,
+                blockReadBulkheadConfig,
                 metricRegistry,
                 mock(ThreadPoolManager.class));
     }
