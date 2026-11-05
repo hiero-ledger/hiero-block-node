@@ -194,6 +194,9 @@ public class ConcurrentBlockRangeSet implements BlockRangeSet {
      * @param ranges the ranges to add
      */
     public void addAll(BlockRange... ranges) {
+        for (final BlockRange range : ranges) {
+            BlockRangeSet.requireValid(range);
+        }
         addMerged(BlockRangeSet.mergeContiguousRanges(List.of(ranges)));
     }
 
@@ -206,6 +209,9 @@ public class ConcurrentBlockRangeSet implements BlockRangeSet {
     public final void addAll(Collection<BlockRange>... ranges) {
         final List<BlockRange> all = new ArrayList<>();
         for (Collection<BlockRange> rangeCollection : ranges) {
+            for (final BlockRange range : rangeCollection) {
+                BlockRangeSet.requireValid(range);
+            }
             all.addAll(rangeCollection);
         }
         addMerged(BlockRangeSet.mergeContiguousRanges(all));
