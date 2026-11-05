@@ -133,11 +133,13 @@ public class ServerStatusServicePlugin
     /**
      * Handle a request for server status details
      *
-     * @param request the request containing the available blocks, state snapshot status and software version
-     * @return the response containing the block or an error status
+     * @param request the request, whose flags leave out the version information, the available ranges, the stored
+     *     ranges, the address book or the TSS data
+     * @return the response with the parts that were not excluded
      */
     @Override
     @NonNull
+    @SuppressWarnings("deprecation")
     public ServerStatusDetailResponse serverStatusDetail(@NonNull final ServerStatusDetailRequest request) {
         requestDetailCounter.increment();
 
@@ -147,20 +149,31 @@ public class ServerStatusServicePlugin
         final TssData localTss = tssData;
         final RangedAddressBookHistory localHistory = rangedAddressBookHistory;
 
-        // Derive the latest NodeAddressBook from the history: the address book of its last era.
-        final NodeAddressBook nodeAddressBook =
-                localHistory != null && !localHistory.addressBooks().isEmpty()
-                        ? localHistory.addressBooks().getLast().addressBook()
-                        : null;
-
-        return ServerStatusDetailResponse.newBuilder()
-                .versionInformation(blockNodeContext.blockNodeVersions())
-                .availableRanges(localAvailable)
-                .storedRanges(localStored)
-                .tssData(localTss)
-                .nodeAddressBook(nodeAddressBook)
-                .rangedAddressBookHistory(localHistory)
-                .build();
+        final ServerStatusDetailResponse.Builder response = ServerStatusDetailResponse.newBuilder();
+        if (!request.excludeVersions()) {
+            response.versionInformation(blockNodeContext.blockNodeVersions());
+        }
+        if (!request.excludeAvailableRanges()) {
+            response.availableRanges(localAvailable);
+        }
+        if (!request.excludeStoredRanges()) {
+            response.storedRanges(localStored);
+        }
+        // The TSS data and the address book are deprecated in favour of dedicated calls. They are still returned by
+        // default for one release so that older clients keep working. A client can leave either out, and the address
+        // book is the large part of the response.
+        if (!request.excludeTssData()) {
+            response.tssData(localTss);
+        }
+        if (!request.excludeAddressBook()) {
+            // Derive the latest NodeAddressBook from the history: the address book of its last era.
+            final NodeAddressBook nodeAddressBook =
+                    localHistory != null && !localHistory.addressBooks().isEmpty()
+                            ? localHistory.addressBooks().getLast().addressBook()
+                            : null;
+            response.nodeAddressBook(nodeAddressBook).rangedAddressBookHistory(localHistory);
+        }
+        return response.build();
     }
 
     /**
