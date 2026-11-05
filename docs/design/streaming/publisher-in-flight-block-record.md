@@ -8,12 +8,12 @@ Component: `block-node/stream-publisher` — `LiveStreamPublisherManager`
 `LiveStreamPublisherManager` tracks the lifecycle of a block that is being received from a
 publisher in four separate concurrent collections, all keyed by block number:
 
-| Collection | Holds |
-|---|---|
-| `queueByBlockMap` | `Deque<BlockItemSetUnparsed>` — batches received but not yet forwarded to messaging |
-| `blockProofs` | the block proof item, held back so it is forwarded last |
-| `endBlocksReceived` | "end of block" marker — the publisher finished sending this block |
-| `activeStreamHandlerByBlock` | id of the handler that won ACCEPT for the block (used for stall detection) |
+|          Collection          |                                        Holds                                        |
+|------------------------------|-------------------------------------------------------------------------------------|
+| `queueByBlockMap`            | `Deque<BlockItemSetUnparsed>` — batches received but not yet forwarded to messaging |
+| `blockProofs`                | the block proof item, held back so it is forwarded last                             |
+| `endBlocksReceived`          | "end of block" marker — the publisher finished sending this block                   |
+| `activeStreamHandlerByBlock` | id of the handler that won ACCEPT for the block (used for stall detection)          |
 
 These four describe **one thing**: the in-flight attempt at a single block. Today they are
 mutated independently, from multiple threads, with no single point of consistency. Every
@@ -52,17 +52,17 @@ and each future code path that touches one map must remember the same rule.
 The same four collections are mutated at many sites. Each is a place where a missed update
 produces drift:
 
-| Site | Queue | Proof | End marker | Active handler |
-|---|---|---|---|---|
-| `registerQueueForBlock` | put | clear | clear | put |
-| `endOfBlock` | read | remove if no queue | add if queue | remove |
-| `blockIsEnding` (mid-block drop) | remove | — | — | remove |
-| `checkForStalledHandlers` / `endStalledBlock` | remove | clear | clear | remove (CAS) |
-| `clearObsoleteQueueItems` | remove | read and clear | clear | remove |
-| `discardIfInconsistent` | read and remove | read and clear | read and clear | remove |
-| `endAllHandlersAndClearTracking` | clear | clear | clear | clear |
-| `shutdown` | clear | — | — | clear |
-| Forwarder task (`MessagingForwarderTask.call`) | get, poll, remove | put, remove | read, remove | — |
+|                      Site                      |       Queue       |       Proof        |   End marker   | Active handler |
+|------------------------------------------------|-------------------|--------------------|----------------|----------------|
+| `registerQueueForBlock`                        | put               | clear              | clear          | put            |
+| `endOfBlock`                                   | read              | remove if no queue | add if queue   | remove         |
+| `blockIsEnding` (mid-block drop)               | remove            | —                  | —              | remove         |
+| `checkForStalledHandlers` / `endStalledBlock`  | remove            | clear              | clear          | remove (CAS)   |
+| `clearObsoleteQueueItems`                      | remove            | read and clear     | clear          | remove         |
+| `discardIfInconsistent`                        | read and remove   | read and clear     | read and clear | remove         |
+| `endAllHandlersAndClearTracking`               | clear             | clear              | clear          | clear          |
+| `shutdown`                                     | clear             | —                  | —              | clear          |
+| Forwarder task (`MessagingForwarderTask.call`) | get, poll, remove | put, remove        | read, remove   | —              |
 
 Notes:
 
@@ -113,7 +113,9 @@ obsolete cleanup, `discardIfInconsistent`, or a resend won by another handler) c
 
 The window is narrow (a stall ends the old handler's stream with TIMEOUT, so the old handler is
 usually already on its way out), but nothing in the code prevents it. This is the same defect as
-#3975 seen from the handler side, and per-record identity fixes it as well. I have not
+
+# 3975 seen from the handler side, and per-record identity fixes it as well. I have not
+
 reproduced it with a test. That should be the first characterisation test (section 6).
 
 **(b) The manager can't tell the handler its queue is dead.** Because the handler writes straight
@@ -158,11 +160,11 @@ final class InFlightBlock {
 
 State owned by the record, replacing the four maps:
 
-| Today | In the record |
-|---|---|
-| `queueByBlockMap.get(n)` | `block.pending` |
-| `blockProofs.get(n)` | `block.heldProof` |
-| `endBlocksReceived.contains(n)` | `block.endReceived` |
+|                Today                |     In the record      |
+|-------------------------------------|------------------------|
+| `queueByBlockMap.get(n)`            | `block.pending`        |
+| `blockProofs.get(n)`                | `block.heldProof`      |
+| `endBlocksReceived.contains(n)`     | `block.endReceived`    |
 | `activeStreamHandlerByBlock.get(n)` | `block.ownerHandlerId` |
 
 The manager keeps one map: `ConcurrentSkipListMap<Long, InFlightBlock> inFlight`.
