@@ -32,8 +32,8 @@ import org.hiero.block.api.BlockItemSet;
 import org.hiero.block.api.BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient;
 import org.hiero.block.api.PublishStreamRequest;
 import org.hiero.block.api.PublishStreamResponse;
+import org.hiero.block.api.ServerStatusDetailRequest;
 import org.hiero.block.api.ServerStatusDetailResponse;
-import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.BlockNodeApp;
@@ -144,12 +144,11 @@ public class BackfillMultiportSourceTests {
                 source, GRPC_TIMEOUT_MS, false, MAX_INCOMING_BUFFER_SIZE, MAX_PROTOBUF_MESSAGE_SIZE, null)) {
             // Server-status RPC must reach the dedicated status port and report the stored range.
             final long deadline = System.currentTimeMillis() + 5_000L;
-            ServerStatusDetailResponse status = client.getBlockNodeServiceClient()
-                    .serverStatusDetail(ServerStatusRequest.newBuilder().build());
+            ServerStatusDetailResponse status =
+                    client.getBlockNodeServiceClient().serverStatusDetail(ServerStatusDetailRequest.DEFAULT);
             // await available ranges to be updated
             while (status.availableRanges().isEmpty() && System.currentTimeMillis() < deadline) {
-                status = client.getBlockNodeServiceClient()
-                        .serverStatusDetail(ServerStatusRequest.newBuilder().build());
+                status = client.getBlockNodeServiceClient().serverStatusDetail(ServerStatusDetailRequest.DEFAULT);
                 LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(50));
             }
             assertThat(status.availableRanges()).anySatisfy(range -> {

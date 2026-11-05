@@ -17,6 +17,7 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
+import org.hiero.block.api.BlockNodeServiceInterface.BlockNodeServiceMethod;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.api.BlockRange;
@@ -62,7 +63,13 @@ public class ServerStatusDetailServicePluginTest
         temporaryAvailableBlocks.add(1_000_000L, 1_000_005L);
 
         historicalBlockFacility.setTemporaryAvailableBlocks(temporaryAvailableBlocks);
-        start(plugin, plugin.methods().getLast(), historicalBlockFacility);
+        start(
+                plugin,
+                plugin.methods().stream()
+                        .filter(method -> method.name().equals(BlockNodeServiceMethod.serverStatusDetail.name()))
+                        .findFirst()
+                        .orElseThrow(),
+                historicalBlockFacility);
     }
 
     /**
