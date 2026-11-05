@@ -75,6 +75,14 @@ TAGS=(v0.45.0-rc1) BRANCHES=(main)
 run rc main 0.45.0-rc1
 expect_fail "rc from main rejected once rc tags exist" "rc tags for 0.45.0 already exist"
 
+# --- rc after GA --------------------------------------------------------------------------------
+TAGS=(v0.45.0-rc1 v0.45.0 v0.45.1) BRANCHES=(main release/0.45)
+run rc release/0.45 0.45.0
+expect_fail "rc rejected once the version is released" "v0.45.0 is already released"
+TAGS=(v0.44.3) BRANCHES=(main release/0.44)
+run rc release/0.44 0.44.3-SNAPSHOT
+expect_fail "rc rejected on a SNAPSHOT of an already released version" "v0.44.3 is already released"
+
 # --- alpha ------------------------------------------------------------------------------------
 TAGS=(v0.46.0-alpha1 v0.46.0-alpha2 v0.46.0-alpha10 v0.45.0-alpha7) BRANCHES=(main)
 run alpha main 0.46.0-SNAPSHOT
@@ -104,19 +112,19 @@ TAGS=()
 run GA main 0.45.0-SNAPSHOT
 expect_fail "GA rejected off main" "GA must be dispatched from a release/X.Y branch"
 
-# An rc cut off-branch (the main-based v0.45.0-rc2 incident) must never be the GA source.
+# An rc cut off-branch (the main-based v0.45.0-rc2 incident) must never be the GA source,
+# and an older rc must never be used silently in place of a newer one.
 TAGS=(v0.45.0-rc1 v0.45.0-rc2 v0.45.0-rc3) ON_BRANCH_TAGS=(v0.45.0-rc1 v0.45.0-rc3) ON_BRANCH_SET=1
 run GA release/0.45 0.45.0-rc3
-expect_ok "GA uses highest on-branch rc" COMPUTED_VERSION=0.45.0 SOURCE_TAG=v0.45.0-rc3
+expect_ok "GA ignores a lower off-branch rc" COMPUTED_VERSION=0.45.0 SOURCE_TAG=v0.45.0-rc3
 
 ON_BRANCH_TAGS=(v0.45.0-rc1)
 run GA release/0.45 0.45.0-rc1
-expect_ok "GA skips a higher off-branch rc" COMPUTED_VERSION=0.45.0 SOURCE_TAG=v0.45.0-rc1
-grep -qF "v0.45.0-rc3 is not reachable" "$WORK/err" && PASS=$((PASS + 1)) || { FAIL=$((FAIL + 1)); echo "FAIL GA off-branch rc warning missing"; }
+expect_fail "GA fails when the newest rc is off-branch" "v0.45.0-rc3 is the newest rc but is not on 'release/0.45'"
 
 TAGS=(v0.45.0-rc2) ON_BRANCH_TAGS=()
 run GA release/0.45 0.45.0-rc1
-expect_fail "GA rejected when every rc is off-branch" "none is reachable from 'release/0.45'"
+expect_fail "GA fails when every rc is off-branch" "v0.45.0-rc2 is the newest rc but is not on 'release/0.45'"
 ON_BRANCH_TAGS=() ON_BRANCH_SET=""
 
 TAGS=(v0.45.0-rc1)
@@ -192,6 +200,29 @@ expect_fail "unparseable version.txt" "Unrecognised version format"
 
 run nonsense main 0.45.0-SNAPSHOT
 expect_fail "unknown release type" "Unknown release type"
+
+# --- list-branch-tags.sh against a real git history ------------------------------------------
+# Reproduces release/0.45: rc1 on the branch, rc2 tagged from main, rc3 a `custom` tag-only rc
+# (its bump commit is never on the branch, only its parent is).
+LIST="$(cd "$(dirname "$SCRIPT")" && pwd)/list-branch-tags.sh"
+REPO="$WORK/repo"
+git init -q -b main "$REPO"
+g() { git -C "$REPO" -c user.name=t -c user.email=t@t -c commit.gpgsign=false -c tag.gpgsign=false "$@"; }
+g commit -q --allow-empty -m base
+g checkout -q -b release/0.45
+g commit -q --allow-empty -m rc1; g tag v0.45.0-rc1
+g checkout -q main
+g commit -q --allow-empty -m main-work
+g commit -q --allow-empty -m "bump rc2"; g tag v0.45.0-rc2
+g checkout -q release/0.45
+g commit -q --allow-empty -m cherry-pick
+g checkout -q --detach
+g commit -q --allow-empty -m "bump rc3"; g tag v0.45.0-rc3
+g checkout -q release/0.45
+g tag v0.45.0-alpha1
+OUT=$(cd "$REPO" && "$LIST" release/0.45 | sort | tr '\n' ' ')
+if [[ "$OUT" == "v0.45.0-rc1 v0.45.0-rc3 " ]]; then PASS=$((PASS + 1)); else
+  FAIL=$((FAIL + 1)); echo "FAIL list-branch-tags: want 'v0.45.0-rc1 v0.45.0-rc3 ' got '$OUT'"; fi
 
 echo "passed=$PASS failed=$FAIL"
 [[ $FAIL -eq 0 ]]
