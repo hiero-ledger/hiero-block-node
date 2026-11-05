@@ -69,8 +69,9 @@ Before triggering any workflow:
 
 Guards applied when computing the version: `rc` from `main` is only `rc1`; `rc` and `GA` must run
 from `release/X.Y` with a matching `version.txt`; `GA` is built from the highest `vX.Y.Z-rcN` tag
-reachable from the branch (an rc cut on another branch is skipped, and GA fails if none is on the
-branch); the computed tag must not already exist.
+on the branch (an rc counts as on the branch when it or its parent commit is reachable, which covers
+tag-only `custom` rcs; GA fails if the newest rc is not on the branch rather than using an older
+one); `rc` fails once `vX.Y.Z` is already released; the computed tag must not already exist.
 
 `release_type` semantics:
 
@@ -244,14 +245,13 @@ This is also how you back-patch an *older* line while a newer one is active — 
 `custom`'s path reads `main` or any other branch's state, so the two dispatches don't interact —
 run them in either order, or at the same time.
 
-**`rc`/`GA` cannot be reused on a branch that's already had a GA — only `custom` can.** After a
-GA, `version.txt` on the release branch is left at the exact plain released version (e.g.
-`0.39.1`, no `-SNAPSHOT` suffix — nothing bumps it forward for the next patch). `rc`/`GA`'s
-auto-increment logic treats any plain `X.Y.Z` it finds as "snapshot, no rc started yet" and would
-recompute that *same* version instead of the next patch — dispatching `rc` here computes
-`0.39.1-rc1` (not `0.39.2-rc1`), and dispatching `GA` recomputes `0.39.1` again, which fails
-outright since that tag already exists. Always use `custom` with the explicit next version string
-instead. If a patch needs its own rc step first, do that via `custom` too — type the full rc
+**`rc`/`GA` cannot be reused on a branch that's already had a GA — only `custom` can.** Patch
+releases (e.g. 0.44.1, 0.44.2, 0.45.1) all go out through `custom` for now (see #3389). `custom`
+pushes only the tag, so `version.txt` on the release branch lags the last patch and is left at the
+exact plain released version (e.g. `0.39.1`, no `-SNAPSHOT` suffix). `rc`/`GA`'s auto-increment
+logic would recompute that *same* version instead of the next patch, so both fail early with
+`v0.39.1 is already released. Use custom with the next version`. Always use `custom` with the
+explicit next version string instead. If a patch needs its own rc step first, do that via `custom` too — type the full rc
 string by hand (e.g. `custom_version: 0.39.2-rc1`), then dispatch `custom` again with `0.39.2` for
 the actual patch release. Unlike the main rc→GA flow, this hand-rolled sequence has no
 drift protection — the second dispatch builds from the branch's live tip, not the exact rc1 tag,
