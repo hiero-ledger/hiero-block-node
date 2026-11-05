@@ -35,9 +35,9 @@ import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.internal.BlockNodeSourceConfig;
-import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.BlockNodeApp;
 import org.hiero.block.node.base.client.BlockNodeClient;
+import org.hiero.block.node.base.client.BlockStreamSubscribeUnparsedClient.BatchResult;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.health.HealthFacility.State;
 import org.hiero.block.suites.utils.BlockItemBuilderUtils;
@@ -158,9 +158,10 @@ public class BackfillMultiportSourceTests {
             });
 
             // Subscribe RPC must reach the subscribe port and fetch every block in the range.
-            final List<BlockUnparsed> blocks =
+            final BatchResult result =
                     client.getBlockstreamSubscribeUnparsedClient().getBatchOfBlocks(0L, LAST_BLOCK_NUMBER);
-            assertThat(blocks).hasSize(LAST_BLOCK_NUMBER + 1);
+            assertThat(result.error()).isNull();
+            assertThat(result.blocks()).hasSize(LAST_BLOCK_NUMBER + 1);
         }
     }
 
