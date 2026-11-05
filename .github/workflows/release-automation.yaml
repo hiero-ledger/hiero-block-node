@@ -84,7 +84,7 @@ jobs:
           INPUT_ALLOW_CUSTOM: ${{ github.event.inputs.allow_custom_without_release_branch }}
         run: |
           git tag -l > "$RUNNER_TEMP/tags.txt"
-          git tag --merged HEAD > "$RUNNER_TEMP/branch-tags.txt"
+          tools-and-tests/scripts/release/list-branch-tags.sh HEAD > "$RUNNER_TEMP/branch-tags.txt"
           git ls-remote --heads origin | sed 's#.*refs/heads/##' > "$RUNNER_TEMP/branches.txt"
           OUTPUT=$(tools-and-tests/scripts/release/compute-release-version.sh \
             --release-type "$INPUT_RELEASE_TYPE" \

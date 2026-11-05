@@ -9,7 +9,7 @@
 #       --ref-name <dispatching branch> --current-version <version.txt on that branch> \
 #       --tags-file <file, one existing tag per line> \
 #       --branches-file <file, one existing remote branch per line> \
-#       [--branch-tags-file <file, tags reachable from the dispatching branch; required for GA>] \
+#       [--branch-tags-file <file, rc tags on the dispatching branch, see list-branch-tags.sh; required for GA>] \
 #       [--custom-version <version>] [--allow-custom-without-release-branch true|false]
 #
 # Prints KEY=VALUE lines on stdout (COMPUTED_VERSION, and SOURCE_TAG for GA when an rc tag exists).
@@ -18,10 +18,11 @@
 # Rules:
 #   rc      main: only rc1, and only if no release/X.Y branch or vX.Y.Z-rcN tag exists for the base version.
 #           release/X.Y: highest existing vX.Y.Z-rcN tag + 1 (tags of other release lines are ignored).
+#           Fails if vX.Y.Z itself is already released.
 #   alpha   main only: highest existing vX.Y.Z-alphaN tag + 1.
-#   GA      release/X.Y only: built from the highest vX.Y.Z-rcN tag reachable from that branch
-#           (--branch-tags-file). Fails if rc tags exist but none is on the branch, so an rc cut
-#           from another branch (e.g. main) can never become the GA source.
+#   GA      release/X.Y only: built from the highest vX.Y.Z-rcN tag. Fails if that tag is not in
+#           --branch-tags-file (see list-branch-tags.sh), so an rc cut from another branch
+#           (e.g. main) can never become the GA source, and an older rc is never used silently.
 #   custom  any branch. A plain X.Y.Z (final release) or an rc-shaped version must be dispatched
 #           from release/X.Y. Both are waived by --allow-custom-without-release-branch true.
 #           Other shapes (alpha, hotfix...) can be tagged from any branch.
@@ -109,6 +110,8 @@ case "$RELEASE_TYPE" in
       VERSION="${BASE}-rc1"
     else
       require_release_branch "rc"
+      has_line "v$BASE" "$TAGS_FILE" \
+        && fail "v$BASE is already released. Use custom with the next version (see #3389)."
       VERSION="${BASE}-rc$(($(highest_n "$BASE" rc || true) + 1))"
     fi
     ;;
@@ -116,15 +119,11 @@ case "$RELEASE_TYPE" in
     require_release_branch "GA"
     VERSION="$BASE"
     [[ -f "$BRANCH_TAGS_FILE" ]] || fail "--branch-tags-file is required for GA"
-    ANY_RC="$(highest_n "$BASE" rc)"
-    RC_N="$(highest_n "$BASE" rc "$BRANCH_TAGS_FILE")"
-    if [[ -n "$ANY_RC" && -z "$RC_N" ]]; then
-      fail "rc tags for $BASE exist but none is reachable from '$REF_NAME'. Refusing to build GA from an rc cut on another branch."
-    fi
+    RC_N="$(highest_n "$BASE" rc)"
     if [[ -n "$RC_N" ]]; then
       SOURCE_TAG="v${BASE}-rc${RC_N}"
-      [[ "$RC_N" == "$ANY_RC" ]] \
-        || echo "::warning::v${BASE}-rc${ANY_RC} is not reachable from '$REF_NAME' and was ignored; using $SOURCE_TAG" >&2
+      has_line "$SOURCE_TAG" "$BRANCH_TAGS_FILE" \
+        || fail "$SOURCE_TAG is the newest rc but is not on '$REF_NAME'. Refusing to build GA from it or from an older rc. Cut a new rc from $REF_NAME first."
     fi
     ;;
   *) fail "Unknown release type '$RELEASE_TYPE'" ;;
