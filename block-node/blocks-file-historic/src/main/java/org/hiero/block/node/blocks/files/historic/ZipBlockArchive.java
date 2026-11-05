@@ -28,6 +28,7 @@ import java.util.zip.Deflater;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipException;
 import java.util.zip.ZipOutputStream;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
@@ -39,6 +40,8 @@ import org.hiero.block.node.spi.historicalblocks.BlockAccessorBatch;
  * It allows for writing new zip files and accessing individual blocks within the zip files.
  */
 class ZipBlockArchive {
+    /** The file extension of block zip files. */
+    private static final String ZIP_FILE_EXTENSION = ".zip";
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The block node context. */
@@ -284,6 +287,74 @@ class ZipBlockArchive {
         }
     }
 
+    /**
+     * Lists the block range of every zip file in the archive, derived from its path alone.
+     * <p>
+     * The start block is the numeric directory names joined with the zip file name, which reverses
+     * {@link BlockPath#computeBlockPath(FilesHistoricConfig, long)}. The zip file name length gives the
+     * number of blocks per zip, so archives written with a different
+     * {@link FilesHistoricConfig#powersOfTenPerZipFileContents()} still map correctly. No zip file is
+     * opened, so the edge zips may hold fewer blocks than their range claims. Zip files outside the
+     * numeric directory tree (links, staging, corrupted) are ignored.
+     *
+     * @return the block range of each zip file, in no particular order
+     * @throws IOException if the archive directory tree cannot be walked
+     */
+    List<BlockRange> storedBlockRanges() throws IOException {
+        final Path rootPath = config.rootPath();
+        try (final Stream<Path> pathStream = Files.walk(rootPath)) {
+            return pathStream
+                    .filter(Files::isRegularFile)
+                    .map(zipFile -> zipBlockRange(rootPath, zipFile))
+                    .flatMap(Optional::stream)
+                    .toList();
+        } catch (final UncheckedIOException e) {
+            throw e.getCause();
+        }
+    }
+
+    private Optional<BlockRange> zipBlockRange(final Path rootPath, final Path zipFile) {
+        final String fileName = zipFile.getFileName().toString();
+        if (!fileName.endsWith(ZIP_FILE_EXTENSION)) {
+            return Optional.empty();
+        }
+        final String zipFileDigits = fileName.substring(0, fileName.length() - ZIP_FILE_EXTENSION.length());
+        if (!isNumeric(zipFileDigits)) {
+            return Optional.empty();
+        }
+        final StringBuilder startBlockDigits = new StringBuilder();
+        for (final Path directory : rootPath.relativize(zipFile.getParent())) {
+            final String directoryName = directory.toString();
+            if (!isNumeric(directoryName)) {
+                return Optional.empty();
+            }
+            startBlockDigits.append(directoryName);
+        }
+        if (startBlockDigits.isEmpty()) {
+            return Optional.empty();
+        }
+        startBlockDigits.append(zipFileDigits);
+        try {
+            final long startBlock = Long.parseLong(startBlockDigits.toString());
+            final long blocksPerZip = powerOfTen(zipFileDigits.length() - 1);
+            return Optional.of(new BlockRange(startBlock, Math.addExact(startBlock, blocksPerZip - 1)));
+        } catch (final NumberFormatException | ArithmeticException e) {
+            return Optional.empty();
+        }
+    }
+
+    private static long powerOfTen(final int exponent) {
+        long result = 1;
+        for (int i = 0; i < exponent; i++) {
+            result = Math.multiplyExact(result, 10L);
+        }
+        return result;
+    }
+
+    private static boolean isNumeric(final String name) {
+        return !name.isEmpty() && name.chars().allMatch(Character::isDigit);
+    }
+
     long count() {
         try (Stream<Path> pathStream = Files.walk(config.rootPath())) {
             return pathStream
@@ -336,8 +407,7 @@ class ZipBlockArchive {
         if (!Files.isDirectory(candidate)) {
             return false;
         }
-        final String name = candidate.getFileName().toString();
-        return !name.isEmpty() && name.chars().allMatch(Character::isDigit);
+        return isNumeric(candidate.getFileName().toString());
     }
 
     /**

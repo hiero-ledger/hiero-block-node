@@ -180,8 +180,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                     LOGGER.log(WARNING, "Detected change in powersOfTenPerZipFileContents configuration.");
                 }
 
-                // add the blocks to the available blocks only if the range is a valid one (positive)
-                availableBlocks.add(firstZippedBlock, latestZippedBlock);
+                addStoredBlocks(firstZippedBlock, latestZippedBlock);
 
                 // Initialize total bytes stored by querying the zip block archive
                 totalBytesStored.set(zipBlockArchive.calculateTotalStoredBytes());
@@ -195,6 +194,34 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             // ------------------------------------
             // DO NOT shutdown the server, handle this correctly instead.
             context.serverHealth().shutdown(name(), "Could not create root directory");
+        }
+    }
+
+    /**
+     * Adds the blocks of every zip file in the archive to the available blocks, keeping any gaps between
+     * zip files. The ranges are clipped to the first and latest zipped block, as only those edge zips
+     * may hold fewer blocks than their path implies.
+     *
+     * @param firstZippedBlock the lowest block number stored in the archive
+     * @param latestZippedBlock the highest block number stored in the archive
+     */
+    private void addStoredBlocks(final long firstZippedBlock, final long latestZippedBlock) {
+        try {
+            for (final BlockRange zipRange : zipBlockArchive.storedBlockRanges()) {
+                final long start = Math.max(zipRange.rangeStart(), firstZippedBlock);
+                final long end = Math.min(zipRange.rangeEnd(), latestZippedBlock);
+                if (start <= end) {
+                    availableBlocks.add(start, end);
+                }
+            }
+        } catch (final IOException e) {
+            final String message = "Could not list historic zip files, assuming no gaps in [%d, %d]"
+                    .formatted(firstZippedBlock, latestZippedBlock);
+            LOGGER.log(WARNING, message, e);
+            availableBlocks.add(firstZippedBlock, latestZippedBlock);
+        }
+        if (availableBlocks.rangeCount() > 1) {
+            LOGGER.log(INFO, "Historic archive has gaps on startup: {0}", availableBlocks);
         }
     }
 

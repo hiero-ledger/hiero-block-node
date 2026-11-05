@@ -17,12 +17,14 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
@@ -550,6 +552,57 @@ class ZipBlockArchiveTest {
             final long actual = toTest.count();
             // assert expected result - should count 4 zip files across different directories
             assertThat(actual).isEqualTo(4L);
+        }
+
+        /**
+         * This test aims to assert that {@link ZipBlockArchive#storedBlockRanges()}
+         * returns one range per zip file, so missing zip files show up as gaps.
+         */
+        @Test
+        @DisplayName("Test storedBlockRanges() keeps gaps between zip files")
+        void testStoredBlockRangesKeepsGaps() throws IOException {
+            createAndAddBlockEntry(3L);
+            createAndAddBlockEntry(33L);
+            createAndAddBlockEntry(1003L);
+            final List<BlockRange> actual = toTest.storedBlockRanges();
+            assertThat(actual)
+                    .containsExactlyInAnyOrder(
+                            new BlockRange(0L, 9L), new BlockRange(30L, 39L), new BlockRange(1000L, 1009L));
+        }
+
+        /**
+         * This test aims to assert that {@link ZipBlockArchive#storedBlockRanges()}
+         * returns an empty list when no zip files are present.
+         */
+        @Test
+        @DisplayName("Test storedBlockRanges() returns empty list when no zip files are present")
+        void testStoredBlockRangesNoZipFiles() throws IOException {
+            final List<BlockRange> actual = toTest.storedBlockRanges();
+            assertThat(actual).isEmpty();
+        }
+
+        /**
+         * This test aims to assert that {@link ZipBlockArchive#storedBlockRanges()}
+         * ignores zip files outside the numeric directory tree and zip files with non-numeric names.
+         */
+        @Test
+        @DisplayName("Test storedBlockRanges() ignores non-numeric and quarantined zip files")
+        void testStoredBlockRangesIgnoresNonArchiveZips() throws IOException {
+            createAndAddBlockEntry(3L);
+            final BlockPath archived = BlockPath.computeBlockPath(testConfig, 3L);
+            final Path quarantined = testConfig
+                    .rootPath()
+                    .resolve("corrupted")
+                    .resolve(testConfig
+                            .rootPath()
+                            .relativize(
+                                    BlockPath.computeBlockPath(testConfig, 23L).zipFilePath()));
+            Files.createDirectories(quarantined.getParent());
+            Files.createFile(quarantined);
+            Files.createFile(linksTempDir.resolve("40.zip"));
+            Files.createFile(archived.dirPath().resolve("temp.zip"));
+            final List<BlockRange> actual = toTest.storedBlockRanges();
+            assertThat(actual).containsExactly(new BlockRange(0L, 9L));
         }
 
         /**
