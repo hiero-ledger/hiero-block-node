@@ -11,7 +11,7 @@ pinned and downloaded on its own, so a new version of one flavor never touches t
 - The package is `hiero.testBlocks.package` in `gradle.properties`
   (`ghcr.io/hiero-ledger/hiero-block-node/test-blocks`).
 - A version is `<flavor>-<YYYY.MM.DD>-<N>`, where `N` counts versions of that flavor cut on the same day, for example
-  `ci-2026.11.03-1`. Tags are immutable.
+  `ci-2026.11.03-1`. A tag is never re-pushed (see [Package](#package)).
 - The root directory inside every image of the flavor is `/<flavor>`, and `/<flavor>/VERSION` holds the version.
 - The local directory is `.test-blocks/<flavor>/` (gitignored).
 
@@ -140,7 +140,7 @@ When a part is missing or holds another version, the build logs a warning and pu
 changes a pin works before the runners mount the new version, only slower. Without a mount (a laptop, a fork), the
 build pulls as usual.
 
-Release engineering mounts a new version on request, see step 9 of [Changing test blocks](#changing-test-blocks).
+Release engineering mounts a new version on request, see step 7 of [Changing test blocks](#changing-test-blocks).
 
 ### Using a local copy
 
@@ -178,35 +178,48 @@ Published versions are immutable. Any change, including adding a set to an exist
 that flavor and a PR that changes its pins.
 
 1. Get the current tree: `./gradlew fetchTestBlocks -PtestBlocks=<flavor>` and copy `.test-blocks/<flavor>/` to a
-   work directory outside the repository, without `.image-ref`, `.mounted` and `parts/`. On a runner the directory
-   may hold symlinks into the mount (see [On CI runners](#on-ci-runners)); copy it with `cp -rL` to get the files.
-   For a new flavor, start from an empty `<flavor>/` directory.
+   work directory outside the repository. On a runner the directory may hold symlinks into the mount (see
+   [On CI runners](#on-ci-runners)); copy it with `cp -rL` to get the files. For a new flavor, start from an empty
+   `<flavor>/` directory.
 2. Add or change the set folders, each with its `manifest.json`, and write the new version:
    `echo <flavor>-<YYYY.MM.DD>-<N> > <flavor>/VERSION`.
-3. Split the tree into parts of at most 9.5 GB, `p1/<flavor>/` .. `pK/<flavor>/`, normalize the file modes and write
-   each part's checksum file. Blocks are cut by set folder and block number; the files that are not blocks go into
-   every part. A flavor under the limit gives only `p1/`.
+3. Test with the local copy: `./gradlew test -Phiero.testBlocks.dir=<work-dir>` (see
+   [Using a local copy](#using-a-local-copy)). Every `Test` task needs `ci`, so when the flavor you change is not
+   `ci`, copy `.test-blocks/ci/` into the work directory too (`cp -rL .test-blocks/ci <work-dir>/`).
+4. Build the images without pushing:
 
    ```bash
-   cd <work-dir>
-   flavor=<flavor>
-   limit=$((9500 * 1000 * 1000))
-   k=1; size=0
-   find "$flavor" -type f -name '*.blk*' -printf '%s %P\n' | sort -k2,2V |
-     while read -r bytes path; do
-       if [ "$size" -gt 0 ] && [ $((size + bytes)) -gt "$limit" ]; then k=$((k + 1)); size=0; fi
-       mkdir -p "p$k/$flavor/$(dirname "$path")"
-       cp "$flavor/$path" "p$k/$flavor/$path"
-       size=$((size + bytes))
-     done
-   for part in p*; do
-     (cd "$flavor" && find . -type f ! -name '*.blk*' -exec cp --parents {} "../$part/$flavor/" \;)
-     chmod -R u=rwX,go=rX "$part"
-     (cd "$part/$flavor" && mkdir parts &&
-       find . -type f ! -path './parts/*' | LC_ALL=C sort | xargs sha256sum > "parts/$part.sha256")
-   done
+   ./gradlew publishTestBlocks -PtestBlocks.source=<work-dir>/<flavor>
    ```
-4. In each `p<k>/` directory, add a `Dockerfile` (use the flavor name in `COPY`):
+
+   It prints the pins a push would give. The build is reproducible, so a second run prints the same digests.
+
+5. Log in to the registry (see [Package](#package)) and push:
+
+   ```bash
+   ./gradlew publishTestBlocks -PtestBlocks.source=<work-dir>/<flavor> -PtestBlocks.push=true
+   ```
+
+   The task writes the new pins into `gradle.properties` (replacing all pins of the flavor) and prints the mount
+   request for step 7. If the push fails after some parts, run the same command again: a part whose tag already
+   exists with the same digest is not pushed again. A tag that exists with another digest fails the task; bump
+   `<N>` in `VERSION`.
+
+6. For a new flavor, add a row to the table above. Open a PR with these changes.
+
+7. After the PR is merged, if the flavor is mounted on the CI runners (the load flavors; `ci` is optional), send
+   release engineering the mount request the task printed. Until the mount is updated, CI pulls the pinned version
+   (see [On CI runners](#on-ci-runners)).
+
+### What `publishTestBlocks` does
+
+1. Reads the flavor from the directory name and the version from `VERSION`. `.image-ref`, `.mounted` and `parts/`
+   in the source are ignored.
+2. Splits the blocks by set folder and block number into parts of at most 9.5 GB. The files that are not blocks go
+   into every part. A flavor under the limit gives one part. The tag is the version for one part, and
+   `<version>-p<k>` for each of several parts.
+3. For each part in turn: copies it into `build/test-blocks-publish/p<k>/<flavor>/`, sets the file modes to `644`
+   (directories `755`), writes `parts/p<k>.sha256` and a `Dockerfile`:
 
    ```dockerfile
    FROM scratch
@@ -215,55 +228,44 @@ that flavor and a PR that changes its pins.
    LABEL org.opencontainers.image.licenses="Apache-2.0"
    COPY <flavor> /<flavor>
    ```
-5. Build each part. The flags make the build reproducible: the same tree always gives the same digest. `<tag>` is
-   the version for a flavor with one part, and `<version>-p<k>` for each part otherwise.
+
+   builds it, pushes it with `push=true` unless its tag already exists, then deletes the copy and prunes the builder
+   before the next part:
 
    ```bash
-   cd p<k>
-   SOURCE_DATE_EPOCH=0 docker buildx build --no-cache --provenance=false --sbom=false \
-     --output type=docker,name=test-blocks:<tag>,rewrite-timestamp=true .
-   ```
-6. Test with the local copy before pushing: merge the parts into one `<flavor>/` directory
-   (`cp -r p*/<flavor> <dir>/`) and run the tests with `-Phiero.testBlocks.dir=<dir>`.
-7. Push every part to the package (needs write access, see below):
-
-   ```bash
-   docker tag test-blocks:<tag> <package>:<tag>
-   docker push <package>:<tag>
+   SOURCE_DATE_EPOCH=0 docker buildx build --builder hiero-test-blocks --platform linux/amd64 \
+     --no-cache --provenance=false --sbom=false \
+     --output type=image,name=<package>:<tag>,push=<true|false>,rewrite-timestamp=true p<k>
    ```
 
-   The push prints the digest.
+The build runs on a `docker-container` builder named `hiero-test-blocks` with a pinned BuildKit image, which the
+task creates when it is missing. So the digest depends only on the tree: not on the host platform, the local Docker
+image store or the BuildKit version of the local daemon. If the builder exists with another BuildKit image, the task
+stops and asks you to remove it (`docker buildx rm hiero-test-blocks`).
 
-8. In `gradle.properties`, pin every part: `hiero.testBlocks.image.<flavor>=<tag>@sha256:<digest>` for one part, or
-   `hiero.testBlocks.image.<flavor>.p<k>=<tag>@sha256:<digest>` for each part, and remove the pins of parts the
-   new version no longer has. For a new flavor, add a row to the table above. Open a PR with these changes.
-
-9. After the PR is merged, if the flavor is mounted on the CI runners (the load flavors; `ci` is optional), ask
-   release engineering to mount the new version:
-
-   ```
-   Title: Mount test-blocks <flavor>-<YYYY.MM.DD>-<N> (<K> parts) on BN runners
-   Package: ghcr.io/hiero-ledger/hiero-block-node/test-blocks
-   Parts (tag / digest / size, one layer each):
-     <flavor>-<YYYY.MM.DD>-<N>-p1  sha256:<...>  <n> GB  -> /opt/block-node/test-blocks/<flavor>/p1/
-     <flavor>-<YYYY.MM.DD>-<N>-p2  sha256:<...>  <n> GB  -> /opt/block-node/test-blocks/<flavor>/p2/
-   Mount: read-only, subPath <flavor>; replaces all parts of the previous version (remove parts that no longer exist)
-   Pinned by: <PR link> (merged)
-   Previous version to remove: <flavor>-<old version>
-   ```
-
-   Until the mount is updated, CI pulls the pinned version (see [On CI runners](#on-ci-runners)).
-
-A later change will automate steps 3 to 8 with a Gradle task.
+The task needs Docker with buildx and a POSIX file system (Linux or macOS). Besides the work directory, it needs
+free space for about two copies of the largest part (under `build/` and in the builder); on macOS the builder's
+copy is inside the Docker Desktop VM disk.
 
 ## Package
 
-All flavors are tags of one package, `hiero.testBlocks.package`. Pulls are anonymous. Tags are immutable, and a
-version pinned by `main` or a release branch is never deleted. Release engineering owns the package (retention,
-cost, access); the team's maintainers push new versions.
+All flavors are tags of one package, `hiero.testBlocks.package`. Pulls are anonymous. Release engineering owns the
+package (retention, cost, access); the team's maintainers push new versions.
 
-To push, log in once with a GitHub personal access token that has the `write:packages` scope (your account needs
-push rights on the package):
+The registry does not make tags immutable: anyone with write access can overwrite one. Never re-pushing a tag and
+never deleting a version pinned by `main` or a release branch are team rules, checked in review and by
+`publishTestBlocks`, which refuses to push to a tag that already holds other content. Tests stay safe either way,
+since every pin carries the digest.
+
+To push, your account needs push rights on the package. Log in once, either with the GitHub CLI (both commands are
+needed; the refresh alone does not update Docker's saved login):
+
+```bash
+gh auth refresh -h github.com -s write:packages
+gh auth token | docker login ghcr.io -u <github-user> --password-stdin
+```
+
+or with a personal access token that has the `write:packages` scope:
 
 ```bash
 echo <token> | docker login ghcr.io -u <github-user> --password-stdin
