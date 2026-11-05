@@ -164,8 +164,9 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     /** The idle session limit in nanoseconds, including this session's jitter, or 0 if disabled. */
     private final long idleTimeoutNanos;
     /**
-     * When this session last made progress: sent anything to the client, or skipped a live block that
-     * precedes its next block to send. Only accessed from this session's own thread.
+     * When this session last made progress: sent anything to the client, skipped a live block that
+     * precedes its next block to send, or was denied a block-read bulkhead permit for catch-up.
+     * Only accessed from this session's own thread.
      */
     private long lastProgressNanos;
     /** Whether this session was closed because it exceeded the idle session limit. */
@@ -532,6 +533,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                     BlockReadBulkhead.Method.SUBSCRIBER_CATCH_UP, HISTORICAL_READ_PERMIT_WAIT)) {
                 // Deliberately the session's shared wait point, not a separate backoff, so a session
                 // starved of permits is handled like any other session that is not sending.
+                lastProgressNanos = nanoTime.getAsLong();
                 awaitNewLiveEntries();
                 break;
             }
@@ -636,9 +638,12 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
      * Close this session with {@code SUCCESS} if it has made no progress for longer than
      * {@link SubscriberConfig#idleSessionTimeoutSeconds()} plus this session's jitter of up to 10%. A client
      * that disconnects while the session waits for blocks is never detected, because only a failed send
-     * reveals it, so this limit is what releases such sessions. Skipping live blocks before a future start block counts as progress, since
-     * the session will send once the live stream reaches that start block, and that send detects a
-     * disconnected client. Only called from this session's own worker thread.
+     * reveals it, so this limit is what releases such sessions. Skipping live blocks before a future start
+     * block counts as progress, since the session will send once the live stream reaches that start block,
+     * and that send detects a disconnected client. Being denied a block-read bulkhead permit for catch-up
+     * also counts as progress, since the session will send once it gets a permit, and closing it would not
+     * shed load because the client reconnects and waits for a permit again. Only called from this
+     * session's own worker thread.
      * <p>
      * Side effect: if the client reset this stream and has since opened a newer stream on the same
      * connection, the client answers this close with RST_STREAM. Helidon then treats that as a

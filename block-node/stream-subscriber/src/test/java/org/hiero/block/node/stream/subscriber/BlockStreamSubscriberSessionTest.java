@@ -1845,6 +1845,40 @@ class BlockStreamSubscriberSessionTest {
         }
 
         @Test
+        @DisplayName("should keep a catch-up session open while it is denied a block-read bulkhead permit")
+        void testCatchUpSessionNotClosedWhileDeniedBulkheadPermit() throws Exception {
+            for (long blockNumber = 0L; blockNumber <= 2L; blockNumber++) {
+                historicalBlockFacility.handleBlockItemsReceived(
+                        generateBlockWithNumber(blockNumber).asBlockItems(), false);
+            }
+            final BlockReadBulkhead exhaustedBulkhead =
+                    new BlockReadBulkhead(1, MetricRegistry.builder().build());
+            assertThat(exhaustedBulkhead.tryAcquire(BlockReadBulkhead.Method.GET_BLOCK))
+                    .isTrue();
+            try {
+                final BlockStreamSubscriberSession session =
+                        createSession(0L, -1L, blockNodeContext, responsePipeline, exhaustedBulkhead);
+                final Future<BlockStreamSubscriberSession> sessionFuture = executor.submit(session);
+                // The first read starts the idle clock, so it must happen before the first advance.
+                assertThat(clock.awaitReads(1, WAIT_TIMEOUT_SECONDS)).isTrue();
+                clock.advanceSeconds(IDLE_TIMEOUT_SECONDS - 10L);
+                assertThat(clock.awaitReads(READS_FOR_ONE_FULL_CHECK, WAIT_TIMEOUT_SECONDS))
+                        .isTrue();
+
+                // Past the limit since the session started, but within it since the last denied permit.
+                clock.advanceSeconds(IDLE_TIMEOUT_SECONDS - 10L);
+                assertThat(clock.awaitReads(READS_FOR_ONE_FULL_CHECK, WAIT_TIMEOUT_SECONDS))
+                        .isTrue();
+
+                assertThat(session.closedForIdle()).isFalse();
+                session.close(Code.SUCCESS);
+                sessionFuture.get(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            } finally {
+                exhaustedBulkhead.release();
+            }
+        }
+
+        @Test
         @DisplayName("should start the idle limit when the session starts serving, not when it is created")
         void testIdleLimitExcludesTimeQueuedBeforeServing() throws Exception {
             final BlockStreamSubscriberSession session = createSession(-1L, -1L, blockNodeContext, responsePipeline);
@@ -1889,12 +1923,21 @@ class BlockStreamSubscriberSessionTest {
                 final long endBlock,
                 final BlockNodeContext context,
                 final TestResponsePipeline<SubscribeStreamResponseUnparsed> pipeline) {
+            return createSession(startBlock, endBlock, context, pipeline, TEST_BLOCK_READ_BULKHEAD);
+        }
+
+        private BlockStreamSubscriberSession createSession(
+                final long startBlock,
+                final long endBlock,
+                final BlockNodeContext context,
+                final TestResponsePipeline<SubscribeStreamResponseUnparsed> pipeline,
+                final BlockReadBulkhead blockReadBulkhead) {
             final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
                     .startBlockNumber(startBlock)
                     .endBlockNumber(endBlock)
                     .build();
             return new BlockStreamSubscriberSession(
-                    SessionContext.create(clientId, request, context, TEST_BLOCK_READ_BULKHEAD),
+                    SessionContext.create(clientId, request, context, blockReadBulkhead),
                     pipeline,
                     context,
                     sessionReadyLatch,
