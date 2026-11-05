@@ -35,6 +35,15 @@ message ServerStatusDetailRequest {
      * If set to `true` the response SHALL NOT include `stored_ranges`.
      */
     bool exclude_stored_ranges = 3;
+
+    /**
+     * If set to `true` the response SHALL NOT include `node_address_book` and
+     * `ranged_address_book_history`.<br/>
+     * Those fields are deprecated in favour of the `getAddressBook` call and are
+     * still returned by default, so this flag lets a client leave out the large
+     * address book payload until they are removed.
+     */
+    bool exclude_address_book = 4;
 }
 
 /**

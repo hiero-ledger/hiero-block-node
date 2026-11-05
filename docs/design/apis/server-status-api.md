@@ -85,12 +85,16 @@ the address book history.
 
 After this change:
 
-1. The request is a new `ServerStatusDetailRequest` with three flags. A flag set to `true` leaves that part out:
-   `exclude_versions`, `exclude_available_ranges`, `exclude_stored_ranges`.
+1. The request is a new `ServerStatusDetailRequest` with flags. A flag set to `true` leaves that part out:
+   `exclude_versions`, `exclude_available_ranges`, `exclude_stored_ranges` and `exclude_address_book`.
 2. The response contains only `version_information`, `available_ranges` and `stored_ranges`.
 3. TSS data, the address book and the address book history are removed from this response. The removed field numbers are
    marked `reserved` so they are never reused.
 4. An empty request returns every remaining part, so a client that sends nothing keeps working.
+
+While the roster fields are deprecated but still returned (see [Compatibility and Rollout](#compatibility-and-rollout)),
+`exclude_address_book` lets a client leave out the address book and its history, which is the large part of the response.
+It has no effect once those fields are removed.
 
 Backfill reads only the available ranges, so it can set the other two flags and avoid the version and stored range
 payload.
@@ -156,6 +160,9 @@ message ServerStatusDetailRequest {
     bool exclude_available_ranges = 2;
     // If true, the response leaves out stored_ranges.
     bool exclude_stored_ranges = 3;
+    // If true, the response leaves out node_address_book and ranged_address_book_history
+    // (deprecated; still returned by default until they are removed).
+    bool exclude_address_book = 4;
 }
 
 message ServerStatusDetailResponse {
@@ -213,7 +220,8 @@ different versions at the same time.
 
 Recommended sequence:
 
-1. **Add.** Release the new RPCs and the request flags. Keep populating the roster fields in `serverStatusDetail` for one
+1. **Add.** Release the new RPCs and the request flags. Delivery order: first the `serverStatusDetail` request flags
+   (so a client can omit the address book), then `getAddressBook` (so a Tier 1 Block Node can query it). Keep populating the roster fields in `serverStatusDetail` for one
    release, marked deprecated in the proto comments.
 2. **Migrate.** Move the roster bootstrap fetchers to the new RPCs. A client falls back to `serverStatusDetail` when a
    peer answers `UNIMPLEMENTED`, so a new node can still bootstrap from an old peer.
@@ -260,7 +268,8 @@ rejected by throttling use the behavior described in [API Throttling](./api-thro
 ## Acceptance Tests
 
 1. `serverStatusDetail` with an empty request returns versions, available ranges and stored ranges, and no roster data.
-2. Each exclude flag removes exactly its own part and no other part.
+2. Each exclude flag removes exactly its own part and no other part. `exclude_address_book` removes both the address
+   book and its history.
 3. `getAddressBook` with `exclude_history = true` returns only the latest address book.
 4. `getAddressBook` with `exclude_history = false` also returns the history in block order.
 5. `getTssData` behaves the same way for TSS data and its history.
