@@ -92,9 +92,9 @@ backfills from it.
     metrics, which it does not have yet.
 - **Subscriber**: while the set is published, a second simulator in
   `CONSUMER` mode subscribes to `<first>` to `<last>`. It connects once the
-  first block is verified: on an empty Block Node a subscription to a
-  mid-chain set is refused with `INVALID_START_BLOCK_NUMBER`, since `<first>`
-  is further ahead than `maximumFutureRequest` allows. It then reads the early
+  first block is persisted: on an empty Block Node a subscription to a
+  mid-chain set is refused with `NOT_AVAILABLE`, since the Block Node only
+  serves a range whose first block it already holds. It then reads the early
   blocks from storage and the rest live as they arrive.
 - **Backfill**: once the first Block Node acknowledges `<last>`, a second,
   empty Block Node starts with the first one as its only backfill source
@@ -173,7 +173,7 @@ backfills from it, and that Block Node MUST verify and persist every block.
   mode.
 - A subscribe request with `consumer.startBlockNumber=<first>` and
   `consumer.endBlockNumber=<last>`, sent by the subscriber simulator once
-  `verification_blocks_verified` reaches 1.
+  `files_recent_blocks_written` reaches 1.
 
 ##### Output
 
