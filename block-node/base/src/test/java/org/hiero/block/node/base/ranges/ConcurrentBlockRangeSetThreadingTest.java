@@ -23,10 +23,10 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * Tests for thread safety of {@link ConcurrentLongRangeSet}.
+ * Tests for thread safety of {@link ConcurrentBlockRangeSet}.
  * These tests focus on concurrent operations to verify that the class is thread-safe and lock-free.
  */
-class ConcurrentLongRangeSetThreadingTest {
+class ConcurrentBlockRangeSetThreadingTest {
 
     private static final int THREAD_COUNT = Runtime.getRuntime().availableProcessors();
     private static final int OPERATIONS_PER_THREAD = 1000;
@@ -38,7 +38,7 @@ class ConcurrentLongRangeSetThreadingTest {
     @DisplayName("Concurrent additions should not lose or corrupt data")
     @Timeout(value = 10, unit = TimeUnit.SECONDS)
     void testConcurrentAdditions() throws ExecutionException, InterruptedException {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet();
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet();
         final CountDownLatch startLatch = new CountDownLatch(1);
         final List<Future<?>> futures = new ArrayList<>();
 
@@ -93,7 +93,8 @@ class ConcurrentLongRangeSetThreadingTest {
     @Timeout(value = 10, unit = TimeUnit.SECONDS)
     void testConcurrentRemovals() throws ExecutionException, InterruptedException {
         // Initialize with a large continuous range
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet(0, THREAD_COUNT * OPERATIONS_PER_THREAD * 2L - 1);
+        final ConcurrentBlockRangeSet set =
+                new ConcurrentBlockRangeSet(0, THREAD_COUNT * OPERATIONS_PER_THREAD * 2L - 1);
 
         final CountDownLatch startLatch = new CountDownLatch(1);
         final List<Future<?>> futures = new ArrayList<>();
@@ -138,7 +139,7 @@ class ConcurrentLongRangeSetThreadingTest {
     @DisplayName("Concurrent mixed operations should not corrupt data")
     @Timeout(value = 10, unit = TimeUnit.SECONDS)
     void testConcurrentMixedOperations() throws ExecutionException, InterruptedException {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet();
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet();
         final CountDownLatch startLatch = new CountDownLatch(1);
         final List<Future<?>> futures = new ArrayList<>();
 
@@ -184,7 +185,7 @@ class ConcurrentLongRangeSetThreadingTest {
 
             // We can't assert the exact size since operations are random and may overlap
             // But we can verify the set is in a consistent state by checking that all ranges are valid
-            set.streamRanges().forEach(range -> assertTrue(range.start() <= range.end()));
+            set.streamRanges().forEach(range -> assertTrue(range.rangeStart() <= range.rangeEnd()));
         }
     }
 
@@ -195,7 +196,7 @@ class ConcurrentLongRangeSetThreadingTest {
     @DisplayName("High contention operations should complete without deadlock or corruption")
     @Timeout(value = 15, unit = TimeUnit.SECONDS)
     void testHighContention() throws ExecutionException, InterruptedException {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet();
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet();
         final CountDownLatch startLatch = new CountDownLatch(1);
         final List<Future<?>> futures = new ArrayList<>();
 
@@ -235,9 +236,9 @@ class ConcurrentLongRangeSetThreadingTest {
 
             // Verify the set is in a consistent state
             set.streamRanges().forEach(range -> {
-                assertTrue(range.start() <= range.end(), "Invalid range: " + range);
-                assertTrue(range.start() >= 0, "Range start negative: " + range);
-                assertTrue(range.end() < CONTENDED_RANGE, "Range end too large: " + range);
+                assertTrue(range.rangeStart() <= range.rangeEnd(), "Invalid range: " + range);
+                assertTrue(range.rangeStart() >= 0, "Range start negative: " + range);
+                assertTrue(range.rangeEnd() < CONTENDED_RANGE, "Range end too large: " + range);
             });
         }
     }
@@ -250,7 +251,7 @@ class ConcurrentLongRangeSetThreadingTest {
     @DisplayName("Operations should be lock-free")
     @Timeout(value = 10, unit = TimeUnit.SECONDS)
     void testOperationsAreLockFree() throws ExecutionException, InterruptedException, TimeoutException {
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet();
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet();
         final AtomicBoolean slowThreadRunning = new AtomicBoolean(true);
         final AtomicInteger completedOperations = new AtomicInteger(0);
         final CountDownLatch slowThreadStarted = new CountDownLatch(1);
@@ -321,7 +322,7 @@ class ConcurrentLongRangeSetThreadingTest {
             return;
         }
 
-        final ConcurrentLongRangeSet set = new ConcurrentLongRangeSet();
+        final ConcurrentBlockRangeSet set = new ConcurrentBlockRangeSet();
         final CountDownLatch startLatch = new CountDownLatch(1);
         final List<Future<?>> futures = new ArrayList<>();
 

@@ -33,7 +33,6 @@ import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 final class ApplicationStateUtility {
     /// The logger for this class.
@@ -125,9 +124,10 @@ final class ApplicationStateUtility {
     }
 
     /// Merge two sets of block ranges into a single list of block ranges, in ascending order. Ranges that
-    /// overlap or are adjacent are combined, as in a `ConcurrentLongRangeSet`.
+    /// overlap or are adjacent are combined, as in a `ConcurrentBlockRangeSet`.
     ///
-    /// Each set yields its ranges in ascending order, so the two lists are merged in one pass, O(n + m).
+    /// Each set yields its ranges in ascending order, so the two lists are merged in one pass, O(n + m), by
+    /// [BlockRangeSet#merge(List, List)].
     /// Called unconditionally on every scan (not only when `availableBlocks` changes) — `storedBlocks` can
     /// change independently (e.g. a plugin calling `addStoredBlockRange`), and skipping the merge in that
     /// case previously let `storedBlocks()` regress to the unmerged, durable-only set once
@@ -136,44 +136,16 @@ final class ApplicationStateUtility {
     /// @param storedBlocks a set of stored blocks to merge into the result.
     /// @param availableBlocks a set of available blocks to merge into the result.
     static List<BlockRange> mergeRanges(final BlockRangeSet storedBlocks, final BlockRangeSet availableBlocks) {
-        final List<LongRange> stored = storedBlocks.streamRanges().toList();
-        final List<LongRange> available = availableBlocks.streamRanges().toList();
-        final List<BlockRange> merged = new ArrayList<>(stored.size() + available.size());
-        int s = 0;
-        int a = 0;
-        long start = 0;
-        long end = 0;
-        boolean open = false;
-        while (s < stored.size() || a < available.size()) {
-            // take whichever remaining range starts first
-            final LongRange next = a >= available.size()
-                            || (s < stored.size()
-                                    && stored.get(s).start() <= available.get(a).start())
-                    ? stored.get(s++)
-                    : available.get(a++);
-            if (open && next.start() <= end + 1) {
-                end = Math.max(end, next.end());
-            } else {
-                if (open) {
-                    merged.add(new BlockRange(start, end));
-                }
-                start = next.start();
-                end = next.end();
-                open = true;
-            }
-        }
-        if (open) {
-            merged.add(new BlockRange(start, end));
-        }
-        return merged;
+        return mergeRanges(storedBlocks, availableBlocks.toList());
     }
 
-    /// Convert BlockRangeSet to BlockRange
-    static List<BlockRange> toBlockRange(BlockRangeSet blockRangeSet) {
-        return blockRangeSet
-                .streamRanges()
-                .map(longRange -> new BlockRange(longRange.start(), longRange.end()))
-                .toList();
+    /// As [#mergeRanges(BlockRangeSet, BlockRangeSet)], for callers that already hold the available ranges as a
+    /// list and so avoid reading them from the set a second time.
+    ///
+    /// @param storedBlocks a set of stored blocks to merge into the result.
+    /// @param availableBlocks the available block ranges, ascending and non-overlapping, to merge.
+    static List<BlockRange> mergeRanges(final BlockRangeSet storedBlocks, final List<BlockRange> availableBlocks) {
+        return BlockRangeSet.merge(storedBlocks.toList(), availableBlocks);
     }
 
     /// Loads a [NetworkData] document from the given JSON file.

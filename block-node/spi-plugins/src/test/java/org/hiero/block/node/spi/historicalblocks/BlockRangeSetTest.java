@@ -64,4 +64,10 @@ class BlockRangeSetTest {
         assertFalse(emptySet.contains(Long.MAX_VALUE), "EMPTY set should not contain Long.MAX_VALUE");
         assertFalse(emptySet.contains(Long.MIN_VALUE, Long.MAX_VALUE), "EMPTY set should not contain full range");
     }
+
+    @Test
+    @DisplayName("Test default contains(BlockRange) delegates to contains(start, end)")
+    void testDefaultContainsBlockRange() {
+        assertFalse(BlockRangeSet.EMPTY.contains(BlockRangeSet.of(0, 10)));
+    }
 }
