@@ -170,28 +170,10 @@ dependencies.constraints {
     api("com.google.protobuf:protoc:${protobufVersion}")
     tasks.checkVersionConsistency {
         excludes.add("com.google.protobuf:protoc")
-        // state-management-hashgraph is a dynamically-loaded (ServiceLoader-discovered) plugin
-        // module with no compile-time project dependents, so checkVersionConsistency's static
-        // scan does not see its module-info `requires` as usage even though these pins are
-        // genuinely consumed (verified: the module compiles, tests, and builds green against
-        // them). Exclude rather than leave the build broken on a tooling false-positive. #3810
-        // (gRPC query API) will depend on this module and should make these excludes moot.
-        excludes.add("com.hedera.hashgraph:swirlds-state-api")
-        excludes.add("com.hedera.hashgraph:swirlds-state-impl")
-        excludes.add("com.hedera.hashgraph:swirlds-virtualmap")
-        excludes.add("com.hedera.hashgraph:swirlds-merkledb")
-        excludes.add("com.hedera.hashgraph:swirlds-logging")
-        excludes.add("com.hedera.hashgraph:base-concurrent")
-        excludes.add("com.hedera.hashgraph:base-crypto")
-        excludes.add("com.hedera.hashgraph:base-utility")
-        excludes.add("com.hedera.hashgraph:consensus-model")
+        // Pinned for the state plugin's transitive graph but required by no module-info, so the
+        // check reports them as unused. Its other pins are now seen through the suites module.
         excludes.add("com.hedera.hashgraph:consensus-utility")
-        excludes.add("com.hedera.hashgraph:consensus-metrics")
         excludes.add("com.hedera.hashgraph:consensus-concurrent")
-        excludes.add("io.prometheus:simpleclient")
-        excludes.add("io.prometheus:simpleclient_common")
-        excludes.add("io.prometheus:simpleclient_httpserver")
-        excludes.add("io.prometheus:simpleclient_tracer_common")
         excludes.add("org.hyperledger.besu:besu-native-common")
         excludes.add("org.hyperledger.besu:secp256k1")
     }
