@@ -330,9 +330,6 @@ class ZipBlockArchive {
             }
             startBlockDigits.append(directoryName);
         }
-        if (startBlockDigits.isEmpty()) {
-            return Optional.empty();
-        }
         startBlockDigits.append(zipFileDigits);
         try {
             final long startBlock = Long.parseLong(startBlockDigits.toString());

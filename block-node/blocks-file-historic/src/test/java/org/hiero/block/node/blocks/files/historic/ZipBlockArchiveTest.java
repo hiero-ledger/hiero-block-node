@@ -606,6 +606,61 @@ class ZipBlockArchiveTest {
         }
 
         /**
+         * This test aims to assert that {@link ZipBlockArchive#storedBlockRanges()}
+         * ignores a zip file placed directly in the archive root, as it has no block directories.
+         */
+        @Test
+        @DisplayName("Test storedBlockRanges() ignores zip files directly in the archive root")
+        void testStoredBlockRangesIgnoresRootLevelZip() throws IOException {
+            Files.createFile(testConfig.rootPath().resolve("0.zip"));
+            final List<BlockRange> actual = toTest.storedBlockRanges();
+            assertThat(actual).isEmpty();
+        }
+
+        /**
+         * This test aims to assert that {@link ZipBlockArchive#storedBlockRanges()}
+         * ignores a zip file whose name has no digits before the extension.
+         */
+        @Test
+        @DisplayName("Test storedBlockRanges() ignores zip files with an empty name")
+        void testStoredBlockRangesIgnoresEmptyZipName() throws IOException {
+            final Path blockDirectory = testConfig.rootPath().resolve("0");
+            Files.createDirectories(blockDirectory);
+            Files.createFile(blockDirectory.resolve(".zip"));
+            final List<BlockRange> actual = toTest.storedBlockRanges();
+            assertThat(actual).isEmpty();
+        }
+
+        /**
+         * This test aims to assert that {@link ZipBlockArchive#storedBlockRanges()}
+         * ignores a zip file whose path digits exceed the range of a {@code long}.
+         */
+        @Test
+        @DisplayName("Test storedBlockRanges() ignores zip files whose start block does not fit in a long")
+        void testStoredBlockRangesIgnoresStartBlockOverflow() throws IOException {
+            final Path blockDirectory = testConfig.rootPath().resolve("99999999999999999999");
+            Files.createDirectories(blockDirectory);
+            Files.createFile(blockDirectory.resolve("00.zip"));
+            final List<BlockRange> actual = toTest.storedBlockRanges();
+            assertThat(actual).isEmpty();
+        }
+
+        /**
+         * This test aims to assert that {@link ZipBlockArchive#storedBlockRanges()}
+         * ignores a zip file whose last block would exceed {@link Long#MAX_VALUE}.
+         */
+        @Test
+        @DisplayName("Test storedBlockRanges() ignores zip files whose end block does not fit in a long")
+        void testStoredBlockRangesIgnoresEndBlockOverflow() throws IOException {
+            // start block 9_223_372_036_854_775_800 fits, but its 10-block range ends past Long.MAX_VALUE
+            final Path blockDirectory = testConfig.rootPath().resolve("92233720368547758");
+            Files.createDirectories(blockDirectory);
+            Files.createFile(blockDirectory.resolve("00.zip"));
+            final List<BlockRange> actual = toTest.storedBlockRanges();
+            assertThat(actual).isEmpty();
+        }
+
+        /**
          * This test aims to assert that the
          * {@link ZipBlockArchive#createZip(BlockAccessorBatch, Path)}  will successfully
          * create the target zip file
