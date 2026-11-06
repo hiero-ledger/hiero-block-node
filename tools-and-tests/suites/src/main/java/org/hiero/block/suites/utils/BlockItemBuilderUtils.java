@@ -12,6 +12,7 @@ import com.hedera.hapi.block.stream.input.EventHeader;
 import com.hedera.hapi.block.stream.input.RoundHeader;
 import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.hapi.block.stream.output.StateChanges;
 import com.hedera.hapi.node.base.BlockHashAlgorithm;
 import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.hapi.node.base.Timestamp;
@@ -495,6 +496,93 @@ public final class BlockItemBuilderUtils {
                 .block(blockNumber)
                 .build();
         return new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_PROOF, blockProof));
+    }
+
+    /// Creates a verifiable block whose footer carries `startOfBlockStateRootHash` and that
+    /// optionally carries a `state_changes` item, signed by the shared [#blockSigner()]. The root
+    /// hash is computed as the block-verification hasher computes it, so the block both verifies
+    /// and drives a real apply in the state plugin. Chain the next block with
+    /// [#computeBlockHashWithState].
+    ///
+    /// @param blockNumber the block number
+    /// @param previousBlockHash the previous block's root hash, or null for genesis (zero hash)
+    /// @param startOfBlockStateRootHash the state root the state plugin must hold before this block
+    /// @param stateChanges the changes to carry, or null for none
+    public static BlockItem[] createVerifiableBlockWithState(
+            final long blockNumber,
+            final Bytes previousBlockHash,
+            final Bytes startOfBlockStateRootHash,
+            final StateChanges stateChanges)
+            throws NoSuchAlgorithmException {
+        final List<BlockItem> items = new ArrayList<>();
+        items.add(sampleBlockHeader(blockNumber));
+        items.add(sampleRoundHeader(blockNumber * 10L));
+        if (stateChanges != null) {
+            items.add(new BlockItem(new OneOf<>(ItemOneOfType.STATE_CHANGES, stateChanges)));
+        }
+        items.add(new BlockItem(new OneOf<>(
+                ItemOneOfType.BLOCK_FOOTER,
+                new BlockFooter(
+                        zeroHashIfNull(previousBlockHash),
+                        Bytes.wrap(new byte[HASH_ALGORITHM.hashSize()]),
+                        startOfBlockStateRootHash))));
+        final Bytes blockHash =
+                computeBlockHashWithState(blockNumber, previousBlockHash, startOfBlockStateRootHash, stateChanges);
+        final Bytes blockSignature = blockSigner()
+                .signBlockProof(blockNumber, blockHash)
+                .signedBlockProof()
+                .blockSignature();
+        items.add(new BlockItem(new OneOf<>(
+                ItemOneOfType.BLOCK_PROOF,
+                BlockProof.newBuilder()
+                        .signedBlockProof(TssSignedBlockProof.newBuilder()
+                                .blockSignature(blockSignature)
+                                .build())
+                        .block(blockNumber)
+                        .build())));
+        return items.toArray(new BlockItem[0]);
+    }
+
+    /// Computes the root hash of a block built by [#createVerifiableBlockWithState]. Use it as the
+    /// next block's `previousBlockHash`.
+    public static Bytes computeBlockHashWithState(
+            final long blockNumber,
+            final Bytes previousBlockHash,
+            final Bytes startOfBlockStateRootHash,
+            final StateChanges stateChanges)
+            throws NoSuchAlgorithmException {
+        final NaiveStreamingTreeHasher outputHasher = new NaiveStreamingTreeHasher();
+        outputHasher.addLeaf(HashingUtilities.getBlockItemHash(sampleBlockHeaderUnparsed(blockNumber)));
+        final NaiveStreamingTreeHasher consensusHasher = new NaiveStreamingTreeHasher();
+        consensusHasher.addLeaf(HashingUtilities.getBlockItemHash(sampleRoundHeaderUnparsed(blockNumber * 10L)));
+        final NaiveStreamingTreeHasher stateHasher = new NaiveStreamingTreeHasher();
+        if (stateChanges != null) {
+            stateHasher.addLeaf(HashingUtilities.getBlockItemHash(BlockItemUnparsed.newBuilder()
+                    .stateChanges(StateChanges.PROTOBUF.toBytes(stateChanges))
+                    .build()));
+        }
+        return HashingUtilities.computeFinalBlockHash(
+                new Timestamp(123L, 456),
+                zeroHashIfNull(previousBlockHash),
+                Bytes.wrap(new byte[HASH_ALGORITHM.hashSize()]), // allPrevBlocksRoot = zeros (hasher disabled)
+                startOfBlockStateRootHash,
+                new NaiveStreamingTreeHasher(), // input
+                outputHasher,
+                consensusHasher,
+                stateHasher,
+                new NaiveStreamingTreeHasher(), // trace
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher(),
+                new NaiveStreamingTreeHasher());
+    }
+
+    private static Bytes zeroHashIfNull(final Bytes hash) {
+        return hash != null ? hash : Bytes.wrap(new byte[HASH_ALGORITHM.hashSize()]);
     }
 
     public static BlockItemUnparsed[] createSimpleBlockUnparsedWithNumber(final long blockNumber) {

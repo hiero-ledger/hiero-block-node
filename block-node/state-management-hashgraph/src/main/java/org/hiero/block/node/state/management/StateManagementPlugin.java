@@ -29,6 +29,9 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 import org.hiero.base.crypto.Hash;
 import org.hiero.base.file.FileSystemManager;
+import org.hiero.block.api.StateQuery;
+import org.hiero.block.api.StateResponse;
+import org.hiero.block.api.StateServiceInterface;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -49,7 +52,7 @@ import org.hiero.metrics.core.MetricRegistry;
 /// `VirtualMapStateLifecycleManager`-managed state.
 ///
 /// See `docs/design/state/live-state.md` for the full design.
-public final class StateManagementPlugin implements BlockNodePlugin, BlockNotificationHandler {
+public final class StateManagementPlugin implements BlockNodePlugin, BlockNotificationHandler, StateServiceInterface {
 
     private static final System.Logger LOGGER = System.getLogger(StateManagementPlugin.class.getName());
 
@@ -89,18 +92,23 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     static final MetricKey<ObservableGauge> METRIC_BLOCK_LAG =
             MetricKey.of("state_block_lag", ObservableGauge.class).addCategory(METRICS_CATEGORY);
 
+    /// `blocknode:state_query_total{kind,status}` — `StateService` queries answered, labelled
+    /// by query kind (`kv`, `singleton`, `queue`) and response status (lowercased code name).
+    static final MetricKey<LongCounter> METRIC_QUERY_TOTAL =
+            MetricKey.of("state_query_total", LongCounter.class).addCategory(METRICS_CATEGORY);
+
     private BlockNodeContext context;
     private StateManagementConfig config;
     private VirtualMapStateLifecycleManager lifecycleManager;
     private StateChangeApplier applier;
+    private StateQueryHandler queryHandler;
 
     /// State (1) and the block/round number it corresponds to, published as one unit so a
     /// reader never pairs a new state with a stale number — see `publishAttested`. `state` is
     /// `null` until first attestation. `blockNumber`/`roundNumber` are read directly from the
     /// state itself (or the snapshot directory name on restore) rather than tracked as an
-    /// independent copy — see `docs/design/state/live-state.md` §5.1. No reservation on `state`
-    /// for readers yet; a future query API must add one before reading `state` off the
-    /// apply-worker thread.
+    /// independent copy — see `docs/design/state/live-state.md` §5.1. Query threads must reserve
+    /// `state`'s root before reading it; see `StateQueryHandler` for the reservation contract.
     record AttestedSnapshot(@Nullable VirtualMapState state, long blockNumber, long roundNumber) {}
 
     private static final AttestedSnapshot GENESIS_ATTESTED = new AttestedSnapshot(null, -1L, -1L);
@@ -199,13 +207,39 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                     config.snapshotRecentPath(),
                     e);
         }
-        registerMetrics(context.metricRegistry());
+        final LongCounter queryCounter = registerMetrics(context.metricRegistry());
+        // Registered even when the plugin is inert so clients get NOT_READY, not UNIMPLEMENTED.
+        this.queryHandler = new StateQueryHandler(this::attested, config.maxQueueRangeSize(), queryCounter);
+        serviceBuilder.registerGrpcService(config.port(), this);
+    }
+
+    /// {@inheritDoc}
+    @NonNull
+    @Override
+    public StateResponse getKV(@NonNull final StateQuery request) {
+        return queryHandler.getKV(request);
+    }
+
+    /// {@inheritDoc}
+    @NonNull
+    @Override
+    public StateResponse getSingleton(@NonNull final StateQuery request) {
+        return queryHandler.getSingleton(request);
+    }
+
+    /// {@inheritDoc}
+    @NonNull
+    @Override
+    public StateResponse getQueue(@NonNull final StateQuery request) {
+        return queryHandler.getQueue(request);
     }
 
     /// Register the plugin's metrics with the block node's registry.
     ///
     /// @param metrics the block node metric registry
-    private void registerMetrics(@NonNull final MetricRegistry metrics) {
+    /// @return the `state_query_total` counter
+    @NonNull
+    private LongCounter registerMetrics(@NonNull final MetricRegistry metrics) {
         metrics.register(ObservableGauge.builder(METRIC_APPLIED_BLOCK)
                 .setDescription("Latest committed (reader-visible) block number applied to live state")
                 .observe(() -> attested.blockNumber()));
@@ -230,6 +264,9 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         metrics.register(ObservableGauge.builder(METRIC_BLOCK_LAG)
                 .setDescription("Blocks between the latest available block and the currently attested block")
                 .observe(this::currentBlockLag));
+        return metrics.register(LongCounter.builder(METRIC_QUERY_TOTAL)
+                .setDescription("StateService queries answered, by query kind and response status")
+                .addDynamicLabelNames(StateQueryHandler.LABEL_KIND, StateQueryHandler.LABEL_STATUS));
     }
 
     /// Blocks between the latest block `historicalBlockProvider` has on hand and the currently

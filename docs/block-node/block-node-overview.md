@@ -7,7 +7,7 @@ This overview document provides operators with the essential concepts needed to 
 ## What is a Block Node?
 
 A Block Node is a special kind of server that keeps a complete, trustworthy copy of what is happening on a Hiero network.
-It receives a stream of already-agreed blocks from [Consensus Nodes](./glossary.md#consensus-node), delivers the block stream via the subscribe API, checks that each block is valid, stores valid blocks, and serves single blocks via API query. In the future Block Nodes will also maintain an accurate copy of the current network state and will serve state related queries via new APIs.
+It receives a stream of already-agreed blocks from [Consensus Nodes](./glossary.md#consensus-node), delivers the block stream via the subscribe API, checks that each block is valid, stores valid blocks, and serves single blocks via API query. Block Nodes running the beta live state plugin also maintain a copy of the current network state and serve state queries through the `StateService` API.
 
 Instead of pushing this data into centralized cloud storage, Block Nodes act as a decentralized data layer for the network.
 They stream blocks to [Mirror Nodes](./glossary.md#mirror-node) and other Block Nodes, answer questions from apps and services about past blocks or current state, and serve the cryptographic proofs produced by Consensus Nodes so users can independently verify that the data is correct.
