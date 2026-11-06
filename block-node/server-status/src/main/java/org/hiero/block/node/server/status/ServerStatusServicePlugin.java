@@ -8,6 +8,8 @@ import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
+import com.hedera.pbj.runtime.grpc.GrpcException;
+import com.hedera.pbj.runtime.grpc.GrpcStatus;
 import com.swirlds.config.api.Configuration;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
@@ -166,12 +168,12 @@ public class ServerStatusServicePlugin
      *
      * @param request the request
      * @return never returns normally
-     * @throws UnsupportedOperationException always
+     * @throws GrpcException always, with status {@code UNIMPLEMENTED}
      */
     @Override
     @NonNull
     public AddressBookResponse getAddressBook(@NonNull final AddressBookRequest request) {
-        throw new UnsupportedOperationException("getAddressBook is not implemented yet");
+        throw new GrpcException(GrpcStatus.UNIMPLEMENTED, "getAddressBook is not implemented yet");
     }
 
     /**
@@ -179,12 +181,12 @@ public class ServerStatusServicePlugin
      *
      * @param request the request
      * @return never returns normally
-     * @throws UnsupportedOperationException always
+     * @throws GrpcException always, with status {@code UNIMPLEMENTED}
      */
     @Override
     @NonNull
     public TssDataResponse getTssData(@NonNull final TssDataRequest request) {
-        throw new UnsupportedOperationException("getTssData is not implemented yet");
+        throw new GrpcException(GrpcStatus.UNIMPLEMENTED, "getTssData is not implemented yet");
     }
 
     // ==== BlockNodePlugin Methods ====================================================================================
