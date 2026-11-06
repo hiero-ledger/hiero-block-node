@@ -19,6 +19,10 @@ public record StateManagementConfig(
 
         @Loggable @ConfigProperty(defaultValue = "50") @Max(10_000) @Min(1) int pendingBlocksMax,
 
-        @Loggable @ConfigProperty(defaultValue = "5") @Max(300) @Min(1) int gapRetryDelaySeconds) {
+        @Loggable @ConfigProperty(defaultValue = "5") @Max(300) @Min(1) int gapRetryDelaySeconds,
+
+        @Loggable @ConfigProperty(defaultValue = "900000") @Max(86_400_000) @Min(1000) long snapshotIntervalMillis,
+
+        @Loggable @ConfigProperty(defaultValue = "3") @Max(1000) @Min(1) int snapshotRecentRetentionCount) {
     // spotless:on
 }
