@@ -349,6 +349,9 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
                         maxRetries,
                         error.toString(),
                         cause);
+                // The peer may still be sending the rest of the abandoned stream. Closing the client closes its
+                // connection, which ends that stream; the next attempt gets a new client.
+                removeAndClose(nodeConfig);
                 if (attempt < maxRetries) {
                     long delay = Math.multiplyExact(initialRetryDelayMs, attempt);
                     try {
