@@ -17,6 +17,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.LongStream;
 import java.util.stream.Stream;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.plugintest.RecordingServiceBuilder;
@@ -27,7 +28,6 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -416,8 +416,8 @@ class StateManagementCatchUpTest {
                 }
 
                 @Override
-                public Stream<LongRange> streamRanges() {
-                    return blocks.keySet().stream().sorted().map(b -> new LongRange(b, b));
+                public Stream<BlockRange> streamRanges() {
+                    return blocks.keySet().stream().sorted().map(b -> new BlockRange(b, b));
                 }
             };
         }
