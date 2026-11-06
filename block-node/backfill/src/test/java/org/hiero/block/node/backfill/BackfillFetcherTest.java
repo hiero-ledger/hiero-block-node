@@ -6,9 +6,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -17,6 +19,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -351,6 +354,39 @@ class BackfillFetcherTest {
             assertTrue(fetcher.fetchBlocksFromNode(nodeConfig, BlockRangeSet.of(0, 1))
                     .isEmpty());
             assertEquals(retriesBefore + 1, metrics.backfillRetries().get());
+        }
+
+        @Test
+        @DisplayName("closes the client after a failed attempt and retries with a new one")
+        void closesClientAfterFailedAttempt() throws Exception {
+            final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
+            final BlockUnparsed block0 = createTestBlock(0L);
+            final BlockUnparsed block1 = createTestBlock(1L);
+
+            BlockStreamSubscribeUnparsedClient firstSubscribeClient = mock(BlockStreamSubscribeUnparsedClient.class);
+            when(firstSubscribeClient.getBatchOfBlocks(0L, 1L))
+                    .thenReturn(new BatchResult(List.of(block0), new RuntimeException("timeout")));
+            BlockStreamSubscribeUnparsedClient secondSubscribeClient = mock(BlockStreamSubscribeUnparsedClient.class);
+            when(secondSubscribeClient.getBatchOfBlocks(1L, 1L)).thenReturn(new BatchResult(List.of(block1), null));
+            final BlockNodeClient firstClient = mockClientWith(firstSubscribeClient);
+            final BlockNodeClient secondClient = mockClientWith(secondSubscribeClient);
+            final Iterator<BlockNodeClient> clients =
+                    List.of(firstClient, secondClient).iterator();
+
+            final BackfillConfiguration config = createTestConfig(2, 1, 1000, 1000, 300_000L, 1000.0);
+            final BackfillFetcher fetcher =
+                    new BackfillFetcher(createSource(nodeConfig), config, createTestMetricsHolder()) {
+                        @Override
+                        protected BlockNodeClient getNodeClient(BlockNodeSourceConfig node) {
+                            return nodeClientMap.computeIfAbsent(node, n -> clients.next());
+                        }
+                    };
+
+            assertEquals(List.of(block0, block1), fetcher.fetchBlocksFromNode(nodeConfig, BlockRangeSet.of(0, 1)));
+
+            verify(firstClient, times(1)).close();
+            verify(secondClient, never()).close();
+            assertSame(secondClient, fetcher.nodeClientMap.get(nodeConfig));
         }
 
         private BlockNodeClient mockClientReturning(List<BlockUnparsed> blocks) throws Exception {
