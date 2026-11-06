@@ -98,8 +98,8 @@ used for `swirlds-config-*`.
 |            Property            |                      Default                       |                                                                                                                         Notes                                                                                                                         |
 |--------------------------------|----------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `snapshotRecentPath`           | `/opt/hiero/block-node/data/state/snapshot/recent` | Directory for live snapshot dirs (`<blockNumber>/`). The block number is recovered on restart by scanning this directory for the highest-numbered entry (§6.2).                                                                                       |
-| `snapshotIntervalMillis`       | `900000` (15m)                                     | Periodic snapshot cadence.                                                                                                                                                                                                                            |
-| `snapshotRecentRetentionCount` | `3`                                                | Recent snapshot dirs kept on disk (oldest pruned).                                                                                                                                                                                                    |
+| `snapshotIntervalMillis`       | `900000` (15m)                                     | Delay between periodic snapshots (fixed delay, first run one interval after `start()`). Range `1000` (1s) to `86400000` (24h).                                                                                                                        |
+| `snapshotRecentRetentionCount` | `3`                                                | Recent snapshot dirs kept on disk, including the newest (oldest pruned, §6.6). Range `1` to `1000`.                                                                                                                                                   |
 | `port`                         | `null` (share `server.port`)                       | Dedicated port for the `StateService` gRPC API; `null` shares the default server port.                                                                                                                                                                |
 | `maxQueueRangeSize`            | `1000`                                             | Largest number of queue elements `getQueue` will serve in one call (§8), whether requested as a `queue_range` or as a full-queue read; anything larger is `INVALID_REQUEST`. Operator-adjustable to allow raising it over time without a code change. |
 
@@ -205,7 +205,9 @@ service StateService {
 - Capture context.
 - Construct `VirtualMapStateLifecycleManager(metrics, time, configuration, fileSystemManager)`.
   - `fileSystemManager` is `new FileSystemManager(Path.of(snapshotRecentPath))`. Anchoring the swirlds temp scratchpad
-    next to the snapshots keeps disk layout predictable.
+    next to the snapshots keeps disk layout predictable. Its constructor deletes and recreates
+    `${snapshotRecentPath}/tmp`, which holds the live MerkleDb files. Snapshots hard-link into those files, so wiping
+    `tmp` on restart is safe, but pruning must never touch it (§6.6).
   - The constructor eagerly creates a genesis state which is replaced later if a snapshot is loaded.
 - Register self as the `StateServiceInterface` gRPC service via `serviceBuilder.registerGrpcService(config.port(), this)`.
   A `null` `port` shares the default `server.port`; a configured port opens the `StateService` API on its own port.
@@ -252,12 +254,18 @@ service StateService {
    `context.blockMessaging().registerBlockNotificationHandler(this, true, "StateManagementPlugin")`.
    `cpuIntensive=true` because state apply is CPU-bound parsing work.
 
-4. Start the periodic snapshot executor
-   (`snapshotExecutor.scheduleWithFixedDelay(this::saveSnapshot, …)`) and a
-   **catch-up thread** (`StateManagement-catchup`) that runs historical catch-up (§6.4) now and
-   whenever a live block arrives ahead of the next expected one. It is the plugin's only thread
-   of its own and the only one that reads history. Live blocks that are next in line are applied
+4. Delete stale staging directories (`.tmp-<digits>` under `${recentPath}`) left by a crash
+   mid-snapshot. Then start a **catch-up thread** (`StateManagement-catchup`) that runs
+   historical catch-up (§6.4) now and whenever a live block arrives ahead of the next expected
+   one. It is the only thread that reads history. Live blocks that are next in line are applied
    inline on the messaging thread, which never reads history.
+
+   Finally start the periodic snapshot executor, a single-thread scheduled executor named
+   `StateManagement-snapshot`
+   (`snapshotExecutor.scheduleWithFixedDelay(this::runScheduledSnapshot, interval, interval, MILLISECONDS)`).
+   It is separate from the catch-up thread and the messaging thread, so a snapshot that takes
+   minutes never delays apply. `runScheduledSnapshot` catches and logs any `RuntimeException`
+   from `saveSnapshot()` (§6.6), because a scheduled task that throws is never run again.
 
 ### 6.3 `handleVerification(VerificationNotification)`
 
@@ -419,36 +427,80 @@ This reservation covers the apply thread's own bookkeeping. A *query* reader mus
 `attested.state()` directly, because the next promotion releases a superseded state. It calls
 `reserveAttested()`, which does `tryReserve()` on the state's root (retrying on the newer state if
 it loses the race) and returns a closeable `ReservedState` holding the state with its block and
-round number. The reservation keeps the state alive until the reader closes it. See §8.
+round number. The reservation keeps the state alive until the reader closes it. The snapshot thread takes its own
+reservation with `tryReserve()` the same way (§6.6). See §8.
 
 ### 6.6 `saveSnapshot()` (scheduled, runs every `snapshotIntervalMillis`)
 
-The schedule is the trigger — the executor invokes `saveSnapshot()` on a fixed delay
-regardless of whether anything changed. Step 1 below is a skip check, not the trigger: it
-decides whether that scheduled invocation has anything new to write.
+The schedule is the trigger. The `StateManagement-snapshot` executor invokes `saveSnapshot()`
+on a fixed delay whether or not anything changed, and `stop()` invokes it once more (§6.7).
+`snapshotLock` (a `ReentrantLock`) serialises the two, so a final snapshot waits for an
+in-flight one. `saveSnapshot()` returns `true` only when it wrote a new snapshot directory.
 
-1. If `attested.blockNumber() <= lastSnapshottedBlock` → nothing new, skip.
-2. `lifecycleManager.createSnapshot(latestImmutable, recentPath/.tmp-<blockNumber>)` writes the
-   canonical consensus-node `data/state/` layout into a temporary sibling directory, then
-   `Files.move(..., ATOMIC_MOVE, REPLACE_EXISTING)` renames it into place as
-   `recentPath/<blockNumber>`. Restore (§6.2) identifies a snapshot purely by directory name, so
-   a snapshot directory being present must imply it is fully written. A crash between the two
-   steps leaves either no `<blockNumber>` directory (if before the rename) or a complete one (if
-   after) — never a partial one.
-3. `pruneOldRecentSnapshots(blockNumber)`: delete recent snapshot dirs beyond
-   `snapshotRecentRetentionCount`, oldest first; the just-written
-   `<blockNumber>` dir is always kept. Snapshots live only under `recentPath`
-   (each dir hard-links into the live MerkleDb, so they are cheap). Long-term
-   archival is out of scope for this plugin — a future archiving plugin owns
-   compaction / off-box transfer / random-read indexes.
+1. **Skip check.** If `attested.state() == null` or `attested.blockNumber() <= lastSnapshottedBlock`,
+   there is nothing new to write. A successful restore (§6.2) sets `lastSnapshottedBlock` to the
+   restored block, so the restored directory is never rewritten.
+2. **Reserve the attested root.** The apply thread may release the attested root on the next
+   promotion (§6.5). Read `attested` and call `tryReserve()` on its root. If that fails, the root
+   was already released, so re-read `attested` and retry with the newer state. If `attested` has
+   not changed there is nothing newer to retry with: log at WARNING and skip rather than spin.
+   The reservation is released once the write finishes, whether it succeeded or not.
+3. **Existing target counts as complete.** If `recentPath/<blockNumber>` already exists, set
+   `lastSnapshottedBlock` to it and skip. A numbered directory only ever appears through the
+   atomic rename in step 4, so it is complete by construction.
+4. **Write, then rename.** Delete any stale `recentPath/.tmp-<blockNumber>`, then call
+   `VirtualMap.createSnapshot(path)` on the attested root to write the canonical consensus-node
+   `data/state/` layout into that staging directory. `Files.move(staging, target, ATOMIC_MOVE)`
+   then renames it into place as `recentPath/<blockNumber>`. Restore (§6.2) identifies a
+   snapshot purely by directory name, so a snapshot directory being present must imply it is
+   fully written. A crash leaves either no `<blockNumber>` directory or a complete one, never a
+   partial one. Any staging directory it leaves behind is deleted on the next `start()` (§6.2).
+   - The plugin calls `VirtualMap.createSnapshot` directly, not
+     `VirtualMapStateLifecycleManager.createSnapshot`. The lifecycle manager's method catches
+     and only logs every error, so a failed write would look like success and the incomplete
+     staging directory would be renamed into place. The direct call throws `IOException`. It is
+     synchronous and safe to run off the apply thread (the consensus node does the same from
+     its state-saving thread). It needs an immutable, hashed state, which the attested state
+     always is: it was hashed to validate the next block's footer before promotion.
+   - `createSnapshotAsync` is not used. It completes only on a later pipeline flush, so
+     `stop()` could hang waiting for it.
+   - The move uses `ATOMIC_MOVE` without `REPLACE_EXISTING`, since a non-empty directory cannot
+     be replaced. Step 3 already covers an existing target.
+   - On success, record `lastSnapshottedBlock` and `state_snapshot_latency_ms`, and log at INFO.
+   - On failure (`IOException` or `RuntimeException`), log at WARNING, increment
+     `state_snapshot_failures_total`, and delete the staging directory best-effort.
+     `lastSnapshottedBlock` is unchanged, so the next run retries.
+5. **Prune.** `pruneOldRecentSnapshots(blockNumber)` lists the direct children of `recentPath`
+   and only ever deletes two kinds of entry:
+   - numeric snapshot directories beyond the newest `snapshotRecentRetentionCount`, oldest
+     first. The just-written `<blockNumber>` directory is always kept.
+   - `.tmp-<digits>` staging directories. This is safe because `snapshotLock` is held, so no
+     write is in flight.
+
+   Everything else is left alone. In particular `tmp` is never touched: `FileSystemManager` owns
+   it and it holds the live MerkleDb files (§6.1). Deleting it would delete the live database.
+   A failed delete is logged at WARNING and pruning moves on to the next entry. It never fails
+   the snapshot, which is already written.
+
+   Snapshots live only under `recentPath` (each dir hard-links into the live MerkleDb, so they
+   are cheap). Long-term archival is out of scope for this plugin. A future archiving plugin
+   owns compaction, off-box transfer and random-read indexes.
+
+A halted node (`applyHalted`) still snapshots its last attested state. That state was
+confirmed by a footer before the halt, so it is a valid recovery point. A restore halt (§6.2)
+leaves `attested.state() == null`, so nothing is written there.
 
 ### 6.7 `stop()`
 
-- Set `stopping=true`, `ready=false`.
-- Unregister from `blockMessaging`.
-- Interrupt + join the catch-up thread (if still running) and shut down
-  the snapshot executor with a short await.
-- One final `saveSnapshot()` if `attested.blockNumber() > lastSnapshottedBlock`.
+1. Set `stopping=true`, `ready=false`.
+2. Unregister from `blockMessaging`.
+3. Interrupt and join the catch-up thread (if still running). From here on no new block is
+   applied.
+4. `snapshotExecutor.shutdown()`, not `shutdownNow()`: interrupting a write mid-flight would
+   only waste it.
+5. One final `saveSnapshot()`. It takes `snapshotLock`, so it waits for any in-flight scheduled
+   write, then skips if that write already covered the latest attested block. A
+   `RuntimeException` is logged at WARNING.
 
 ## 7. State change application
 
@@ -567,6 +619,8 @@ returns `null` while nothing is attested, which is the `NOT_READY` case. Reading
 `attested.state()` directly risks a root the apply thread has since released on the next
 promotion. The state, block number and round number come back as one value, so a reader never
 pairs a new state with a stale block number.
+The snapshot thread is the only other reader today and takes its own reservation with
+`tryReserve()` (§6.6).
 
 ## 9. Metrics
 
@@ -581,10 +635,12 @@ Registered with the block node's `MetricRegistry` in `init()`, under the `blockn
 | `state_apply_latency_ms`    | ObservableGauge | Wall-clock duration of the most recent block apply, in milliseconds                                                                                                                         |
 | `state_hash_mismatch_total` | LongCounter     | Cumulative footer hash mismatches observed                                                                                                                                                  |
 | `state_block_lag`           | ObservableGauge | Blocks between the latest available block and the attested block; grows during a stall — alert on it independent of `state_apply_halted`, since a stall can also be a slow/stuck apply path |
+| `state_snapshot_block`          | ObservableGauge | Block number of the newest snapshot written or restored, `-1` if none                                                                                                                       |
+| `state_snapshot_latency_ms`     | ObservableGauge | Wall-clock duration of the most recent successful snapshot write, in milliseconds                                                                                                           |
+| `state_snapshot_failures_total` | LongCounter     | Cumulative snapshot writes that failed (§6.6)                                                                                                                                               |
 
-`snapshot_latency_ms`, `catch_up_blocks_total`, and `query_total{kind=...}` are not implemented
-yet, since snapshot creation and the query path don't exist yet in this plugin; add them
-alongside those features.
+`catch_up_blocks_total` and `query_total{kind=...}` are not implemented yet. Add `query_total`
+alongside the query path.
 
 ## 10. Failure modes
 
@@ -600,7 +656,9 @@ alongside those features.
 | Legacy field-2 token-association encoding on a `stateId == 9` change                                                                                                                                                   | Halt with a distinct "unsupported legacy token-association encoding" error, not a generic hash mismatch — this plugin does not remap field 2 the way consensus-node's reference applier does. See §7.                                                                           |
 | Verification gap                                                                                                                                                                                                       | A block ahead of the next expected one is dropped, not stored, and requests a catch-up on the catch-up thread, which fetches the missing blocks from `historicalBlockProvider` one at a time. If history lacks one, catch-up stops and the next notification requests it again. |
 | Historical block missing locally                                                                                                                                                                                       | Catch-up skips it; the same block can arrive via notification later.                                                                                                                                                                                                            |
-| Snapshot write fails (I/O)                                                                                                                                                                                             | Log at WARNING; recent dir not deleted; next snapshot cycle retries.                                                                                                                                                                                                            |
+| Snapshot write fails (I/O or library error)                                                                                                                                                                            | Log at WARNING, increment `state_snapshot_failures_total`, delete the staging dir best-effort. No `<blockNumber>` dir is created, existing snapshots are kept, and `lastSnapshottedBlock` is unchanged, so the next run retries. Apply and queries are unaffected.      |
+| Crash or kill mid-snapshot                                                                                                                                                                                             | Only a `.tmp-<blockNumber>` staging dir is left; `start()` deletes it. Restore uses the newest complete `<blockNumber>` dir (§6.2, §6.6).                                                                                                                               |
+| Pruning an old snapshot or staging dir fails                                                                                                                                                                           | Log at WARNING and move on to the next entry. The new snapshot is already in place; the next successful snapshot retries the prune.                                                                                                                                     |
 | Missing-queue query                                                                                                                                                                                                    | gRPC handler defensively maps NPE from `getQueueState`/`getQueueAsList`/`peekQueue` to `NOT_FOUND`.                                                                                                                                                                             |
 
 **Recovery from a halt** is restart-from-snapshot, but *which* restart recovers depends on
@@ -634,14 +692,30 @@ and exercise the real `VirtualMapStateLifecycleManager`:
    history; the next `n+2` then applies in order.
 4. **scenario4** — chained blocks `0..3` apply in order; under lag-1 the exposed
    block is `2` (the tip stays staged until confirmed).
-5. **scenario5** — `saveSnapshot` atomically writes the `recent/<block>/` directory tree; a
-   fresh plugin pointed at the same dirs restores from disk by scanning for the
-   highest-numbered directory.
-6. **scenario6** — footer hash mismatch refuses apply, increments
+5. **scenario6** — footer hash mismatch refuses apply, increments
    `hashMismatchTotal`, sets `applyHalted=true`.
-7. **recentSnapshotRetentionKeepsConfiguredCount** — with retention 3,
-   applying/snapshotting blocks 1..4 keeps `recent/{2,3,4}` and deletes
-   `recent/1`; no `historic/` directory is created.
+
+Snapshot creation (§6.6) is covered by `StateManagementSnapshotTest`, which runs the real
+`VirtualMapStateLifecycleManager` against a `@TempDir` root with chained, footer-valid blocks:
+
+1. Round trip: `saveSnapshot()` writes `recent/<attested>` with no `.tmp-*` left and `tmp`
+   intact. A fresh plugin on the same root restores it, and redelivering the next block applies
+   without halting, which proves the snapshot holds the attested state, not the staged one.
+2. Skip cases: nothing attested, no new attestation since the last snapshot, and a just-restored
+   block all return `false` and leave the restored directory unchanged.
+3. Retention: with retention 3, snapshots of blocks 1..5 leave only `recent/{3,4,5}`. `tmp`
+   and an unrelated directory survive, and a stale `.tmp-<n>` is removed.
+4. An existing `recent/<n>` is treated as complete and not overwritten. A stale `.tmp-<n>` for
+   the same block is replaced and the write succeeds.
+5. Write failure (root made non-writable): returns `false`, counts one failure, leaves no
+   `<n>` directory and `lastSnapshottedBlock` unchanged. The next call succeeds once the root is
+   writable again.
+6. A halted node still snapshots its last attested block.
+7. `stop()` writes a final snapshot of the latest attested block.
+8. The scheduler writes a snapshot within a short interval without an explicit call.
+9. Concurrent `saveSnapshot()` calls during live apply cause no failures or halt, and the
+   newest snapshot restores cleanly.
+10. Config defaults (`900000`, `3`) and out-of-range rejection.
 
 Other test classes:
 
@@ -650,8 +724,8 @@ Other test classes:
 - `StateManagementAccessTest` — gRPC query rules (invalid shapes, NOT_FOUND, success)
 - `StateManagementCatchUpTest` — `catchUpFromHistoricalBlocks` with an in-tree
   `HistoricalBlockFacility` fixture
-- `StateManagementPluginLifecycleTest` — start → apply → snapshot → stop →
-  restart round-trip
+- `StateManagementPluginLifecycleTest` — restore from an existing snapshot, restore and apply
+  halt paths, `pendingBlocks` caps
 
 E2E (`tools-and-tests/suites/.../StateManagementE2ETests.java`) boots the full
 `BlockNodeApp` and exercises `StateService` over real gRPC via the

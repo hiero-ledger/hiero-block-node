@@ -200,6 +200,9 @@ Replays verified block-stream `state_changes` onto a live, queryable copy of Has
 | Gauge   | `state_apply_latency_ms`    | Wall-clock duration of the most recent block apply, in milliseconds   |
 | Counter | `state_hash_mismatch_total` | Cumulative footer hash mismatches observed                            |
 | Gauge   | `state_block_lag`           | Blocks between the latest available block and the attested block      |
+| Gauge   | `state_snapshot_block`          | Block number of the newest snapshot written or restored, `-1` if none             |
+| Gauge   | `state_snapshot_latency_ms`     | Wall-clock duration of the most recent successful snapshot write, in milliseconds |
+| Counter | `state_snapshot_failures_total` | Cumulative snapshot writes that failed                                            |
 
 ---
 
