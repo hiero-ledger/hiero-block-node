@@ -670,7 +670,8 @@ class ZipBlockArchiveTest {
         void testZipSuccessfullyCreated() throws IOException {
             // setup
             final int firstBlockNumber = 0;
-            final int batchSize = StrictMath.toIntExact(intPowerOfTen(testConfig.powersOfTenPerZipFileContents()));
+            final int batchSize =
+                    StrictMath.toIntExact(ZipBlockArchive.powerOfTen(testConfig.powersOfTenPerZipFileContents()));
             final BlockAccessorBatch batch = new BlockAccessorBatch();
             for (int i = firstBlockNumber; i < batchSize; i++) {
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(i);
@@ -709,7 +710,8 @@ class ZipBlockArchiveTest {
         void testZipContents() throws IOException, ParseException {
             // setup
             final int firstBlockNumber = 0;
-            final int batchSize = StrictMath.toIntExact(intPowerOfTen(testConfig.powersOfTenPerZipFileContents()));
+            final int batchSize =
+                    StrictMath.toIntExact(ZipBlockArchive.powerOfTen(testConfig.powersOfTenPerZipFileContents()));
             final Map<String, Bytes> first10BlocksWithExpectedEntryNames = new TreeMap<>();
             final BlockAccessorBatch batch = new BlockAccessorBatch();
             for (int i = firstBlockNumber; i < batchSize; i++) {
@@ -809,27 +811,5 @@ class ZipBlockArchiveTest {
             final Path blocksRoot, final int powersOfTenPerZipFileContents) {
         // for simplicity let's use no compression
         return new FilesHistoricConfig(blocksRoot, CompressionType.NONE, powersOfTenPerZipFileContents, 0L, 3, false);
-    }
-
-    /**
-     * Simple power of ten function that avoids the inaccuracies possible
-     * with floating point and also ensures the value must fit within
-     * a long.
-     *
-     * @param powerToCreate the exponent to raise 10 to.  This must be
-     *     between 1 and 18, inclusive.
-     * @return 10 raised to (powerToCreate), or -1 if the result would not
-     *     fit within a long primitive.
-     */
-    private long intPowerOfTen(final int powerToCreate) {
-        if (powerToCreate > 18 || powerToCreate < 1) {
-            return -1;
-        } else {
-            long currentTotal = 1;
-            for (int i = 0; i < powerToCreate; i++) {
-                currentTotal *= 10;
-            }
-            return currentTotal;
-        }
     }
 }
