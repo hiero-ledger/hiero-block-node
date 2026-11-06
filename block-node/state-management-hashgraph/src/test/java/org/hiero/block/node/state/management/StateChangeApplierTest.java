@@ -2,7 +2,6 @@
 package org.hiero.block.node.state.management;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.hedera.hapi.block.stream.output.MapChangeKey;
 import com.hedera.hapi.block.stream.output.MapChangeValue;
@@ -144,10 +143,10 @@ class StateChangeApplierTest {
                                 .build())
                 .build();
 
-        assertThatThrownBy(() -> applier.applyBlock(state, block))
-                .isInstanceOf(StateChangeApplier.UnsupportedLegacyEncodingException.class)
-                .hasMessageContaining("legacy")
-                .hasMessageContaining("stateId=" + TOKEN_ASSOCIATION_STATE_ID);
+        final var result = applier.applyBlock(state, block);
+
+        assertThat(result.status()).isEqualTo(StateChangeApplier.Status.LEGACY_TOKEN_ASSOCIATION);
+        assertThat(result.detail()).contains("legacy").contains("stateId=" + TOKEN_ASSOCIATION_STATE_ID);
         assertThat(state.size()).isZero();
     }
 
@@ -165,8 +164,56 @@ class StateChangeApplierTest {
                                 .build())
                 .build();
 
-        assertThatThrownBy(() -> applier.applyBlock(state, block)).isInstanceOf(IllegalStateException.class);
+        final var result = applier.applyBlock(state, block);
+
+        assertThat(result.status()).isEqualTo(StateChangeApplier.Status.MALFORMED_STATE_CHANGES);
         assertThat(state.size()).isZero();
+    }
+
+    @Test
+    void incompleteChangesAreReportedAsMalformedWithoutMutatingState() {
+        final StateChangeApplier applier = new StateChangeApplier();
+        // map_update with a key but no value, a state change with no state_id, and a queue push
+        // whose wrapper carries no payload: each is malformed, none may touch the state.
+        final byte[] key = lengthDelimitedField(1, Bytes.fromHex("0a03666f6f").toByteArray());
+        final byte[] keyOnlyUpdate = lengthDelimitedField(1, key); // MapUpdateChange.key only
+        final byte[] noValue = concat(varintField(1, 4), lengthDelimitedField(5, keyOnlyUpdate));
+        final byte[] noStateId =
+                lengthDelimitedField(5, concat(lengthDelimitedField(1, key), lengthDelimitedField(2, key)));
+        final byte[] emptyPush = concat(varintField(1, 5), lengthDelimitedField(7, new byte[] {0x08, 0x01}));
+
+        for (final byte[] change : List.of(noValue, noStateId, emptyPush)) {
+            final InMemoryBinaryState state = new InMemoryBinaryState();
+            final BlockUnparsed block = BlockUnparsed.newBuilder()
+                    .blockItems(
+                            blockHeaderItem(7L),
+                            BlockItemUnparsed.newBuilder()
+                                    .stateChanges(Bytes.wrap(lengthDelimitedField(2, change)))
+                                    .build())
+                    .build();
+
+            final var result = applier.applyBlock(state, block);
+
+            assertThat(result.status()).isEqualTo(StateChangeApplier.Status.MALFORMED_STATE_CHANGES);
+            assertThat(result.detail()).isNotBlank();
+            assertThat(state.size()).isZero();
+        }
+    }
+
+    @Test
+    void blockWithoutParseableHeaderIsReportedAsUnparseableHeader() {
+        final InMemoryBinaryState state = new InMemoryBinaryState();
+        final StateChangeApplier applier = new StateChangeApplier();
+        final BlockUnparsed block = BlockUnparsed.newBuilder()
+                .blockItems(BlockItemUnparsed.newBuilder()
+                        .blockHeader(Bytes.fromHex("ffffffff"))
+                        .build())
+                .build();
+
+        final var result = applier.applyBlock(state, block);
+
+        assertThat(result.status()).isEqualTo(StateChangeApplier.Status.UNPARSEABLE_HEADER);
+        assertThat(result.blockNumber()).isEqualTo(-1L);
     }
 
     // ── Fixtures ───────────────────────────────────────────────────────────
