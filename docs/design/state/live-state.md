@@ -65,6 +65,7 @@ block-node/state-management-hashgraph/
 ├── src/main/java/
 │   └── org/hiero/block/node/state/management/
 │       ├── StateManagementPlugin.java    # BlockNodePlugin + BlockNotificationHandler + StateService gRPC + lifecycle/snapshot
+│       ├── StateQueryHandler.java        # query validation, reader reservation, BinaryState reads (§8)
 │       ├── StateManagementConfig.java    # @ConfigData("state.management")
 │       ├── StateChangeApplier.java       # parses StateChanges, calls BinaryState.update*
 │       ├── StateSource.java              # read-target selector (IMMUTABLE / MUTABLE / HISTORICAL)
@@ -72,8 +73,10 @@ block-node/state-management-hashgraph/
 └── src/test/java/...
 ```
 
-There is no separate access-service or snapshot-manager class: the plugin itself implements the `StateService` gRPC
-surface and owns the snapshot save/load/prune logic (recent-dir retention only — no tar/historic archival).
+The plugin itself implements and registers the `StateService` gRPC surface. Each RPC delegates to `StateQueryHandler`,
+a package-private internal helper that owns the query rules so they can be unit tested without the plugin lifecycle.
+There is no separate snapshot-manager class: the plugin owns the snapshot save/load/prune logic (recent-dir retention
+only — no tar/historic archival).
 
 Module-info (the state libraries are required non-transitively — the plugin
 consumes them internally and does not re-export them):
@@ -209,6 +212,8 @@ service StateService {
   - The constructor eagerly creates a genesis state which is replaced later if a snapshot is loaded.
 - Register self as the `StateServiceInterface` gRPC service via `serviceBuilder.registerGrpcService(config.port(), this)`.
   A `null` `port` shares the default `server.port`; a configured port opens the `StateService` API on its own port.
+  Registration happens even if the lifecycle manager could not be created, so clients get `NOT_READY` rather than
+  `UNIMPLEMENTED`.
 
 ### 6.2 `start()`
 
@@ -504,8 +509,9 @@ fast and legibly for the one encoding this plugin deliberately does not support.
 Because stored bytes are the oneof payload rather than the wrapper carrier, a caller cannot
 recover the concrete entity type from the bytes alone (the wrapper's field number, which
 disclosed the type, isn't stored) — `get*` callers need that mapping from elsewhere, e.g.
-a `stateId → type` table. This is an open API-surface question for the not-yet-implemented
-`StateService` gRPC query path (§8); it doesn't affect this plugin's own apply-and-store logic.
+a `stateId → type` table. This is an open API-surface question for `StateService` clients
+(§8), which receive these stored payload bytes as is; it doesn't affect this plugin's own
+apply-and-store logic.
 
 A malformed `state_changes` item is reported by the applier as an `ApplyResult` status
 (`MALFORMED_STATE_CHANGES`, with the legacy token association encoding and an unparseable header
@@ -518,48 +524,71 @@ consumer doesn't reinvent it.
 ## 8. Query path
 
 `StateManagementPlugin` implements `StateServiceInterface` directly and is
-registered as the gRPC service in `init`. Each RPC:
+registered as the gRPC service in `init` (§6.1). Each RPC delegates to `StateQueryHandler`,
+which applies these steps in order:
 
 1. Reads `attested` (the `AttestedSnapshot` — state and block number published together, §6.5).
    Returns `NOT_READY` if `attested.state() == null` (no snapshot restored and no block attested
-   yet — a true genesis node; a restored snapshot counts as attested, §6.2). This is the *only* state this RPC ever reads: never the
+   yet — a true genesis node; a restored snapshot counts as attested, §6.2). Otherwise reserves
+   it through `reserveAttested()` (see "Reader reservation" below). This is the *only* state this RPC ever reads: never the
    live mutable or the sealed-but-unattested `hashingImmutable`, which the applying thread is
    actively writing/sealing concurrently with no synchronization a query thread could safely
-   join.
+   join. Every later step uses this one reserved snapshot, so the block number and the data
+   always agree.
 2. Returns `INVALID_REQUEST` if:
-   - `getKV` is called without `selector.key_bytes` set;
+   - `block_specifier` is unset, or `retrieve_latest` is set to `false`;
+   - `getKV` is called without `selector.key_bytes` set (an empty `key_bytes` is valid, since an
+     all-default key message encodes to empty bytes);
    - `getSingleton` is called with `selector` set at all;
    - `getQueue` is called with `selector.key_bytes` set;
    - `getQueue`'s `selector.queue_range` has `start > end`, or exactly one of `start`/`end` is
      `0` while the other is positive;
    - `getQueue`'s `selector.queue_range` spans more elements than the configured
      `maxQueueRangeSize` (§4) — this is a unary RPC, not a streaming one, so an unbounded range
-     is rejected rather than served;
-   - `getQueue` is a full-queue read (no selector, or `start` and `end` both `0`) and the queue
-     holds more than `maxQueueRangeSize` elements. The cap applies to the full read exactly as it
-     does to an explicit range, so a client cannot bypass it by omitting the range. The plugin
-     logs a WARN naming the `state_id`, the queue size and the cap, so an operator knows the queue
-     is too large to read in one call and that the client should page with `queue_range` instead.
+     is rejected rather than served. `start` and `end` are compared as unsigned values, and a
+     `queue_range` with both `0` is a full-queue read, the same as no selector.
 3. Returns `NOT_AVAILABLE` if an explicit `block_number` was set and it doesn't match
    `attested.blockNumber()`. This holds regardless of `applyHalted`: a halted node's
    attested block is simply frozen, so requests for that exact block (or `retrieve_latest`)
    still succeed — only a `block_number` other than it (older or newer) is affected, and halting
    makes that permanently true rather than transiently true. There is no historical retention, so
    an older block is `NOT_AVAILABLE` just like a newer one. Block 0 is a valid, non-special `block_number`.
-4. Delegates to `getKv` / `getSingleton` / `getQueueAsList` / `peekQueue` on `attested.state()`.
-   A `queue_range` spanning multiple elements reads each index in the range via the same
-   `peekQueue(stateId, index)` call `getQueue` already uses for a single index — no new
-   `BinaryState` capability needed, just a loop.
-5. `getQueue` defensively maps any `RuntimeException` from
-   `getQueueState`/`getQueueAsList`/`peekQueue` (which NPE on unknown
-   state IDs in `VirtualMapStateImpl`) to `NOT_FOUND`; for a `queue_range`, any single index in
-   the range failing this way fails the whole request — a range is never partially served.
+4. Delegates to `getKv` / `getSingleton` / `getQueueState` / `peekQueue` on `attested.state()`:
+   - A `state_id` that cannot address a state of the requested kind is `NOT_FOUND` without a
+     state read. `VirtualMapState` keys tag the id as the int `stateId << 3`, so an id above
+     `2^29 - 1` (the protobuf field-number maximum) would overflow and alias another state's key.
+     Field number 1 tags singleton keys, so KV and queue ids start at 2; singleton ids start at 1
+     (0 is `UNKNOWN`). All comparisons are unsigned.
+   - Queue state is stored under the singleton key of the same id, so `getSingleton` on a
+     queue's `state_id` returns that queue's head/tail bookkeeping bytes. Telling the two apart
+     needs the `stateId → type` mapping discussed in §7.
+   - A missing KV entry, singleton or queue is `NOT_FOUND`.
+   - A full-queue read (no selector, or `start` and `end` both `0`) of a queue holding more than
+     `maxQueueRangeSize` elements is `INVALID_REQUEST`. This check runs here, after
+     `NOT_AVAILABLE`, because it needs the queue size. The cap applies to the full read exactly as
+     it does to an explicit range, so a client cannot bypass it by omitting the range. The plugin
+     logs a WARN naming the `state_id`, the queue size and the cap, so an operator knows the queue
+     is too large to read in one call and that the client should page with `queue_range` instead.
+   - An existing empty queue read in full is `SUCCESS` with empty `queue_values`.
+   - A `queue_range` is 1-indexed from the queue head, while `peekQueue(stateId, index)` takes an
+     absolute index in `[head, tail)`, so element `k` is read at `head + k - 1`. Both a range and
+     a full read loop over `peekQueue` from head to tail; no new `BinaryState` capability is
+     needed. `getQueueAsList` is not used because it silently skips a missing element. A range
+     whose `end` is past the queue size is `NOT_FOUND`, and any single missing element fails the
+     whole request, so a queue is never partially served.
+5. Defensively maps any `RuntimeException` from a state read (`VirtualMapStateImpl` throws NPE or
+   IAE on unknown state IDs) to `NOT_FOUND`, logged at DEBUG.
 6. Wraps the result in `StateResponse` with `attested.blockNumber()` populated whenever a state
    has been attested (every status except `NOT_READY`) — state and block number come from the same
    `AttestedSnapshot` read, so a response can never pair one block's data with another block's
    number. On `NOT_READY` there is no restored or attested state to read, so `block_number` is `-1`
    (`uint64` max, `0xFFFFFFFFFFFFFFFF`) rather than `0`, which would be indistinguishable from the
-   valid genesis block. Clients still check `status` first.
+   valid genesis block. Clients still check `status` first. A payload is set only on `SUCCESS`.
+   Each response, including `NOT_READY`, increments `state_query_total` (§9) once.
+
+A restored snapshot (§6.2) is attested from the start, so queries against it answer `SUCCESS`
+while `state_ready` is still `0` during catch-up. Under lag-1 (§6.5), the attested block is the
+one before the latest applied block.
 
 Reader reservation: a query handler obtains the state through `reserveAttested()` and reads only
 from the returned `ReservedState`, closing it (`try`-with-resources) when the read is done. It
@@ -567,6 +596,10 @@ returns `null` while nothing is attested, which is the `NOT_READY` case. Reading
 `attested.state()` directly risks a root the apply thread has since released on the next
 promotion. The state, block number and round number come back as one value, so a reader never
 pairs a new state with a stale block number.
+
+Throttling is a follow-up. The service is registered without a `ThrottleSpec`, which needs
+`GlobalThrottleConfig` entries in the app config, so registration logs the server's "NOT
+throttled" notice for now.
 
 ## 9. Metrics
 
@@ -581,10 +614,10 @@ Registered with the block node's `MetricRegistry` in `init()`, under the `blockn
 | `state_apply_latency_ms`    | ObservableGauge | Wall-clock duration of the most recent block apply, in milliseconds                                                                                                                         |
 | `state_hash_mismatch_total` | LongCounter     | Cumulative footer hash mismatches observed                                                                                                                                                  |
 | `state_block_lag`           | ObservableGauge | Blocks between the latest available block and the attested block; grows during a stall — alert on it independent of `state_apply_halted`, since a stall can also be a slow/stuck apply path |
+| `state_query_total`         | LongCounter     | Queries answered, once per response, labels: `kind={kv,singleton,queue}`, `status` (the response code lowercased, e.g. `success`, `not_ready`)                                              |
 
-`snapshot_latency_ms`, `catch_up_blocks_total`, and `query_total{kind=...}` are not implemented
-yet, since snapshot creation and the query path don't exist yet in this plugin; add them
-alongside those features.
+`snapshot_latency_ms` and `catch_up_blocks_total` are not implemented yet, since snapshot
+creation doesn't exist yet in this plugin; add them alongside that feature.
 
 ## 10. Failure modes
 
@@ -601,7 +634,7 @@ alongside those features.
 | Verification gap                                                                                                                                                                                                       | A block ahead of the next expected one is dropped, not stored, and requests a catch-up on the catch-up thread, which fetches the missing blocks from `historicalBlockProvider` one at a time. If history lacks one, catch-up stops and the next notification requests it again. |
 | Historical block missing locally                                                                                                                                                                                       | Catch-up skips it; the same block can arrive via notification later.                                                                                                                                                                                                            |
 | Snapshot write fails (I/O)                                                                                                                                                                                             | Log at WARNING; recent dir not deleted; next snapshot cycle retries.                                                                                                                                                                                                            |
-| Missing-queue query                                                                                                                                                                                                    | gRPC handler defensively maps NPE from `getQueueState`/`getQueueAsList`/`peekQueue` to `NOT_FOUND`.                                                                                                                                                                             |
+| Unknown `state_id`, missing key, singleton or queue                                                                                                                                                                    | `StateQueryHandler` returns `NOT_FOUND`; any `RuntimeException` from a state read (e.g. NPE on an unknown ID in `VirtualMapStateImpl`) is mapped to `NOT_FOUND`.                                                                                                                |
 
 **Recovery from a halt** is restart-from-snapshot, but *which* restart recovers depends on
 whether the cause is transient or deterministic. A snapshot-hash-mismatch or missing-snapshot
@@ -647,7 +680,13 @@ Other test classes:
 
 - `StateManagementTest` (in-tree fixture for the applier's BinaryState calls)
 - `StateChangeApplierTest` — singleton / KV / queue dispatch via PBJ codecs
-- `StateManagementAccessTest` — gRPC query rules (invalid shapes, NOT_FOUND, success)
+- `StateQueryHandlerTest` — query rules against a real `VirtualMapState`: `NOT_READY` (with
+  `block_number` -1 surviving a wire round-trip), every `INVALID_REQUEST` shape, `NOT_AVAILABLE`
+  for older and newer blocks, `SUCCESS` and `NOT_FOUND` per RPC, the `maxQueueRangeSize` cap,
+  each query releasing the reservation it took, and `state_query_total` labels
+- `StateManagementQueryTest` — plugin-level queries: gRPC registration on the default or
+  configured port, a restored snapshot served before any new block, lag-1 block number, a halted
+  node still answering for its frozen block, and an inert plugin answering `NOT_READY`
 - `StateManagementCatchUpTest` — `catchUpFromHistoricalBlocks` with an in-tree
   `HistoricalBlockFacility` fixture
 - `StateManagementPluginLifecycleTest` — start → apply → snapshot → stop →
@@ -655,8 +694,9 @@ Other test classes:
 
 E2E (`tools-and-tests/suites/.../StateManagementE2ETests.java`) boots the full
 `BlockNodeApp` and exercises `StateService` over real gRPC via the
-generated `StateServiceClient`. Two tests: `getSingleton` round-trip
-and `getKV` / `getQueue` structured responses.
+generated `StateServiceClient`: seeded `getSingleton` / `getKV` / `getQueue` return `SUCCESS`
+with the exact stored bytes, an empty state returns `NOT_READY` with `block_number` -1, and a
+non-attested `block_number` returns `NOT_AVAILABLE`.
 
 ## 12. Design decisions
 

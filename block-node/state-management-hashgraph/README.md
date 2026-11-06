@@ -1,7 +1,7 @@
 # `state-management-hashgraph` plugin
 
-> **Status:** *Beta, partial.* Lifecycle, apply, and snapshot restore are implemented. Snapshot
-> creation and the gRPC query API are not yet, see Roadmap.
+> **Status:** *Beta, partial.* Lifecycle, apply, snapshot restore, and the `StateService` gRPC
+> query API are implemented. Snapshot creation is not yet, see Roadmap.
 
 Live Hashgraph state on the Block Node. Subscribes to verified block-stream notifications and
 applies their `state_changes` into an in-memory `VirtualMapState`, using the same lifecycle
@@ -33,10 +33,38 @@ All values written to `BinaryState` are the raw payload of the oneof-selected fi
 - KV entries use the payload of `MapChangeKey` as the key and of `MapChangeValue` as the value.
 - Queues store the payload of each `QueuePushChange`.
 
+## Query API
+
+The plugin implements `StateService` (`getKV`, `getSingleton`, `getQueue`) and registers it in
+`init`. `StateQueryHandler` applies the query rules. Queries read only the attested state, which
+under lag-1 is the block before the latest applied one. A restored snapshot is served as soon as
+it loads, even while `state_ready` is still `0`.
+
+|      Status       |                                                                               When                                                                               |
+|-------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `SUCCESS`         | The entry exists in the attested state. An existing empty queue is `SUCCESS` with empty `queue_values`.                                                          |
+| `INVALID_REQUEST` | Malformed request (no block specifier, `retrieve_latest=false`, wrong selector for the RPC, bad `queue_range`), or more queue elements than `maxQueueRangeSize`. |
+| `NOT_FOUND`       | Unknown `state_id`, missing key or singleton, or a `queue_range` past the end of the queue. A range is never partially served.                                   |
+| `NOT_AVAILABLE`   | `block_number` is not the attested block, older or newer. There is no historical state.                                                                          |
+| `NOT_READY`       | No snapshot restored and no block attested yet. `block_number` is `-1` (`uint64` max).                                                                           |
+
+Every other response carries the attested `block_number`. A halted node keeps answering
+`SUCCESS` for its frozen attested block. `queue_range` is 1-indexed and inclusive; `start` and
+`end` both `0` reads the whole queue. A full-queue read over `maxQueueRangeSize` is rejected
+with a WARN log, so clients page large queues with `queue_range`.
+
+Each response increments `state_query_total{kind,status}`. Full rules and order of checks:
+`docs/design/state/live-state.md` §8.
+
 ## Configuration
 
 Bound under `@ConfigData("state.management")` in `StateManagementConfig`, see
-`docs/design/state/live-state.md` §4 for the full property table.
+`docs/design/state/live-state.md` §4 for the full property table. Query API properties:
+
+|               Property               | Default |                             Notes                             |
+|--------------------------------------|---------|---------------------------------------------------------------|
+| `state.management.port`              | `null`  | Dedicated `StateService` port; `null` shares `server.port`.   |
+| `state.management.maxQueueRangeSize` | `1000`  | Most queue elements one `getQueue` call serves (1 to 100000). |
 
 There is no `enabled` flag. Block-Node plugins are active whenever their jar is on the
 classpath; opt-in lives in the deployment manifest.
@@ -72,7 +100,9 @@ done. The reservation keeps the state alive if a newer block is attested meanwhi
 
 - No snapshot creation yet. The plugin restores an externally-produced snapshot; it never
   writes one itself.
-- No gRPC query API yet.
+- Only the attested block is queryable; there is no historical state.
+- The query API is not throttled yet. Adding a `ThrottleSpec` is a follow-up, so registration
+  logs the server's "NOT throttled" notice.
 - Hash-mismatch recovery requires a restart; there is no automatic rewind/replay.
 - Catch-up applies one block at a time from historical storage; very large catch-up windows
   delay `ready=true` proportionally.
@@ -82,6 +112,6 @@ done. The reservation keeps the state alive if a newer block is attested meanwhi
 ## Roadmap
 
 - Snapshot creation (periodic, with retention/pruning).
-- `StateService` gRPC query API (`getKV`/`getSingleton`/`getQueue`).
+- `StateService` query throttling (`ThrottleSpec`).
 - Hash-mismatch recovery protocol.
 - Merkle proof RPC exposure.
