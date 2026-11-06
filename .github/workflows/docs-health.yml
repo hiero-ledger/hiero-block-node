@@ -1,0 +1,352 @@
+# SPDX-License-Identifier: Apache-2.0
+# Runs all doc health checks on a schedule and after every release.
+# All findings are consolidated into a single GitHub issue to avoid noise.
+name: Docs Health Report
+
+on:
+  release:
+    types: [published]
+  schedule:
+    - cron: "0 6 * * 1" # every Monday at 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  health-report:
+    name: Docs health check
+    runs-on: hl-bn-lin-md
+    concurrency:
+      group: docs-health
+      cancel-in-progress: false
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Checkout hiero-docs
+        continue-on-error: true
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: hiero-ledger/hiero-docs
+          token: ${{ secrets.GH_ACCESS_TOKEN }}
+          path: hiero-docs
+          ref: master
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "20.x"
+
+      - name: Install tools
+        run: |
+          curl -sLO https://github.com/lycheeverse/lychee/releases/download/lychee-v0.24.2/lychee-x86_64-unknown-linux-musl.tar.gz
+          tar -xzf lychee-x86_64-unknown-linux-musl.tar.gz --strip-components=1 lychee-x86_64-unknown-linux-musl/lychee
+          chmod +x lychee
+          npm install -g markdown-link-check@3.12.2 --silent
+
+      # ── Check 1: internal links ────────────────────────────────────────────
+      - name: Internal links
+        id: internal
+        continue-on-error: true
+        run: |
+          ./lychee --config .lychee.toml --offline --include-fragments \
+            --no-progress --output lychee-internal.txt '**/*.md'
+
+      # ── Check 2: anchor links ──────────────────────────────────────────────
+      - name: Anchor links
+        id: anchor
+        continue-on-error: true
+        run: |
+          status=0
+          while IFS= read -r file; do
+            output=$(markdown-link-check --config .markdown-link-check.json --quiet "$file" 2>&1)
+            rc=$?
+            echo "${output}" | grep -v '^\[✓\]' | grep -v '^FILE\|^$' >> anchor-failures.txt || true
+            [ $rc -ne 0 ] && status=1
+          done < <(find . -name "*.md" \
+            ! -path "./.github/*" ! -path "*/build/*" \
+            ! -path "./.gradle/*" ! -path "./protobuf-sources/*")
+          exit $status
+
+      # ── Check 3: image references ──────────────────────────────────────────
+      - name: Image references
+        id: images
+        continue-on-error: true
+        run: |
+          status=0
+          while IFS= read -r file; do
+            DIR=$(dirname "${file}")
+            while IFS= read -r path; do
+              [[ "${path}" == http* || "${path}" == data:* ]] && continue
+              if [ ! -f "${DIR}/${path}" ]; then
+                LINENO=$(grep -n "!\[" "${file}" | grep -F "${path}" | head -1 | cut -d: -f1)
+                echo "${file}:${LINENO}: missing image ${path}" >> image-failures.txt
+                status=1
+              fi
+            done < <(grep -oP '!\[.*?\]\(\K[^) ]+' "${file}" 2>/dev/null || true)
+          done < <(find docs -name '*.md' | sort)
+          exit $status
+
+      # ── Check 4: stale version references ─────────────────────────────────
+      - name: Version references
+        id: version
+        continue-on-error: true
+        run: |
+          CURRENT=$(grep '^appVersion:' charts/block-node-server/Chart.yaml \
+            | awk '{print $2}' | tr -d '"' | sed 's/-SNAPSHOT//')
+          echo "Current version: ${CURRENT}"
+          status=0
+          while IFS= read -r file; do
+            HELM=$(grep -n -- '--version [0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*' "${file}" \
+              | grep -v "${CURRENT}" || true)
+            BN=$(grep -n 'BN_VERSION=' "${file}" | grep -v "${CURRENT}" || true)
+            if [ -n "${HELM}" ] || [ -n "${BN}" ]; then
+              { [ -n "${HELM}" ] && echo "${file}: ${HELM}"; \
+                [ -n "${BN}" ]   && echo "${file}: ${BN}"; } >> version-failures.txt
+              status=1
+            fi
+          done < <(find docs/block-node -name '*.md' | sort)
+          echo "current=${CURRENT}" >> "${GITHUB_OUTPUT}"
+          exit $status
+
+      # ── Check 5: config prefix coverage ───────────────────────────────────
+      - name: Config prefix coverage
+        id: config-coverage
+        continue-on-error: true
+        run: |
+          CONFIG_DOC=$(find docs -name 'configuration.md' | grep -v simulator \
+            | awk -F/ 'NF>max{max=NF; line=$0} END{print line}')
+          CFG_STATUS=0
+          while IFS= read -r prefix; do
+            envprefix=$(echo "$prefix" | sed 's/\./_/g' \
+              | sed 's/\([A-Z]\)/_\1/g' | tr '[:lower:]' '[:upper:]')
+            if ! grep -q "$envprefix" "$CONFIG_DOC" 2>/dev/null && \
+               ! grep -qF "$prefix" "$CONFIG_DOC" 2>/dev/null; then
+              echo "Config prefix undocumented: ${prefix} (env var prefix: ${envprefix})" \
+                >> config-coverage-failures.txt
+              CFG_STATUS=1
+            fi
+          done < <(grep -rh --include='*.java' -oP '@ConfigData\("\K[^"]+' block-node/ \
+            2>/dev/null | grep -v '^test$' | sort -u)
+          exit $CFG_STATUS
+
+      # ── Check 6: metric name coverage ─────────────────────────────────────
+      - name: Metric name coverage
+        id: metric-coverage
+        continue-on-error: true
+        run: |
+          METRICS_DOC=$(find docs -name 'metrics.md' \
+            | awk -F/ 'NF>max{max=NF; line=$0} END{print line}')
+          MET_STATUS=0
+          while IFS= read -r name; do
+            if ! grep -qF "$name" "$METRICS_DOC" 2>/dev/null; then
+              echo "Metric undocumented: ${name}" >> metric-coverage-failures.txt
+              MET_STATUS=1
+            fi
+          done < <(grep -rh --include='*.java' -oP 'MetricKey\.of\("\K[^"]+' block-node/ \
+            2>/dev/null | sort -u)
+          exit $MET_STATUS
+
+      # ── Check 7: stale hiero-docs files ───────────────────────────────────
+      - name: Stale hiero-docs files
+        id: stale-docs
+        continue-on-error: true
+        run: |
+          if [ ! -d "hiero-docs/block-node/block-node" ]; then
+            echo "hiero-docs checkout unavailable — skipping stale-docs check"
+            exit 0
+          fi
+          STALE_STATUS=0
+          while IFS= read -r hd_file; do
+            rel="${hd_file#hiero-docs/block-node/}"
+            if [ ! -f "docs/${rel}" ]; then
+              echo "Stale in hiero-docs (deleted from source): ${hd_file}" >> stale-synced.txt
+              STALE_STATUS=1
+            fi
+          done < <(find hiero-docs/block-node/block-node -name '*.md' | sort)
+          exit $STALE_STATUS
+
+      # ── Check 8: document content check ───────────────────────────────────
+      - name: Document content check
+        id: content-check
+        continue-on-error: true
+        run: |
+          CONTENT_STATUS=0
+          while IFS= read -r file; do
+            # Skip intentional redirect stubs ("This document has moved to …")
+            grep -qi 'has moved to' "$file" 2>/dev/null && continue
+            # Flag truly empty files
+            if [ ! -s "$file" ]; then
+              echo "EMPTY (no content at all): ${file}" >> content-failures.txt
+              CONTENT_STATUS=1
+              continue
+            fi
+            # Flag files whose only content is headings and blank lines (no body)
+            body=$(grep -cv '^#\|^[[:space:]]*$' "$file" 2>/dev/null || echo 0)
+            if [ "$body" -lt 2 ]; then
+              echo "NO BODY (title-only stub, ${body} content lines): ${file}" \
+                >> content-failures.txt
+              CONTENT_STATUS=1
+            fi
+          done < <(find docs/block-node -name '*.md' | sort)
+          exit $CONTENT_STATUS
+
+      # ── Build consolidated report ──────────────────────────────────────────
+      - name: Build report
+        id: report
+        if: always()
+        run: |
+          DATE=$(date -u '+%Y-%m-%d')
+          TRIGGER="${{ github.event_name }}"
+          [ "${TRIGGER}" = "release" ] && TRIGGER="release ${{ github.event.release.tag_name }}"
+
+          {
+            echo "## Docs Health Report — ${DATE}"
+            echo ""
+            echo "> Triggered by: ${TRIGGER}"
+            echo ""
+
+            # Internal links
+            if [ "${{ steps.internal.outcome }}" = "success" ]; then
+              echo "### Internal links — OK"
+            else
+              echo "### Internal links — BROKEN"
+              echo '```'
+              cat lychee-internal.txt 2>/dev/null || echo "(no output)"
+              echo '```'
+            fi
+            echo ""
+
+            # Anchor links
+            if [ "${{ steps.anchor.outcome }}" = "success" ]; then
+              echo "### Anchor links — OK"
+            else
+              echo "### Anchor links — BROKEN"
+              echo '```'
+              cat anchor-failures.txt 2>/dev/null | head -50 || echo "(no output)"
+              echo '```'
+            fi
+            echo ""
+
+            # Image references
+            if [ "${{ steps.images.outcome }}" = "success" ]; then
+              echo "### Image references — OK"
+            else
+              echo "### Image references — BROKEN"
+              echo '```'
+              cat image-failures.txt 2>/dev/null | head -50 || echo "(no output)"
+              echo '```'
+            fi
+            echo ""
+
+            # Version references
+            if [ "${{ steps.version.outcome }}" = "success" ]; then
+              echo "### Version references — OK (current: \`${{ steps.version.outputs.current }}\`)"
+            else
+              echo "### Version references — STALE (current: \`${{ steps.version.outputs.current }}\`)"
+              echo '```'
+              cat version-failures.txt 2>/dev/null | head -50 || echo "(no output)"
+              echo '```'
+            fi
+            echo ""
+
+            # Config prefix coverage
+            if [ "${{ steps.config-coverage.outcome }}" = "success" ]; then
+              echo "### Config prefix coverage — OK"
+            else
+              echo "### Config prefix coverage — GAPS FOUND"
+              echo '```'
+              cat config-coverage-failures.txt 2>/dev/null | head -50 || echo "(no output)"
+              echo '```'
+            fi
+            echo ""
+
+            # Metric name coverage
+            if [ "${{ steps.metric-coverage.outcome }}" = "success" ]; then
+              echo "### Metric name coverage — OK"
+            else
+              echo "### Metric name coverage — GAPS FOUND"
+              echo '```'
+              cat metric-coverage-failures.txt 2>/dev/null | head -50 || echo "(no output)"
+              echo '```'
+            fi
+            echo ""
+
+            # Stale hiero-docs files
+            if [ "${{ steps.stale-docs.outcome }}" = "success" ]; then
+              echo "### Stale hiero-docs files — OK"
+            else
+              echo "### Stale hiero-docs files — STALE FILES FOUND"
+              echo '```'
+              cat stale-synced.txt 2>/dev/null | head -50 || echo "(no output)"
+              echo '```'
+            fi
+            echo ""
+
+            # Document content
+            if [ "${{ steps.content-check.outcome }}" = "success" ]; then
+              echo "### Document content — OK"
+            else
+              echo "### Document content — EMPTY OR STUB DOCS FOUND"
+              echo '```'
+              cat content-failures.txt 2>/dev/null | head -50 || echo "(no output)"
+              echo '```'
+            fi
+          } > health-report.md
+
+          # Also surface in the Actions run summary panel
+          cat health-report.md >> "${GITHUB_STEP_SUMMARY}"
+
+          # Determine overall health
+          if [ "${{ steps.internal.outcome }}"        = "success" ] && \
+             [ "${{ steps.anchor.outcome }}"          = "success" ] && \
+             [ "${{ steps.images.outcome }}"          = "success" ] && \
+             [ "${{ steps.version.outcome }}"         = "success" ] && \
+             [ "${{ steps.config-coverage.outcome }}" = "success" ] && \
+             [ "${{ steps.metric-coverage.outcome }}" = "success" ] && \
+             [ "${{ steps.stale-docs.outcome }}"      = "success" ] && \
+             [ "${{ steps.content-check.outcome }}"   = "success" ]; then
+            echo "healthy=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "healthy=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      # ── Create / update / close single issue ──────────────────────────────
+      - name: Update docs health issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          EXISTING=$(gh issue list \
+            --repo "${{ github.repository }}" \
+            --search "Docs health report in:title" \
+            --state open --json number --jq '.[0].number // empty')
+
+          if [ "${{ steps.report.outputs.healthy }}" = "true" ]; then
+            if [ -n "${EXISTING}" ]; then
+              gh issue close "${EXISTING}" \
+                --comment "All doc health checks passed on $(date -u '+%Y-%m-%d') — closing."
+              echo "Closed issue #${EXISTING}"
+            else
+              echo "All checks passed — no issue to file."
+            fi
+          else
+            if [ -n "${EXISTING}" ]; then
+              gh issue edit "${EXISTING}" --body-file health-report.md
+              echo "Updated issue #${EXISTING}"
+            else
+              gh issue create \
+                --repo "${{ github.repository }}" \
+                --title "Docs health report" \
+                --body-file health-report.md \
+                --assignee deshmukhpranali \
+                --label "documentation"
+            fi
+          fi
