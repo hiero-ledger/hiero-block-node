@@ -29,7 +29,11 @@ docker, Kubernetes, and Grafana Cloud:
   `{environment=~"$environment", instance=~"$instance"}`. `.*` also matches series that do not have the label, so
   the default "All" shows everything where those labels are not set (docker, a single Kubernetes install);
 - each dashboard has a fixed top-level `uid`, so links and bookmarks survive a fresh Grafana;
-- table `organize` transformations index and rename by the original field names (`Value #A`, `instance`).
+- table `organize` transformations index and rename by the original field names (`Value #A`, `instance`);
+- `schemaVersion` is at most 42 (Grafana 13.2). The deployed Grafanas run different 13.x versions, and a dashboard
+  exported from a newer one can carry a schema the older one does not understand.
 
-To change a dashboard, edit it in Grafana, export it as classic JSON (**Export > Export as JSON**, classic), keep the
-`uid`, and replace the file here. Open it in the docker-compose Grafana to check that every panel renders.
+To change a dashboard, edit it in Grafana 13.2 (or a docker-compose Grafana pinned to `grafana/grafana:13.2.4`),
+export it as classic JSON (**Export > Export as JSON**, classic), keep the `uid`, and replace the file here. Open it
+in the docker-compose Grafana to check that every panel renders. Do not edit these dashboards in a deployed Grafana:
+they are synced from this folder, and the next sync replaces UI changes.
