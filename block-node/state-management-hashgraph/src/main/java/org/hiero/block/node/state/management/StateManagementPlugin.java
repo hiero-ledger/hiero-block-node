@@ -13,14 +13,19 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.stream.Stream;
 import org.hiero.base.crypto.Hash;
 import org.hiero.base.file.FileSystemManager;
 import org.hiero.block.internal.BlockItemUnparsed;
@@ -78,6 +83,24 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// independent of `state_apply_halted`.
     static final MetricKey<ObservableGauge> METRIC_BLOCK_LAG =
             MetricKey.of("state_block_lag", ObservableGauge.class).addCategory(METRICS_CATEGORY);
+
+    /// `blocknode:state_snapshot_block` — block number of the newest snapshot written or
+    /// restored, `-1` if none.
+    static final MetricKey<ObservableGauge> METRIC_SNAPSHOT_BLOCK =
+            MetricKey.of("state_snapshot_block", ObservableGauge.class).addCategory(METRICS_CATEGORY);
+
+    /// `blocknode:state_snapshot_latency_ms` — duration of the most recent successful snapshot
+    /// write, in milliseconds.
+    static final MetricKey<ObservableGauge> METRIC_SNAPSHOT_LATENCY_MS =
+            MetricKey.of("state_snapshot_latency_ms", ObservableGauge.class).addCategory(METRICS_CATEGORY);
+
+    /// `blocknode:state_snapshot_failures_total` — cumulative snapshot writes that failed.
+    static final MetricKey<LongCounter> METRIC_SNAPSHOT_FAILURES_TOTAL =
+            MetricKey.of("state_snapshot_failures_total", LongCounter.class).addCategory(METRICS_CATEGORY);
+
+    /// Prefix of the staging directory a snapshot is written to before it is renamed to its
+    /// final `<blockNumber>` name.
+    private static final String STAGING_PREFIX = ".tmp-";
 
     private BlockNodeContext context;
     private StateManagementConfig config;
@@ -156,10 +179,10 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// `init` (always before any apply runs in `start`).
     private LongCounter.Measurement hashMismatchMetric;
 
-    /// The catch-up thread: the plugin's only thread of its own, and the only one that reads
-    /// history. It replays missing blocks at start-up and whenever a live block arrives ahead of
-    /// the next expected one. Live blocks that are next in line are applied inline on the
-    /// messaging thread that delivers them, which never reads history. `null` until `start()`.
+    /// The catch-up thread: the only thread that reads history. It replays missing blocks at
+    /// start-up and whenever a live block arrives ahead of the next expected one. Live blocks that
+    /// are next in line are applied inline on the messaging thread that delivers them, which never
+    /// reads history. `null` until `start()`.
     private ExecutorService catchUpExecutor;
 
     /// The block the last stalled sweep stopped at, so a repeated stall is not logged as a new one.
@@ -168,6 +191,27 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
 
     /// `true` while a catch-up sweep is queued or running, so at most one runs at a time.
     private final AtomicBoolean catchUpRunning = new AtomicBoolean(false);
+
+    /// Runs the periodic snapshot task. Separate from the catch-up thread and the messaging
+    /// thread that applies live blocks, so a snapshot that takes minutes never delays apply.
+    /// `null` until `start()`.
+    private ScheduledExecutorService snapshotExecutor;
+
+    /// Serialises scheduled snapshots and the final snapshot taken in `stop()`.
+    private final ReentrantLock snapshotLock = new ReentrantLock();
+
+    /// Block number of the newest snapshot written or restored, `-1` if none. Volatile: written
+    /// under `snapshotLock` (or during start-up), read by the metrics-scrape thread.
+    private volatile long lastSnapshottedBlock = -1L;
+
+    /// Duration of the most recent successful snapshot write, exported via
+    /// `state_snapshot_latency_ms`.
+    private volatile long lastSnapshotDurationMs = 0L;
+
+    private final AtomicLong snapshotFailureTotal = new AtomicLong();
+
+    /// Exported counter measurement for failed snapshot writes, registered in `init`.
+    private LongCounter.Measurement snapshotFailureMetric;
 
     /// Serialises every apply (live inline and catch-up) so only one thread mutates the
     /// lifecycle-managed state at a time. Taken per block, so a live block waits for at most one
@@ -247,6 +291,15 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         metrics.register(ObservableGauge.builder(METRIC_BLOCK_LAG)
                 .setDescription("Blocks between the latest available block and the currently attested block")
                 .observe(this::currentBlockLag));
+        metrics.register(ObservableGauge.builder(METRIC_SNAPSHOT_BLOCK)
+                .setDescription("Block number of the newest state snapshot written or restored, -1 if none")
+                .observe(() -> lastSnapshottedBlock));
+        metrics.register(ObservableGauge.builder(METRIC_SNAPSHOT_LATENCY_MS)
+                .setDescription("Duration of the most recent successful state snapshot write in ms")
+                .observe(() -> lastSnapshotDurationMs));
+        this.snapshotFailureMetric = metrics.register(LongCounter.builder(METRIC_SNAPSHOT_FAILURES_TOTAL)
+                        .setDescription("Cumulative state snapshot writes that failed"))
+                .getOrCreateNotLabeled();
     }
 
     /// Blocks between the latest block `historicalBlockProvider` has on hand and the currently
@@ -274,12 +327,21 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             return;
         }
         loadPersistedState();
+        // A crash mid-write leaves a staging dir behind. Nothing is writing yet, so remove it.
+        deleteStagingDirectories();
         context.blockMessaging().registerBlockNotificationHandler(this, true, name());
 
         // Catch up from history. Needed because an idle node (no live blocks) would otherwise
         // never become ready. The thread stays up for later catch-ups, see `requestCatchUp`.
         catchUpExecutor = context.threadPoolManager().createSingleThreadExecutor("StateManagement-catchup");
         requestCatchUp();
+
+        snapshotExecutor = context.threadPoolManager()
+                .createSingleThreadScheduledExecutor(
+                        "StateManagement-snapshot",
+                        (t, e) -> LOGGER.log(System.Logger.Level.WARNING, "Uncaught exception in " + t.getName(), e));
+        final long interval = config.snapshotIntervalMillis();
+        snapshotExecutor.scheduleWithFixedDelay(this::runScheduledSnapshot, interval, interval, TimeUnit.MILLISECONDS);
     }
 
     /// {@inheritDoc}
@@ -301,6 +363,17 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             } catch (final InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
+        }
+        if (snapshotExecutor != null) {
+            // shutdown, not shutdownNow: interrupting an in-flight write only wastes it.
+            snapshotExecutor.shutdown();
+        }
+        // Final snapshot of the latest attested block. Waits on snapshotLock for any in-flight
+        // write, then no-ops if that write already covered the latest attested block.
+        try {
+            saveSnapshot();
+        } catch (final RuntimeException e) {
+            LOGGER.log(System.Logger.Level.WARNING, "Final state snapshot on stop failed", e);
         }
     }
 
@@ -425,6 +498,20 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         return applyHalted.get();
     }
 
+    /// Block number of the newest snapshot written or restored.
+    ///
+    /// @return the newest snapshot's block number, or `-1` if none
+    long lastSnapshottedBlock() {
+        return lastSnapshottedBlock;
+    }
+
+    /// Total count of snapshot writes that failed.
+    ///
+    /// @return the cumulative snapshot-failure count
+    long snapshotFailureTotal() {
+        return snapshotFailureTotal.get();
+    }
+
     // ── Internals ───────────────────────────────────────────────────────────
 
     /// Restore from the highest-numbered recent-snapshot directory, if any exist, seeding the
@@ -457,6 +544,8 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                 if (loadedBlockNumber == restoreCandidate) {
                     snapshotLoaded = true;
                     lastAppliedBlock = restoreCandidate;
+                    // The restored directory already holds this block; never rewrite it.
+                    lastSnapshottedBlock = restoreCandidate;
                     // Logged so operators can compare it with an external value: nothing in the
                     // chain attests this hash until the next block's footer arrives.
                     LOGGER.log(
@@ -903,6 +992,183 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     @NonNull
     private Path recentSnapshotDirectoryFor(final long blockNumber) {
         return Path.of(config.snapshotRecentPath(), Long.toString(blockNumber));
+    }
+
+    /// Body of the periodic snapshot task. Catches everything `saveSnapshot` can throw, because
+    /// a scheduled task that throws is silently never run again.
+    private void runScheduledSnapshot() {
+        try {
+            saveSnapshot();
+        } catch (final RuntimeException e) {
+            LOGGER.log(System.Logger.Level.WARNING, "Scheduled state snapshot failed", e);
+        }
+    }
+
+    /// Write the attested state (state 1) to `<snapshotRecentPath>/<blockNumber>`, then prune old
+    /// snapshots. The write goes to a `.tmp-<blockNumber>` staging dir that is atomically renamed
+    /// once complete, so a numeric dir is always a whole snapshot.
+    ///
+    /// Calls `VirtualMap.createSnapshot` directly rather than
+    /// `VirtualMapStateLifecycleManager.createSnapshot`, which catches and only logs write
+    /// errors, so a failed write would look like success. Runs even when apply has halted: the
+    /// attested state was confirmed by a footer before the halt and is a valid recovery point.
+    /// Package-private so tests can drive it directly.
+    ///
+    /// @return `true` only if a new snapshot directory was written
+    boolean saveSnapshot() {
+        snapshotLock.lock();
+        try {
+            if (lifecycleManager == null) {
+                return false;
+            }
+            // The apply thread can release the attested root on the next promotion at any
+            // moment, so reserve it with tryReserve and re-read on a lost race.
+            AttestedSnapshot current;
+            while (true) {
+                current = attested;
+                if (current.state() == null || current.blockNumber() <= lastSnapshottedBlock) {
+                    return false;
+                }
+                if (current.state().getRoot().tryReserve()) {
+                    break;
+                }
+                if (attested == current) {
+                    // Destroyed but still published, with nothing newer to retry with. Give up
+                    // rather than spin; the next scheduled run tries again.
+                    LOGGER.log(
+                            System.Logger.Level.WARNING,
+                            "Attested state for block {0} already released; skipping snapshot",
+                            current.blockNumber());
+                    return false;
+                }
+            }
+            final long block = current.blockNumber();
+            final Path root = Path.of(config.snapshotRecentPath());
+            final Path target = recentSnapshotDirectoryFor(block);
+            final Path staging = root.resolve(STAGING_PREFIX + block);
+            try {
+                if (Files.isDirectory(target)) {
+                    // Only complete snapshots are ever renamed into place, so this one is whole.
+                    lastSnapshottedBlock = block;
+                    return false;
+                }
+                Files.createDirectories(root);
+                deleteRecursively(staging);
+                final long startNanos = System.nanoTime();
+                current.state().getRoot().createSnapshot(staging);
+                // No REPLACE_EXISTING: a non-empty directory can't be replaced, and target was
+                // checked absent above.
+                Files.move(staging, target, StandardCopyOption.ATOMIC_MOVE);
+                lastSnapshotDurationMs = (System.nanoTime() - startNanos) / 1_000_000L;
+                lastSnapshottedBlock = block;
+                LOGGER.log(
+                        System.Logger.Level.INFO,
+                        "Wrote state snapshot for block {0} to {1} in {2} ms",
+                        block,
+                        target,
+                        lastSnapshotDurationMs);
+            } catch (final IOException | RuntimeException e) {
+                LOGGER.log(System.Logger.Level.WARNING, "Failed to write state snapshot for block {0}", block, e);
+                snapshotFailureTotal.incrementAndGet();
+                snapshotFailureMetric.increment();
+                try {
+                    deleteRecursively(staging);
+                } catch (final IOException | RuntimeException cleanup) {
+                    LOGGER.log(
+                            System.Logger.Level.WARNING, "Failed to delete snapshot staging dir {0}", staging, cleanup);
+                }
+                return false;
+            } finally {
+                current.state().getRoot().release();
+            }
+            pruneOldRecentSnapshots(block);
+            return true;
+        } finally {
+            snapshotLock.unlock();
+        }
+    }
+
+    /// Delete old snapshots so at most `snapshotRecentRetentionCount` numeric dirs remain,
+    /// always keeping `current`, and delete any `.tmp-<digits>` staging dir. Nothing else under
+    /// the root is touched: in particular `tmp` holds the live MerkleDb files. Failures are
+    /// logged and skipped, since the new snapshot is already written. Callers hold
+    /// `snapshotLock`, so no staging dir is in flight.
+    ///
+    /// @param current the block number of the snapshot just written
+    private void pruneOldRecentSnapshots(final long current) {
+        final Path root = Path.of(config.snapshotRecentPath());
+        final List<Long> others;
+        try (final Stream<Path> entries = Files.list(root)) {
+            others = entries.filter(Files::isDirectory)
+                    .map(p -> p.getFileName().toString())
+                    .filter(StateManagementPlugin::isDigits)
+                    .map(Long::parseLong)
+                    .filter(n -> n != current)
+                    .sorted(Comparator.reverseOrder())
+                    .toList();
+        } catch (final IOException | RuntimeException e) {
+            LOGGER.log(System.Logger.Level.WARNING, "Unable to list {0} to prune old snapshots", root, e);
+            return;
+        }
+        final int keepOthers = Math.max(0, config.snapshotRecentRetentionCount() - 1);
+        for (int i = keepOthers; i < others.size(); i++) {
+            deleteQuietly(recentSnapshotDirectoryFor(others.get(i)));
+        }
+        deleteStagingDirectories();
+    }
+
+    /// Delete every `.tmp-<digits>` staging dir directly under the snapshot root. Only safe
+    /// when no snapshot write is in flight. Failures are logged and skipped.
+    private void deleteStagingDirectories() {
+        final Path root = Path.of(config.snapshotRecentPath());
+        if (!Files.isDirectory(root)) {
+            return;
+        }
+        final List<Path> staging;
+        try (final Stream<Path> entries = Files.list(root)) {
+            staging = entries.filter(Files::isDirectory)
+                    .filter(p -> isStagingName(p.getFileName().toString()))
+                    .toList();
+        } catch (final IOException | RuntimeException e) {
+            LOGGER.log(System.Logger.Level.WARNING, "Unable to list {0} for stale snapshot staging dirs", root, e);
+            return;
+        }
+        staging.forEach(this::deleteQuietly);
+    }
+
+    /// @param name a directory's file name
+    /// @return `true` if `name` is `.tmp-` followed by one or more ASCII digits
+    private static boolean isStagingName(@NonNull final String name) {
+        return name.startsWith(STAGING_PREFIX) && isDigits(name.substring(STAGING_PREFIX.length()));
+    }
+
+    /// Recursively delete `dir`, logging rather than throwing on failure.
+    ///
+    /// @param dir the directory to delete
+    private void deleteQuietly(@NonNull final Path dir) {
+        try {
+            deleteRecursively(dir);
+            LOGGER.log(System.Logger.Level.DEBUG, "Deleted {0}", dir);
+        } catch (final IOException | RuntimeException e) {
+            LOGGER.log(System.Logger.Level.WARNING, "Failed to delete {0}", dir, e);
+        }
+    }
+
+    /// Recursively delete `path` if it exists. Symlinks are not followed.
+    ///
+    /// @param path the file or directory to delete
+    /// @throws IOException if any entry cannot be deleted
+    private static void deleteRecursively(@NonNull final Path path) throws IOException {
+        if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) {
+            return;
+        }
+        final List<Path> paths;
+        try (final Stream<Path> walk = Files.walk(path)) {
+            paths = walk.sorted(Comparator.reverseOrder()).toList();
+        }
+        for (final Path p : paths) {
+            Files.deleteIfExists(p);
+        }
     }
 
     /// The root hash of a sealed state, or empty if the state/root is absent or not yet hashed.
