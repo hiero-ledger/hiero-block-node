@@ -3,16 +3,17 @@ package org.hiero.block.suites.subscriber.positive;
 
 import static org.hiero.block.suites.utils.BlockSimulatorUtils.createBlockSimulator;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.hiero.block.simulator.config.data.StreamStatus;
 import org.hiero.block.suites.BaseSuite;
@@ -28,6 +29,8 @@ import org.junit.jupiter.api.Test;
  */
 @DisplayName("Positive Single Subscriber Tests")
 public class PositiveSingleSubscriberTests extends BaseSuite {
+    private static final Duration WAIT_TIMEOUT = Duration.ofSeconds(30);
+
     private final List<Future<?>> simulators = new ArrayList<>();
     private final List<BlockStreamSimulatorApp> simulatorAppsRef = new ArrayList<>();
 
@@ -68,7 +71,8 @@ public class PositiveSingleSubscriberTests extends BaseSuite {
         simulatorAppsRef.add(consumerSimulator);
 
         // ===== Start publisher and make sure it's streaming =======================================
-        final Future<?> publisherSimulatorThread = startSimulatorInstance(publisherSimulator);
+        final Future<?> publisherSimulatorThread =
+                startPublisherAndAwaitFirstResponse(publisherSimulator, WAIT_TIMEOUT);
         simulators.add(publisherSimulatorThread);
 
         // ===== Start consumer and try to request blocks ===========================================
@@ -96,7 +100,8 @@ public class PositiveSingleSubscriberTests extends BaseSuite {
 
     @Test
     @DisplayName("Should subscribe to receive historical blocks")
-    public void shouldSubscribeForHistoricalBlocks() throws IOException, InterruptedException {
+    public void shouldSubscribeForHistoricalBlocks()
+            throws IOException, InterruptedException, ExecutionException, TimeoutException {
         // ===== Prepare environment =================================================================
         final long endBlock = 10L;
         final Map<String, String> consumerConfiguration = Map.of(
@@ -113,38 +118,21 @@ public class PositiveSingleSubscriberTests extends BaseSuite {
         simulatorAppsRef.add(consumerSimulator);
 
         // ===== Start publisher and make sure it's streaming =======================================
-        final Future<?> publisherSimulatorThread = startSimulatorInstance(publisherSimulator);
+        final Future<?> publisherSimulatorThread =
+                startPublisherAndAwaitFirstResponse(publisherSimulator, WAIT_TIMEOUT);
         simulators.add(publisherSimulatorThread);
-        boolean publisherReachedEndBlock = false;
-        while (!publisherReachedEndBlock && publisherSimulator.isRunning()) {
-            final StreamStatus status = publisherSimulator.getStreamStatus();
-            if (status != null && status.publishedBlocks() > endBlock) {
-                publisherReachedEndBlock = true;
-            } else {
-                Thread.sleep(10);
-            }
-        }
-        // ===== Start consumer and try to request blocks ===========================================
+        waitFor(() -> publisherSimulator.getStreamStatus().publishedBlocks() > endBlock, WAIT_TIMEOUT);
+        // ===== Start consumer and wait for the requested range to complete ========================
         final Future<?> consumerSimulatorThread = startSimulatorInThread(consumerSimulator);
         simulators.add(consumerSimulatorThread);
+        // The consumer returns once the block node closes the stream after the last requested block.
+        consumerSimulatorThread.get(WAIT_TIMEOUT.toSeconds(), TimeUnit.SECONDS);
 
-        boolean isConsumingBlocks = false;
-        int retries = 10;
-
-        while (retries > 0) {
-            if (consumerSimulator.getStreamStatus().consumedBlocks() > 0
-                    && !consumerSimulator
-                            .getStreamStatus()
-                            .lastKnownConsumersStatuses()
-                            .isEmpty()) {
-                isConsumingBlocks = true;
-            }
-            retries--;
-            Thread.sleep(1000);
-        }
-
-        assertTrue(isConsumingBlocks);
-        assertEquals(endBlock, consumerSimulator.getStreamStatus().consumedBlocks());
+        final StreamStatus consumerStatus = consumerSimulator.getStreamStatus();
+        assertEquals(endBlock, consumerStatus.consumedBlocks());
+        assertTrue(
+                consumerStatus.lastKnownConsumersStatuses().getLast().contains("SUCCESS"),
+                "Stream should end with SUCCESS: " + consumerStatus.lastKnownConsumersStatuses());
     }
 
     @Test
@@ -174,18 +162,11 @@ public class PositiveSingleSubscriberTests extends BaseSuite {
         simulatorAppsRef.add(consumerSimulator);
 
         // ===== Start publisher and make sure it's streaming =======================================
-        final Future<?> publisherSimulatorThread = startSimulatorInstance(publisherSimulator);
+        final Future<?> publisherSimulatorThread =
+                startPublisherAndAwaitFirstResponse(publisherSimulator, WAIT_TIMEOUT);
         simulators.add(publisherSimulatorThread);
 
-        boolean publisherReachedEndBlock = false;
-        while (!publisherReachedEndBlock && publisherSimulator.isRunning()) {
-            final StreamStatus status = publisherSimulator.getStreamStatus();
-            if (status != null && status.publishedBlocks() > endBlock) {
-                publisherReachedEndBlock = true;
-            } else {
-                Thread.sleep(10);
-            }
-        }
+        waitFor(() -> publisherSimulator.getStreamStatus().publishedBlocks() > endBlock, WAIT_TIMEOUT);
 
         // ===== Start consumer and validate slowdown ===============================================
         final Future<?> consumerSimulatorThread = startSimulatorInThread(consumerSimulator);
@@ -216,31 +197,5 @@ public class PositiveSingleSubscriberTests extends BaseSuite {
                 "Slowdown check failed: elapsed=%dms, expected>=%dms (range=%d-%d, slowdown=%dms)"
                         .formatted(elapsed, expectedMinimumMs, startBlock, endBlock, expectedSlowdownMillis));
         assertEquals(endBlock, consumerSimulator.getStreamStatus().consumedBlocks());
-    }
-
-    /**
-     * Starts a simulator in a thread and make sure that it's running and trying to publish blocks
-     *
-     * @param simulator instance with configuration depending on the test
-     * @return a {@link Future} representing the asynchronous execution of the block stream simulator
-     */
-    private Future<?> startSimulatorInstance(@NonNull final BlockStreamSimulatorApp simulator) {
-        Objects.requireNonNull(simulator);
-        final int statusesRequired = 5; // we wait for at least 5 statuses, to avoid flakiness
-
-        final Future<?> simulatorThread = startSimulatorInThread(simulator);
-        simulators.add(simulatorThread);
-        String simulatorStatus = null;
-        while (simulator.getStreamStatus().lastKnownPublisherClientStatuses().size() < statusesRequired) {
-            if (!simulator.getStreamStatus().lastKnownPublisherClientStatuses().isEmpty()) {
-                simulatorStatus = simulator
-                        .getStreamStatus()
-                        .lastKnownPublisherClientStatuses()
-                        .getLast();
-            }
-        }
-        assertNotNull(simulatorStatus);
-        assertTrue(simulator.isRunning());
-        return simulatorThread;
     }
 }
