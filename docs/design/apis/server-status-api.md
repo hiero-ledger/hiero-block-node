@@ -14,7 +14,7 @@
 10. [Metrics](#metrics)
 11. [Exceptions](#exceptions)
 12. [Acceptance Tests](#acceptance-tests)
-13. [Open Questions](#open-questions)
+13. [Decisions](#decisions)
 
 ## Purpose
 
@@ -83,21 +83,22 @@ call a client should make before requesting block data.
 Today the response contains version information, available ranges, stored ranges, TSS data, the latest address book and
 the address book history.
 
-After this change:
+With this change:
 
 1. The request is a new `ServerStatusDetailRequest` with flags. A flag set to `true` leaves that part out:
    `exclude_versions`, `exclude_available_ranges`, `exclude_stored_ranges` and `exclude_address_book`.
-2. The response contains only `version_information`, `available_ranges` and `stored_ranges`.
-3. TSS data, the address book and the address book history are removed from this response. The removed field numbers are
-   marked `reserved` so they are never reused.
-4. An empty request returns every remaining part, so a client that sends nothing keeps working.
+2. The roster fields (`tss_data`, `node_address_book`, `ranged_address_book_history`) are marked deprecated and are still
+   returned until the remove step of [Compatibility and Rollout](#compatibility-and-rollout).
+3. After the remove step, the response contains only `version_information`, `available_ranges` and `stored_ranges`, and
+   the removed field numbers are marked `reserved` so they are never reused.
+4. An empty request returns every part it returns today, so a client that sends nothing keeps working.
 
 While the roster fields are deprecated but still returned (see [Compatibility and Rollout](#compatibility-and-rollout)),
 `exclude_address_book` lets a client leave out the address book and its history, which is the large part of the response.
 It has no effect once those fields are removed.
 
-Backfill reads only the available ranges, so it can set the other two flags and avoid the version and stored range
-payload.
+Backfill reads only the available ranges, so it can set the other three flags (versions, stored ranges and address
+book) and avoid that payload.
 
 ### getAddressBook (new)
 
@@ -117,7 +118,7 @@ Returns the TSS data from the application state.
 3. If no TSS data is known yet, the response is valid and the fields are empty.
 
 The application state currently keeps only the latest TSS data. Returning history needs a ranged TSS history to exist in
-the application state, tracked as its own task. See [Open Questions](#open-questions).
+the application state, tracked as its own task. See [Decisions](#decisions).
 
 ### Consistency
 
@@ -139,7 +140,7 @@ sequenceDiagram
 
     C->>P: rpc serverStatusDetail(exclude flags)
     P->>P: snapshot ranges and versions
-    P->>C: ServerStatusDetailResponse (no roster data)
+    P->>C: ServerStatusDetailResponse
 
     C->>P: rpc getAddressBook(exclude_history)
     P->>P: snapshot address book history
@@ -228,7 +229,7 @@ Recommended sequence:
 3. **Remove.** In a later release, stop populating the roster fields and mark the field numbers `reserved`.
 
 An alternative is to remove the fields in the same release as the new RPCs. That is simpler, but a new node could not
-bootstrap its roster from an older peer. The choice is an open question.
+bootstrap its roster from an older peer. This was decided in review: deprecate first (see [Decisions](#decisions)).
 
 ## Configuration
 
@@ -267,7 +268,8 @@ rejected by throttling use the behavior described in [API Throttling](./api-thro
 
 ## Acceptance Tests
 
-1. `serverStatusDetail` with an empty request returns versions, available ranges and stored ranges, and no roster data.
+1. `serverStatusDetail` with an empty request returns every part it returns today: versions, available ranges, stored
+   ranges and the deprecated roster fields.
 2. Each exclude flag removes exactly its own part and no other part. `exclude_address_book` removes both the address
    book and its history.
 3. `getAddressBook` with `exclude_history = true` returns only the latest address book.
@@ -279,10 +281,13 @@ rejected by throttling use the behavior described in [API Throttling](./api-thro
 9. A client that sends an empty `serverStatusDetail` request keeps working after the change.
 10. During the migration release, a client falls back to `serverStatusDetail` when a peer does not implement the new calls.
 
-## Open Questions
+## Decisions
 
-1. **Rollout.** Deprecate the roster fields for one release (recommended) or remove them immediately?
-2. **TSS history.** `RangedTssDataHistory` is defined, but the application state keeps only the latest TSS data, so
-   `getTssData` leaves the history unset for now. Is history on `getTssData` required, or only the latest value?
-3. **Flag defaults.** Should a client that wants a lean `serverStatusDetail` have to set three flags, or should the
-   defaults be inverted?
+These were open questions during review and are now settled:
+
+1. **Rollout.** Deprecate the roster fields in `serverStatusDetail` for one release, migrate clients with a fallback, then
+   remove them. This is the safe choice for networks that run mixed versions.
+2. **TSS history.** `getTssData` returns only the latest TSS data for now. `RangedTssDataHistory` is defined, and the
+   history itself comes with the app state work that keeps one.
+3. **Flag defaults.** All flags default to `false`. Inverted defaults would make the empty request that an older backfill
+   peer sends today come back without `available_ranges`.
