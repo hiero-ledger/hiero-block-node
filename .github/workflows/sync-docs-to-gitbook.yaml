@@ -43,6 +43,30 @@ jobs:
           mkdir -p hiero-docs/block-node
           cp -r block-node/docs/. hiero-docs/block-node/
 
+      - name: Verify sync content
+        run: |
+          SRC_COUNT=$(find block-node/docs -name '*.md' | wc -l)
+          DST_COUNT=$(find hiero-docs/block-node -name '*.md' | wc -l)
+          echo "Source .md files : ${SRC_COUNT}"
+          echo "Destination .md files: ${DST_COUNT}"
+
+          # Destination may have more files than source (hiero-docs-only landing pages)
+          # but should never have fewer
+          if [ "${DST_COUNT}" -lt "${SRC_COUNT}" ]; then
+            echo "ERROR: destination has fewer .md files than source (${DST_COUNT} < ${SRC_COUNT}). Aborting sync."
+            exit 1
+          fi
+
+          # Verify no key doc is empty after copy
+          EMPTY=$(find hiero-docs/block-node -name '*.md' -empty)
+          if [ -n "${EMPTY}" ]; then
+            echo "ERROR: the following files are empty after copy:"
+            echo "${EMPTY}"
+            exit 1
+          fi
+
+          echo "Sync content verification passed."
+
       - name: Import GPG Key
         id: gpg_importer
         uses: step-security/ghaction-import-gpg@c0b4a334b9b72bfaaebec86ef022a78a5b17f828 # v7.0.0

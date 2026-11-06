@@ -1,0 +1,141 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Docs Update Reminder
+
+on:
+  pull_request:
+    paths:
+      - "block-node/**/src/main/java/**/*Config*.java"
+      - "block-node/**/src/main/java/**/*Metrics*.java"
+      - "block-node/**/src/main/java/**/*Properties*.java"
+      - "block-node/*/src/main/java/**"
+      - "charts/**/values.yaml"
+      - "charts/**/values-overrides/*.yaml"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  remind:
+    name: Docs update reminder
+    runs-on: hl-bn-lin-md
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Check if docs were also updated
+        id: check
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+
+          DOCS_CHANGED=$(git diff --name-only "${BASE}...${HEAD}" | grep '\.md$' || true)
+          if [ -n "${DOCS_CHANGED}" ]; then
+            echo "docs_updated=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          echo "docs_updated=false" >> "${GITHUB_OUTPUT}"
+
+          TRIGGER=$(git diff --name-only "${BASE}...${HEAD}" | \
+            grep -E '(Config|Metrics|Properties)\.java$|values(-overrides)?/.*\.yaml$' || true)
+          {
+            echo "trigger_files<<EOF"
+            echo "${TRIGGER}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+          # Extract specific config prefixes and field names added/removed in this diff
+          CONFIG_CHANGES=$(git diff "${BASE}...${HEAD}" -- \
+            "*Config*.java" "*Properties*.java" 2>/dev/null \
+            | grep -P '^[+-]' | grep -v '^[+-]{3}' \
+            | grep -oP '@ConfigData\("\K[^"]+|(?<=@ConfigProperty[^)]{0,80}\)\s)\w+(?=,)' \
+            | sort -u | head -20 || true)
+          {
+            echo "config_changes<<EOF"
+            echo "${CONFIG_CHANGES}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+          # Extract metric names added/removed in this diff
+          METRIC_CHANGES=$(git diff "${BASE}...${HEAD}" -- \
+            "*Metrics*.java" 2>/dev/null \
+            | grep -P '^[+-]' | grep -v '^[+-]{3}' \
+            | grep -oP 'MetricKey\.of\("\K[^"]+' \
+            | sort -u | head -20 || true)
+          {
+            echo "metric_changes<<EOF"
+            echo "${METRIC_CHANGES}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+          # Detect new top-level block-node submodules (new directory under block-node/)
+          NEW_MODULES=$(git diff --name-only "${BASE}...${HEAD}" \
+            | grep '^block-node/[^/]*/src/main/java' \
+            | awk -F/ '{print $2}' | sort -u \
+            | while read mod; do
+                git cat-file -e "${BASE}:block-node/${mod}" 2>/dev/null || echo "${mod}"
+              done || true)
+          {
+            echo "new_modules<<EOF"
+            echo "${NEW_MODULES}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Skip if docs already updated
+        if: steps.check.outputs.docs_updated == 'true'
+        run: echo "PR already includes doc updates — no reminder needed."
+
+      - name: Skip if reminder already posted
+        if: steps.check.outputs.docs_updated == 'false'
+        id: existing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          COUNT=$(gh api \
+            "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            --jq '[.[] | select(.body | contains("Docs update reminder"))] | length')
+          echo "count=${COUNT}" >> "${GITHUB_OUTPUT}"
+
+      - name: Post reminder comment
+        if: >
+          steps.check.outputs.docs_updated == 'false' &&
+          steps.existing.outputs.count == '0' &&
+          (steps.check.outputs.trigger_files != '' || steps.check.outputs.new_modules != '')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TRIGGER_FILES: ${{ steps.check.outputs.trigger_files }}
+          CONFIG_CHANGES: ${{ steps.check.outputs.config_changes }}
+          METRIC_CHANGES: ${{ steps.check.outputs.metric_changes }}
+          NEW_MODULES: ${{ steps.check.outputs.new_modules }}
+        run: |
+          CONFIG_NOTE=""
+          if [ -n "${CONFIG_CHANGES}" ]; then
+            CONFIG_NOTE=$(printf '\n\n**Config prefixes/fields detected in diff:**\n```\n%s\n```\nUpdate `docs/block-node/configure/configuration.md` for any added, removed, or renamed keys.' \
+              "${CONFIG_CHANGES}")
+          fi
+
+          METRIC_NOTE=""
+          if [ -n "${METRIC_CHANGES}" ]; then
+            METRIC_NOTE=$(printf '\n\n**Metric names detected in diff:**\n```\n%s\n```\nUpdate `docs/block-node/operate/metrics.md` for any added, removed, or renamed metrics.' \
+              "${METRIC_CHANGES}")
+          fi
+
+          NEW_MODULE_NOTE=""
+          if [ -n "${NEW_MODULES}" ]; then
+            NEW_MODULE_NOTE=$(printf '\n\n**New module(s) detected - may need a new doc:**\n```\n%s\n```\nCheck if a doc entry is needed under `docs/block-node/` for each new module.' \
+              "${NEW_MODULES}")
+          fi
+
+          BODY=$(printf '## Docs update reminder\n\nThis PR modifies config, metrics, or chart values files that may affect published operator documentation. No `.md` files were updated in this PR.\n\n**Files that triggered this check:**\n```\n%s\n```%s%s%s\n\nIf no doc update is needed for this change, reply to this comment with a brief explanation.' \
+            "${TRIGGER_FILES}" "${CONFIG_NOTE}" "${METRIC_NOTE}" "${NEW_MODULE_NOTE}")
+
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            --body "${BODY}"
