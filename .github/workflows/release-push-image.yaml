@@ -27,9 +27,7 @@ defaults:
     shell: bash
 
 permissions:
-  id-token: write
-  contents: write
-  packages: write
+  contents: read
 
 env:
   OWNER: hashgraph
@@ -45,6 +43,10 @@ jobs:
   publish-app:
     timeout-minutes: 30
     runs-on: hl-bn-lin-md
+    permissions:
+      id-token: write
+      contents: read
+      packages: write
     strategy:
       matrix:
         # Define the images you want to build
@@ -136,6 +138,9 @@ jobs:
   publish-jars:
     timeout-minutes: 30
     runs-on: hl-bn-lin-md
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
       - name: Harden Runner
@@ -197,6 +202,10 @@ jobs:
   publish-simulator:
     timeout-minutes: 30
     runs-on: hl-bn-lin-md
+    permissions:
+      id-token: write
+      contents: read
+      packages: write
 
     steps:
       - name: Harden Runner
@@ -267,6 +276,10 @@ jobs:
       - publish-app
       - publish-jars
     runs-on: hl-bn-lin-md
+    permissions:
+      id-token: write
+      contents: read
+      packages: write
 
     steps:
       - name: Harden Runner
@@ -307,6 +320,10 @@ jobs:
     timeout-minutes: 15
     needs: publish-simulator
     runs-on: hl-bn-lin-md
+    permissions:
+      id-token: write
+      contents: read
+      packages: write
 
     steps:
       - name: Harden Runner

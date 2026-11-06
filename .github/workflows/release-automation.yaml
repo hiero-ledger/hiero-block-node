@@ -28,9 +28,7 @@ on:
         required: false
 
 permissions:
-  contents: write
-  actions: write
-  issues: write
+  contents: read
 
 defaults:
   run:
@@ -41,6 +39,9 @@ jobs:
     timeout-minutes: 15
     name: Release
     runs-on: hl-bn-lin-md
+    permissions:
+      contents: write
+      actions: write
     outputs:
       create_pr: ${{ env.CREATE_PR }}
       is_prerelease: ${{ env.IS_PRERELEASE }}
@@ -307,6 +308,9 @@ jobs:
   generate_notes:
     name: Generate Release Notes
     needs: release
+    permissions:
+      contents: read
+      actions: write
     uses: ./.github/workflows/release-notes-generator.yaml
     with:
       release_branch: ${{ needs.release.outputs.release_branch }}
@@ -318,6 +322,8 @@ jobs:
     name: Roll Over Milestone
     needs: release
     if: ${{ needs.release.outputs.is_prerelease == 'false' }}
+    permissions:
+      issues: write
     uses: ./.github/workflows/milestone-rollover.yaml
     with:
       release_version: ${{ needs.release.outputs.release_version }}
@@ -328,6 +334,9 @@ jobs:
     timeout-minutes: 10
     name: Create GitHub Release
     runs-on: hl-bn-lin-md
+    permissions:
+      contents: write
+      actions: write
     needs: [release, generate_notes]
     continue-on-error: true
     if: ${{ always() && needs.release.result == 'success' }}
@@ -405,6 +414,8 @@ jobs:
     timeout-minutes: 10
     name: Create PR
     runs-on: hl-bn-lin-md
+    permissions:
+      contents: write
     needs: release
     if: ${{ needs.release.outputs.create_pr == 'true' }}
     env:
