@@ -1723,9 +1723,9 @@ class BlockStreamSubscriberSessionTest {
         /** Upper bound for waits, so a regression fails the test instead of hanging it. */
         private static final long WAIT_TIMEOUT_SECONDS = 10L;
         /** The default idle session limit. */
-        private static final long IDLE_TIMEOUT_SECONDS = 60L;
+        private static final long IDLE_TIMEOUT_SECONDS = 1_800L;
         /** The default idle session limit plus the largest jitter a session can add (10%). */
-        private static final long MAXIMUM_JITTERED_IDLE_TIMEOUT_SECONDS = 66L;
+        private static final long MAXIMUM_JITTERED_IDLE_TIMEOUT_SECONDS = 1_980L;
         /**
          * Clock reads that prove the session evaluated the idle limit at least once at the
          * current time; one read may still have seen the previous time.

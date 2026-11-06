@@ -76,7 +76,7 @@ block_items...  end_of_block(M)
 status(SUCCESS)
 ```
 
-For an indefinite request (`end_block_number` = `uint64_max`) the `status` message is sent only when the stream is closed by an error, a Block Node shutdown, when the stream reaches maximum connection duration (typically around 600,000 blocks, if enabled), or when the Block Node has sent nothing on the stream for the idle session limit (`subscriber.idleSessionTimeoutSeconds`, default 60 seconds plus up to 10% random jitter per stream, applies to any stream waiting for blocks).
+For an indefinite request (`end_block_number` = `uint64_max`) the `status` message is sent only when the stream is closed by an error, a Block Node shutdown, when the stream reaches maximum connection duration (typically around 600,000 blocks, if enabled), or when the Block Node has sent nothing on the stream for the idle session limit (`subscriber.idleSessionTimeoutSeconds`, default 1800 seconds plus up to 10% random jitter per stream, applies to any stream waiting for blocks). While no new blocks are produced, for example during network quiescence, this also ends healthy streams; subscribers reconnect from the last received `block_number` + 1.
 
 ### Base protocol diagram
 

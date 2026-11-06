@@ -44,7 +44,10 @@ import org.hiero.block.node.base.Loggable;
  *     from the next block. Bounds sessions whose client disconnected while the session was waiting
  *     for blocks, which are otherwise never detected. Skipping live blocks before a future start
  *     block resets the limit. Each session adds a random extra of up to 10% of this value, so
- *     sessions idled by the same stall don't all reconnect at once. {@code 0} disables the limit.
+ *     sessions idled by the same stall don't all reconnect at once. The limit also ends healthy
+ *     sessions while no blocks arrive (network quiescence, freeze or publisher outage), so the
+ *     default is long enough that this costs one reconnect per subscriber every 30 minutes.
+ *     {@code 0} disables the limit.
  */
 // spotless:off - long annotations on record components must stay on one line
 @ConfigData("subscriber")
@@ -57,7 +60,7 @@ public record SubscriberConfig(
         @Loggable @ConfigProperty(defaultValue = "131_072_000") @Min(1_048_576) @Max(1_610_612_736) int maxProtobufMessageSizeBytes,
         @Loggable @ConfigProperty(defaultValue = ConfigProperty.NULL_DEFAULT_VALUE) Integer port,
         @Loggable @ConfigProperty(defaultValue = "5") @Min(1) long completedSessionReapIntervalSeconds,
-        @Loggable @ConfigProperty(defaultValue = "60") @Min(0) long idleSessionTimeoutSeconds) {
+        @Loggable @ConfigProperty(defaultValue = "1800") @Min(0) long idleSessionTimeoutSeconds) {
     /** Default for {@code maxProtobufMessageSizeBytes}; must match the {@code @ConfigProperty(defaultValue = ...)} literal above. */
     public static final int DEFAULT_MAX_PROTOBUF_MESSAGE_SIZE_BYTES = 131_072_000;
 }
