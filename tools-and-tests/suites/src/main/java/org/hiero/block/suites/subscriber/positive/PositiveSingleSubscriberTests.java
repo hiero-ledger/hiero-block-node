@@ -8,11 +8,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.hiero.block.simulator.config.data.StreamStatus;
 import org.hiero.block.suites.BaseSuite;
@@ -28,6 +32,8 @@ import org.junit.jupiter.api.Test;
  */
 @DisplayName("Positive Single Subscriber Tests")
 public class PositiveSingleSubscriberTests extends BaseSuite {
+    private static final Duration WAIT_TIMEOUT = Duration.ofSeconds(30);
+
     private final List<Future<?>> simulators = new ArrayList<>();
     private final List<BlockStreamSimulatorApp> simulatorAppsRef = new ArrayList<>();
 
@@ -96,7 +102,8 @@ public class PositiveSingleSubscriberTests extends BaseSuite {
 
     @Test
     @DisplayName("Should subscribe to receive historical blocks")
-    public void shouldSubscribeForHistoricalBlocks() throws IOException, InterruptedException {
+    public void shouldSubscribeForHistoricalBlocks()
+            throws IOException, InterruptedException, ExecutionException, TimeoutException {
         // ===== Prepare environment =================================================================
         final long endBlock = 10L;
         final Map<String, String> consumerConfiguration = Map.of(
@@ -124,27 +131,17 @@ public class PositiveSingleSubscriberTests extends BaseSuite {
                 Thread.sleep(10);
             }
         }
-        // ===== Start consumer and try to request blocks ===========================================
+        // ===== Start consumer and wait for the requested range to complete ========================
         final Future<?> consumerSimulatorThread = startSimulatorInThread(consumerSimulator);
         simulators.add(consumerSimulatorThread);
+        // The consumer returns once the block node closes the stream after the last requested block.
+        consumerSimulatorThread.get(WAIT_TIMEOUT.toSeconds(), TimeUnit.SECONDS);
 
-        boolean isConsumingBlocks = false;
-        int retries = 10;
-
-        while (retries > 0) {
-            if (consumerSimulator.getStreamStatus().consumedBlocks() > 0
-                    && !consumerSimulator
-                            .getStreamStatus()
-                            .lastKnownConsumersStatuses()
-                            .isEmpty()) {
-                isConsumingBlocks = true;
-            }
-            retries--;
-            Thread.sleep(1000);
-        }
-
-        assertTrue(isConsumingBlocks);
-        assertEquals(endBlock, consumerSimulator.getStreamStatus().consumedBlocks());
+        final StreamStatus consumerStatus = consumerSimulator.getStreamStatus();
+        assertEquals(endBlock, consumerStatus.consumedBlocks());
+        assertTrue(
+                consumerStatus.lastKnownConsumersStatuses().getLast().contains("SUCCESS"),
+                "Stream should end with SUCCESS: " + consumerStatus.lastKnownConsumersStatuses());
     }
 
     @Test
