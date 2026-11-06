@@ -44,6 +44,14 @@ message ServerStatusDetailRequest {
      * address book payload until they are removed.
      */
     bool exclude_address_book = 4;
+
+    /**
+     * If set to `true` the response SHALL NOT include `tss_data`.<br/>
+     * That field is deprecated in favour of the `getTssData` call and is still
+     * returned by default, so this flag lets a client leave it out until it is
+     * removed.
+     */
+    bool exclude_tss_data = 5;
 }
 
 /**
