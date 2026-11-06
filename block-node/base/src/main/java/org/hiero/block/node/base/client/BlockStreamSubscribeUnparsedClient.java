@@ -13,7 +13,9 @@ import com.hedera.pbj.runtime.grpc.GrpcCall;
 import com.hedera.pbj.runtime.grpc.GrpcClient;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -58,15 +60,27 @@ public class BlockStreamSubscribeUnparsedClient {
     }
 
     /**
-     * Subscribes to a closed range of blocks and returns them as a list once the stream completes.
+     * Outcome of a batch request.
+     * <p>
+     * A request can end normally with fewer blocks than requested, so a caller must compare the size of
+     * {@code blocks} with the requested range rather than rely on {@code error} alone.
+     *
+     * @param blocks the complete blocks received, in order from the requested start block with no holes
+     * @param error  the reason the request ended early, or {@code null} if the stream ended normally
+     */
+    public record BatchResult(
+            @NonNull List<BlockUnparsed> blocks, @Nullable Throwable error) {}
+
+    /**
+     * Subscribes to a closed range of blocks and returns the blocks received once the request ends.
+     * A failure of the stream does not discard the blocks that arrived before it.
      *
      * @param startBlockNumber inclusive start
      * @param endBlockNumber   inclusive end
-     * @return list of received blocks (never {@code null})
+     * @return the blocks received and the error that ended the request early, if any
      * @throws IllegalArgumentException on invalid range
-     * @throws RuntimeException on stream error or interruption
      */
-    public List<BlockUnparsed> getBatchOfBlocks(long startBlockNumber, long endBlockNumber) {
+    public BatchResult getBatchOfBlocks(long startBlockNumber, long endBlockNumber) {
         // Validate input parameters
         if (startBlockNumber < 0 || endBlockNumber < 0 || startBlockNumber > endBlockNumber) {
             throw new IllegalArgumentException("Invalid block range: " + startBlockNumber + " to " + endBlockNumber);
@@ -84,15 +98,20 @@ public class BlockStreamSubscribeUnparsedClient {
         // Create a per-request pipeline that closes over `ctx`
         final Pipeline<SubscribeStreamResponseUnparsed> pipeline = new SubscribePipeline(ctx);
 
-        // Issue the call using the per-request pipeline
-        final GrpcCall<SubscribeStreamRequest, SubscribeStreamResponseUnparsed> call = grpcClient.createCall(
-                FULL_NAME + "/subscribeBlockStream",
-                SubscribeStreamRequest.PROTOBUF,
-                SubscribeStreamResponseUnparsed.PROTOBUF,
-                pipeline,
-                Map.of());
-
-        call.sendRequest(request, true);
+        // Issue the call using the per-request pipeline. A failure to open the stream ends the request
+        // like any other terminal event, so the caller gets a result with no blocks instead of an exception.
+        try {
+            final GrpcCall<SubscribeStreamRequest, SubscribeStreamResponseUnparsed> call = grpcClient.createCall(
+                    FULL_NAME + "/subscribeBlockStream",
+                    SubscribeStreamRequest.PROTOBUF,
+                    SubscribeStreamResponseUnparsed.PROTOBUF,
+                    pipeline,
+                    Map.of());
+            call.sendRequest(request, true);
+        } catch (RuntimeException e) {
+            LOGGER.log(DEBUG, "Failed to open the block stream", e);
+            ctx.fail(e);
+        }
 
         // Wait for completion or error and return the blocks
         return ctx.await(awaitTimeoutMs);
@@ -114,17 +133,19 @@ public class BlockStreamSubscribeUnparsedClient {
         private static final Object COMPLETED = new Object();
 
         final CountDownLatch done = new CountDownLatch(1);
-        final List<BlockUnparsed> blocks = new ArrayList<>();
         final long startBlock;
         final long endBlock;
         final long requestedCount;
         long expectedBlockNumber;
         List<BlockItemUnparsed> currentBlockItems = new ArrayList<>();
         boolean blockStarted;
-        /// How the request ended: [#COMPLETED] or the failure. Set once, by whichever of [#complete()]
-        /// and [#fail(Throwable)] gets there first, so a timeout failure racing with the last block
-        /// cannot be applied on top of a completed request or the other way around.
-        private final AtomicReference<Object> outcome = new AtomicReference<>();
+        /// The complete blocks received and how the request ended ([#COMPLETED] or the failure, `null`
+        /// while it runs). Both change together by `compareAndSet`, so the first terminal event wins and
+        /// no block is added after it, even while the callback thread is still running when the waiter
+        /// times out. The block list is never modified after it is published.
+        private final AtomicReference<State> state = new AtomicReference<>(new State(List.of(), null));
+
+        private record State(List<BlockUnparsed> blocks, Object outcome) {}
 
         RequestContext(long startBlock, long endBlock) {
             this.startBlock = startBlock;
@@ -134,22 +155,55 @@ public class BlockStreamSubscribeUnparsedClient {
         }
 
         boolean isFinished() {
-            return outcome.get() != null;
+            return state.get().outcome() != null;
+        }
+
+        /// Adds a complete block unless the request has already ended.
+        ///
+        /// @return the number of blocks held after the call
+        int addBlock(BlockUnparsed block) {
+            State current = state.get();
+            boolean added = false;
+            while (!added && current.outcome() == null) {
+                final List<BlockUnparsed> blocks =
+                        new ArrayList<>(current.blocks().size() + 1);
+                blocks.addAll(current.blocks());
+                blocks.add(block);
+                final State next = new State(Collections.unmodifiableList(blocks), null);
+                if (state.compareAndSet(current, next)) {
+                    current = next;
+                    added = true;
+                } else {
+                    current = state.get();
+                }
+            }
+            return current.blocks().size();
         }
 
         void fail(Throwable t) {
-            if (outcome.compareAndSet(null, t)) {
-                done.countDown();
-            }
+            finish(t);
         }
 
         void complete() {
-            if (outcome.compareAndSet(null, COMPLETED)) {
+            finish(COMPLETED);
+        }
+
+        private void finish(Object outcome) {
+            State current = state.get();
+            boolean finished = false;
+            while (!finished && current.outcome() == null) {
+                if (state.compareAndSet(current, new State(current.blocks(), outcome))) {
+                    finished = true;
+                } else {
+                    current = state.get();
+                }
+            }
+            if (finished) {
                 done.countDown();
             }
         }
 
-        List<BlockUnparsed> await(long timeoutMs) {
+        BatchResult await(long timeoutMs) {
             try {
                 if (timeoutMs > 0) {
                     if (!done.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)) {
@@ -165,11 +219,12 @@ public class BlockStreamSubscribeUnparsedClient {
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                fail(e);
             }
-            if (outcome.get() instanceof Throwable failure) {
-                throw new RuntimeException("Error fetching blocks", failure);
-            }
-            return blocks;
+            // The request has ended here, so this state is final.
+            final State last = state.get();
+            final Throwable error = last.outcome() instanceof Throwable failure ? failure : null;
+            return new BatchResult(last.blocks(), error);
         }
     }
 
@@ -198,8 +253,10 @@ public class BlockStreamSubscribeUnparsedClient {
 
         @Override
         public void onNext(SubscribeStreamResponseUnparsed resp) {
-            // Once the request has completed or failed, nothing more is buffered.
+            // Once the request has completed or failed, nothing more is buffered and a block that was
+            // only partly received is dropped.
             if (ctx.isFinished()) {
+                ctx.currentBlockItems.clear();
                 return;
             }
             try {
@@ -239,12 +296,12 @@ public class BlockStreamSubscribeUnparsedClient {
                     }
                     // Snapshot the current items to avoid retaining the large buffer in the finished block.
                     final List<BlockItemUnparsed> snapshot = List.copyOf(ctx.currentBlockItems);
-                    ctx.blocks.add(
+                    final int received = ctx.addBlock(
                             BlockUnparsed.newBuilder().blockItems(snapshot).build());
                     ctx.currentBlockItems.clear();
                     ctx.blockStarted = false;
                     ctx.expectedBlockNumber++;
-                    if (ctx.blocks.size() == ctx.requestedCount) {
+                    if (received == ctx.requestedCount) {
                         ctx.complete();
                     }
                 } else {
@@ -261,7 +318,8 @@ public class BlockStreamSubscribeUnparsedClient {
 
         @Override
         public void onError(Throwable throwable) {
-            LOGGER.log(WARNING, "received onError", throwable);
+            // After the request ended this is expected, typically the connection of an abandoned stream closing.
+            LOGGER.log(ctx.isFinished() ? DEBUG : WARNING, "received onError", throwable);
             ctx.fail(throwable);
         }
 
