@@ -9,17 +9,16 @@ import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentLinkedDeque;
-import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.block.verification.BadBlockDumper;
 import org.hiero.block.node.block.verification.VerificationConfig;
+import org.hiero.block.node.block.verification.VerificationOutbox;
 import org.hiero.block.node.block.verification.metrics.SessionResultMetrics;
 import org.hiero.block.node.block.verification.session.BlockVerificationSession.SessionKey;
 import org.hiero.block.node.block.verification.verifier.BlockVerificationResult;
-import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureInfo;
@@ -37,8 +36,8 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
     /// with anything other than a cancellation.
     private static final String EXCEPTIONAL_SESSION_COMPLETION_MESSAGE =
             "Session for block %d with source %s completed exceptionally";
-    /// The block node context, for access to messaging.
-    private final BlockNodeContext context;
+    /// The outbox the notification is sent through.
+    private final VerificationOutbox outbox;
     /// The configuration for verification, source of the buffer sizes.
     private final VerificationConfig verificationConfig;
     /// Metrics recorded by this stage.
@@ -53,18 +52,19 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
     final BlockSource blockSource;
     /// The set of recently verified blocks, used for the informational failure check.
     final ConcurrentLinkedDeque<Long> recentlyVerifiedBlocks;
-    /// The set this handler adds the session's key to once the result has been handled.
-    private final ConcurrentSkipListSet<SessionKey> finishedSessions;
     /// The composite key of the owning session.
     private final SessionKey sessionKey;
     /// Flag raised by the owning session when the batch ending the block has
     /// been received, used to discriminate a cancelled complete block from an
     /// incomplete one.
     private final AtomicBoolean endOfBlockReceived;
+    /// Flag this stage raises once it has handled the result and sent the
+    /// notification; the owning session is complete from then on.
+    private final AtomicBoolean resultHandled;
 
     /// Constructor.
     ///
-    /// @param context the block node context, must not be null
+    /// @param outbox the outbox to send the notification through, must not be null
     /// @param verificationConfig the configuration for verification, must not be null
     /// @param sessionResultMetrics metrics recorded by this stage, must not be null
     /// @param badBlockDumper the bad block dumper for diagnostics, must not be null
@@ -72,12 +72,13 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
     /// @param recentlyVerifiedBlocks the set of recently verified blocks, must not be null
     /// @param blockNumber the number of the block the session verified, must be non-negative
     /// @param blockSource the source of the block, must not be null
-    /// @param finishedSessions the set to add the session's key to when handled, must not be null
     /// @param sessionKey the composite key of the owning session, must not be null
     /// @param endOfBlockReceived flag raised by the owning session when the batch ending the
     ///     block has been received, must not be null
+    /// @param resultHandled flag this stage raises once it has handled the result and sent the
+    ///     notification, read by the owning session, must not be null
     public SessionResultHandler(
-            final BlockNodeContext context,
+            final VerificationOutbox outbox,
             final VerificationConfig verificationConfig,
             final SessionResultMetrics sessionResultMetrics,
             final BadBlockDumper badBlockDumper,
@@ -85,19 +86,19 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
             final ConcurrentLinkedDeque<Long> recentlyVerifiedBlocks,
             final long blockNumber,
             final BlockSource blockSource,
-            final ConcurrentSkipListSet<SessionKey> finishedSessions,
             final SessionKey sessionKey,
-            final AtomicBoolean endOfBlockReceived) {
-        this.context = Objects.requireNonNull(context);
+            final AtomicBoolean endOfBlockReceived,
+            final AtomicBoolean resultHandled) {
+        this.outbox = Objects.requireNonNull(outbox);
         this.verificationConfig = Objects.requireNonNull(verificationConfig);
         this.sessionResultMetrics = Objects.requireNonNull(sessionResultMetrics);
         this.badBlockDumper = Objects.requireNonNull(badBlockDumper);
         this.lastVerifiedBlock = Objects.requireNonNull(lastVerifiedBlock);
         this.blockSource = Objects.requireNonNull(blockSource);
         this.recentlyVerifiedBlocks = Objects.requireNonNull(recentlyVerifiedBlocks);
-        this.finishedSessions = Objects.requireNonNull(finishedSessions);
         this.sessionKey = Objects.requireNonNull(sessionKey);
         this.endOfBlockReceived = Objects.requireNonNull(endOfBlockReceived);
+        this.resultHandled = Objects.requireNonNull(resultHandled);
         if (blockNumber < 0) {
             throw new IllegalArgumentException("Block number must be non-negative");
         } else {
@@ -107,7 +108,9 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
 
     /// Accept a [BlockVerificationResult] in case of successful verification of a block,
     /// or a [Throwable] in case of an error or failure.
-    /// The end result is propagated to messaging.
+    /// The end result is propagated to messaging. Once it has been handled, its
+    /// notification sent, the result handled flag is raised, whatever happened while
+    /// handling it: the owning session is complete from then on.
     @Override
     public void accept(final BlockVerificationResult verificationResult, final Throwable throwable) {
         try {
@@ -126,25 +129,10 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
                     null,
                     null,
                     blockSource);
-            safeSendNotification(notification);
+            outbox.send(notification);
             sessionResultMetrics.verificationBlocksError().increment();
         } finally {
-            finishedSessions.add(sessionKey);
-        }
-    }
-
-    /// Send a notification to messaging. Any failure to send is logged and
-    /// swallowed; this method never throws.
-    ///
-    /// @param notification the notification to send
-    private void safeSendNotification(final VerificationNotification notification) {
-        try {
-            context.blockMessaging().sendBlockVerification(notification);
-        } catch (final RuntimeException e) {
-            final String message =
-                    "Failed to send verification notification for completed session with id %d for block %d with source %s"
-                            .formatted(sessionKey.uniqueId(), blockNumber, blockSource);
-            LOGGER.log(Level.WARNING, message, e);
+            resultHandled.set(true);
         }
     }
 
@@ -199,7 +187,7 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
                 }
                 default -> processUnknownExceptionalCompletion(throwable);
             };
-            safeSendNotification(notification);
+            outbox.send(notification);
             sessionResultMetrics.verificationBlocksFailed().increment();
         } finally {
             if (notification != null) {
@@ -286,7 +274,9 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
         // @todo safe sending of notification should return a result.
         //    If we were unable to send a notification, we should mark unhealthy
         //    once we have the updates to health plugin
-        safeSendNotification(notification);
+        // Sent before the last verified block advances: when messaging has no room
+        // for the block, this waits, and every later block waits in ordering.
+        outbox.send(notification);
         markRecentlyVerified(verifiedBlockNumber);
         // Note that the below CAS has an interaction with the `allSourcesRequireOrdering` config.
         // If that is set to `false`, it is possible that gaps can happen, because sources, other than publisher,
@@ -313,9 +303,16 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
     }
 
     /// Resolve the failure type for a session that was stopped before
-    /// producing a result. A cancellation of a complete block means the
-    /// supplier considers the block delivered, while an incomplete block was
-    /// abandoned by the supplier before it ever finished.
+    /// producing a result. [SessionFailureType#CANCELLED_INCOMPLETE] means that
+    /// the supplier never finished the block: the publisher started the next
+    /// block before ending this one, and the session handler cancelled it. A
+    /// cancellation the plugin makes on its own reports
+    /// [SessionFailureType#CANCELLED]: the eviction policy never selects the
+    /// session still receiving its block, so an evicted session has always
+    /// received its complete block, and the supplier considers the block
+    /// delivered. The end of block mark tells the two apart. A plugin shutdown is
+    /// the one case it cannot: the session still receiving its block then
+    /// reports [SessionFailureType#CANCELLED_INCOMPLETE] as well.
     ///
     /// @return [SessionFailureType#CANCELLED] when the batch ending the block
     ///     was received, [SessionFailureType#CANCELLED_INCOMPLETE] otherwise
