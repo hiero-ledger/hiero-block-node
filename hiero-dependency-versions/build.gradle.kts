@@ -13,7 +13,7 @@ dependencies.constraints {
     val protobufVersion = "4.35.1"
     val hederaVersion = "0.77.0-rc.7"
     val eclipseCollectionsVersion = "13.0.0"
-    val mockitoVersion = "5.23.0"
+    val mockitoVersion = "5.24.0"
     val testContainersVersion = "1.21.4"
     val buckyVersion = "0.1.0"
     val s3MockVersion = "4.11.0"
