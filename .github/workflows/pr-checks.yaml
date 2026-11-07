@@ -54,6 +54,22 @@ jobs:
       - name: Produce artifact
         run: ${GRADLE_EXEC} :protobuf-sources:generateBlockNodeProtoArtifact
 
+  release-script-tests:
+    timeout-minutes: 5
+    name: "Release Script Tests"
+    runs-on: hl-bn-lin-md
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Test release version computation
+        run: tools-and-tests/scripts/release/test-compute-release-version.sh
+
   compile:
     timeout-minutes: 20
     name: "Quality Checks and UTs"
