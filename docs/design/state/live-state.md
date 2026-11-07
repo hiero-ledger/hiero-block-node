@@ -28,10 +28,10 @@ Explicitly out of scope:
 │ stream-verifier plugin   │ ───────────────────────▶ │ StateManagementPlugin  │
 └──────────────────────────┘                          │                        │
                                                       │  ┌──────────────────┐  │
-                                                      │  │ apply worker     │  │
-                                                      │  │ (blocks on a     │  │
-                                                      │  │ queue; applies   │  │
-                                                      │  │ on arrival)      │  │
+                                                      │  │ inline apply     │  │
+                                                      │  │ (on the          │  │
+                                                      │  │ notification     │  │
+                                                      │  │ thread)          │  │
                                                       │  └────────┬─────────┘  │
                                                       │           │            │
                                                       │  ┌────────▼─────────┐  │
@@ -99,13 +99,11 @@ used for `swirlds-config-*`.
 |--------------------------------|----------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `snapshotRecentPath`           | `/opt/hiero/block-node/data/state/snapshot/recent` | Directory for live snapshot dirs (`<blockNumber>/`). The block number is recovered on restart by scanning this directory for the highest-numbered entry (§6.2).                                                                                       |
 | `snapshotIntervalMillis`       | `900000` (15m)                                     | Periodic snapshot cadence.                                                                                                                                                                                                                            |
-| `historicCatchUpBatchSize`     | `64`                                               | Blocks pulled per catch-up loop iteration.                                                                                                                                                                                                            |
 | `snapshotRecentRetentionCount` | `3`                                                | Recent snapshot dirs kept on disk (oldest pruned).                                                                                                                                                                                                    |
 | `port`                         | `null` (share `server.port`)                       | Dedicated port for the `StateService` gRPC API; `null` shares the default server port.                                                                                                                                                                |
 | `maxQueueRangeSize`            | `1000`                                             | Largest number of queue elements `getQueue` will serve in one call (§8), whether requested as a `queue_range` or as a full-queue read; anything larger is `INVALID_REQUEST`. Operator-adjustable to allow raising it over time without a code change. |
-| `gapRetryDelaySeconds`         | `5`                                                | Delay before retrying a missing block in `pendingBlocks` from `historicalBlockProvider` (§6.3).                                                                                                                                                       |
 
-There is no apply-interval setting: state changes are applied the moment a verified block arrives (see §6.5).
+There is no apply-interval setting: state changes are applied inline the moment a verified block arrives (see §6.3). There is no buffer, retry timer or batch size to configure.
 
 ## 5. Data model
 
@@ -241,6 +239,12 @@ service StateService {
    by `loadSnapshot` with the loaded state's root hash would not help, since both come from the
    same map.
 
+   `loadSnapshot(path)` loads exactly the directory it is given (it delegates to
+   `VirtualMap.loadFromDirectory`), and the lifecycle manager has no call that resumes in-flight
+   state that no snapshot captured. So state applied after the last snapshot is replayed from
+   blocks on restart. Whether the library's hard-link snapshots change this is an open question
+   for the swirlds team, to settle when snapshot creation lands.
+
    `lastAppliedRound` is left unknown (`-1`) after a restore — it is not persisted (see
    §5.1) and is repopulated by the first applied block's `RoundHeader`.
 
@@ -249,27 +253,32 @@ service StateService {
    `cpuIntensive=true` because state apply is CPU-bound parsing work.
 
 4. Start the periodic snapshot executor
-   (`snapshotExecutor.scheduleWithFixedDelay(this::saveSnapshot, …)`) and a single
-   dedicated **apply-worker thread** (`StateManagement-apply`). The worker first runs
-   one-shot historical catch-up (§6.4), then blocks on a `BlockingQueue` and drains
-   `pendingBlocks` the instant a verified block arrives (§6.5). Catch-up and live apply
-   share the one worker thread, so `applyPending()` is only ever driven from one place.
+   (`snapshotExecutor.scheduleWithFixedDelay(this::saveSnapshot, …)`) and a one-shot
+   **catch-up thread** (`StateManagement-catchup`) that runs historical catch-up (§6.4) and
+   then ends. It is the plugin's only thread of its own. It exists so an idle node with no live
+   blocks still becomes ready. Live blocks are applied inline on the messaging thread.
 
 ### 6.3 `handleVerification(VerificationNotification)`
 
-- Only proceed on `success=true` with a non-null block payload.
-- Drop a block at or below the last applied block (a resend or backfill-sourced verification).
-  `applyPending()` only removes `expectedNext`, so staging it would leak it and eventually fill
-  `pendingBlocks` to its cap.
-- Park the block in the `ConcurrentSkipListMap<Long, BlockUnparsed> pendingBlocks`
-  keyed by block number (the ordered gap buffer).
-- `offer` the block number to the apply worker's `BlockingQueue` to wake it immediately.
-  The actual state mutation runs on the apply worker, not on the messaging thread, to keep
-  the messaging dispatcher unblocked; `applyPending()` is guarded by a `ReentrantLock` so
-  the worker and direct (test) calls never mutate state concurrently. In production the
-  worker thread is the only caller (catch-up and live apply are sequential on it, never
-  concurrent), so the lock adds no production safety; it exists so tests can call
-  `applyPending()` directly without racing a running worker.
+The plugin holds no block data between notifications. Each notification takes the `applyLock`
+(fair, so the catch-up thread cannot starve it) and is handled by comparing its number with the
+next expected block (`max(lastAppliedBlock, attested.blockNumber()) + 1`; before the first apply,
+the oldest block history has):
+
+- Not `success`, no block payload, or apply halted: drop.
+- At or below the last applied block (a resend or backfill-sourced verification): drop.
+- Equal to the next expected block: apply inline via `applyBlockStateChanges`.
+- Ahead of it: do not store it. Fetch the missing blocks from `historicalBlockProvider` one at
+  a time (open the accessor, parse, apply, close; never more than one held), then apply the
+  notified block. If history cannot supply a missing block yet, or the fetch fails, drop the
+  notified block; the next notification repeats the attempt. While the start-up catch-up is
+  still walking history, an ahead block is dropped instead, so the two do not race for the same
+  gap.
+
+After a successful apply, readiness is latched if the plugin reached the latest block history
+has on hand. Applying happens on the messaging thread that delivered the block, so a long gap
+fill delays that handler; a block that arrives before it is persisted is applied from the
+notification itself, not from storage.
 
 ### 6.4 `catchUpFromHistoricalBlocks()` (one-shot on `start()`)
 
@@ -282,20 +291,18 @@ Block-Node has on hand without waiting for verification notifications.
    - genesis → `from = availableBlocks().min()`
    - otherwise → `from = attested.blockNumber() + 1`
    - `to = availableBlocks().max()`
-3. Walk `from..to` in batches of `historicCatchUpBatchSize` (default 64).
-   For each block in the batch:
-   - Skip if already in `pendingBlocks` (a verification beat us to it).
-   - Otherwise `context.historicalBlockProvider().block(n).blockUnparsed()`
-     and `pendingBlocks.put(n, block)`.
-4. After each batch, call `applyPending()` synchronously to drain.
-5. Stop early if the plugin is `applyHalted` (a hash mismatch occurred) or
-   `stopping`.
+3. Walk `from..to` one block at a time: `context.historicalBlockProvider().block(n)`, parse,
+   apply, close. Nothing is staged. The latest block is re-read when the walk finishes, so
+   blocks persisted meanwhile are included.
+4. Stop early at a hole or failed fetch, if the plugin is `applyHalted` (a hash mismatch
+   occurred), or `stopping`.
+5. (Live blocks may apply between catch-up blocks; each apply takes the `applyLock`.)
 6. The sweep returns whether it reached the latest available block. Set `ready=true` **only if
    it did and the plugin is not `applyHalted`**. Ready means caught up *without* halting, not
    merely "catch-up attempt finished." A sweep that stops short (hole in `availableBlocks`,
-   failed fetch, exception) leaves the plugin not ready and schedules a gap retry, since
-   `applyPending()` only schedules one when `pendingBlocks` is non-empty. The apply worker sets
-   `ready=true` when a later sweep reaches the tip. This lets a monitoring consumer
+   failed fetch, exception) leaves the plugin not ready. There is no retry timer: the next
+   live block ahead of the gap re-drives the fetch from history (§6.3) and latches `ready=true`
+   once the tip is reached. This lets a monitoring consumer
    tell "healthy and caught up" apart from "caught up once, then halted" from `ready` alone,
    without also having to check `apply_halted`. A halt logs a warning and leaves `state_ready`
    at `0`/`state_apply_halted` at `1` permanently (until a restart) — these metrics (§9), not the
@@ -304,23 +311,11 @@ Block-Node has on hand without waiting for verification notifications.
    after a halt (§8), so `NOT_READY` itself is unaffected by `applyHalted` once anything has been
    attested.
 
-### 6.5 `applyPending()` (event-driven: runs when the apply worker is woken by a new block)
+### 6.5 Applying a block (inline, event-driven)
 
-The apply worker blocks on a `BlockingQueue` and calls `applyPending()` the moment a block
-arrives (no timer). `applyPending()` takes the `applyLock` and drains contiguous blocks:
-
-```
-while (!pendingBlocks.isEmpty() && !stopping && !applyHalted) {
-  long next = atGenesis ? pendingBlocks.firstKey()
-                        : max(lastAppliedBlock, attested.blockNumber()) + 1;
-  if (!atGenesis) pendingBlocks.headMap(next).clear();   // backstop: drop stale entries
-  if (pendingBlocks.isEmpty()) return;
-  BlockUnparsed b = pendingBlocks.get(next);
-  if (b == null) return;            // gap → wait for the missing predecessor
-  if (!applyBlockStateChanges(b)) return;   // failure → leave queued, stop draining
-  pendingBlocks.remove(next);
-}
-```
+A block is applied the moment its notification arrives (no timer, no queue). Every apply path
+(live inline, gap fill, catch-up) runs `applyBlockStateChanges` under the `applyLock`, so only
+one thread mutates state at a time. A halt is terminal: the failed block is not retried.
 
 #### Three concurrent state versions
 
@@ -335,20 +330,19 @@ The apply pipeline runs three versions of the state concurrently:
   to, published together — the only state the query API reads (§8).
 
 A state is hashed **exactly once**, never while it is still mutable (3). `VirtualMap.getHash()`
-caches its result, so the total hashing work is the same whether it runs eagerly or lazily —
-the only real choice is *when* to pay the cost. Hashing starts in the background right after a
-state is sealed into (2), overlapping with whatever the apply pipeline does next; the block
-that needs the hash to validate against joins that in-flight computation instead of blocking
-on a synchronous hash. Deferring hashing until promotion would not save any work, it would only move the cost onto the
-apply path instead of overlapping it with other work.
+caches its result. The hash of (2) is computed inline, on first use, when the next block's footer
+needs it to validate against. There is no background hashing thread, so the cost lands on the
+thread applying that block instead of overlapping with it. This trades the overlap that CN gets
+from hashing each copy in a separate component for having no thread of our own to manage. If
+hashing latency matters on a full-size state, hashing on a single background thread right after
+`copyMutableState()` is the alternative to revisit.
 
 `applyBlockStateChanges(block N)` — **lag-1 commit**: a block is applied into the live
 mutable, but only exposed once the *next* block's footer attests its root hash.
 
 1. Pull `BlockFooter.startOfBlockStateRootHash` from N (cheap reverse scan). Missing →
    `applyHalted=true`, return.
-2. **Join state 2's hash** (`hashingImmutable`, post-(N-1)), started in the background when it
-   was sealed, and **validate** N's start hash against it. State 2 is seeded at boot — with the
+2. **Compute state 2's hash** (`hashingImmutable`, post-(N-1)) inline and **validate** N's start hash against it. State 2 is seeded at boot — with the
    loaded snapshot if one exists, otherwise with the sealed *empty* `VirtualMap` — so this check
    has no genesis special case: block 0's footer carries the real hash of empty state (which
    differs per network/config, e.g. a seeded genesis bootstrap vs. a truly empty map), and this
@@ -357,20 +351,21 @@ mutable, but only exposed once the *next* block's footer attests its root hash.
    - **Digest algorithm assumption:** this step only validates if the plugin hashes `VirtualMap`
      with the same digest the consensus-node that wrote the chain used. The block footer is assumed
      to carry a 32-byte SHA-256 state root hash. See §10's failure-mode row.
-   - **Known gap, not yet handled:** a fresh node (no persisted state) whose *first* real
-     block is N > 0, not 0 — e.g. a deployment pointed at a mid-chain `historicalBlockProvider`
-     with no snapshot ever supplied — has no real seed state to validate against either; N's
-     footer carries the hash of real pre-N state the node never had, which the empty-state
-     seed can never match. This is a missing-seed-state condition, not a genuine hash mismatch,
-     but is not currently distinguished from one (see §10). Needs a design decision before
-     implementing; out of scope for this slice.
+   - **No seed state:** a fresh node (no snapshot restored) whose *first* block is N > 0, e.g. a
+     deployment pointed at a mid-chain `historicalBlockProvider`, has no real seed state. N's
+     footer carries the hash of pre-N state the node never had, which the empty-state seed can
+     never match. This is a missing seed, not a hash mismatch, so the plugin halts
+     (`applyHalted=true`) with a distinct "No seed state for block N" ERROR log and does not
+     increment `hashMismatchTotal`. The Block Node itself is unaffected, and the query API
+     reports `NOT_READY` since nothing is attested. A snapshot is optional for the Block Node but
+     required for full state operation: mount one at block M with block M+1 available, since M+1's
+     footer is what validates it. Fetching a seed from a peer or archive is out of scope.
    - On mismatch: increment `hashMismatchTotal`, set `applyHalted=true`, log at ERROR, return
      without exposing anything. Further applies short-circuit on `applyHalted`.
      `hashMismatchTotal` is a counter rather than a boolean because it's cumulative over the
-     node's lifetime: the hash-mismatch recovery protocol's bounded local retry can increment
-     it more than once per incident before `applyHalted` is finally set, and a restarted node
-     can hit an independent, later mismatch — `applyHalted` alone can't distinguish "never
-     happened" from "happened repeatedly".
+     node's lifetime: a restarted node can hit an independent, later mismatch, and
+     `applyHalted` alone can't distinguish "never happened" from "happened repeatedly". There is
+     no local retry: the first mismatch halts.
 3. A match means N's footer attests post-(N-1). **Promote** state 2 → state 1 (`attested`)
    unless it is already exposed (e.g. just after a snapshot reload): publish the state and its
    block number together as one `AttestedSnapshot`, in a single volatile write, so a reader can
@@ -386,11 +381,11 @@ version); the previously-held attested state is released when a new one is adopt
 has neither restored a snapshot nor attested a block (`attested.state() == null`) reports
 NOT_READY; a node that restored a snapshot (§6.2) starts with that state attested. Snapshots capture `attested.state()`.
 
-This reservation is sufficient for the apply thread's own bookkeeping, but gives a *query*
-reader no safety by itself: nothing today takes a reservation before reading `attested.state()`
-from another thread, so a reader could race the next promotion's release. Not reachable yet —
-no query path exists in this plugin slice — but see §8 for the contract the query-API PR must
-add before reading `attested.state()` from any thread but the apply worker.
+This reservation covers the apply thread's own bookkeeping. A *query* reader must not read
+`attested.state()` directly, because the next promotion releases a superseded state. It calls
+`reserveAttested()`, which does `tryReserve()` on the state's root (retrying on the newer state if
+it loses the race) and returns a closeable `ReservedState` holding the state with its block and
+round number. The reservation keeps the state alive until the reader closes it. See §8.
 
 ### 6.6 `saveSnapshot()` (scheduled, runs every `snapshotIntervalMillis`)
 
@@ -417,7 +412,7 @@ decides whether that scheduled invocation has anything new to write.
 
 - Set `stopping=true`, `ready=false`.
 - Unregister from `blockMessaging`.
-- Interrupt + join the apply worker (waking it out of the `BlockingQueue`) and shut down
+- Interrupt + join the catch-up thread (if still running) and shut down
   the snapshot executor with a short await.
 - One final `saveSnapshot()` if `attested.blockNumber() > lastSnapshottedBlock`.
 
@@ -443,6 +438,17 @@ walking the wire format directly needs no such switch.
 | `QueuePopChange`             | `popQueue(stateId)`                            | —                                               |
 | `STATE_ADD` / `STATE_REMOVE` | (skipped — schema events, out of scope for v1) | —                                               |
 
+**Partial updates.** CN can encode a `MapUpdateChange` or `SingletonUpdateChange` as a partial
+(`partial = true`, plus `cleared_fields`): only the top-level fields that changed, rather than the
+whole value. The applier reads the prior value from `BinaryState` (`getKv` / `getSingleton`) and
+splices the changed fields onto it with PBJ's `PartialApplier.splice`, replacing whole top-level
+fields and dropping the cleared ones, then stores the result. A partial with no prior value
+halts with `PARTIAL_WITHOUT_BASELINE`, and an invalid one (bad flag, unknown metadata,
+`cleared_fields` on a full update, unsorted or overlapping cleared fields, bad framing) halts as
+`MALFORMED_STATE_CHANGES`. Partials need the previous value, so blocks must be applied in order,
+which the apply path already guarantees. `splice` expects canonical PBJ encodings, so a
+non-canonical producer would surface as a footer hash mismatch.
+
 Token-relationship keys (`stateId == 9`) need no special-casing for the current wire format:
 this plugin's pinned `state_changes.proto` carries that key as `AccountTokenAssociation`
 (field 25), introduced upstream specifically so its field order/types match state's
@@ -467,9 +473,11 @@ disclosed the type, isn't stored) — `get*` callers need that mapping from else
 a `stateId → type` table. This is an open API-surface question for the not-yet-implemented
 `StateService` gRPC query path (§8); it doesn't affect this plugin's own apply-and-store logic.
 
-A malformed `state_changes` item aborts the apply with
-`IllegalStateException`; the plugin treats that as a hard failure for the
-block (does not advance past it). An open question for upstream feedback:
+A malformed `state_changes` item is reported by the applier as an `ApplyResult` status
+(`MALFORMED_STATE_CHANGES`, with the legacy token association encoding and an unparseable header
+as separate statuses) rather than thrown, and the plugin halts on any status other than
+`APPLIED` (does not advance past the block). Truncated protobuf, which the reader rejects by
+throwing, is converted to `MALFORMED_STATE_CHANGES` once at the walk boundary. An open question for upstream feedback:
 whether to centralize this applier into `swirlds-state-impl` so every
 consumer doesn't reinvent it.
 
@@ -481,7 +489,7 @@ registered as the gRPC service in `init`. Each RPC:
 1. Reads `attested` (the `AttestedSnapshot` — state and block number published together, §6.5).
    Returns `NOT_READY` if `attested.state() == null` (no snapshot restored and no block attested
    yet — a true genesis node; a restored snapshot counts as attested, §6.2). This is the *only* state this RPC ever reads: never the
-   live mutable or the sealed-but-unattested `hashingImmutable`, which the apply worker is
+   live mutable or the sealed-but-unattested `hashingImmutable`, which the applying thread is
    actively writing/sealing concurrently with no synchronization a query thread could safely
    join.
 2. Returns `INVALID_REQUEST` if:
@@ -519,12 +527,12 @@ registered as the gRPC service in `init`. Each RPC:
    (`uint64` max, `0xFFFFFFFFFFFFFFFF`) rather than `0`, which would be indistinguishable from the
    valid genesis block. Clients still check `status` first.
 
-Reader reservation on `attested.state()`'s `VirtualMap` root is **not yet designed**: today
-nothing reads it except the apply thread itself, so `setAttested`'s reserve/release pair is
-race-free. Once this query path is implemented, a reader must take its own reservation
-(`tryReserve()`, retrying if it loses the race) before use and release it after, or risk reading
-a root the apply thread has since released on the next promotion. Define that contract when
-building this RPC, not retrofit it after.
+Reader reservation: a query handler obtains the state through `reserveAttested()` and reads only
+from the returned `ReservedState`, closing it (`try`-with-resources) when the read is done. It
+returns `null` while nothing is attested, which is the `NOT_READY` case. Reading
+`attested.state()` directly risks a root the apply thread has since released on the next
+promotion. The state, block number and round number come back as one value, so a reader never
+pairs a new state with a stale block number.
 
 ## 9. Metrics
 
@@ -534,7 +542,6 @@ Registered with the block node's `MetricRegistry` in `init()`, under the `blockn
 |-----------------------------|-----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `state_applied_block`       | ObservableGauge | Latest committed (reader-visible) block number applied to live state                                                                                                                        |
 | `state_size`                | ObservableGauge | Node count of the latest network-attested state                                                                                                                                             |
-| `state_pending_blocks`      | ObservableGauge | Blocks buffered awaiting apply (bounded by `pendingBlocksMax`)                                                                                                                              |
 | `state_ready`               | ObservableGauge | `1` once catch-up has reached the latest available block without halting, else `0`                                                                                                          |
 | `state_apply_halted`        | ObservableGauge | `1` when block apply has halted (e.g. footer hash mismatch), else `0`                                                                                                                       |
 | `state_apply_latency_ms`    | ObservableGauge | Wall-clock duration of the most recent block apply, in milliseconds                                                                                                                         |
@@ -553,10 +560,11 @@ alongside those features.
 | Snapshot root cannot be listed, or the highest-numbered snapshot directory is unreadable, fails to load, or fails its self-consistency check (loaded `BlockStreamInfo.block_number` disagrees with the directory name) | Halt (`applyHalted=true`), log at ERROR. Starting from genesis instead would silently discard the operator's recorded intent and surface only later as a confusing hash mismatch on an unrelated block. Plugin still starts; never becomes `ready`.                     |
 | `startOfBlockStateRootHash` mismatch                                                                                                                                                                                   | Increment `hashMismatchTotal`, set `applyHalted=true`, log at ERROR. Apply loop short-circuits thereafter; further blocks ignored until restart.                                                                                                                        |
 | Footer hash digest length differs from this build's (e.g. a SHA-256 footer against a SHA-384 `VirtualMap` hash)                                                                                                        | Same halt as any other `startOfBlockStateRootHash` mismatch, but logged distinctly as a digest-length mismatch rather than genuine divergence (#3813). Does not self-resolve: needs a CN release or state-library pin that matches the source chain's digest. See §6.5. |
-| First block after a fresh (no-snapshot) start is N > 0, not 0                                                                                                                                                          | **Not yet handled** — no real seed state exists to validate N's footer against; currently indistinguishable from a genuine hash mismatch. See §6.5. Needs a design decision.                                                                                            |
-| Malformed `state_changes` item                                                                                                                                                                                         | `IllegalStateException` from the applier; plugin refuses to advance past that block.                                                                                                                                                                                    |
+| First block after a fresh (no-snapshot) start is N > 0, not 0                                                                                                                                                          | Halt with a distinct "No seed state for block N" ERROR log; `hashMismatchTotal` is not incremented. Provide a snapshot (§6.5).                                                                                                                                          |
+| Malformed `state_changes` item                                                                                                                                                                                         | Applier returns `MALFORMED_STATE_CHANGES`; plugin halts and refuses to advance past that block.                                                                                                                                                                         |
+| Partial update with no prior value (`PARTIAL_WITHOUT_BASELINE`)                                                                                                                                                        | Applier returns `PARTIAL_WITHOUT_BASELINE`; plugin halts, since state and stream have diverged. Recovery is a restart from a snapshot at or before the missing value.                                                                                                   |
 | Legacy field-2 token-association encoding on a `stateId == 9` change                                                                                                                                                   | Halt with a distinct "unsupported legacy token-association encoding" error, not a generic hash mismatch — this plugin does not remap field 2 the way consensus-node's reference applier does. See §7.                                                                   |
-| Verification gap                                                                                                                                                                                                       | Block parks in `pendingBlocks` until the predecessor arrives (via notification or catch-up); apply loop retries from `historicalBlockProvider` on a delay. `pendingBlocks` is capped (`pendingBlocksMax`) so a long-lived gap can't grow it unboundedly.                |
+| Verification gap                                                                                                                                                                                                       | A block ahead of the next expected one is not stored: the missing blocks are fetched from `historicalBlockProvider` one at a time, then the block is applied. If history lacks one, the block is dropped and the next notification retries.                             |
 | Historical block missing locally                                                                                                                                                                                       | Catch-up skips it; the same block can arrive via notification later.                                                                                                                                                                                                    |
 | Snapshot write fails (I/O)                                                                                                                                                                                             | Log at WARNING; recent dir not deleted; next snapshot cycle retries.                                                                                                                                                                                                    |
 | Missing-queue query                                                                                                                                                                                                    | gRPC handler defensively maps NPE from `getQueueState`/`getQueueAsList`/`peekQueue` to `NOT_FOUND`.                                                                                                                                                                     |
@@ -571,7 +579,8 @@ wire encoding such as the field-2 case above — replays the exact same bytes fo
 block on every restart, so it does **not** self-heal either: recovery needs a fixed build (or a
 snapshot taken past the bad block), not just a restart. Only a genuinely transient fault (e.g. a
 footer hash mismatch caused by a passing I/O glitch rather than an actual code or encoding bug)
-recovers from a plain restart. There is no distinct query-time signal for "halted" versus "healthy" today;
+recovers from a plain restart. A no-seed-state halt (§6.5) recovers once a suitable snapshot is
+mounted and the node restarts. There is no distinct query-time signal for "halted" versus "healthy" today;
 `state_apply_halted` and `state_ready` are the only observable signals (see §9). Internally the
 halted/not-halted distinction doesn't change query behavior at all (§8) — a halted node still
 answers queries for its (frozen) attested block with `SUCCESS`, since that state remains valid;
@@ -617,17 +626,11 @@ and `getKV` / `getQueue` structured responses.
 
 ## 12. Design decisions
 
-**Apply loop is event-driven, not polled.** `handleVerification` stages into
-the `ConcurrentSkipListMap` (ordering + gap handling) and wakes a single
-apply-worker thread via a `BlockingQueue`; the worker drains under
-`applyLock`. State changes are applied the moment a block arrives.
-
-**Gap-recovery sweeps run on the apply-worker thread, not a background executor.** A gap-retry
-timer fires on `backgroundExecutor`, the same thread that also runs background state hashing
-(§6.5). Running the sweep there too would be a self-deadlock risk: a sweep that applies several
-blocks back-to-back can queue a hash task behind itself on that same thread, then block waiting
-on it. The timer only sets a flag and wakes the apply worker; the sweep itself always runs on
-the single apply-worker thread, the same thread every other apply already runs on.
+**Apply is inline and unbuffered.** `handleVerification` applies the next expected block on the
+delivering thread, fills a gap from `historicalBlockProvider` one block at a time, and drops
+anything it cannot apply. Verification only emits successful blocks in order, so keeping a copy
+here would duplicate what history already stores. The only plugin-owned thread is the one-shot
+start-up catch-up.
 
 **`roundNumber` is sourced from `RoundHeader`, kept in-memory only.** Pulled directly from the
 `RoundHeader` block item — every block carries at least one. The applier tracks the last seen

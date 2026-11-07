@@ -15,14 +15,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Future;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -61,10 +54,6 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     static final MetricKey<ObservableGauge> METRIC_STATE_SIZE =
             MetricKey.of("state_size", ObservableGauge.class).addCategory(METRICS_CATEGORY);
 
-    /// `blocknode:state_pending_blocks` — blocks buffered awaiting apply.
-    static final MetricKey<ObservableGauge> METRIC_PENDING_BLOCKS =
-            MetricKey.of("state_pending_blocks", ObservableGauge.class).addCategory(METRICS_CATEGORY);
-
     /// `blocknode:state_ready` — `1` once start-up catch-up is complete, else `0`.
     static final MetricKey<ObservableGauge> METRIC_READY =
             MetricKey.of("state_ready", ObservableGauge.class).addCategory(METRICS_CATEGORY);
@@ -95,22 +84,65 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     private StateChangeApplier applier;
 
     /// State (1) and the block/round number it corresponds to, published as one unit so a
-    /// reader never pairs a new state with a stale number — see `publishAttested`. `state` is
+    /// reader never pairs a new state with a stale number, see `publishAttested`. `state` is
     /// `null` until first attestation. `blockNumber`/`roundNumber` are read directly from the
     /// state itself (or the snapshot directory name on restore) rather than tracked as an
-    /// independent copy — see `docs/design/state/live-state.md` §5.1. No reservation on `state`
-    /// for readers yet; a future query API must add one before reading `state` off the
-    /// apply-worker thread.
+    /// independent copy — see `docs/design/state/live-state.md` §5.1. Readers must not use `state`
+    /// directly: the apply thread releases a superseded state, so they go through
+    /// `reserveAttested()` and read from the returned `ReservedState`.
     record AttestedSnapshot(@Nullable VirtualMapState state, long blockNumber, long roundNumber) {}
 
+    /// A reader's reservation on the attested state and the block/round it corresponds to. While
+    /// open, the apply thread cannot destroy `state`, even after a newer state is attested.
+    /// Close it as soon as the read is done (`try`-with-resources); `close()` is idempotent.
+    public static final class ReservedState implements AutoCloseable {
+        private final VirtualMapState state;
+        private final long blockNumber;
+        private final long roundNumber;
+        private final AtomicBoolean closed = new AtomicBoolean(false);
+
+        private ReservedState(@NonNull final AttestedSnapshot snapshot) {
+            this.state = java.util.Objects.requireNonNull(snapshot.state());
+            this.blockNumber = snapshot.blockNumber();
+            this.roundNumber = snapshot.roundNumber();
+        }
+
+        /// @return the reserved state, valid until `close()`
+        @NonNull
+        public VirtualMapState state() {
+            return state;
+        }
+
+        /// @return the block number `state()` corresponds to
+        public long blockNumber() {
+            return blockNumber;
+        }
+
+        /// @return the round number `state()` corresponds to, or `-1` if unknown
+        public long roundNumber() {
+            return roundNumber;
+        }
+
+        /// Release the reservation. Safe to call more than once.
+        @Override
+        public void close() {
+            if (closed.compareAndSet(false, true)) {
+                state.getRoot().release();
+            }
+        }
+    }
+
+    /// Placeholder until the first block is attested: no state, no block, no round.
     private static final AttestedSnapshot GENESIS_ATTESTED = new AttestedSnapshot(null, -1L, -1L);
 
     /// Volatile because reads happen on query threads.
     private volatile AttestedSnapshot attested = GENESIS_ATTESTED;
 
-    private final ConcurrentSkipListMap<Long, BlockUnparsed> pendingBlocks = new ConcurrentSkipListMap<>();
+    /// Backs `state_ready`: set once a sweep reaches the latest block, cleared on stop or halt.
     private final AtomicBoolean stateIsCaughtUp = new AtomicBoolean(false);
+    /// Set by `stop()` so an in-flight apply or sweep gives up instead of starting new work.
     private final AtomicBoolean stopping = new AtomicBoolean(false);
+    /// Terminal: once set no further block is applied, and recovery is a restart from a snapshot.
     private final AtomicBoolean applyHalted = new AtomicBoolean(false);
     private final AtomicLong hashMismatchTotal = new AtomicLong();
 
@@ -123,32 +155,19 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// `init` (always before any apply runs in `start`).
     private LongCounter.Measurement hashMismatchMetric;
 
-    /// Dedicated apply worker. Runs one-shot historical catch-up, then blocks on `arrivals`
-    /// waiting for verified blocks and applies them immediately. `null` until `start()`.
-    private ExecutorService applyWorker;
+    /// One-shot start-up catch-up thread: replays history block by block, then ends. `null`
+    /// until `start()`. This is the plugin's only thread of its own; live blocks are applied
+    /// inline on the messaging thread that delivers them.
+    private ExecutorService catchUpExecutor;
 
-    /// Background executor for work that must not block the apply worker: gap retries today.
-    /// `null` until `start()`.
-    private ScheduledExecutorService backgroundExecutor;
+    /// `true` while the start-up catch-up owns the walk through history. Live blocks ahead of
+    /// the next expected one are dropped meanwhile rather than racing it to fetch the gap.
+    private final AtomicBoolean catchUpRunning = new AtomicBoolean(false);
 
-    /// Guards against piling up duplicate gap-retry tasks while one is already scheduled.
-    private final AtomicBoolean gapRetryScheduled = new AtomicBoolean(false);
-
-    /// Set by `retryGap` (on `backgroundExecutor`), consumed by `runApplyWorker` (on
-    /// `StateManagement-apply`), which is where `sweepHistoricalBlocks` actually runs. Keeps the
-    /// sweep off `backgroundExecutor`: that thread also runs background state hashing
-    /// (`startBackgroundHash`), and a sweep applying several blocks in a row can queue a hash
-    /// task behind itself there, then block waiting on it — a self-deadlock.
-    private final AtomicBoolean gapSweepRequested = new AtomicBoolean(false);
-
-    /// Wake-up channel for the apply worker: `handleVerification` stages the block in
-    /// `pendingBlocks` and offers its number here so the worker wakes immediately instead of
-    /// waiting for a timer. Unbounded so the messaging dispatch thread never blocks handing off.
-    private final BlockingQueue<Long> arrivals = new LinkedBlockingQueue<>();
-
-    /// Serialises `applyPending` so the apply worker and direct (test-driven) callers never
-    /// mutate the lifecycle-managed state concurrently.
-    private final ReentrantLock applyLock = new ReentrantLock();
+    /// Serialises every apply (live inline, gap fill, start-up catch-up) so only one thread
+    /// mutates the lifecycle-managed state at a time. Fair, so the catch-up thread cannot starve
+    /// a live block waiting on it.
+    private final ReentrantLock applyLock = new ReentrantLock(true);
 
     /// Block number of the most recent block whose state_changes have been applied to the
     /// mutable state. Distinct from `metadata.blockNumber`: that's the most recently *attested*
@@ -165,15 +184,11 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     // (2) HASHING — `hashingImmutable`; sealed by copyMutableState, awaiting
     //     attestation by the next block's footer.
     // (1) ATTESTED — `attested.state()`; the network-confirmed, query-serving copy.
-    // A state is hashed exactly once, never while mutable (3); hashing starts in the
-    // background right after seal (hashingFuture) — see `startBackgroundHash`.
+    // A state is hashed exactly once, never while mutable (3); the hash is computed inline
+    // when the next block's footer needs it (`stagedStateRootHash`).
 
     /// **State (2) — sealed, awaiting attestation.** `null` until the first apply.
     private volatile VirtualMapState hashingImmutable;
-
-    /// Background hash of `hashingImmutable`, started right after it is sealed — see
-    /// `startBackgroundHash`/`currentStagedHash`. `null` only before the first seal.
-    private volatile Future<Bytes> hashingFuture;
 
     /// {@inheritDoc}
     @Override
@@ -212,11 +227,8 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         metrics.register(ObservableGauge.builder(METRIC_STATE_SIZE)
                 .setDescription("Node count of the latest network-attested state")
                 .observe(() -> sizeOf(attested.state())));
-        metrics.register(ObservableGauge.builder(METRIC_PENDING_BLOCKS)
-                .setDescription("Blocks buffered awaiting apply")
-                .observe(pendingBlocks::size));
         metrics.register(ObservableGauge.builder(METRIC_READY)
-                .setDescription("1 once start-up catch-up is complete, else 0")
+                .setDescription("1 once the plugin has reached the latest available block without halting, else 0")
                 .observe(() -> isReady() ? 1L : 0L));
         metrics.register(ObservableGauge.builder(METRIC_APPLY_HALTED)
                 .setDescription("1 when block apply has halted (e.g. footer hash mismatch), else 0")
@@ -256,17 +268,21 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             // init() could not prepare the state directory; there is nothing to start.
             return;
         }
-        backgroundExecutor = context.threadPoolManager()
-                .createSingleThreadScheduledExecutor(
-                        "StateManagement-background",
-                        (t, e) -> LOGGER.log(System.Logger.Level.WARNING, "Uncaught exception in " + t.getName(), e));
         loadPersistedState();
         context.blockMessaging().registerBlockNotificationHandler(this, true, name());
 
-        // Single apply worker: runs one-shot historical catch-up, then blocks on `arrivals`
-        // and drains `pendingBlocks` the instant a verified block shows up — no polling.
-        applyWorker = context.threadPoolManager().createSingleThreadExecutor("StateManagement-apply");
-        applyWorker.submit(this::runApplyWorker);
+        // One-shot catch-up from history. Needed because an idle node (no live blocks) would
+        // otherwise never become ready; the thread ends once the sweep returns.
+        catchUpRunning.set(true);
+        catchUpExecutor = context.threadPoolManager().createSingleThreadExecutor("StateManagement-catchup");
+        catchUpExecutor.submit(() -> {
+            try {
+                catchUpFromHistoricalBlocks();
+            } finally {
+                catchUpRunning.set(false);
+            }
+        });
+        catchUpExecutor.shutdown();
     }
 
     /// {@inheritDoc}
@@ -281,44 +297,80 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                 // facility may already be torn down — non-fatal.
             }
         }
-        stopApplyWorker();
-        if (backgroundExecutor != null) {
-            backgroundExecutor.shutdownNow();
+        if (catchUpExecutor != null) {
+            catchUpExecutor.shutdownNow();
+            try {
+                catchUpExecutor.awaitTermination(2L, TimeUnit.SECONDS);
+            } catch (final InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 
+    /// Applies a verified block inline on the notification thread. Holds no block data between
+    /// notifications: a stale block is dropped, the next expected block is applied, and a block
+    /// ahead of it triggers a one-block-at-a-time fetch of the missing blocks from history (then
+    /// the notified block is applied). If history cannot supply the gap yet, the block is
+    /// dropped and the next notification retries.
+    ///
     /// {@inheritDoc}
     @Override
     public void handleVerification(@NonNull final VerificationNotification notification) {
-        // Halted apply means pendingBlocks is frozen — restart re-derives it from historical
-        // storage, so there is nothing to lose by not staging more here.
+        // A halt is terminal: restart re-derives state from the snapshot and history.
         if (!notification.success() || notification.block() == null || applyHalted.get()) {
             return;
         }
-        // At or below the last applied block (a resend, or a backfill-sourced verification):
-        // applyPending only ever removes expectedNext, so staging it would leak it forever and
-        // eventually fill pendingBlocks to the cap.
+        final long blockNumber = notification.blockNumber();
         final long lastApplied = lastAppliedBlock;
-        if (lastApplied >= 0L && notification.blockNumber() <= lastApplied) {
-            return;
+        if (lastApplied >= 0L && blockNumber <= lastApplied) {
+            return; // a resend or backfill-sourced verification of an already applied block
         }
-        if (pendingBlocks.size() >= config.pendingBlocksMax()
-                && !pendingBlocks.containsKey(notification.blockNumber())) {
-            // Over the cap: drop rather than buffer unboundedly — backfill (scheduleGapRetry)
-            // will eventually re-fetch this block from history anyway.
-            LOGGER.log(
-                    System.Logger.Level.WARNING,
-                    "pendingBlocks at cap ({0}); dropping live block {1}",
-                    config.pendingBlocksMax(),
-                    notification.blockNumber());
-            return;
+        // Held across any gap-fill history reads below, which run on this messaging thread. That
+        // cost is not yet measured (#4031).
+        applyLock.lock();
+        try {
+            if (applyHalted.get() || stopping.get()) {
+                return;
+            }
+            final HistoricalBlockFacility historic = historicOrNull();
+            final long expectedNext = nextExpectedBlock(historic, blockNumber);
+            if (blockNumber < expectedNext) {
+                return; // applied by another thread while we waited on the lock
+            }
+            if (blockNumber > expectedNext) {
+                if (catchUpRunning.get() || historic == null) {
+                    return; // start-up catch-up owns the history walk; drop, do not hold the block
+                }
+                final boolean filled;
+                try {
+                    filled = applyFromHistory(historic, expectedNext, blockNumber - 1L);
+                } catch (final RuntimeException e) {
+                    LOGGER.log(
+                            System.Logger.Level.WARNING,
+                            "Gap recovery failed before block {0}; dropping it",
+                            blockNumber,
+                            e);
+                    return;
+                }
+                if (!filled) {
+                    LOGGER.log(
+                            System.Logger.Level.WARNING,
+                            "Block {0} arrived ahead of block {1}, which history cannot supply yet; dropping it",
+                            blockNumber,
+                            Math.max(lastAppliedBlock, attested.blockNumber()) + 1L);
+                    return;
+                }
+            }
+            if (applyGuarded(notification.block(), blockNumber)) {
+                refreshReady(historic);
+            }
+        } finally {
+            applyLock.unlock();
         }
-        pendingBlocks.put(notification.blockNumber(), notification.block());
-        arrivals.offer(notification.blockNumber());
     }
 
     // ── Package-private observers ─────────────────────────────────────────────
-    // Tests drive the plugin through its real entry points (applyPending, block delivery) and
+    // Tests drive the plugin through its real entry points (block delivery, start) and
     // assert against these observers.
 
     /// Whether historical catch-up has completed.
@@ -326,6 +378,13 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// @return `true` once catch-up has finished
     boolean isReady() {
         return stateIsCaughtUp.get();
+    }
+
+    /// Whether the start-up catch-up thread is still walking history.
+    ///
+    /// @return `true` while catch-up runs
+    boolean isCatchUpRunning() {
+        return catchUpRunning.get();
     }
 
     /// The current attested snapshot: the network-confirmed state and the block/round number
@@ -338,6 +397,27 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         return attested;
     }
 
+    /// Reserve the attested state for reading, together with the block and round number it
+    /// corresponds to. The reservation keeps the state alive while the caller reads, even if the
+    /// apply thread attests a newer state meanwhile. If it loses that race (the state was
+    /// released between loading the field and reserving it) it retries on the newer state.
+    ///
+    /// @return the reservation, or `null` if nothing has been attested yet. The caller must close it.
+    @Nullable
+    public ReservedState reserveAttested() {
+        while (true) {
+            final AttestedSnapshot snapshot = attested;
+            if (snapshot.state() == null) {
+                return null;
+            }
+            if (snapshot.state().getRoot().tryReserve()) {
+                return new ReservedState(snapshot);
+            }
+            // tryReserve fails only if the apply thread already released this state, which means
+            // a newer one is published: reload and reserve that instead.
+        }
+    }
+
     /// The `startOfBlockStateRootHash` the next block's footer must carry to be accepted — the
     /// root hash of the most recently applied (staged) block (state 2), one ahead of `metadata`
     /// under lag-1. Empty before the first apply.
@@ -345,7 +425,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// @return the staged state root hash, or empty before the first apply
     @NonNull
     Bytes stagedStateRootHash() {
-        return currentStagedHash();
+        return rootHashOf(hashingImmutable);
     }
 
     /// Total count of footer hash mismatches observed.
@@ -360,13 +440,6 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// @return `true` if apply is halted
     boolean isApplyHalted() {
         return applyHalted.get();
-    }
-
-    /// Number of blocks buffered awaiting apply.
-    ///
-    /// @return the current `pendingBlocks` size
-    int pendingBlocksSize() {
-        return pendingBlocks.size();
     }
 
     // ── Internals ───────────────────────────────────────────────────────────
@@ -446,13 +519,11 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             final VirtualMapState loaded = lifecycleManager.getLatestImmutableState();
             publishAttested(loaded, restoreCandidate, -1L);
             hashingImmutable = loaded;
-            startBackgroundHash(loaded);
         } else if (!applyHalted.get()) {
             // True genesis: seed state 2 with the sealed empty VirtualMap so block 0 validates
             // through the same path as every other block. Skipped if we just halted above, so
             // hashingImmutable stays null rather than surfacing an untrustworthy hash.
             hashingImmutable = lifecycleManager.getLatestImmutableState();
-            startBackgroundHash(hashingImmutable);
         }
     }
 
@@ -502,105 +573,113 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         }
     }
 
-    /// Drain the pending-blocks queue in strict block-number order via `applyBlockStateChanges`.
-    /// Stops on the first gap, when stopping, or when apply halts. A halt is terminal (the
-    /// mutable state may be partially mutated; recovery is a restart from the last snapshot),
-    /// so a failed block stays queued for inspection rather than retried.
-    void applyPending() {
-        applyLock.lock();
+    /// The historical facility, or `null` if there is none.
+    @Nullable
+    private HistoricalBlockFacility historicOrNull() {
+        return context == null ? null : context.historicalBlockProvider();
+    }
+
+    /// The block number apply expects next. Before the first apply (no snapshot restored) this
+    /// is the oldest block history has, or `fallback` if history is empty or starts later.
+    ///
+    /// @param historic the historical facility, may be `null`
+    /// @param fallback the block to start from when history offers no earlier one
+    /// @return the next block number to apply
+    private long nextExpectedBlock(@Nullable final HistoricalBlockFacility historic, final long fallback) {
+        if (lastAppliedBlock >= 0L) {
+            return Math.max(lastAppliedBlock, attested.blockNumber()) + 1L;
+        }
+        if (historic != null) {
+            final BlockRangeSet available = historic.availableBlocks();
+            if (available != null && available.size() > 0L) {
+                return Math.min(available.min(), fallback);
+            }
+        }
+        return fallback;
+    }
+
+    /// `applyBlockStateChanges` with the halt-on-throw policy. A halt is terminal (the mutable
+    /// state may be partially mutated; recovery is a restart from the last snapshot).
+    /// Caller holds `applyLock`.
+    ///
+    /// @param block the block to apply
+    /// @param blockNumber the block's number, for diagnostics
+    /// @return `true` if applied, `false` if rejected or halted
+    private boolean applyGuarded(@NonNull final BlockUnparsed block, final long blockNumber) {
         try {
-            while (!pendingBlocks.isEmpty() && !stopping.get() && !applyHalted.get()) {
-                final boolean atGenesis = lastAppliedBlock < 0L;
-                final long expectedNext =
-                        atGenesis ? pendingBlocks.firstKey() : Math.max(lastAppliedBlock, attested.blockNumber()) + 1L;
-                if (!atGenesis) {
-                    // Backstop for handleVerification's stale check (it can race an apply): drop
-                    // anything below expectedNext so it can't keep pendingBlocks non-empty and
-                    // trigger spurious gap retries.
-                    pendingBlocks.headMap(expectedNext).clear();
-                    if (pendingBlocks.isEmpty()) {
-                        return;
+            return applyBlockStateChanges(block);
+        } catch (final RuntimeException e) {
+            LOGGER.log(
+                    System.Logger.Level.WARNING,
+                    "applyBlockStateChanges threw for block {0}; halting apply (restart required to recover)",
+                    blockNumber,
+                    e);
+            applyHalted.set(true);
+            return false;
+        }
+    }
+
+    /// Fetch blocks `from..to` from `historic` and apply them in order, holding at most one block
+    /// at a time (open accessor, parse, apply, close). Stops at the first block history cannot
+    /// supply, at a halt, or when stopping. The lock is taken per block, so a live block can
+    /// interleave; blocks another thread already applied are skipped.
+    ///
+    /// @param historic the historical facility to read from
+    /// @param from first block number to apply
+    /// @param to last block number to apply, inclusive
+    /// @return `true` if the plugin has applied through `to`
+    private boolean applyFromHistory(@NonNull final HistoricalBlockFacility historic, final long from, final long to) {
+        for (long i = from; i <= to; i++) {
+            applyLock.lock();
+            try {
+                if (stopping.get() || applyHalted.get()) {
+                    return false;
+                }
+                if (lastAppliedBlock >= i) {
+                    continue; // applied meanwhile by another thread
+                }
+                final BlockAccessor accessor = historic.block(i);
+                if (accessor == null) {
+                    return false;
+                }
+                final BlockUnparsed block;
+                try {
+                    block = accessor.blockUnparsed();
+                } finally {
+                    try {
+                        accessor.close();
+                    } catch (final Exception ignored) {
+                        // close failures are non-fatal.
                     }
                 }
-                // Peek (not remove) so a failure leaves the block for inspection, not retry.
-                final BlockUnparsed block = pendingBlocks.get(expectedNext);
-                if (block == null) {
-                    scheduleGapRetry(expectedNext);
-                    return;
+                if (block == null || !applyGuarded(block, i)) {
+                    return false;
                 }
-                final boolean applied;
-                try {
-                    applied = applyBlockStateChanges(block);
-                } catch (final RuntimeException e) {
-                    LOGGER.log(
-                            System.Logger.Level.WARNING,
-                            "applyBlockStateChanges threw for block {0}; halting apply (restart required to recover)",
-                            expectedNext,
-                            e);
-                    applyHalted.set(true);
-                    return;
-                }
-                if (!applied) {
-                    // Block-specific failure already logged + applyHalted set (e.g. hash
-                    // mismatch); leave the block in the queue and stop draining.
-                    return;
-                }
-                pendingBlocks.remove(expectedNext);
+            } finally {
+                applyLock.unlock();
             }
-        } finally {
-            applyLock.unlock();
         }
+        return lastAppliedBlock >= to;
     }
 
-    /// Body of the apply worker thread. Runs historical catch-up once, then blocks on
-    /// `arrivals`, applying each newly-arrived block via `applyPending`. A burst of arrivals
-    /// is coalesced into a single drain. Exits cleanly on interrupt/stop.
-    private void runApplyWorker() {
-        // One-shot catch-up first (it manages its own failures and flips readiness in a
-        // finally, so it never throws out here).
-        catchUpFromHistoricalBlocks();
-        while (!stopping.get()) {
-            try {
-                arrivals.take(); // park (no CPU) until a block arrives
-                arrivals.clear(); // coalesce any burst — pendingBlocks already holds them
-            } catch (final InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
-            }
-            // A gap-retry request runs the sweep here, not on backgroundExecutor — see
-            // gapSweepRequested's javadoc.
-            if (gapSweepRequested.compareAndSet(true, false) && !applyHalted.get()) {
-                boolean reachedTip = false;
-                try {
-                    reachedTip = sweepHistoricalBlocks();
-                } catch (final RuntimeException e) {
-                    LOGGER.log(System.Logger.Level.WARNING, "Gap-recovery sweep failed", e);
-                }
-                finishSweep(reachedTip);
-            }
-            applyPending();
-        }
-    }
-
-    /// Stop the apply worker: interrupt it and wait briefly. Best-effort; no-ops if never
-    /// started.
-    private void stopApplyWorker() {
-        if (applyWorker == null) {
+    /// Latch readiness once the plugin is not halted and has applied through the latest block
+    /// history has on hand (or there is no history to catch up to). Caller holds `applyLock`.
+    ///
+    /// @param historic the historical facility, may be `null`
+    private void refreshReady(@Nullable final HistoricalBlockFacility historic) {
+        if (applyHalted.get() || stopping.get()) {
             return;
         }
-        applyWorker.shutdownNow();
-        try {
-            applyWorker.awaitTermination(2L, TimeUnit.SECONDS);
-        } catch (final InterruptedException e) {
-            Thread.currentThread().interrupt();
+        final BlockRangeSet available = historic == null ? null : historic.availableBlocks();
+        if (available == null || available.size() == 0L || lastAppliedBlock >= available.max()) {
+            stateIsCaughtUp.set(true);
         }
     }
 
-    /// Bring the live state up to the latest block on hand, reading from `HistoricalBlockFacility`
-    /// through the same `applyPending` loop that handles verification-delivered blocks. Runs on
-    /// the apply-worker thread; sets `stateIsCaughtUp` only once the sweep reached the latest
-    /// available block (or there was nothing to catch up to). A sweep that stops short schedules
-    /// a retry instead, see `finishSweep`.
+    /// Bring the live state up to the latest block on hand by replaying history one block at a
+    /// time. Runs once on the start-up catch-up thread. Ready only if the sweep reached the
+    /// latest available block and is not halted. A sweep that stops short leaves the plugin not
+    /// ready: the next live block ahead of the gap retries from history, see `handleVerification`.
     void catchUpFromHistoricalBlocks() {
         boolean reachedTip = false;
         try {
@@ -608,130 +687,41 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         } catch (final RuntimeException e) {
             LOGGER.log(System.Logger.Level.WARNING, "Catch-up failed; plugin remains not ready", e);
         }
-        finishSweep(reachedTip);
-    }
-
-    /// Act on a sweep's outcome. Ready means caught up AND not halted, so `state_ready` can't be
-    /// confused with a caught-up-then-halted or still-behind state. A sweep that stopped short
-    /// (hole in `availableBlocks`, failed fetch, exception) schedules a gap retry: nothing else
-    /// would, since `applyPending` only schedules one when `pendingBlocks` is non-empty.
-    ///
-    /// @param reachedTip the result of `sweepHistoricalBlocks`, or `false` if it threw
-    private void finishSweep(final boolean reachedTip) {
         if (applyHalted.get()) {
             LOGGER.log(System.Logger.Level.WARNING, "Catch-up halted; plugin remains not ready");
         } else if (reachedTip) {
-            stateIsCaughtUp.set(true);
+            stateIsCaughtUp.set(!stopping.get());
         } else {
             LOGGER.log(System.Logger.Level.WARNING, "Catch-up stopped short of the latest block; plugin not ready yet");
-            scheduleGapRetry(Math.max(lastAppliedBlock, attested.blockNumber()) + 1L);
         }
     }
 
-    /// Walk forward from the next expected block to whatever `historicalBlockProvider` currently
-    /// has, applying in `historicCatchUpBatchSize` batches via `applyPending`. Shared by startup
-    /// catch-up and live gap recovery, so a deep gap converges in one sweep instead of trickling
-    /// in one block per `gapRetryDelaySeconds`. Gap recovery runs this from `runApplyWorker`
-    /// (via `gapSweepRequested`), never directly from `retryGap` on `backgroundExecutor` — see
-    /// `gapSweepRequested`'s javadoc for why.
+    /// Apply, block by block, everything `historicalBlockProvider` has from the next expected
+    /// block to its latest, re-reading the latest each round so blocks persisted meanwhile are
+    /// included. Package-private so tests can drive it directly.
     ///
-    /// Thread-safe regardless of caller (`applyPending` serialises via `applyLock`).
-    /// Stops at the first batch `applyPending` doesn't fully clear (a hole in `availableBlocks`,
-    /// a fetch failure, or a hash-mismatch halt) instead of walking the cursor past it — otherwise
-    /// later batches keep fetching and buffering blocks into `pendingBlocks` that can never be
-    /// applied until the stalled block resolves.
-    /// Package-private so tests can drive gap recovery directly.
-    ///
-    /// @return `true` if the sweep reached the latest available block (or there was nothing to
-    ///     catch up to), `false` if it stopped short
+    /// @return `true` if the plugin reached the latest available block (or there was nothing to
+    ///     catch up to), `false` if it stopped short (hole, failed fetch or halt)
     boolean sweepHistoricalBlocks() {
-        final HistoricalBlockFacility historic = context == null ? null : context.historicalBlockProvider();
+        final HistoricalBlockFacility historic = historicOrNull();
         if (historic == null) {
             return true;
         }
-        final BlockRangeSet available = historic.availableBlocks();
-        if (available == null || available.size() == 0L) {
-            return true;
-        }
-        final long latest = available.max();
-        final boolean atGenesis = lastAppliedBlock < 0L;
-        final long start = atGenesis ? available.min() : Math.max(lastAppliedBlock, attested.blockNumber()) + 1L;
-        if (start > latest) {
-            return true;
-        }
-        final int batchSize = Math.max(1, config.historicCatchUpBatchSize());
-        long cursor = start;
-        while (cursor <= latest && !stopping.get() && !applyHalted.get()) {
-            final long batchEnd = Math.min(cursor + batchSize - 1L, latest);
-            for (long i = cursor; i <= batchEnd; i++) {
-                if (pendingBlocks.containsKey(i)) {
-                    continue; // already supplied by a verification notification
-                }
-                enqueueHistoricalBlock(historic, i);
+        while (!stopping.get() && !applyHalted.get()) {
+            final BlockRangeSet available = historic.availableBlocks();
+            if (available == null || available.size() == 0L) {
+                return true;
             }
-            applyPending();
-            if (lastAppliedBlock < batchEnd) {
-                break;
+            final long latest = available.max();
+            final long start = nextExpectedBlock(historic, available.min());
+            if (start > latest) {
+                return true;
             }
-            cursor = batchEnd + 1L;
-        }
-        return lastAppliedBlock >= latest;
-    }
-
-    /// A gap in `pendingBlocks` is expected, not an error — backfill fills it eventually. Retries
-    /// after a delay rather than waiting forever on a notification that may never arrive for
-    /// this exact block number. Coalesced: only one retry is ever in flight.
-    ///
-    /// @param expectedNext the missing block number to retry
-    private void scheduleGapRetry(final long expectedNext) {
-        if (backgroundExecutor == null || stopping.get() || !gapRetryScheduled.compareAndSet(false, true)) {
-            return;
-        }
-        LOGGER.log(
-                System.Logger.Level.WARNING,
-                "Block {0} missing; retrying from historical storage in {1}s",
-                expectedNext,
-                config.gapRetryDelaySeconds());
-        backgroundExecutor.schedule(() -> retryGap(expectedNext), config.gapRetryDelaySeconds(), TimeUnit.SECONDS);
-    }
-
-    /// Request a gap-recovery sweep and wake the apply worker. Runs on `backgroundExecutor`
-    /// (the gap-retry timer thread), so it only flags the request — `runApplyWorker` runs the
-    /// actual sweep, pulling everything available from the next expected block onward (not just
-    /// the block that was missing), so blocks that arrived mid-delay are also picked up in one
-    /// pass.
-    ///
-    /// @param expectedNext the block number that was missing when this retry was scheduled
-    ///     (used only to wake the apply worker — the sweep recomputes the live starting point
-    ///     itself)
-    private void retryGap(final long expectedNext) {
-        gapRetryScheduled.set(false);
-        gapSweepRequested.set(true);
-        arrivals.offer(expectedNext);
-    }
-
-    /// Fetch a single historical block via its `BlockAccessor` and enqueue it in
-    /// `pendingBlocks`. No-ops if the block is unavailable or cannot be unparsed.
-    ///
-    /// @param historic the historical block facility to read from
-    /// @param blockNumber the block number to fetch and enqueue
-    private void enqueueHistoricalBlock(@NonNull final HistoricalBlockFacility historic, final long blockNumber) {
-        final BlockAccessor accessor = historic.block(blockNumber);
-        if (accessor == null) {
-            return;
-        }
-        try {
-            final BlockUnparsed block = accessor.blockUnparsed();
-            if (block != null) {
-                pendingBlocks.put(blockNumber, block);
-            }
-        } finally {
-            try {
-                accessor.close();
-            } catch (final Exception ignored) {
-                // close failures during catch-up are non-fatal.
+            if (!applyFromHistory(historic, start, latest)) {
+                return false;
             }
         }
+        return false;
     }
 
     /// Apply a single block's `state_changes` to the live state under the **lag-1 commit**
@@ -741,14 +731,14 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// Flow for block N (given block N-1 was the last applied, post-(N-1) sealed):
     ///
     /// 1. Pull `BlockFooter.startOfBlockStateRootHash` from N.
-    /// 2. Join state 2's hash (`hashingImmutable`, post-(N-1)), computed in the background since
-    ///    it was sealed, and validate N's footer against it. Mismatch ⇒ halt without mutating.
+    /// 2. Compute state 2's hash (`hashingImmutable`, post-(N-1)) inline and validate N's
+    ///    footer against it. Mismatch ⇒ halt without mutating.
     /// 3. Promote state 2 → state 1 (`attested`), publishing its state and metadata together.
     /// 4. Apply N's `state_changes` to the live mutable, then seal it as the new state 2 —
     ///    left un-hashed and un-exposed until block N+1 attests it.
     ///
     /// @param block the block to apply
-    /// @return `true` on successful apply, `false` if rejected (caller leaves it queued)
+    /// @return `true` on successful apply, `false` if rejected
     private boolean applyBlockStateChanges(@NonNull final BlockUnparsed block) {
         final long applyStartNanos = System.nanoTime();
         // Block number is pulled up-front purely for diagnostics — the apply path below
@@ -763,10 +753,23 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             applyHalted.set(true);
             return false;
         }
-        // Join state 2's hash, started in the background after it was sealed; hashingImmutable
-        // is seeded at boot, so this is never null here.
-        final Bytes attestedHash = currentStagedHash();
+        // State 2's root hash, computed here on first use (hashingImmutable is seeded at boot).
+        final Bytes attestedHash = rootHashOf(hashingImmutable);
         if (!validateStartHash(startHash, attestedHash)) {
+            if (lastAppliedBlock < 0L && incomingBlock > 0L) {
+                // No snapshot was restored and the first block is mid-chain: its footer hashes
+                // pre-block state this node never had. A missing seed, not divergence.
+                applyHalted.set(true);
+                LOGGER.log(
+                        System.Logger.Level.ERROR,
+                        "No seed state for block {0}: no snapshot was restored and this is not block 0, so its "
+                                + "footer.startOfBlockStateRootHash cannot match the empty starting state; "
+                                + "apply-halted. Provide a snapshot at or before block {1} with the following "
+                                + "blocks available",
+                        incomingBlock,
+                        incomingBlock - 1L);
+                return false;
+            }
             hashMismatchTotal.incrementAndGet();
             hashMismatchMetric.increment();
             applyHalted.set(true);
@@ -808,26 +811,21 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         // Apply this block into the live mutable (state 3) and fast-copy to seal it as the new
         // state 2, but DO NOT hash or expose it: it stays staged until block N+1 attests it.
         final VirtualMapState mutable = lifecycleManager.getMutableState();
-        final StateChangeApplier.ApplyResult result;
-        try {
-            result = applier.applyBlock(mutable, block);
-        } catch (final StateChangeApplier.UnsupportedLegacyEncodingException e) {
+        final StateChangeApplier.ApplyResult result = applier.applyBlock(mutable, block);
+        if (!result.applied()) {
+            // The mutable state may be partly changed, so a failed apply is final (see the
+            // class-level note on halting); recovery is a restart from the last snapshot.
             LOGGER.log(
                     System.Logger.Level.ERROR,
-                    "Refusing to apply block {0}: {1}; apply-halted",
+                    "Refusing to apply block {0}: {1} ({2}); apply-halted",
                     incomingBlock,
-                    e.getMessage());
-            applyHalted.set(true);
-            return false;
-        }
-        if (result.blockNumber() < 0L) {
-            LOGGER.log(System.Logger.Level.WARNING, "Block had unparseable header; treating as failed apply");
+                    result.detail(),
+                    result.status());
             applyHalted.set(true);
             return false;
         }
         lifecycleManager.copyMutableState();
         hashingImmutable = lifecycleManager.getLatestImmutableState();
-        startBackgroundHash(hashingImmutable);
         lastAppliedBlock = result.blockNumber();
         if (result.roundNumber() >= 0L) {
             lastAppliedRound = result.roundNumber();
@@ -892,38 +890,6 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     @NonNull
     private Path recentSnapshotDirectoryFor(final long blockNumber) {
         return Path.of(config.snapshotRecentPath(), Long.toString(blockNumber));
-    }
-
-    /// Start hashing `state` on `backgroundExecutor`, right after it is sealed, so the hash
-    /// overlaps with whatever happens next instead of blocking the apply path. `VirtualMap`
-    /// caches its hash, so this computes it exactly once either way.
-    ///
-    /// @param state the newly-sealed state to hash
-    private void startBackgroundHash(@NonNull final VirtualMapState state) {
-        hashingFuture = backgroundExecutor == null
-                ? CompletableFuture.completedFuture(rootHashOf(state))
-                : backgroundExecutor.submit(() -> rootHashOf(state));
-    }
-
-    /// Join `hashingFuture` for `hashingImmutable`'s root hash. Falls back to hashing
-    /// synchronously if no background computation was ever started.
-    ///
-    /// @return the root hash of `hashingImmutable`, or empty before the first apply
-    @NonNull
-    private Bytes currentStagedHash() {
-        final Future<Bytes> future = hashingFuture;
-        if (future == null) {
-            return rootHashOf(hashingImmutable);
-        }
-        try {
-            return future.get();
-        } catch (final InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return rootHashOf(hashingImmutable);
-        } catch (final ExecutionException e) {
-            LOGGER.log(System.Logger.Level.WARNING, "Background state hash failed; hashing synchronously", e);
-            return rootHashOf(hashingImmutable);
-        }
     }
 
     /// The root hash of a sealed state, or empty if the state/root is absent or not yet hashed.
