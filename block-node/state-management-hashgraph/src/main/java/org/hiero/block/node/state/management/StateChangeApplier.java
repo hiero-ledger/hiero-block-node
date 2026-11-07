@@ -5,6 +5,7 @@ import com.hedera.hapi.block.stream.input.RoundHeader;
 import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.PartialApplier;
 import com.hedera.pbj.runtime.ProtoConstants;
 import com.hedera.pbj.runtime.ProtoParserTools;
 import com.hedera.pbj.runtime.io.ReadableSequentialData;
@@ -13,6 +14,7 @@ import com.swirlds.state.BinaryState;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
@@ -41,14 +43,25 @@ final class StateChangeApplier {
     /// captured chains. This plugin does not remap it, see `Status.LEGACY_TOKEN_ASSOCIATION`.
     private static final int LEGACY_TOKEN_ASSOCIATION_FIELD = 2;
 
+    /// `SingletonUpdateChange.partial` (bool) and `cleared_fields` (repeated uint32). Every oneof
+    /// payload field number is below `SINGLETON_PARTIAL_FIELD`, so anything at or above it is
+    /// delta metadata.
+    private static final int SINGLETON_PARTIAL_FIELD = 10001;
+
+    private static final int SINGLETON_CLEARED_FIELD = 10002;
+
     /// How a block apply ended. Expected data conditions are reported here instead of thrown, so
     /// the caller switches on the status rather than catching exceptions as flow control.
     enum Status {
         /// Every `state_changes` item was applied.
         APPLIED,
-        /// A `state_changes` item was malformed (a missing key, value, payload or state id, or
-        /// truncated protobuf). The mutable state may be partly changed.
+        /// A `state_changes` item was malformed (a missing key, value, payload or state id,
+        /// truncated protobuf, or an invalid partial update). The mutable state may be partly
+        /// changed.
         MALFORMED_STATE_CHANGES,
+        /// A partial update arrived for a key or singleton that holds no value to apply it to. The
+        /// state and the stream have diverged, so the plugin cannot continue.
+        PARTIAL_WITHOUT_BASELINE,
         /// A `MapChangeKey` for `stateId == 9` carried the legacy, reserved field-2
         /// (`TokenAssociation`) encoding instead of the current field-25
         /// (`AccountTokenAssociation`) encoding. `reserved` in protobuf is a compile-time guard,
@@ -97,6 +110,83 @@ final class StateChangeApplier {
             if (failureStatus == null) {
                 failureStatus = status;
                 failureDetail = detail;
+            }
+        }
+    }
+
+    /// The partial-update metadata of one `MapUpdateChange` or `SingletonUpdateChange`. A partial
+    /// carries only the top-level fields that changed plus the list of fields to clear, and is
+    /// spliced onto the value already held for the key or singleton.
+    private static final class DeltaMetadata {
+        private boolean partial;
+        private final List<Integer> cleared = new ArrayList<>();
+        /// Set when the message carries a field this walk does not recognize. Harmless for a full
+        /// update, but a partial with unknown metadata cannot be applied faithfully.
+        private boolean unknown;
+
+        /// Read the `partial` flag, which must be encoded as 0 or 1.
+        void readPartial(@NonNull final ReadableSequentialData input, @NonNull final Walk walk) {
+            final int flag = input.readVarInt(false);
+            if (flag != 0 && flag != 1) {
+                walk.fail(Status.MALFORMED_STATE_CHANGES, "Invalid partial flag " + flag);
+                return;
+            }
+            partial = flag == 1;
+        }
+
+        /// Read a packed `cleared_fields` run that must end by `endPosition`.
+        void readPackedCleared(
+                @NonNull final ReadableSequentialData input, final long endPosition, @NonNull final Walk walk) {
+            final int length = input.readVarInt(false);
+            if (length < 0 || length > endPosition - input.position()) {
+                walk.fail(Status.MALFORMED_STATE_CHANGES, "Invalid cleared_fields length " + length);
+                return;
+            }
+            final ReadableSequentialData packed = input.readBytes(length).toReadableSequentialData();
+            while (packed.hasRemaining()) {
+                cleared.add(ProtoParserTools.readUint32(packed));
+            }
+        }
+
+        /// Produce the value to store: the payload as is for a full update, or the payload spliced
+        /// onto `prior` for a partial one.
+        ///
+        /// @param prior the value currently held, or `null` if none
+        /// @param payload the oneof payload bytes: the full value, or the changed fields only
+        /// @param what the message name, for failure details
+        /// @param walk records the failure if the update cannot be applied
+        /// @return the bytes to store, or `null` if a failure was recorded
+        @Nullable
+        Bytes resolve(
+                @Nullable final Bytes prior,
+                @NonNull final Bytes payload,
+                @NonNull final String what,
+                @NonNull final Walk walk) {
+            if (!partial) {
+                if (!cleared.isEmpty()) {
+                    walk.fail(Status.MALFORMED_STATE_CHANGES, what + " has cleared_fields but is not partial");
+                    return null;
+                }
+                return payload;
+            }
+            if (unknown) {
+                walk.fail(Status.MALFORMED_STATE_CHANGES, "Partial " + what + " carries unknown metadata");
+                return null;
+            }
+            if (prior == null) {
+                walk.fail(Status.PARTIAL_WITHOUT_BASELINE, "Partial " + what + " has no prior value to apply to");
+                return null;
+            }
+            try {
+                return PartialApplier.splice(
+                        prior,
+                        payload,
+                        cleared.stream().mapToInt(Integer::intValue).toArray());
+            } catch (final RuntimeException e) {
+                // splice rejects bad framing, unsorted or duplicate cleared fields, and overlap
+                // between replaced and cleared fields.
+                walk.fail(Status.MALFORMED_STATE_CHANGES, "Invalid partial " + what + ": " + e);
+                return null;
             }
         }
     }
@@ -221,6 +311,9 @@ final class StateChangeApplier {
             final long endPosition,
             @NonNull final Walk walk)
             throws IOException {
+        // `state_id` is field 1 and PBJ writes it first, but the wire format allows any order, so
+        // it is only known once its tag has been read. Each case that needs it checks it then,
+        // instead of once up front.
         int stateId = -1;
         boolean applied = false;
         while (input.position() < endPosition && !walk.failed()) {
@@ -234,12 +327,10 @@ final class StateChangeApplier {
                 case 34 -> { // singleton_update: field 4, message
                     final int messageLength = input.readVarInt(false);
                     if (messageLength > 0) {
-                        final OneOfPayload payload = readOneOfPayload(
-                                input, input.position() + messageLength, "SingletonUpdateChange", walk);
-                        if (payload != null && requireStateId(stateId, walk)) {
-                            binaryState.updateSingleton(stateId, payload.bytes());
-                            applied = true;
-                        }
+                        final boolean done = requireStateId(stateId, walk)
+                                && applySingletonUpdate(
+                                        binaryState, stateId, input, input.position() + messageLength, walk);
+                        applied |= done;
                     }
                 }
                 case 42 -> { // map_update: field 5, message
@@ -284,7 +375,57 @@ final class StateChangeApplier {
         }
     }
 
-    /// Walk a `MapUpdateChange` message (`key` field 1, `value` field 2) and apply it.
+    /// Walk a `SingletonUpdateChange` message and apply it. The message holds one oneof payload
+    /// (field numbers below 10001) and, for a partial update, `partial` and `cleared_fields`.
+    ///
+    /// @return `true` if the update was applied, `false` if a failure was recorded
+    private static boolean applySingletonUpdate(
+            @NonNull final BinaryState binaryState,
+            final int stateId,
+            @NonNull final ReadableSequentialData input,
+            final long endPosition,
+            @NonNull final Walk walk)
+            throws IOException {
+        Bytes payload = null;
+        final DeltaMetadata delta = new DeltaMetadata();
+        while (input.position() < endPosition && !walk.failed()) {
+            final int tag = input.readVarInt(false);
+            final int fieldNumber = tag >>> ProtoParserTools.TAG_FIELD_OFFSET;
+            final ProtoConstants wireType = ProtoConstants.get(tag & ProtoConstants.TAG_WIRE_TYPE_MASK);
+            if (fieldNumber == SINGLETON_PARTIAL_FIELD && wireType == ProtoConstants.WIRE_TYPE_VARINT_OR_ZIGZAG) {
+                delta.readPartial(input, walk);
+            } else if (fieldNumber == SINGLETON_CLEARED_FIELD && wireType == ProtoConstants.WIRE_TYPE_DELIMITED) {
+                delta.readPackedCleared(input, endPosition, walk);
+            } else if (fieldNumber == SINGLETON_CLEARED_FIELD
+                    && wireType == ProtoConstants.WIRE_TYPE_VARINT_OR_ZIGZAG) {
+                delta.cleared.add(ProtoParserTools.readUint32(input)); // unpacked encoding
+            } else if (payload == null
+                    && fieldNumber < SINGLETON_PARTIAL_FIELD
+                    && wireType == ProtoConstants.WIRE_TYPE_DELIMITED) {
+                payload = input.readBytes(input.readVarInt(false));
+            } else {
+                delta.unknown = true;
+                ProtoParserTools.skipField(input, wireType);
+            }
+        }
+        if (walk.failed()) {
+            return false;
+        }
+        if (payload == null) {
+            walk.fail(Status.MALFORMED_STATE_CHANGES, "SingletonUpdateChange payload missing");
+            return false;
+        }
+        final Bytes value = delta.resolve(
+                delta.partial ? binaryState.getSingleton(stateId) : null, payload, "SingletonUpdateChange", walk);
+        if (value == null) {
+            return false;
+        }
+        binaryState.updateSingleton(stateId, value);
+        return true;
+    }
+
+    /// Walk a `MapUpdateChange` message (`key` 1, `value` 2, and for a partial update `partial` 4
+    /// and `cleared_fields` 5) and apply it.
     ///
     /// @return `true` if the update was applied, `false` if a failure was recorded
     private static boolean applyMapUpdate(
@@ -296,6 +437,7 @@ final class StateChangeApplier {
             throws IOException {
         Bytes rawKey = null;
         Bytes rawValue = null;
+        final DeltaMetadata delta = new DeltaMetadata();
         while (input.position() < endPosition && !walk.failed()) {
             final int tag = input.readVarInt(false);
             switch (tag) {
@@ -319,7 +461,14 @@ final class StateChangeApplier {
                         }
                     }
                 }
-                default -> skipField(input, tag);
+                case 24 -> input.readVarInt(false); // identical: field 3, not needed to apply
+                case 32 -> delta.readPartial(input, walk); // partial: field 4, bool
+                case 42 -> delta.readPackedCleared(input, endPosition, walk); // cleared_fields: field 5, packed
+                case 40 -> delta.cleared.add(ProtoParserTools.readUint32(input)); // cleared_fields, unpacked
+                default -> {
+                    delta.unknown = true;
+                    skipField(input, tag);
+                }
             }
         }
         if (walk.failed()) {
@@ -329,7 +478,12 @@ final class StateChangeApplier {
             walk.fail(Status.MALFORMED_STATE_CHANGES, "MapChangeKey or MapChangeValue missing from MapUpdateChange");
             return false;
         }
-        binaryState.updateKv(stateId, rawKey, rawValue);
+        final Bytes value = delta.resolve(
+                delta.partial ? binaryState.getKv(stateId, rawKey) : null, rawValue, "MapUpdateChange", walk);
+        if (value == null) {
+            return false;
+        }
+        binaryState.updateKv(stateId, rawKey, value);
         return true;
     }
 
