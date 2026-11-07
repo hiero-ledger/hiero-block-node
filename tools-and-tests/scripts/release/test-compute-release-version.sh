@@ -236,6 +236,39 @@ expect_fail "custom requires custom_version" "custom_version input is required"
 run custom main 0.47.0-SNAPSHOT --custom-version not-a-version
 expect_fail "custom rejects malformed version" "is not a valid version"
 
+# Other custom shapes can be tagged from any branch.
+TAGS=() BRANCHES=(main release/0.45)
+run custom feature/foo 0.45.0-SNAPSHOT --custom-version 0.45.2-hotfix.1
+expect_ok "custom hotfix shape from any branch" COMPUTED_VERSION=0.45.2-hotfix.1
+TAGS=(v0.45.2)
+run custom release/0.45 0.45.0 --custom-version 0.45.2
+expect_fail "custom X.Y.Z rejected when tag exists" "Tag v0.45.2 already exists"
+
+# --- full lifecycle: each step feeds its tag into the next, as the real workflow would ----------
+# rc1 from main -> rc2 -> GA -> custom patch (tag-only, version.txt stays stale) -> GA patches.
+TAGS=() BRANCHES=(main)
+run rc main 0.45.0-SNAPSHOT
+expect_ok "lifecycle: rc1 from main" COMPUTED_VERSION=0.45.0-rc1
+TAGS=(v0.45.0-rc1) BRANCHES=(main release/0.45)
+run rc release/0.45 0.45.0-rc1
+expect_ok "lifecycle: rc2 from the release branch" COMPUTED_VERSION=0.45.0-rc2
+TAGS=(v0.45.0-rc1 v0.45.0-rc2)
+run GA release/0.45 0.45.0-rc2
+expect_ok "lifecycle: first GA builds from the newest rc" COMPUTED_VERSION=0.45.0 SOURCE_TAG=v0.45.0-rc2
+TAGS=(v0.45.0-rc1 v0.45.0-rc2 v0.45.0)
+run custom release/0.45 0.45.0 --custom-version 0.45.1
+expect_ok "lifecycle: custom patch after the GA" COMPUTED_VERSION=0.45.1
+TAGS=(v0.45.0-rc1 v0.45.0-rc2 v0.45.0 v0.45.1)
+run GA release/0.45 0.45.0
+expect_ok "lifecycle: GA after a custom patch skips to the next patch" COMPUTED_VERSION=0.45.2
+TAGS=(v0.45.0-rc1 v0.45.0-rc2 v0.45.0 v0.45.1 v0.45.2)
+run GA release/0.45 0.45.2
+expect_ok "lifecycle: second GA patch" COMPUTED_VERSION=0.45.3
+run rc release/0.45 0.45.2
+expect_ok "lifecycle: rc for the next patch" COMPUTED_VERSION=0.45.3-rc1
+run rc main 0.46.0-SNAPSHOT
+expect_ok "lifecycle: the next minor still starts on main" COMPUTED_VERSION=0.46.0-rc1
+
 # --- input validation -------------------------------------------------------------------------
 # A flag with no value must be a clean ::error::, not an unbound-variable crash under set -u.
 for flag in --release-type --ref-name --current-version --custom-version --tags-file \
