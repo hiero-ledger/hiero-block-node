@@ -85,6 +85,7 @@ jobs:
         run: |
           git tag -l > "$RUNNER_TEMP/tags.txt"
           tools-and-tests/scripts/release/list-branch-tags.sh HEAD > "$RUNNER_TEMP/branch-tags.txt"
+          tools-and-tests/scripts/release/count-new-commits.sh HEAD < "$RUNNER_TEMP/branch-tags.txt" > "$RUNNER_TEMP/new-commits.txt"
           git ls-remote --heads origin | sed 's#.*refs/heads/##' > "$RUNNER_TEMP/branches.txt"
           OUTPUT=$(tools-and-tests/scripts/release/compute-release-version.sh \
             --release-type "$INPUT_RELEASE_TYPE" \
@@ -94,7 +95,8 @@ jobs:
             --allow-custom-without-release-branch "$INPUT_ALLOW_CUSTOM" \
             --tags-file "$RUNNER_TEMP/tags.txt" \
             --branches-file "$RUNNER_TEMP/branches.txt" \
-            --branch-tags-file "$RUNNER_TEMP/branch-tags.txt")
+            --branch-tags-file "$RUNNER_TEMP/branch-tags.txt" \
+            --new-commits-file "$RUNNER_TEMP/new-commits.txt")
           echo "$OUTPUT"
           echo "$OUTPUT" >> "$GITHUB_ENV"
 

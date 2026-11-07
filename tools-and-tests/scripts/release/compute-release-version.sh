@@ -9,7 +9,8 @@
 #       --ref-name <dispatching branch> --current-version <version.txt on that branch> \
 #       --tags-file <file, one existing tag per line> \
 #       --branches-file <file, one existing remote branch per line> \
-#       [--branch-tags-file <file, rc tags on the dispatching branch, see list-branch-tags.sh; required for GA>] \
+#       [--branch-tags-file <file, rc/release tags on the dispatching branch, see list-branch-tags.sh>] \
+#       [--new-commits-file <file of '<tag> <count>', see count-new-commits.sh>] \
 #       [--custom-version <version>] [--allow-custom-without-release-branch true|false]
 #
 # Prints KEY=VALUE lines on stdout (COMPUTED_VERSION, and SOURCE_TAG for GA when an rc tag exists).
@@ -18,11 +19,14 @@
 # Rules:
 #   rc      main: only rc1, and only if no release/X.Y branch or vX.Y.Z-rcN tag exists for the base version.
 #           release/X.Y: highest existing vX.Y.Z-rcN tag + 1 (tags of other release lines are ignored).
-#           Fails if vX.Y.Z itself is already released.
 #   alpha   main only: highest existing vX.Y.Z-alphaN tag + 1.
-#   GA      release/X.Y only: built from the highest vX.Y.Z-rcN tag. Fails if that tag is not in
-#           --branch-tags-file (see list-branch-tags.sh), so an rc cut from another branch
-#           (e.g. main) can never become the GA source, and an older rc is never used silently.
+#   GA      release/X.Y only: built from the highest vX.Y.Z-rcN tag, or from the branch tip if there
+#           is none. Fails if that tag is not in --branch-tags-file (see list-branch-tags.sh), so an
+#           rc cut from another branch (e.g. main) can never become the GA source, and an older rc
+#           is never used silently. Also fails if the branch has commits after that rc.
+#   Patch   On release/X.Y, once a vX.Y.N release exists, rc and GA target the next patch
+#           (highest vX.Y.N + 1, or version.txt if that is higher). rc and GA fail if the branch has
+#           no commits since the last release tag.
 #   custom  any branch. A plain X.Y.Z (final release) or an rc-shaped version must be dispatched
 #           from release/X.Y. Both are waived by --allow-custom-without-release-branch true.
 #           Other shapes (alpha, hotfix...) can be tagged from any branch.
@@ -35,7 +39,7 @@ fail() {
   exit 1
 }
 
-RELEASE_TYPE="" REF_NAME="" CURRENT="" CUSTOM_VERSION="" TAGS_FILE="" BRANCHES_FILE="" BRANCH_TAGS_FILE="" ALLOW_CUSTOM="false"
+RELEASE_TYPE="" REF_NAME="" CURRENT="" CUSTOM_VERSION="" TAGS_FILE="" BRANCHES_FILE="" BRANCH_TAGS_FILE="" NEW_COMMITS_FILE="" ALLOW_CUSTOM="false"
 while [[ $# -gt 0 ]]; do
   [[ $# -ge 2 ]] || fail "Missing value for '$1'"
   case "$1" in
@@ -46,6 +50,7 @@ while [[ $# -gt 0 ]]; do
     --tags-file) TAGS_FILE="$2" ;;
     --branches-file) BRANCHES_FILE="$2" ;;
     --branch-tags-file) BRANCH_TAGS_FILE="$2" ;;
+    --new-commits-file) NEW_COMMITS_FILE="$2" ;;
     --allow-custom-without-release-branch) ALLOW_CUSTOM="$2" ;;
     *) fail "Unknown argument '$1'" ;;
   esac
@@ -79,6 +84,28 @@ require_release_branch() { # $1 = what is being run
     || fail "version.txt ($CURRENT) does not match branch '$REF_NAME'"
 }
 
+# new_commits <tag>: commits on the branch since <tag> (see count-new-commits.sh).
+new_commits() {
+  [[ -f "$NEW_COMMITS_FILE" ]] || fail "--new-commits-file is required for this release"
+  local n
+  n="$(awk -v t="$1" '$1 == t { print $2; exit }' "$NEW_COMMITS_FILE")"
+  [[ -n "$n" ]] || fail "No commit count for $1: it is not on '$REF_NAME'"
+  echo "$n"
+}
+
+# On a release/X.Y branch, rc and GA target the next patch once a release exists (BASE becomes
+# X.Y.<highest released patch + 1>, or version.txt's patch if higher). Fails with nothing to release.
+resolve_patch() {
+  local last patch="${BASE##*.}"
+  last="$({ grep -E "^v${MAJOR}\.${MINOR}\.[0-9]+$" "$TAGS_FILE" || true; } | sed -E 's/^v[0-9]+\.[0-9]+\.//' | sort -n | tail -1)"
+  if [[ -n "$last" ]]; then
+    (( last + 1 > patch )) && patch=$((last + 1))
+    [[ "$(new_commits "v$MAJOR.$MINOR.$last")" -gt 0 ]] \
+      || fail "Nothing to release: '$REF_NAME' has no new commits since v$MAJOR.$MINOR.$last. Cherry-pick the fixes first."
+  fi
+  BASE="$MAJOR.$MINOR.$patch"
+}
+
 SOURCE_TAG=""
 case "$RELEASE_TYPE" in
   custom)
@@ -110,13 +137,13 @@ case "$RELEASE_TYPE" in
       VERSION="${BASE}-rc1"
     else
       require_release_branch "rc"
-      has_line "v$BASE" "$TAGS_FILE" \
-        && fail "v$BASE is already released. Use custom with the next version (see #3389)."
+      resolve_patch
       VERSION="${BASE}-rc$(($(highest_n "$BASE" rc || true) + 1))"
     fi
     ;;
   GA)
     require_release_branch "GA"
+    resolve_patch
     VERSION="$BASE"
     [[ -f "$BRANCH_TAGS_FILE" ]] || fail "--branch-tags-file is required for GA"
     RC_N="$(highest_n "$BASE" rc)"
@@ -124,6 +151,8 @@ case "$RELEASE_TYPE" in
       SOURCE_TAG="v${BASE}-rc${RC_N}"
       has_line "$SOURCE_TAG" "$BRANCH_TAGS_FILE" \
         || fail "$SOURCE_TAG is the newest rc but is not on '$REF_NAME'. Refusing to build GA from it or from an older rc. Cut a new rc from $REF_NAME first."
+      [[ "$(new_commits "$SOURCE_TAG")" -eq 0 ]] \
+        || fail "'$REF_NAME' has commits after $SOURCE_TAG, which a GA built from it would drop. Cut a new rc from $REF_NAME first."
     fi
     ;;
   *) fail "Unknown release type '$RELEASE_TYPE'" ;;
