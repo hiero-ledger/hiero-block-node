@@ -67,11 +67,19 @@ Before triggering any workflow:
 | `allow_custom_without_release_branch` | boolean (default `false`)     | `custom` only. Waives the rule that a plain `X.Y.Z` or rc-shaped `custom_version` must be dispatched from `release/X.Y`.                                           |
 | `dry_run`                             | boolean (default `true`)      | Computes the version and writes a job summary of what would happen. Creates no branch, commit, tag, release, milestone rollover or PR. Untick to release for real. |
 
-Guards applied when computing the version: `rc` from `main` is only `rc1`; `rc` and `GA` must run
-from `release/X.Y` with a matching `version.txt`; `GA` is built from the highest `vX.Y.Z-rcN` tag
-on the branch (an rc counts as on the branch when it or its parent commit is reachable, which covers
-tag-only `custom` rcs; GA fails if the newest rc is not on the branch rather than using an older
-one); `rc` fails once `vX.Y.Z` is already released; the computed tag must not already exist.
+Guards applied when computing the version:
+- `rc` from `main` is only `rc1`. `rc` and `GA` must run from `release/X.Y` with a matching `version.txt`.
+- **Patch numbering:** once `vX.Y.N` is released, `rc` and `GA` on `release/X.Y` target the next
+  patch (highest released `vX.Y.N` + 1, or `version.txt` if that is higher). `version.txt` may lag,
+  because `custom` patch tags never update it.
+- **Nothing to release:** `rc` and `GA` fail if the branch has no commits since the last release
+  tag (bump and merge commits are not counted).
+- **GA source:** `GA` is built from the highest `vX.Y.Z-rcN` tag, or from the branch tip when there
+  is none. It fails if that rc is not on the branch, so an rc cut on another branch (such as `main`)
+  is never used and an older rc is never used silently. It also fails if the branch has commits
+  after that rc, since a GA built from the rc would drop them: cut a new rc first. A tag counts as on
+  the branch when it or its parent commit is reachable, which covers tag-only `custom` tags.
+- The computed tag must not already exist.
 
 `release_type` semantics:
 
@@ -229,34 +237,24 @@ workflows run concurrently after the tag push.
 
 1. Cherry-pick the fix commit(s) from `main` to `release/X.Y`.
 2. Go to **Actions → Release Automation → Run workflow**.
-3. Select branch `release/X.Y`. Set `release_type` to `custom`.
-4. Enter the exact version string in `custom_version` (e.g. `0.39.1`).
+3. Select branch `release/X.Y`. Set `release_type` to `GA` (or `rc` first if the patch needs
+   testing). Leave `custom_version` empty.
+4. The next patch is computed automatically: after `v0.45.1`, a GA on `release/0.45` is `0.45.2`,
+   then `0.45.3`, and so on. A dry run (the default) shows the computed tag first.
 5. Follow steps 6–9 from the GA flow above.
 
-> `custom` tags off whichever branch you dispatch it from and never creates a branch or commits a
-> version bump anywhere; only the resulting tag is pushed. A plain `X.Y.Z` or rc-shaped version
-> must be dispatched from `release/X.Y` (override with `allow_custom_without_release_branch`).
-> Other shapes (alpha, hotfix) can be tagged from any branch.
+The run fails if the branch has no commits since the last release tag. A `GA` built from an `rc`
+also fails if commits were cherry-picked after that rc; cut a new rc first.
 
-#### Cutting another GA on an already-released line
+#### `custom` for special cases
 
-This is also how you back-patch an *older* line while a newer one is active — e.g. cutting
-`0.39.2` off `release/0.39` while `main`/`release/0.40` is already on `0.40.0-rc1`. Nothing in
-`custom`'s path reads `main` or any other branch's state, so the two dispatches don't interact —
-run them in either order, or at the same time.
-
-**`rc`/`GA` cannot be reused on a branch that's already had a GA — only `custom` can.** Patch
-releases (e.g. 0.44.1, 0.44.2, 0.45.1) all go out through `custom` for now (see #3389). `custom`
-pushes only the tag, so `version.txt` on the release branch lags the last patch and is left at the
-exact plain released version (e.g. `0.39.1`, no `-SNAPSHOT` suffix). `rc`/`GA`'s auto-increment
-logic would recompute that *same* version instead of the next patch, so both fail early with
-`v0.39.1 is already released. Use custom with the next version`. Always use `custom` with the
-explicit next version string instead. If a patch needs its own rc step first, do that via `custom` too — type the full rc
-string by hand (e.g. `custom_version: 0.39.2-rc1`), then dispatch `custom` again with `0.39.2` for
-the actual patch release. Unlike the main rc→GA flow, this hand-rolled sequence has no
-drift protection — the second dispatch builds from the branch's live tip, not the exact rc1 tag,
-so a cherry-pick landing between the two would sneak in untested. Tracked for a proper fix in
-hiero-ledger/hiero-block-node#3389.
+`custom` tags off whichever branch you dispatch it from and never creates a branch or commits a
+version bump anywhere; only the resulting tag is pushed. A plain `X.Y.Z` or rc-shaped version must
+be dispatched from `release/X.Y` (override with `allow_custom_without_release_branch`). Other
+shapes (alpha, hotfix) can be tagged from any branch. Use it when you need a version the automatic
+numbering would not pick, for example back-patching an *older* line while a newer one is active
+(`0.39.2` off `release/0.39` while `main`/`release/0.40` is on `0.40.0-rc1`). Nothing in `custom`'s
+path reads `main` or any other branch's state, so such dispatches don't interact.
 
 ### Alpha (Preview Build)
 
