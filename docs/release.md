@@ -70,15 +70,15 @@ Before triggering any workflow:
 Guards applied when computing the version:
 - `rc` from `main` is only `rc1`. `rc` and `GA` must run from `release/X.Y` with a matching `version.txt`.
 - **Patch numbering:** once `vX.Y.N` is released, `rc` and `GA` on `release/X.Y` target the next
-  patch (highest released `vX.Y.N` + 1, or `version.txt` if that is higher). `version.txt` may lag,
-  because `custom` patch tags never update it.
+patch (highest released `vX.Y.N` + 1, or `version.txt` if that is higher). `version.txt` may lag,
+because `custom` patch tags never update it.
 - **Nothing to release:** `rc` and `GA` fail if the branch has no commits since the last release
-  tag (bump and merge commits are not counted).
+tag (bump and merge commits are not counted).
 - **GA source:** `GA` is built from the highest `vX.Y.Z-rcN` tag, or from the branch tip when there
-  is none. It fails if that rc is not on the branch, so an rc cut on another branch (such as `main`)
-  is never used and an older rc is never used silently. It also fails if the branch has commits
-  after that rc, since a GA built from the rc would drop them: cut a new rc first. A tag counts as on
-  the branch when it or its parent commit is reachable, which covers tag-only `custom` tags.
+is none. It fails if that rc is not on the branch, so an rc cut on another branch (such as `main`)
+is never used and an older rc is never used silently. It also fails if the branch has commits
+after that rc, since a GA built from the rc would drop them: cut a new rc first. A tag counts as on
+the branch when it or its parent commit is reachable, which covers tag-only `custom` tags.
 - The computed tag must not already exist.
 
 `release_type` semantics:
