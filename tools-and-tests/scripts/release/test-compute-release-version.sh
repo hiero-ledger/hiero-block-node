@@ -14,15 +14,25 @@ PASS=0 FAIL=0
 # State shared by the scenarios below. ON_BRANCH_TAGS (tags reachable from the dispatching
 # branch) defaults to TAGS unless a scenario sets ON_BRANCH_SET.
 TAGS=() BRANCHES=() ON_BRANCH_TAGS=() ON_BRANCH_SET=""
+# NEW_COMMITS ("<tag> <count>" lines) defaults to 0 for rc tags and 1 for release tags unless set.
+NEW_COMMITS=() NEW_COMMITS_SET=""
 
 # run <release-type> <ref> <version.txt> [extra script args...]; sets OUT (stdout) and CODE.
 run() {
   printf '%s\n' "${TAGS[@]:-}" > "$WORK/tags"
   printf '%s\n' "${BRANCHES[@]:-}" > "$WORK/branches"
+  if [[ -n "$NEW_COMMITS_SET" ]]; then printf '%s\n' "${NEW_COMMITS[@]:-}" > "$WORK/new-commits"
+  else
+    : > "$WORK/new-commits"
+    for t in "${TAGS[@]:-}"; do
+      [[ -z "$t" ]] || { [[ "$t" == *-rc* ]] && echo "$t 0" || echo "$t 1"; } >> "$WORK/new-commits"
+    done
+  fi
   if [[ -n "$ON_BRANCH_SET" ]]; then printf '%s\n' "${ON_BRANCH_TAGS[@]:-}" > "$WORK/branch-tags"
   else printf '%s\n' "${TAGS[@]:-}" > "$WORK/branch-tags"; fi
   OUT=$("$SCRIPT" --release-type "$1" --ref-name "$2" --current-version "$3" \
-    --tags-file "$WORK/tags" --branches-file "$WORK/branches" --branch-tags-file "$WORK/branch-tags" "${@:4}" 2>"$WORK/err")
+    --tags-file "$WORK/tags" --branches-file "$WORK/branches" --branch-tags-file "$WORK/branch-tags" \
+    --new-commits-file "$WORK/new-commits" "${@:4}" 2>"$WORK/err")
   CODE=$?
 }
 
@@ -75,14 +85,6 @@ TAGS=(v0.45.0-rc1) BRANCHES=(main)
 run rc main 0.45.0-rc1
 expect_fail "rc from main rejected once rc tags exist" "rc tags for 0.45.0 already exist"
 
-# --- rc after GA --------------------------------------------------------------------------------
-TAGS=(v0.45.0-rc1 v0.45.0 v0.45.1) BRANCHES=(main release/0.45)
-run rc release/0.45 0.45.0
-expect_fail "rc rejected once the version is released" "v0.45.0 is already released"
-TAGS=(v0.44.3) BRANCHES=(main release/0.44)
-run rc release/0.44 0.44.3-SNAPSHOT
-expect_fail "rc rejected on a SNAPSHOT of an already released version" "v0.44.3 is already released"
-
 # --- alpha ------------------------------------------------------------------------------------
 TAGS=(v0.46.0-alpha1 v0.46.0-alpha2 v0.46.0-alpha10 v0.45.0-alpha7) BRANCHES=(main)
 run alpha main 0.46.0-SNAPSHOT
@@ -103,10 +105,6 @@ expect_ok "GA builds from highest rc tag" COMPUTED_VERSION=0.45.0 SOURCE_TAG=v0.
 TAGS=()
 run GA release/0.45 0.45.0-SNAPSHOT
 expect_ok "GA without rc tags falls back to branch tip" COMPUTED_VERSION=0.45.0
-
-TAGS=(v0.45.0-rc1 v0.45.0)
-run GA release/0.45 0.45.0-rc1
-expect_fail "GA rejected when tag exists" "Tag v0.45.0 already exists"
 
 TAGS=()
 run GA main 0.45.0-SNAPSHOT
@@ -132,6 +130,59 @@ printf '%s\n' "${TAGS[@]}" > "$WORK/tags"; printf 'release/0.45\n' > "$WORK/bran
 OUT=$("$SCRIPT" --release-type GA --ref-name release/0.45 --current-version 0.45.0-rc1 \
   --tags-file "$WORK/tags" --branches-file "$WORK/branches" 2>"$WORK/err"); CODE=$?
 expect_fail "GA requires --branch-tags-file" "--branch-tags-file is required for GA"
+
+# --- patch releases on a line that already has a release ---------------------------------------
+# version.txt is stale at 0.45.0 because custom patch tags (v0.45.1) never update it.
+TAGS=(v0.45.0-rc5 v0.45.0 v0.45.1) BRANCHES=(main release/0.45)
+run GA release/0.45 0.45.0
+expect_ok "GA after a release targets the next patch" COMPUTED_VERSION=0.45.2
+run rc release/0.45 0.45.0
+expect_ok "rc after a release targets the next patch" COMPUTED_VERSION=0.45.2-rc1
+
+TAGS=(v0.45.0 v0.45.1 v0.45.2)
+run GA release/0.45 0.45.2
+expect_ok "GA counts every released patch" COMPUTED_VERSION=0.45.3
+
+TAGS=(v0.44.3)
+run GA release/0.44 0.44.3-SNAPSHOT
+expect_ok "GA after a SNAPSHOT of a released version targets the next patch" COMPUTED_VERSION=0.44.4
+
+TAGS=(v0.45.0 v0.45.1 v0.45.2-rc1)
+run rc release/0.45 0.45.2-rc1
+expect_ok "next patch rc counts its own rc tags" COMPUTED_VERSION=0.45.2-rc2
+TAGS=(v0.45.0 v0.45.1 v0.45.2-rc1)
+run GA release/0.45 0.45.2-rc1
+expect_ok "patch GA builds from its rc" COMPUTED_VERSION=0.45.2 SOURCE_TAG=v0.45.2-rc1
+
+TAGS=(v0.45.0 v0.46.0)
+run GA release/0.45 0.45.0
+expect_ok "patch numbering ignores other release lines" COMPUTED_VERSION=0.45.1
+
+TAGS=(v0.45.0 v0.45.1) NEW_COMMITS=("v0.45.0 5" "v0.45.1 0") NEW_COMMITS_SET=1
+run GA release/0.45 0.45.0
+expect_fail "GA fails with nothing to release" "Nothing to release: 'release/0.45' has no new commits since v0.45.1"
+run rc release/0.45 0.45.0
+expect_fail "rc fails with nothing to release" "Nothing to release"
+
+NEW_COMMITS=("v0.45.0 5")
+run GA release/0.45 0.45.0
+expect_fail "GA fails without a commit count for the last release" "No commit count for v0.45.1"
+NEW_COMMITS_SET=""
+
+# Cherry-picks after the source rc would be dropped by a GA built from it.
+TAGS=(v0.45.0 v0.45.1 v0.45.2-rc1) NEW_COMMITS=("v0.45.1 4" "v0.45.2-rc1 2") NEW_COMMITS_SET=1
+run GA release/0.45 0.45.2-rc1
+expect_fail "GA fails with commits after the source rc" "has commits after v0.45.2-rc1"
+NEW_COMMITS=("v0.45.1 4" "v0.45.2-rc1 0")
+run GA release/0.45 0.45.2-rc1
+expect_ok "GA allowed when nothing follows the source rc" COMPUTED_VERSION=0.45.2 SOURCE_TAG=v0.45.2-rc1
+NEW_COMMITS=() NEW_COMMITS_SET=""
+
+# First release of a line: nothing to compare against, so no commit guards apply.
+TAGS=(v0.46.0-rc1) BRANCHES=(main release/0.46) NEW_COMMITS=("v0.46.0-rc1 0") NEW_COMMITS_SET=1
+run GA release/0.46 0.46.0-rc1
+expect_ok "first GA of a line" COMPUTED_VERSION=0.46.0 SOURCE_TAG=v0.46.0-rc1
+NEW_COMMITS=() NEW_COMMITS_SET=""
 
 # --- custom -----------------------------------------------------------------------------------
 TAGS=(v0.45.0-rc4) BRANCHES=(main release/0.45)
@@ -220,9 +271,22 @@ g checkout -q --detach
 g commit -q --allow-empty -m "bump rc3"; g tag v0.45.0-rc3
 g checkout -q release/0.45
 g tag v0.45.0-alpha1
+g commit -q --allow-empty -m "Bump versions for v0.45.0"; g tag v0.45.0
+g commit -q --allow-empty -m "cherry-pick after GA"
+g checkout -q --detach
+g commit -q --allow-empty -m "Bump versions for v0.45.1"; g tag v0.45.1
+g checkout -q release/0.45
+g commit -q --allow-empty -m "second cherry-pick"
 OUT=$(cd "$REPO" && "$LIST" release/0.45 | sort | tr '\n' ' ')
-if [[ "$OUT" == "v0.45.0-rc1 v0.45.0-rc3 " ]]; then PASS=$((PASS + 1)); else
-  FAIL=$((FAIL + 1)); echo "FAIL list-branch-tags: want 'v0.45.0-rc1 v0.45.0-rc3 ' got '$OUT'"; fi
+if [[ "$OUT" == "v0.45.0 v0.45.0-rc1 v0.45.0-rc3 v0.45.1 " ]]; then PASS=$((PASS + 1)); else
+  FAIL=$((FAIL + 1)); echo "FAIL list-branch-tags: want 'v0.45.0 v0.45.0-rc1 v0.45.0-rc3 v0.45.1 ' got '$OUT'"; fi
+
+# count-new-commits.sh: counted from the tag's parent, ignoring bump and merge commits. The
+# tag-only v0.45.1 points at an off-branch bump commit whose parent (the cherry-pick) is on it.
+COUNT="$(cd "$(dirname "$SCRIPT")" && pwd)/count-new-commits.sh"
+OUT=$(cd "$REPO" && printf 'v0.45.0-rc1\nv0.45.0-rc3\nv0.45.0\nv0.45.1\n' | "$COUNT" release/0.45 | tr '\n' ',')
+if [[ "$OUT" == "v0.45.0-rc1 4,v0.45.0-rc3 2,v0.45.0 2,v0.45.1 1," ]]; then PASS=$((PASS + 1)); else
+  FAIL=$((FAIL + 1)); echo "FAIL count-new-commits: got '$OUT'"; fi
 
 echo "passed=$PASS failed=$FAIL"
 [[ $FAIL -eq 0 ]]
