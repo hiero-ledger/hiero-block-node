@@ -15,6 +15,46 @@ import "services/basic_types.proto";
 message ServerStatusRequest {}
 
 /**
+ * A request for the detailed status of a Block-Node.
+ *
+ * Each flag leaves one part out of the response. All flags default to `false`,
+ * so an empty request returns every part, exactly as before this message existed.
+ */
+message ServerStatusDetailRequest {
+    /**
+     * If set to `true` the response SHALL NOT include `version_information`.
+     */
+    bool exclude_versions = 1;
+
+    /**
+     * If set to `true` the response SHALL NOT include `available_ranges`.
+     */
+    bool exclude_available_ranges = 2;
+
+    /**
+     * If set to `true` the response SHALL NOT include `stored_ranges`.
+     */
+    bool exclude_stored_ranges = 3;
+
+    /**
+     * If set to `true` the response SHALL NOT include `node_address_book` and
+     * `ranged_address_book_history`.<br/>
+     * Those fields are deprecated in favour of the `getAddressBook` call and are
+     * still returned by default, so this flag lets a client leave out the large
+     * address book payload until they are removed.
+     */
+    bool exclude_address_book = 4;
+
+    /**
+     * If set to `true` the response SHALL NOT include `tss_data`.<br/>
+     * That field is deprecated in favour of the `getTssData` call and is still
+     * returned by default, so this flag lets a client leave it out until it is
+     * removed.
+     */
+    bool exclude_tss_data = 5;
+}
+
+/**
  * A response to a server status detail request.
  *
  * This message SHALL provide a client with extended detail information needed
@@ -45,14 +85,20 @@ message ServerStatusDetailResponse {
     /**
      * TSS Data from the block node server.
      * Ledger Id, wraps validation key, and TssRoster information
+     * <p>
+     * DEPRECATED: use the `getTssData` call. This field is still populated for
+     * one release so older clients keep working, and will then be removed.
      */
-    TssData tss_data = 3;
+    TssData tss_data = 3 [deprecated = true];
 
     /**
      * RSA Node Address Book Data from the block node server.
      * Node Id, rsa public key information
+     * <p>
+     * DEPRECATED: use the `getAddressBook` call. This field is still populated
+     * for one release so older clients keep working, and will then be removed.
      */
-    proto.NodeAddressBook node_address_book = 4;
+    proto.NodeAddressBook node_address_book = 4 [deprecated = true];
 
     /**
      * Stored block range information.<br/>
@@ -62,8 +108,71 @@ message ServerStatusDetailResponse {
 
     /**
      * Address Book history by block range
+     * <p>
+     * DEPRECATED: use the `getAddressBook` call. This field is still populated
+     * for one release so older clients keep working, and will then be removed.
      */
-    RangedAddressBookHistory ranged_address_book_history = 6;
+    RangedAddressBookHistory ranged_address_book_history = 6 [deprecated = true];
+}
+
+/**
+ * A request for the TSS data of a Block-Node.
+ */
+message TssDataRequest {
+    /**
+     * If set to `true` the response SHALL include only the most recent TSS
+     * data and SHALL NOT include `ranged_tss_data_history`.
+     */
+    bool exclude_history = 1;
+}
+
+/**
+ * A response to a TSS data request.
+ *
+ * Both fields MAY be unset when the Block-Node does not know any TSS data yet.
+ */
+message TssDataResponse {
+    /**
+     * The most recent TSS data of this Block-Node.<br/>
+     * Ledger Id, wraps validation key, and TssRoster information.
+     */
+    TssData tss_data = 1;
+
+    /**
+     * The history of the TSS data, by block range, ordered by block number.
+     * This field SHALL be unset when the request excludes history.
+     */
+    RangedTssDataHistory ranged_tss_data_history = 2;
+}
+
+/**
+ * A request for the RSA address book of a Block-Node.
+ */
+message AddressBookRequest {
+    /**
+     * If set to `true` the response SHALL include only the most recent address
+     * book and SHALL NOT include `ranged_address_book_history`.
+     */
+    bool exclude_history = 1;
+}
+
+/**
+ * A response to an address book request.
+ *
+ * Both fields MAY be unset when the Block-Node does not know any address book yet.
+ */
+message AddressBookResponse {
+    /**
+     * The most recent RSA node address book of this Block-Node.<br/>
+     * Node Id and RSA public key information.
+     */
+    proto.NodeAddressBook node_address_book = 1;
+
+    /**
+     * The address book history, by block range, ordered by block number.
+     * This field SHALL be unset when the request excludes history.
+     */
+    RangedAddressBookHistory ranged_address_book_history = 2;
 }
 
 /**
@@ -297,7 +406,23 @@ service BlockNodeService {
      * A client MAY request detail server status to check block version
      * information for compatibility.
      */
-    rpc serverStatusDetail(ServerStatusRequest) returns (ServerStatusDetailResponse);
+    rpc serverStatusDetail(ServerStatusDetailRequest) returns (ServerStatusDetailResponse);
+
+    /**
+     * Read the RSA node address book of this Block-Node.
+     * <p>
+     * A client MAY request only the most recent address book, or the address
+     * book history by block range.
+     */
+    rpc getAddressBook(AddressBookRequest) returns (AddressBookResponse);
+
+    /**
+     * Read the TSS data of this Block-Node.
+     * <p>
+     * A client MAY request only the most recent TSS data, or the TSS data
+     * history by block range.
+     */
+    rpc getTssData(TssDataRequest) returns (TssDataResponse);
 }
 
 /**
@@ -364,3 +489,44 @@ message RangedNodeAddressBook {
     uint64 end_block = 3;
 }
 
+/**
+ * An ordered history of TSS data, by block range.
+ *
+ * Entries are ordered from oldest (lowest start_block) to newest.
+ */
+message RangedTssDataHistory {
+    /**
+     * An ordered list of block-range-scoped TSS data, from oldest to newest.
+     */
+    repeated RangedTssData tss_data = 1;
+}
+
+/**
+ * TSS data scoped to a specific block-number range.
+ *
+ * The TSS data is valid for all blocks whose block number satisfies:
+ *   start_block &le; block_number &le; end_block
+ *
+ * When end_block is -1 (max uint64 in wire form) the entry is open-ended:
+ * it covers all blocks with block number &ge; start_block. Only the last entry
+ * in a RangedTssDataHistory should have end_block = -1.
+ */
+message RangedTssData {
+    /**
+     * The TSS data in effect for this block-number range.
+     */
+    TssData tss_data = 1;
+
+    /**
+     * The first block number for which this TSS data is valid (inclusive).
+     */
+    uint64 start_block = 2;
+
+    /**
+     * The last block number for which this TSS data is valid (inclusive).
+     * A value of -1 (max uint64 in wire form) is a sentinel meaning
+     * open-ended: this TSS data covers all blocks with block number
+     * &ge; start_block.
+     */
+    uint64 end_block = 3;
+}

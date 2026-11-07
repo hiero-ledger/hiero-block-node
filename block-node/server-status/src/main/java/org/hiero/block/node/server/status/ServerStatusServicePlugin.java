@@ -8,19 +8,26 @@ import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
+import com.hedera.pbj.runtime.grpc.GrpcException;
+import com.hedera.pbj.runtime.grpc.GrpcStatus;
 import com.swirlds.config.api.Configuration;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import org.hiero.block.api.AddressBookRequest;
+import org.hiero.block.api.AddressBookResponse;
 import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.RangedAddressBookHistory;
+import org.hiero.block.api.ServerStatusDetailRequest;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
 import org.hiero.block.api.TssData;
+import org.hiero.block.api.TssDataRequest;
+import org.hiero.block.api.TssDataResponse;
 import org.hiero.block.node.app.config.GlobalThrottleConfig;
 import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.spi.ApplicationStateFacility;
@@ -131,7 +138,7 @@ public class ServerStatusServicePlugin
      */
     @Override
     @NonNull
-    public ServerStatusDetailResponse serverStatusDetail(@NonNull final ServerStatusRequest request) {
+    public ServerStatusDetailResponse serverStatusDetail(@NonNull final ServerStatusDetailRequest request) {
         requestDetailCounter.increment();
 
         // Capture volatile snapshots for a consistent read within this call.
@@ -154,6 +161,32 @@ public class ServerStatusServicePlugin
                 .nodeAddressBook(nodeAddressBook)
                 .rangedAddressBookHistory(localHistory)
                 .build();
+    }
+
+    /**
+     * Not implemented yet. The API is defined first, the handler follows in a separate change.
+     *
+     * @param request the request
+     * @return never returns normally
+     * @throws GrpcException always, with status {@code UNIMPLEMENTED}
+     */
+    @Override
+    @NonNull
+    public AddressBookResponse getAddressBook(@NonNull final AddressBookRequest request) {
+        throw new GrpcException(GrpcStatus.UNIMPLEMENTED, "getAddressBook is not implemented yet");
+    }
+
+    /**
+     * Not implemented yet. The API is defined first, the handler follows in a separate change.
+     *
+     * @param request the request
+     * @return never returns normally
+     * @throws GrpcException always, with status {@code UNIMPLEMENTED}
+     */
+    @Override
+    @NonNull
+    public TssDataResponse getTssData(@NonNull final TssDataRequest request) {
+        throw new GrpcException(GrpcStatus.UNIMPLEMENTED, "getTssData is not implemented yet");
     }
 
     // ==== BlockNodePlugin Methods ====================================================================================

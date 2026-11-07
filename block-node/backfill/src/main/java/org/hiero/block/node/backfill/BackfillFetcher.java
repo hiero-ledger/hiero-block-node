@@ -17,8 +17,8 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.api.BlockRange;
+import org.hiero.block.api.ServerStatusDetailRequest;
 import org.hiero.block.api.ServerStatusDetailResponse;
-import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.internal.BlockNodeSource;
 import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.internal.BlockUnparsed;
@@ -180,7 +180,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
      */
     protected List<BlockRange> resolveAvailableRanges(BlockNodeClient node) {
         final ServerStatusDetailResponse nodeStatus =
-                node.getBlockNodeServiceClient().serverStatusDetail(new ServerStatusRequest());
+                node.getBlockNodeServiceClient().serverStatusDetail(ServerStatusDetailRequest.DEFAULT);
         final List<BlockRange> ranges =
                 new ArrayList<>(nodeStatus.availableRanges().size());
         for (final BlockRange range : nodeStatus.availableRanges()) {
