@@ -28,6 +28,9 @@ import org.hiero.block.internal.BlockUnparsed;
 /// rather than re-encoding an already-parsed `StateChange` by hand (which would need a switch
 /// over every oneof variant and go stale as HAPI adds more).
 ///
+/// Partial updates (`partial` / `cleared_fields`) are spliced onto the prior value from the state,
+/// see `DeltaMetadata`.
+///
 /// Token-relationship keys (`stateId == 9`, field 25) need no field-reorder despite CN's older
 /// reference applier performing one: the current proto carries this key as
 /// `AccountTokenAssociation`, already in `EntityIDPair` order (account_id=1, token_id=2).
@@ -102,10 +105,12 @@ final class StateChangeApplier {
         private Status failureStatus;
         private String failureDetail;
 
+        /// @return `true` once a failure has been recorded
         boolean failed() {
             return failureStatus != null;
         }
 
+        /// Record the first failure only; later ones are ignored so the root cause is reported.
         void fail(@NonNull final Status status, @NonNull final String detail) {
             if (failureStatus == null) {
                 failureStatus = status;
@@ -580,6 +585,9 @@ final class StateChangeApplier {
         return true;
     }
 
+    /// Record a failure if no `state_id` has been read yet.
+    ///
+    /// @return `true` if `stateId` is known
     private static boolean requireStateId(final int stateId, @NonNull final Walk walk) {
         if (stateId < 0) {
             walk.fail(Status.MALFORMED_STATE_CHANGES, "StateChange missing state_id");
@@ -588,10 +596,12 @@ final class StateChangeApplier {
         return true;
     }
 
+    /// Skip a field this walk does not use, by the wire type in its tag.
     private static void skipField(@NonNull final ReadableSequentialData input, final int tag) throws IOException {
         ProtoParserTools.skipField(input, ProtoConstants.get(tag & ProtoConstants.TAG_WIRE_TYPE_MASK));
     }
 
+    /// Skip a length-prefixed message the walk does not need.
     private static void skipMessage(@NonNull final ReadableSequentialData input) {
         final int messageLength = input.readVarInt(false);
         input.skip(messageLength);

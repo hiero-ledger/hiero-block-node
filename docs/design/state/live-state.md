@@ -438,6 +438,17 @@ walking the wire format directly needs no such switch.
 | `QueuePopChange`             | `popQueue(stateId)`                            | —                                               |
 | `STATE_ADD` / `STATE_REMOVE` | (skipped — schema events, out of scope for v1) | —                                               |
 
+**Partial updates.** CN can encode a `MapUpdateChange` or `SingletonUpdateChange` as a partial
+(`partial = true`, plus `cleared_fields`): only the top-level fields that changed, rather than the
+whole value. The applier reads the prior value from `BinaryState` (`getKv` / `getSingleton`) and
+splices the changed fields onto it with PBJ's `PartialApplier.splice`, replacing whole top-level
+fields and dropping the cleared ones, then stores the result. A partial with no prior value
+halts with `PARTIAL_WITHOUT_BASELINE`, and an invalid one (bad flag, unknown metadata,
+`cleared_fields` on a full update, unsorted or overlapping cleared fields, bad framing) halts as
+`MALFORMED_STATE_CHANGES`. Partials need the previous value, so blocks must be applied in order,
+which the apply path already guarantees. `splice` expects canonical PBJ encodings, so a
+non-canonical producer would surface as a footer hash mismatch.
+
 Token-relationship keys (`stateId == 9`) need no special-casing for the current wire format:
 this plugin's pinned `state_changes.proto` carries that key as `AccountTokenAssociation`
 (field 25), introduced upstream specifically so its field order/types match state's
@@ -551,6 +562,7 @@ alongside those features.
 | Footer hash digest length differs from this build's (e.g. a SHA-256 footer against a SHA-384 `VirtualMap` hash)                                                                                                        | Same halt as any other `startOfBlockStateRootHash` mismatch, but logged distinctly as a digest-length mismatch rather than genuine divergence (#3813). Does not self-resolve: needs a CN release or state-library pin that matches the source chain's digest. See §6.5. |
 | First block after a fresh (no-snapshot) start is N > 0, not 0                                                                                                                                                          | Halt with a distinct "No seed state for block N" ERROR log; `hashMismatchTotal` is not incremented. Provide a snapshot (§6.5).                                                                                                                                          |
 | Malformed `state_changes` item                                                                                                                                                                                         | Applier returns `MALFORMED_STATE_CHANGES`; plugin halts and refuses to advance past that block.                                                                                                                                                                         |
+| Partial update with no prior value (`PARTIAL_WITHOUT_BASELINE`)                                                                                                                                                        | Applier returns `PARTIAL_WITHOUT_BASELINE`; plugin halts, since state and stream have diverged. Recovery is a restart from a snapshot at or before the missing value.                                                                                                   |
 | Legacy field-2 token-association encoding on a `stateId == 9` change                                                                                                                                                   | Halt with a distinct "unsupported legacy token-association encoding" error, not a generic hash mismatch — this plugin does not remap field 2 the way consensus-node's reference applier does. See §7.                                                                   |
 | Verification gap                                                                                                                                                                                                       | A block ahead of the next expected one is not stored: the missing blocks are fetched from `historicalBlockProvider` one at a time, then the block is applied. If history lacks one, the block is dropped and the next notification retries.                             |
 | Historical block missing locally                                                                                                                                                                                       | Catch-up skips it; the same block can arrive via notification later.                                                                                                                                                                                                    |

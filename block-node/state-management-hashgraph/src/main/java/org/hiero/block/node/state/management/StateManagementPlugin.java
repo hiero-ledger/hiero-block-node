@@ -132,13 +132,17 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         }
     }
 
+    /// Placeholder until the first block is attested: no state, no block, no round.
     private static final AttestedSnapshot GENESIS_ATTESTED = new AttestedSnapshot(null, -1L, -1L);
 
     /// Volatile because reads happen on query threads.
     private volatile AttestedSnapshot attested = GENESIS_ATTESTED;
 
+    /// Backs `state_ready`: set once a sweep reaches the latest block, cleared on stop or halt.
     private final AtomicBoolean stateIsCaughtUp = new AtomicBoolean(false);
+    /// Set by `stop()` so an in-flight apply or sweep gives up instead of starting new work.
     private final AtomicBoolean stopping = new AtomicBoolean(false);
+    /// Terminal: once set no further block is applied, and recovery is a restart from a snapshot.
     private final AtomicBoolean applyHalted = new AtomicBoolean(false);
     private final AtomicLong hashMismatchTotal = new AtomicLong();
 
@@ -321,6 +325,8 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         if (lastApplied >= 0L && blockNumber <= lastApplied) {
             return; // a resend or backfill-sourced verification of an already applied block
         }
+        // Held across any gap-fill history reads below, which run on this messaging thread. That
+        // cost is not yet measured (#4031).
         applyLock.lock();
         try {
             if (applyHalted.get() || stopping.get()) {
@@ -364,7 +370,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     }
 
     // ── Package-private observers ─────────────────────────────────────────────
-    // Tests drive the plugin through its real entry points (applyPending, block delivery) and
+    // Tests drive the plugin through its real entry points (block delivery, start) and
     // assert against these observers.
 
     /// Whether historical catch-up has completed.
@@ -407,6 +413,8 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             if (snapshot.state().getRoot().tryReserve()) {
                 return new ReservedState(snapshot);
             }
+            // tryReserve fails only if the apply thread already released this state, which means
+            // a newer one is published: reload and reserve that instead.
         }
     }
 

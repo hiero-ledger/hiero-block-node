@@ -28,7 +28,8 @@ Full per-block walkthrough: `docs/design/state/live-state.md` §6.
 All values written to `BinaryState` are the raw payload of the oneof-selected field of each
 `com.hedera.hapi.block.stream.output` wrapper, the same bytes the consensus node stores:
 
-- Singletons store the payload of `SingletonUpdateChange`.
+- Singletons store the payload of `SingletonUpdateChange`. A partial update is spliced onto the
+  prior value first (see `docs/design/state/live-state.md` §7).
 - KV entries use the payload of `MapChangeKey` as the key and of `MapChangeValue` as the value.
 - Queues store the payload of each `QueuePushChange`.
 
@@ -51,6 +52,7 @@ classpath; opt-in lives in the deployment manifest.
 | Digest-length mismatch (e.g. SHA-256 footer vs. this build's SHA-384)      | Halt, logged distinctly from a genuine divergence.                                                                             |
 | Legacy field-2 token-association encoding                                  | Halt with a distinct error, not a generic hash mismatch.                                                                       |
 | Malformed `state_changes` item                                             | That block's apply aborts; plugin does not advance past it.                                                                    |
+| Partial update with no prior value                                         | Halt (`PARTIAL_WITHOUT_BASELINE`).                                                                                             |
 | Verification gap (block ahead of the next expected)                        | Missing blocks fetched from `historicalBlockProvider` one at a time; dropped if unavailable, retried on the next notification. |
 
 A restored snapshot is trusted as a previously stored attested state. Its root hash is first
