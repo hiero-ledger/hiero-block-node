@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.cloud.storage.archive;
 
+import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.base.ParseHelper.standardParse;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
@@ -26,6 +27,8 @@ import org.hiero.block.node.base.CompressionType;
 /// part) to locate the last valid tar header — used by [StartupRecoveryTask] when trimming a
 /// partially-written part.
 final class TarEntries {
+
+    private static final System.Logger LOGGER = System.getLogger(TarEntries.class.getName());
 
     /// The extension appended to every block entry's filename inside the tar.
     private static final String EXTENSION = ".blk.zstd";
@@ -126,6 +129,7 @@ final class TarEntries {
             final Timestamp blockTimestamp = header.blockTimestamp();
             return blockTimestamp == null ? 0L : blockTimestamp.seconds();
         } catch (final ParseException e) {
+            LOGGER.log(WARNING, "Unable to parse block header, tar entry modification time set to 0", e);
             return 0L;
         }
     }
