@@ -6,9 +6,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertIterableEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -87,7 +89,8 @@ class BlockStreamSimulatorTest {
                 publishStreamGrpcServer,
                 consumerStreamGrpcClient,
                 simulatorModeHandler,
-                configurationLoggingMock);
+                configurationLoggingMock,
+                metricsService);
     }
 
     @AfterEach
@@ -119,7 +122,6 @@ class BlockStreamSimulatorTest {
         SimulatorModeHandler consumerModeHandler = new ConsumerModeHandler(consumerStreamGrpcClient);
         Configuration configuration = TestUtils.getTestConfiguration(Map.of("blockStream.simulatorMode", "CONSUMER"));
 
-        metricsService = new MetricsServiceImpl(configuration);
         blockStreamSimulator = new BlockStreamSimulatorApp(
                 configuration,
                 blockStreamManager,
@@ -127,7 +129,8 @@ class BlockStreamSimulatorTest {
                 publishStreamGrpcServer,
                 consumerStreamGrpcClient,
                 consumerModeHandler,
-                configurationLoggingMock);
+                configurationLoggingMock,
+                metricsService);
         blockStreamSimulator.start();
 
         verify(consumerStreamGrpcClient).init();
@@ -175,7 +178,8 @@ class BlockStreamSimulatorTest {
                 publishStreamGrpcServer,
                 consumerStreamGrpcClient,
                 publisherClientModeHandler,
-                configurationLoggingMock);
+                configurationLoggingMock,
+                metricsService);
 
         blockStreamSimulator.start();
         assertTrue(blockStreamSimulator.isRunning());
@@ -193,7 +197,6 @@ class BlockStreamSimulatorTest {
         Configuration configuration =
                 TestUtils.getTestConfiguration(Map.of("blockStream.simulatorMode", "PUBLISHER_CLIENT"));
 
-        metricsService = new MetricsServiceImpl(configuration);
         blockStreamSimulator = new BlockStreamSimulatorApp(
                 configuration,
                 blockStreamManager,
@@ -201,7 +204,8 @@ class BlockStreamSimulatorTest {
                 publishStreamGrpcServer,
                 consumerStreamGrpcClient,
                 publisherClientModeHandler,
-                configurationLoggingMock);
+                configurationLoggingMock,
+                metricsService);
 
         assertDoesNotThrow(() -> blockStreamSimulator.stop());
         assertFalse(blockStreamSimulator.isRunning());
@@ -213,7 +217,6 @@ class BlockStreamSimulatorTest {
         SimulatorModeHandler consumerModeHandler = new ConsumerModeHandler(consumerStreamGrpcClient);
         Configuration configuration = TestUtils.getTestConfiguration(Map.of("blockStream.simulatorMode", "CONSUMER"));
 
-        metricsService = new MetricsServiceImpl(configuration);
         blockStreamSimulator = new BlockStreamSimulatorApp(
                 configuration,
                 blockStreamManager,
@@ -221,10 +224,52 @@ class BlockStreamSimulatorTest {
                 publishStreamGrpcServer,
                 consumerStreamGrpcClient,
                 consumerModeHandler,
-                configurationLoggingMock);
+                configurationLoggingMock,
+                metricsService);
         assertDoesNotThrow(() -> blockStreamSimulator.stop());
         assertFalse(blockStreamSimulator.isRunning());
         verify(consumerStreamGrpcClient, atLeast(1)).completeStreaming();
+    }
+
+    @Test
+    void stop_closesMetricsServiceWhenModeHandlerStopFails() throws InterruptedException, IOException {
+        final SimulatorModeHandler failingModeHandler = mock(SimulatorModeHandler.class);
+        final MetricsService metricsServiceMock = mock(MetricsService.class);
+        doThrow(new IllegalStateException("stop failed"))
+                .when(failingModeHandler)
+                .stop();
+        final BlockStreamSimulatorApp simulator = new BlockStreamSimulatorApp(
+                TestUtils.getTestConfiguration(),
+                blockStreamManager,
+                publishStreamGrpcClient,
+                publishStreamGrpcServer,
+                consumerStreamGrpcClient,
+                failingModeHandler,
+                configurationLoggingMock,
+                metricsServiceMock);
+
+        assertThrows(IllegalStateException.class, simulator::stop);
+        verify(metricsServiceMock).close();
+        assertFalse(simulator.isRunning());
+    }
+
+    @Test
+    void stop_doesNotThrowWhenMetricsServiceCloseFails() throws InterruptedException, IOException {
+        final MetricsService metricsServiceMock = mock(MetricsService.class);
+        doThrow(new IOException("close failed")).when(metricsServiceMock).close();
+        final BlockStreamSimulatorApp simulator = new BlockStreamSimulatorApp(
+                TestUtils.getTestConfiguration(),
+                blockStreamManager,
+                publishStreamGrpcClient,
+                publishStreamGrpcServer,
+                consumerStreamGrpcClient,
+                mock(SimulatorModeHandler.class),
+                configurationLoggingMock,
+                metricsServiceMock);
+
+        assertDoesNotThrow(simulator::stop);
+        verify(metricsServiceMock).close();
+        assertFalse(simulator.isRunning());
     }
 
     @Test
@@ -259,7 +304,8 @@ class BlockStreamSimulatorTest {
                 publishStreamGrpcServer,
                 consumerStreamGrpcClient,
                 publisherClientModeHandler,
-                configurationLoggingMock);
+                configurationLoggingMock,
+                metricsService);
 
         blockStreamSimulator.start();
         assertTrue(blockStreamSimulator.isRunning());
@@ -310,7 +356,8 @@ class BlockStreamSimulatorTest {
                 publishStreamGrpcServer,
                 consumerStreamGrpcClient,
                 publisherClientModeHandler,
-                configurationLoggingMock);
+                configurationLoggingMock,
+                metricsService);
         List<LogRecord> logRecords = captureLogs();
 
         blockStreamSimulator.start();

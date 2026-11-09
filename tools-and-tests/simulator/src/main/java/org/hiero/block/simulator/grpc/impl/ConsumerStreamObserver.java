@@ -6,7 +6,7 @@ import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
-import static org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter.LiveBlocksConsumed;
+import static org.hiero.block.simulator.metrics.SimulatorMetricsProvider.LIVE_BLOCKS_CONSUMED_KEY;
 
 import com.hedera.hapi.block.stream.protoc.BlockItem;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -83,8 +83,7 @@ public class ConsumerStreamObserver implements StreamObserver<SubscribeStreamRes
             case STATUS -> LOGGER.log(INFO, "Received Response " + subscribeStreamResponse);
             case BLOCK_ITEMS ->
                 processBlockItems(subscribeStreamResponse.getBlockItems().getBlockItemsList());
-            case ResponseCase.END_OF_BLOCK ->
-                metricsService.get(LiveBlocksConsumed).increment();
+            case ResponseCase.END_OF_BLOCK -> metricsService.incrementCounterNoLabels(LIVE_BLOCKS_CONSUMED_KEY);
             default -> throw new IllegalArgumentException("Unknown response type " + responseType);
         }
     }

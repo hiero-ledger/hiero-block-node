@@ -20,17 +20,19 @@ import java.security.NoSuchAlgorithmException;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Objects;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.NetworkConnection;
 import org.hiero.block.api.NetworkConnection.ConnectionReference;
 import org.hiero.block.api.NetworkConnection.IpProtocol;
 import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.RangedAddressBookHistory;
+import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 final class ApplicationStateUtility {
     /// The logger for this class.
@@ -76,10 +78,56 @@ final class ApplicationStateUtility {
                                 > current.addressBooks().size());
     }
 
-    /// Merge two sets of block ranges into a single list of block ranges, in ascending order. Ranges that
-    /// overlap or are adjacent are combined, as in a `ConcurrentLongRangeSet`.
+    /// Returns {@code history} with adjacent eras that carry the same address book merged into one
+    /// era covering both block ranges. Histories built from Mirror Node data (the cloud bucket export
+    /// behind bootstrap files, or the REST API refresh) contain many such duplicates, because a new era
+    /// starts whenever any node entry changes but only node IDs and RSA keys are kept.
     ///
-    /// Each set yields its ranges in ascending order, so the two lists are merged in one pass, O(n + m).
+    /// Address books are compared ignoring node order, and a merged era keeps the later era's book.
+    /// Eras are merged only when the earlier one ends exactly one block before the later one starts,
+    /// so every block resolves to the same address book before and after merging.
+    ///
+    /// @param history the history to merge; must not be {@code null}
+    /// @return a history without adjacent duplicate eras, or {@code history} itself if it has none
+    static RangedAddressBookHistory mergeDuplicateEras(final RangedAddressBookHistory history) {
+        final List<RangedNodeAddressBook> eras = history.addressBooks();
+        final List<RangedNodeAddressBook> merged = new ArrayList<>(eras.size());
+        // Each book is sorted once and kept for the next comparison; the stored eras keep their order.
+        List<NodeAddress> previousBook = null;
+        for (final RangedNodeAddressBook era : eras) {
+            final List<NodeAddress> book = sortedByNodeId(era.addressBook());
+            final RangedNodeAddressBook previous = merged.isEmpty() ? null : merged.getLast();
+            if (previous != null
+                    && previous.endBlock() != -1L
+                    && previous.endBlock() + 1 == era.startBlock()
+                    && Objects.equals(previousBook, book)) {
+                merged.set(
+                        merged.size() - 1,
+                        era.copyBuilder().startBlock(previous.startBlock()).build());
+            } else {
+                merged.add(era);
+            }
+            previousBook = book;
+        }
+        return merged.size() == eras.size()
+                ? history
+                : history.copyBuilder().addressBooks(merged).build();
+    }
+
+    /// The book's nodes sorted by node ID, or {@code null} for an era without an address book.
+    private static List<NodeAddress> sortedByNodeId(final NodeAddressBook book) {
+        return book == null
+                ? null
+                : book.nodeAddress().stream()
+                        .sorted(Comparator.comparingLong(NodeAddress::nodeId))
+                        .toList();
+    }
+
+    /// Merge two sets of block ranges into a single list of block ranges, in ascending order. Ranges that
+    /// overlap or are adjacent are combined, as in a `ConcurrentBlockRangeSet`.
+    ///
+    /// Each set yields its ranges in ascending order, so the two lists are merged in one pass, O(n + m), by
+    /// [BlockRangeSet#merge(List, List)].
     /// Called unconditionally on every scan (not only when `availableBlocks` changes) — `storedBlocks` can
     /// change independently (e.g. a plugin calling `addStoredBlockRange`), and skipping the merge in that
     /// case previously let `storedBlocks()` regress to the unmerged, durable-only set once
@@ -88,44 +136,16 @@ final class ApplicationStateUtility {
     /// @param storedBlocks a set of stored blocks to merge into the result.
     /// @param availableBlocks a set of available blocks to merge into the result.
     static List<BlockRange> mergeRanges(final BlockRangeSet storedBlocks, final BlockRangeSet availableBlocks) {
-        final List<LongRange> stored = storedBlocks.streamRanges().toList();
-        final List<LongRange> available = availableBlocks.streamRanges().toList();
-        final List<BlockRange> merged = new ArrayList<>(stored.size() + available.size());
-        int s = 0;
-        int a = 0;
-        long start = 0;
-        long end = 0;
-        boolean open = false;
-        while (s < stored.size() || a < available.size()) {
-            // take whichever remaining range starts first
-            final LongRange next = a >= available.size()
-                            || (s < stored.size()
-                                    && stored.get(s).start() <= available.get(a).start())
-                    ? stored.get(s++)
-                    : available.get(a++);
-            if (open && next.start() <= end + 1) {
-                end = Math.max(end, next.end());
-            } else {
-                if (open) {
-                    merged.add(new BlockRange(start, end));
-                }
-                start = next.start();
-                end = next.end();
-                open = true;
-            }
-        }
-        if (open) {
-            merged.add(new BlockRange(start, end));
-        }
-        return merged;
+        return mergeRanges(storedBlocks, availableBlocks.toList());
     }
 
-    /// Convert BlockRangeSet to BlockRange
-    static List<BlockRange> toBlockRange(BlockRangeSet blockRangeSet) {
-        return blockRangeSet
-                .streamRanges()
-                .map(longRange -> new BlockRange(longRange.start(), longRange.end()))
-                .toList();
+    /// As [#mergeRanges(BlockRangeSet, BlockRangeSet)], for callers that already hold the available ranges as a
+    /// list and so avoid reading them from the set a second time.
+    ///
+    /// @param storedBlocks a set of stored blocks to merge into the result.
+    /// @param availableBlocks the available block ranges, ascending and non-overlapping, to merge.
+    static List<BlockRange> mergeRanges(final BlockRangeSet storedBlocks, final List<BlockRange> availableBlocks) {
+        return BlockRangeSet.merge(storedBlocks.toList(), availableBlocks);
     }
 
     /// Loads a [NetworkData] document from the given JSON file.

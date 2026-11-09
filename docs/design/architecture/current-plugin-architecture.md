@@ -149,7 +149,7 @@ A `BlockNodePlugin` provided by the `facility-app-state` module (`ApplicationSta
 ```java
 void updateTssData(TssData tssData);
 boolean updateAddressBookHistory(RangedAddressBookHistory history);
-void addStoredBlockRange(LongRange blockRange);
+void addStoredBlockRange(BlockRange blockRange);
 void updateAvailableBlocks();
 ```
 

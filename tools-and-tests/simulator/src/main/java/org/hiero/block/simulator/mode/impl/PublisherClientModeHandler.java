@@ -4,8 +4,8 @@ package org.hiero.block.simulator.mode.impl;
 import static java.lang.System.Logger.Level.INFO;
 import static java.util.Objects.requireNonNull;
 import static org.hiero.block.simulator.Constants.NANOS_PER_MILLI;
-import static org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter.LiveBlockItemsSent;
-import static org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter.LiveBlocksSent;
+import static org.hiero.block.simulator.metrics.SimulatorMetricsProvider.LIVE_BLOCKS_SENT_KEY;
+import static org.hiero.block.simulator.metrics.SimulatorMetricsProvider.LIVE_BLOCK_ITEMS_SENT_KEY;
 
 import com.hedera.hapi.block.stream.protoc.Block;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -163,10 +163,11 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
         LOGGER.log(
                 INFO,
                 "Number of BlockItems sent by the Block Stream Simulator: "
-                        + metricsService.getValue(LiveBlockItemsSent));
+                        + metricsService.getCounterNoLabelsValue(LIVE_BLOCK_ITEMS_SENT_KEY));
         LOGGER.log(
                 INFO,
-                "Number of Blocks sent by the Block Stream Simulator: " + metricsService.getValue(LiveBlocksSent));
+                "Number of Blocks sent by the Block Stream Simulator: "
+                        + metricsService.getCounterNoLabelsValue(LIVE_BLOCKS_SENT_KEY));
     }
 
     private void constantRateStreaming()

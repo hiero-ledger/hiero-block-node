@@ -1,0 +1,78 @@
+// SPDX-License-Identifier: Apache-2.0
+package org.hiero.block.node.spi.throttle;
+
+import edu.umd.cs.findbugs.annotations.NonNull;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+
+/// The node-wide concurrency ceiling for one throttled method, shared by every client of that
+/// method, whether or not the method also has its own per-client gate ([ClientThrottle]). Each
+/// method has its own ceiling, since each represents its own allocation of the node's shared
+/// capacity.
+///
+/// [#tryReserve] is a lock-free CAS loop (like [GcraLimiter]) so concurrent callers can never
+/// collectively overshoot the ceiling. [ClientThrottle] reserves this gate first and rolls back
+/// via [#release] if a later check rejects the call. [#tryAdmit] covers the simpler case: a method
+/// with no per-client gate at all, where this is the only check.
+final class GlobalConcurrencyGate {
+    private final int maxConcurrentGlobal;
+    private final AtomicInteger inFlight = new AtomicInteger();
+
+    /// @param maxConcurrentGlobal the node-wide concurrency ceiling this gate enforces
+    GlobalConcurrencyGate(final int maxConcurrentGlobal) {
+        this.maxConcurrentGlobal = maxConcurrentGlobal;
+    }
+
+    /// Atomically reserves a permit if the ceiling has not been reached.
+    ///
+    /// @return {@code true} if a permit was reserved (the caller must [#release] it exactly once,
+    ///     including rolling it back if a later check goes on to reject the call); {@code false}
+    ///     if the ceiling was already reached
+    boolean tryReserve() {
+        while (true) {
+            final int current = inFlight.get();
+            if (current >= maxConcurrentGlobal) {
+                return false;
+            }
+            if (inFlight.compareAndSet(current, current + 1)) {
+                return true;
+            }
+        }
+    }
+
+    /// @return the number of permits currently held, for the in-flight gauge
+    int inFlight() {
+        return inFlight.get();
+    }
+
+    /// Releases a permit previously committed via [#tryReserve].
+    void release() {
+        inFlight.decrementAndGet();
+    }
+
+    /// Admits a call using only this shared gate, for a method with no per-client settings
+    /// configured at all.
+    ///
+    /// Reservation and release happen at two different points in time this method has no
+    /// visibility into: it reserves a permit the instant it's called, but that permit must stay
+    /// held for the entire duration of the in-flight call, which could be a long-lived streaming
+    /// RPC. So an admitted call is handed a `Runnable` (wrapped in [AdmissionResult#admitted]) that
+    /// the caller invokes whenever the call actually completes, rather than this method releasing
+    /// the permit itself.
+    ///
+    /// @param description a human-readable label for this call's service/method, used in the
+    ///     rejection reason if the ceiling has been reached
+    /// @return the admission result, see [AdmissionResult]
+    @NonNull
+    AdmissionResult tryAdmit(@NonNull final String description) {
+        if (!tryReserve()) {
+            return AdmissionResult.rejected("node-wide concurrency limit reached for " + description);
+        }
+        final AtomicBoolean released = new AtomicBoolean(false);
+        return AdmissionResult.admitted(() -> {
+            if (released.compareAndSet(false, true)) {
+                release();
+            }
+        });
+    }
+}

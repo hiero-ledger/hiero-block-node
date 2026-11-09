@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator;
 
+import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_PROPERTIES;
 
@@ -15,6 +16,7 @@ import java.nio.file.Path;
 import java.security.NoSuchAlgorithmException;
 import org.hiero.block.simulator.config.SimulatorMappedConfigSourceInitializer;
 import org.hiero.block.simulator.exception.BlockSimulatorParsingException;
+import org.hiero.block.simulator.metrics.MetricsService;
 
 /** The BlockStreamSimulator class defines the simulator for the block stream. */
 public class BlockStreamSimulator {
@@ -48,6 +50,21 @@ public class BlockStreamSimulator {
 
         final BlockStreamSimulatorInjectionComponent DIComponent =
                 DaggerBlockStreamSimulatorInjectionComponent.factory().create(configuration);
+
+        // Close the metrics service on JVM shutdown so the metrics exporter (e.g. Prometheus HTTP
+        // server) is stopped. Only metrics are closed here: the mode handlers already shut down their
+        // gRPC clients when streaming ends, and closing them twice would fail.
+        final MetricsService metricsService = DIComponent.getMetricsService();
+        Runtime.getRuntime()
+                .addShutdownHook(new Thread(
+                        () -> {
+                            try {
+                                metricsService.close();
+                            } catch (final IOException e) {
+                                LOGGER.log(ERROR, "Failed to close metrics service", e);
+                            }
+                        },
+                        "simulator-metrics-shutdown"));
 
         final BlockStreamSimulatorApp blockStreamSimulatorApp = DIComponent.getBlockStreamSimulatorApp();
         blockStreamSimulatorApp.start();

@@ -80,6 +80,27 @@ Usage: {{ include "hiero-block-node.app.version" . }}
 {{- end -}}
 
 {{/*
+Validated plugins.source: "maven" (default) or "image".
+*/}}
+{{- define "hiero-block-node.pluginsSource" -}}
+{{- $source := default "maven" .Values.plugins.source -}}
+{{- if not (has $source (list "maven" "image")) -}}
+{{- fail (printf "plugins.source must be \"maven\" or \"image\", got %q" $source) -}}
+{{- end -}}
+{{- if eq $source "image" -}}
+{{- range splitList "," (default "" .Values.plugins.names) -}}
+{{- if contains ":" . -}}
+{{- fail (printf "plugins.names entry %q pins a version, which plugins.source=image does not support; use plugins.source=maven" (trim .)) -}}
+{{- end -}}
+{{- end -}}
+{{- if .Values.plugins.thirdParty -}}
+{{- fail "plugins.thirdParty requires plugins.source=maven; with plugins.source=image mount third-party jars via blockNode.persistence.plugins.existingClaim" -}}
+{{- end -}}
+{{- end -}}
+{{- $source -}}
+{{- end -}}
+
+{{/*
 Build JAVA_TOOL_OPTIONS combining logging config and metrics system properties.
 */}}
 {{- define "hiero-block-node.javaToolOptions" -}}

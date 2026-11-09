@@ -78,6 +78,20 @@ Observes the block access service that serves requests for blocks.
 
 ---
 
+### Read Bulkhead
+
+**Plugin:** shared SPI (`spi-plugins`), used by `block-access [block-access-service]` and `subscriber [stream-subscriber]`
+Observes the shared bulkhead that caps concurrent block-storage reads. See [Block Read Bulkhead Configuration](configuration.md#block-read-bulkhead-configuration) for sizing.
+
+|  Type   |           Name           |                                                 Labels                                                 |                                                                 Description                                                                 |
+|---------|--------------------------|--------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
+| Gauge   | `bulkhead_read_in_use`   | `resource` (`block`)                                                                                   | Permits currently held                                                                                                                      |
+| Counter | `bulkhead_read_requests` | `resource` (`block`), `method` (`get_block`, `subscriber_catch_up`), `status` (`acquired`, `rejected`) | Acquire attempts. A `rejected` `get_block` is returned to the client as `RESOURCE_EXHAUSTED`; a `rejected` `subscriber_catch_up` is retried |
+
+Saturation is `bulkhead_read_in_use` divided by the configured permits.
+
+---
+
 ### Block Messaging
 
 **Plugin:** `messaging [facility-messaging]`
@@ -100,6 +114,7 @@ Observes the messaging system that connects the publisher with subscribers and t
 | Counter | `messaging_address_book_history_update_notifications`   | Address book history update notifications sent                         |
 | Counter | `messaging_stored_blocks_update_notifications`          | Stored blocks update notifications sent                                |
 | Counter | `messaging_available_blocks_update_notifications`       | Available blocks update notifications sent                             |
+| Counter | `messaging_handler_failures`                            | Messages skipped after a message handler failed                        |
 
 ---
 
@@ -172,6 +187,24 @@ Measures block‑verification throughput and success rate.
 
 ---
 
+### State Management
+
+**Plugin:** `state-management [block-node-state-management-hashgraph]` (beta)
+Replays verified block-stream `state_changes` onto a live, queryable copy of Hashgraph state.
+
+|  Type   |            Name             |                              Description                              |
+|---------|-----------------------------|-----------------------------------------------------------------------|
+| Gauge   | `state_applied_block`       | Latest committed (reader-visible) block number applied to live state  |
+| Gauge   | `state_size`                | Node count of the latest network-attested state                       |
+| Gauge   | `state_pending_blocks`      | Blocks buffered awaiting apply (bounded by `pendingBlocksMax`)        |
+| Gauge   | `state_ready`               | `1` once catch-up has completed without halting, else `0`             |
+| Gauge   | `state_apply_halted`        | `1` when block apply has halted (e.g. footer hash mismatch), else `0` |
+| Gauge   | `state_apply_latency_ms`    | Wall-clock duration of the most recent block apply, in milliseconds   |
+| Counter | `state_hash_mismatch_total` | Cumulative footer hash mismatches observed                            |
+| Gauge   | `state_block_lag`           | Blocks between the latest available block and the attested block      |
+
+---
+
 ### files.recent
 
 **Plugin:** `block-providers/files.recent [block-node-blocks-file-recent]`
@@ -239,6 +272,22 @@ Observes the server status API that provides information about the node.
 |---------|----------------------------------|------------------------------------------|
 | Counter | `server_status_requests`         | Number of server status requests         |
 | Counter | `server_status_details_requests` | Number of server status details requests |
+
+### Throttle
+
+**Plugin:** `server-status [block-node-server-status]`
+Per-client and node-wide throttling of the `serverStatus` and `serverStatusDetail` methods. See [Throttle Configuration](./configuration.md#throttle-configuration).
+
+|  Type   |               Name                |                                                                                   Description                                                                                    |
+|---------|-----------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Counter | `throttle_calls`                  | Calls to a throttled method, labels: `service`, `method`, `outcome={admitted,rejected_global_concurrency,rejected_client_concurrency,rejected_rate}`                             |
+| Gauge   | `throttle_client_state_count`     | Number of distinct clients currently tracked by the throttle for a method, labels: `service`, `method`                                                                           |
+| Gauge   | `throttle_in_flight`              | Current node-wide count of in-flight calls holding a concurrency permit for a method, labels: `service`, `method`                                                                |
+| Gauge   | `throttle_clients_in_flight`      | Number of distinct clients currently holding at least one in-flight call for a method, labels: `service`, `method`                                                               |
+| Counter | `throttle_permits_reaped`         | Permits force-released by the sweep after exceeding `maxPermitHoldSeconds`, labels: `service`, `method`. A sustained non-zero rate means calls are abandoned without completing. |
+| Counter | `throttle_unknown_remote_address` | Calls whose client address could not be determined and were grouped under a shared fallback key                                                                                  |
+
+> **Note:** The throttle counters are registered without a `_total` suffix; Prometheus appends `_total` at scrape time (for example `throttle_calls_total`).
 
 ### Backfill
 
@@ -357,6 +406,7 @@ is a block-count cap, not a disk-size cap (see [Host / Volume](#host--volume-ext
 |----------|---------------------------------------------|-----------------------------------------------------------|
 | L        | `messaging_item_queue_percent_used`         | If percentage exceeds 60%, otherwise, configure as needed |
 | L        | `messaging_notification_queue_percent_used` | If percentage exceeds 60%, otherwise, configure as needed |
+| M        | `messaging_handler_failures`                | If value increases, otherwise, configure as needed        |
 
 **Latency**: Alerts for latency metrics in receiving, hashing, verifying, and persisting blocks
 
