@@ -65,7 +65,8 @@ class BlockUploadTaskTest {
 
     // @todo(2013) we should remove that and use another approach
     /// Shared MinIO container — started once before all tests and stopped after the last test.
-    private static final GenericContainer<?> MINIO_CONTAINER = new GenericContainer<>("minio/minio:latest")
+    private static final GenericContainer<?> MINIO_CONTAINER = new GenericContainer<>(
+                    "docker.io/pgsty/silo@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46")
             .withCommand("server /data")
             .withExposedPorts(MINIO_PORT)
             .withEnv("MINIO_ROOT_USER", MINIO_USER)
