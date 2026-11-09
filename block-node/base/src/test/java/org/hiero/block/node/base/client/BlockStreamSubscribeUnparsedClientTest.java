@@ -16,6 +16,8 @@ import com.hedera.pbj.runtime.grpc.GrpcCall;
 import com.hedera.pbj.runtime.grpc.GrpcClient;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Consumer;
@@ -29,6 +31,7 @@ import org.hiero.block.node.base.client.BlockStreamSubscribeUnparsedClient.Batch
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 class BlockStreamSubscribeUnparsedClientTest {
 
@@ -41,12 +44,15 @@ class BlockStreamSubscribeUnparsedClientTest {
         // other than the timeout itself.
         doReturn(grpcCall).when(grpcClient).createCall(any(), any(), any(), any(), anyMap());
 
-        final BlockStreamSubscribeUnparsedClient client = new BlockStreamSubscribeUnparsedClient(grpcClient, 50L);
+        final BlockStreamSubscribeUnparsedClient client =
+                new BlockStreamSubscribeUnparsedClient(grpcClient, 5_000L, 50L);
 
         final BatchResult result = client.getBatchOfBlocks(1, 2);
 
         assertThat(result.blocks()).isEmpty();
-        assertThat(result.error()).hasMessage("Timed out waiting for block stream response");
+        assertThat(result.error())
+                .hasMessage(
+                        "No block stream response received within the inactivity timeout (BACKFILL_GRPC_INACTIVITY_TIMEOUT=50 ms)");
     }
 
     @Test
@@ -61,6 +67,14 @@ class BlockStreamSubscribeUnparsedClientTest {
     /// soon as the request is sent.
     private static BlockStreamSubscribeUnparsedClient clientWithPeer(
             final Consumer<Pipeline<SubscribeStreamResponseUnparsed>> peer) {
+        return clientWithPeer(peer, 5_000L, 5_000L);
+    }
+
+    /// Same as [#clientWithPeer(Consumer)], with the given request timeouts.
+    private static BlockStreamSubscribeUnparsedClient clientWithPeer(
+            final Consumer<Pipeline<SubscribeStreamResponseUnparsed>> peer,
+            final long overallTimeoutMs,
+            final long inactivityTimeoutMs) {
         final GrpcClient grpcClient = mock(GrpcClient.class);
         doAnswer(invocation -> {
                     final Pipeline<SubscribeStreamResponseUnparsed> pipeline = invocation.getArgument(3);
@@ -75,7 +89,26 @@ class BlockStreamSubscribeUnparsedClientTest {
                 })
                 .when(grpcClient)
                 .createCall(any(), any(), any(), any(), anyMap());
-        return new BlockStreamSubscribeUnparsedClient(grpcClient, 5_000L);
+        return new BlockStreamSubscribeUnparsedClient(grpcClient, overallTimeoutMs, inactivityTimeoutMs);
+    }
+
+    /// Sends blocks `first` to `last` from a background thread, one every `intervalMs`, then runs `atEnd`.
+    /// The thread stops early, without running `atEnd`, once `stop` is set.
+    private static Consumer<Pipeline<SubscribeStreamResponseUnparsed>> slowPeer(
+            final long first,
+            final long last,
+            final long intervalMs,
+            final AtomicBoolean stop,
+            final Consumer<Pipeline<SubscribeStreamResponseUnparsed>> atEnd) {
+        return pipeline -> Thread.ofPlatform().daemon().start(() -> {
+            for (long number = first; number <= last && !stop.get(); number++) {
+                LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(intervalMs));
+                sendFullBlock(pipeline, number);
+            }
+            if (!stop.get()) {
+                atEnd.accept(pipeline);
+            }
+        });
     }
 
     private static SubscribeStreamResponseUnparsed items(final List<BlockItemUnparsed> blockItems) {
@@ -194,7 +227,7 @@ class BlockStreamSubscribeUnparsedClientTest {
                         .when(grpcClient)
                         .createCall(any(), any(), any(), any(), anyMap());
                 final BlockStreamSubscribeUnparsedClient client =
-                        new BlockStreamSubscribeUnparsedClient(grpcClient, 1L);
+                        new BlockStreamSubscribeUnparsedClient(grpcClient, 1L, 1L);
 
                 final BatchResult result = client.getBatchOfBlocks(7, 8);
 
@@ -342,12 +375,14 @@ class BlockStreamSubscribeUnparsedClientTest {
                     })
                     .when(grpcClient)
                     .createCall(any(), any(), any(), any(), anyMap());
-            final BlockStreamSubscribeUnparsedClient client = new BlockStreamSubscribeUnparsedClient(grpcClient, 50L);
+            final BlockStreamSubscribeUnparsedClient client =
+                    new BlockStreamSubscribeUnparsedClient(grpcClient, 50L, 50L);
 
             final BatchResult result = client.getBatchOfBlocks(3, 6);
 
             assertThat(result.blocks()).hasSize(2);
-            assertThat(result.error()).hasMessage("Timed out waiting for block stream response");
+            assertThat(result.error())
+                    .hasMessage("Timed out waiting for block stream response (BACKFILL_GRPC_OVERALL_TIMEOUT=50 ms)");
         }
 
         @Test
@@ -403,7 +438,8 @@ class BlockStreamSubscribeUnparsedClientTest {
                     })
                     .when(grpcClient)
                     .createCall(any(), any(), any(), any(), anyMap());
-            final BlockStreamSubscribeUnparsedClient client = new BlockStreamSubscribeUnparsedClient(grpcClient, 50L);
+            final BlockStreamSubscribeUnparsedClient client =
+                    new BlockStreamSubscribeUnparsedClient(grpcClient, 50L, 50L);
 
             final BatchResult result = client.getBatchOfBlocks(3, 5);
             // The abandoned stream keeps delivering, including the rest of the range and a late error.
@@ -413,7 +449,8 @@ class BlockStreamSubscribeUnparsedClientTest {
 
             assertThat(result.blocks())
                     .containsExactly(generateBlockWithNumber(3).blockUnparsed());
-            assertThat(result.error()).hasMessage("Timed out waiting for block stream response");
+            assertThat(result.error())
+                    .hasMessage("Timed out waiting for block stream response (BACKFILL_GRPC_OVERALL_TIMEOUT=50 ms)");
         }
 
         @Test
@@ -423,7 +460,7 @@ class BlockStreamSubscribeUnparsedClientTest {
             final RuntimeException failure = new IllegalStateException("connection is closed");
             doThrow(failure).when(grpcClient).createCall(any(), any(), any(), any(), anyMap());
             final BlockStreamSubscribeUnparsedClient client =
-                    new BlockStreamSubscribeUnparsedClient(grpcClient, 5_000L);
+                    new BlockStreamSubscribeUnparsedClient(grpcClient, 5_000L, 5_000L);
 
             final BatchResult result = client.getBatchOfBlocks(3, 4);
 
@@ -440,12 +477,84 @@ class BlockStreamSubscribeUnparsedClientTest {
             doThrow(failure).when(call).sendRequest(any(), anyBoolean());
             doReturn(call).when(grpcClient).createCall(any(), any(), any(), any(), anyMap());
             final BlockStreamSubscribeUnparsedClient client =
-                    new BlockStreamSubscribeUnparsedClient(grpcClient, 5_000L);
+                    new BlockStreamSubscribeUnparsedClient(grpcClient, 5_000L, 5_000L);
 
             final BatchResult result = client.getBatchOfBlocks(3, 4);
 
             assertThat(result.blocks()).isEmpty();
             assertThat(result.error()).isSameAs(failure);
+        }
+    }
+
+    @Nested
+    @DisplayName("Progress-based timeout")
+    class ProgressTimeoutTests {
+
+        @Test
+        @Timeout(10)
+        @DisplayName("A stream that keeps sending completes even when it takes longer than the inactivity timeout")
+        void steadyStreamOutlivesInactivityTimeout() {
+            // 6 blocks, 100 ms apart, take about 600 ms in total: twice the inactivity timeout.
+            final BlockStreamSubscribeUnparsedClient client = clientWithPeer(
+                    slowPeer(3, 8, 100, new AtomicBoolean(), pipeline -> {
+                        pipeline.onNext(SubscribeStreamResponseUnparsed.newBuilder()
+                                .status(SubscribeStreamResponse.Code.SUCCESS)
+                                .build());
+                        pipeline.onComplete();
+                    }),
+                    5_000L,
+                    300L);
+
+            final BatchResult result = client.getBatchOfBlocks(3, 8);
+
+            assertThat(result.error()).isNull();
+            assertThat(result.blocks()).hasSize(6);
+        }
+
+        @Test
+        @Timeout(10)
+        @DisplayName("A stream that stops sending ends after the inactivity timeout with the blocks received")
+        void stalledStreamEndsAfterInactivityTimeout() {
+            final BlockStreamSubscribeUnparsedClient client = clientWithPeer(
+                    pipeline -> {
+                        sendFullBlock(pipeline, 3);
+                        sendFullBlock(pipeline, 4);
+                    },
+                    5_000L,
+                    200L);
+
+            final long startNanos = System.nanoTime();
+            final BatchResult result = client.getBatchOfBlocks(3, 6);
+            final long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
+
+            assertThat(result.blocks()).hasSize(2);
+            assertThat(result.error())
+                    .hasMessage(
+                            "No block stream response received within the inactivity timeout (BACKFILL_GRPC_INACTIVITY_TIMEOUT=200 ms)");
+            assertThat(elapsedMs).isBetween(200L, 2_000L);
+        }
+
+        @Test
+        @Timeout(10)
+        @DisplayName("A stream that keeps trickling ends at the overall timeout with the blocks received")
+        void tricklingStreamEndsAtOverallTimeout() {
+            // A block every 20 ms never trips the 1 s inactivity timeout, and 100 blocks would take 2 s.
+            final AtomicBoolean stopPeer = new AtomicBoolean();
+            final BlockStreamSubscribeUnparsedClient client =
+                    clientWithPeer(slowPeer(3, 102, 20, stopPeer, pipeline -> {}), 1_500L, 1_000L);
+
+            final long startNanos = System.nanoTime();
+            final BatchResult result = client.getBatchOfBlocks(3, 102);
+            final long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
+            // The request is finished, so the peer has nothing left to send to.
+            stopPeer.set(true);
+
+            assertThat(result.error())
+                    .hasMessage("Timed out waiting for block stream response (BACKFILL_GRPC_OVERALL_TIMEOUT=1500 ms)");
+            assertThat(result.blocks()).isNotEmpty().hasSizeLessThan(100);
+            assertThat(result.blocks().getFirst())
+                    .isEqualTo(generateBlockWithNumber(3).blockUnparsed());
+            assertThat(elapsedMs).isBetween(1_500L, 4_000L);
         }
     }
 }

@@ -91,6 +91,7 @@ class BackfillFetcherTest {
                 15_000, // initialDelay
                 perBlockProcessingTimeout,
                 grpcOverallTimeout,
+                20_000, // grpcInactivityTimeout
                 104_857_600, // maxIncomingBufferSize (100 MB default)
                 BackfillConfiguration.DEFAULT_MAX_PROTOBUF_MESSAGE_SIZE_BYTES, // maxProtobufMessageSizeBytes default
                 false, // enableTLS
