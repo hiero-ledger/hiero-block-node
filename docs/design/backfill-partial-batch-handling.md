@@ -257,6 +257,17 @@ A batch request is bounded by two limits:
   very large block keeps the stream alive while it is being sent. A peer
   configured with much larger messages gets fewer progress signals, and needs a
   correspondingly larger inactivity timeout.
+
+  Progress counts only complete messages: pbj hands a message to the client
+  once all of it has arrived. A block item larger than the chunk size is sent
+  as one message, so the inactivity timeout must cover the transfer of the
+  largest message on the slowest expected link, or every attempt times out at
+  that block. The default of 60 seconds equals the old whole-batch deadline, so
+  no message that arrived in time before now times out. Slow links raise
+  `BACKFILL_GRPC_INACTIVITY_TIMEOUT`. The floor is not tied to
+  `maxIncomingBufferSize`: that is a buffer limit, not a message size, and would
+  slow stall detection everywhere.
+
 - **Overall timeout** (`grpcOverallTimeout`). The request ends when this much
   time has passed since it started, whatever the progress. It stops a peer that
   sends just enough data to stay within the inactivity timeout.
@@ -401,12 +412,12 @@ flowchart TD
 Properties use the `backfill.` prefix, set through environment variables as
 shown.
 
-|           Property            |        Environment variable        | Type |      Default       |                                           Description                                           |
-|-------------------------------|------------------------------------|------|--------------------|-------------------------------------------------------------------------------------------------|
-| `grpcInactivityTimeout` (new) | `BACKFILL_GRPC_INACTIVITY_TIMEOUT` | int  | 20000              | Longest time in ms a batch request waits without receiving any response message. Minimum 1000.  |
-| `grpcOverallTimeout`          | `BACKFILL_GRPC_OVERALL_TIMEOUT`    | int  | 900000 (was 60000) | Longest time in ms one batch request may take in total. Minimum 10000.                          |
-| `fetchBatchSize`              | `BACKFILL_FETCH_BATCH_SIZE`        | int  | 10                 | Unchanged. Maximum blocks per batch request.                                                    |
-| `maxRetries`                  | `BACKFILL_MAX_RETRIES`             | int  | 3                  | Unchanged. Attempts per chunk, counted with or without progress; each resumes after the prefix. |
+|           Property            |        Environment variable        | Type |      Default       |                                                                  Description                                                                   |
+|-------------------------------|------------------------------------|------|--------------------|------------------------------------------------------------------------------------------------------------------------------------------------|
+| `grpcInactivityTimeout` (new) | `BACKFILL_GRPC_INACTIVITY_TIMEOUT` | int  | 60000              | Longest time in ms a batch request waits for the next complete response message. Must cover the transfer of the largest message. Minimum 1000. |
+| `grpcOverallTimeout`          | `BACKFILL_GRPC_OVERALL_TIMEOUT`    | int  | 900000 (was 60000) | Longest time in ms one batch request may take in total. Minimum 10000.                                                                         |
+| `fetchBatchSize`              | `BACKFILL_FETCH_BATCH_SIZE`        | int  | 10                 | Unchanged. Maximum blocks per batch request.                                                                                                   |
+| `maxRetries`                  | `BACKFILL_MAX_RETRIES`             | int  | 3                  | Unchanged. Attempts per chunk, counted with or without progress; each resumes after the prefix.                                                |
 
 The two timeouts are not validated against each other. If the inactivity
 timeout is set at or above the overall timeout, the overall timeout always
