@@ -64,6 +64,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
+import org.hiero.block.node.spi.blockmessaging.NextExpectedPublisherBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification.UpdateType;
@@ -375,6 +376,13 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     }
 
     @Override
+    public void notifyBehindPublisher(final long nextExpectedBlock, final long publisherOfferedBlock) {
+        final NextExpectedPublisherBlockNotification notification =
+                new NextExpectedPublisherBlockNotification(nextExpectedBlock, publisherOfferedBlock);
+        serverContext.blockMessaging().sendNextExpectedPublisherBlock(notification);
+    }
+
+    @Override
     public void shutdown() {
         // Shut down all handlers and clear the queues.
         // Order is important here, we want to stop the handlers before
@@ -652,6 +660,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         resetIsActive.compareAndSet(false, true);
         try {
             nextUnstreamedBlockNumber.set(blockNumber);
+            publishExpectedBlock(blockNumber);
             activeStreamHandlerByBlock.clear();
             Collection<PublisherHandler> handlersToClose = handlers.values();
             // Notify the handlers of the failure with the given code.
@@ -914,13 +923,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             // next unstreamed block number to one greater pretend the next
             // unstreamed block is streaming initially, that ensures that the
             // first block accepted is correctly handled.
-            // Publish it to application state as well, otherwise serverStatus
-            // keeps reporting the initial -1 ("accept any block") until the
-            // next block is persisted, while this manager rejects anything
-            // other than this block.
-            final long nextExpectedBlock = latestKnownBlock + 1L;
-            nextUnstreamedBlockNumber.set(nextExpectedBlock);
-            applicationState.updateExpectedBlock(nextExpectedBlock);
+            nextUnstreamedBlockNumber.set(latestKnownBlock + 1L);
         }
     }
 
@@ -1116,9 +1119,18 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         if (valueWasSet) {
             // if cas was successful, we can update the value in application
             // state as well.
-            applicationState.updateExpectedBlock(newValue >= earliestManagedBlock ? newValue : -1);
+            publishExpectedBlock(newValue);
         }
         return valueWasSet;
+    }
+
+    /// Publish the next expected block to application state. Values below
+    /// `earliestManagedBlock` are published as `-1`, because this node
+    /// accepts any block up to `earliestManagedBlock`.
+    ///
+    /// @param nextExpectedBlock the next block this manager will accept
+    private void publishExpectedBlock(final long nextExpectedBlock) {
+        applicationState.updateExpectedBlock(nextExpectedBlock >= earliestManagedBlock ? nextExpectedBlock : -1);
     }
 
     /// todo(1420) add documentation

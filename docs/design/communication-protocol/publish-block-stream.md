@@ -133,6 +133,7 @@ sequenceDiagram
       Note over Publisher: Reconnect to consensus network, if needed
     else N > last known verified block number + 1
       BlockNode -->> Publisher: Respond with BehindPublisher and specify the latest completed block (L)
+      Note over BlockNode: Records L+1 as the next expected block reported by ServerStatus
       Publisher-->>BlockNode: Send from block L+1 or send EndStream(Too Far Behind) and retry with exponential backoff
       Note over Publisher: Includes earliest and latest available blocks with EndStream if sent
       Note over BlockNode: May need to catch up from another Block-Node

@@ -13,6 +13,7 @@ import org.hiero.block.node.spi.blockmessaging.AvailableBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
+import org.hiero.block.node.spi.blockmessaging.NextExpectedPublisherBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification.UpdateType;
@@ -37,6 +38,7 @@ class BlockNotificationRingEventTest {
         assertNull(event.getPersistedNotification());
         assertNull(event.getBackfilledBlockNotification());
         assertNull(event.getNewestBlockKnownToNetworkNotification());
+        assertNull(event.getNextExpectedPublisherBlockNotification());
         assertNull(event.getPublisherStatusUpdateNotification());
         assertNull(event.getTssDataNotification());
         assertNull(event.getAddressBookHistoryNotification());
@@ -61,6 +63,9 @@ class BlockNotificationRingEventTest {
         assertNull(
                 event.getNewestBlockKnownToNetworkNotification(),
                 "Newest block known to network notification should be null");
+        assertNull(
+                event.getNextExpectedPublisherBlockNotification(),
+                "Next expected publisher block notification should be null");
     }
 
     /**
@@ -79,6 +84,9 @@ class BlockNotificationRingEventTest {
         assertNull(
                 event.getNewestBlockKnownToNetworkNotification(),
                 "Newest block known to network notification should be null");
+        assertNull(
+                event.getNextExpectedPublisherBlockNotification(),
+                "Next expected publisher block notification should be null");
     }
 
     /**
@@ -98,6 +106,9 @@ class BlockNotificationRingEventTest {
         assertNull(
                 event.getNewestBlockKnownToNetworkNotification(),
                 "Newest block known to network notification should be null");
+        assertNull(
+                event.getNextExpectedPublisherBlockNotification(),
+                "Next expected publisher block notification should be null");
     }
 
     /**
@@ -110,10 +121,33 @@ class BlockNotificationRingEventTest {
         final NewestBlockKnownToNetworkNotification notification = new NewestBlockKnownToNetworkNotification(10L);
         event.set(notification);
         assertEquals(notification, event.getNewestBlockKnownToNetworkNotification());
+        assertNull(
+                event.getNextExpectedPublisherBlockNotification(),
+                "Next expected publisher block notification should be null");
         assertNull(event.getVerificationNotification(), "Verification notification should be null");
         assertNull(event.getPersistedNotification(), "Persisted notification should be null");
         assertNull(event.getBackfilledBlockNotification(), "Backfilled notification should be null");
         assertNull(event.getPublisherStatusUpdateNotification(), "Publisher status update notification should be null");
+    }
+
+    /**
+     * Tests setting and getting a next expected publisher block notification.
+     */
+    @Test
+    @DisplayName("Should set and get NextExpectedPublisherBlockNotification notification correctly")
+    void shouldSetAndGetNextExpectedPublisherBlockNotification() {
+        final BlockNotificationRingEvent event = new BlockNotificationRingEvent();
+        final NextExpectedPublisherBlockNotification notification =
+                new NextExpectedPublisherBlockNotification(11L, 15L);
+        event.set(notification);
+        assertEquals(notification, event.getNextExpectedPublisherBlockNotification());
+        assertNull(event.getVerificationNotification(), "Verification notification should be null");
+        assertNull(event.getPersistedNotification(), "Persisted notification should be null");
+        assertNull(event.getBackfilledBlockNotification(), "Backfilled notification should be null");
+        assertNull(event.getPublisherStatusUpdateNotification(), "Publisher status update notification should be null");
+        assertNull(
+                event.getNewestBlockKnownToNetworkNotification(),
+                "Newest block known to network notification should be null");
     }
 
     /**
@@ -133,6 +167,9 @@ class BlockNotificationRingEventTest {
         assertNull(
                 event.getNewestBlockKnownToNetworkNotification(),
                 "Newest block known to network notification should be null");
+        assertNull(
+                event.getNextExpectedPublisherBlockNotification(),
+                "Next expected publisher block notification should be null");
     }
 
     /**

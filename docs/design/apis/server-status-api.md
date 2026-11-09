@@ -33,6 +33,7 @@ More details on the API specification can be found on the [protobuf definition](
 <dt>Client</dt><dd>The consumer of the ServerStatus, it might be a Consensus Node, a Miror Node or another Block Node.</dd>
 <dt>first_available_block</dt><dd>The first block that this Block Node has persisted and available to query and stream.</dd>
 <dt>last_available_block</dt><dd>Last available block that this Block Node has persisted and is available to query and stream.</dd>
+<dt>next_expected_block</dt><dd>The next block this Block Node expects from publishers. It is the value set by the publisher manager when it accepts a block header, persists a block or resets after a failure. Until the manager has set it, for example right after a restart, it is the value the publisher plugin learned when it last answered a publisher with <code>BehindPublisher</code> (the block in that response + 1). A value below <code>earliestManagedBlock</code> is reported as <code>-1</code>. After startup it is <code>-1</code> (accept any block) until one of those events happens; this is the required startup state, it is not persisted.</dd>
 </dl>
 
 ## Entities

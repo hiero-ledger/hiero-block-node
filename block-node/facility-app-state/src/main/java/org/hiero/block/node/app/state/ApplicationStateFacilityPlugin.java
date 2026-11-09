@@ -30,6 +30,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.NetworkConnection;
@@ -44,6 +45,8 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.AddressBookHistoryNotification;
 import org.hiero.block.node.spi.blockmessaging.AvailableBlocksNotification;
+import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
+import org.hiero.block.node.spi.blockmessaging.NextExpectedPublisherBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
@@ -75,7 +78,7 @@ import org.hiero.metrics.core.MetricKey;
 ///
 /// Exceptions from loading the persisted state in `start()` are the exception: they propagate to the
 /// application, so a corrupt bootstrap file aborts startup.
-public class ApplicationStateFacilityPlugin implements ApplicationStateFacility {
+public class ApplicationStateFacilityPlugin implements ApplicationStateFacility, BlockNotificationHandler {
     /// An address book history paired with the lookup index built from it, so both can be
     /// installed with one compare-and-set.
     ///
@@ -143,6 +146,10 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
     /// The next expected block for publishers, used by Server Status plugins
     /// and set by Publisher plugins
     private volatile long nextExpectedBlock = -1L;
+    /// The next expected block for publishers as learned by the publisher plugin from a
+    /// `BehindPublisher` response. Held in memory only, so it is `-1` at startup, and it only moves
+    /// forward.
+    private final AtomicLong nextExpectedPublisherBlock = new AtomicLong(-1L);
 
     /// {@inheritDoc}
     ///
@@ -163,6 +170,7 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
                 .register(ObservableGauge.builder(METRIC_APP_HISTORICAL_NEWEST_BLOCK)
                         .setDescription("The newest block the BN has")
                         .observe(() -> historicalBlocks.availableBlocks().max()));
+        context.blockMessaging().registerBlockNotificationHandler(this, false, name());
     }
 
     /// {@inheritDoc}
@@ -200,6 +208,10 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
     /// messaging facility must still be running, and is stopped by the application after this plugin.
     @Override
     public void stop() {
+        final BlockNodeContext currentContext = context;
+        if (currentContext != null) {
+            currentContext.blockMessaging().unregisterBlockNotificationHandler(this);
+        }
         final ScheduledExecutorService timer = persistTimer;
         if (timer != null) {
             timer.shutdownNow();
@@ -338,6 +350,19 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
     @Override
     public long nextExpectedBlock() {
         return nextExpectedBlock;
+    }
+
+    @Override
+    public long nextExpectedPublisherBlock() {
+        return nextExpectedPublisherBlock.get();
+    }
+
+    /// {@inheritDoc}
+    ///
+    /// Keeps the highest value reported, so a late notification never moves the value backwards.
+    @Override
+    public void handleNextExpectedPublisherBlock(final NextExpectedPublisherBlockNotification notification) {
+        nextExpectedPublisherBlock.accumulateAndGet(notification.blockNumber(), Math::max);
     }
 
     @Override

@@ -84,10 +84,8 @@ public class ServerStatusServicePlugin
         final BlockRangeSet availableBlocks = blockProvider.availableBlocks();
         final long firstAvailableBlock = availableBlocks.min();
         final long highestAvailableBlock = availableBlocks.max();
-        long nextExpectedBlock = stateFacility.nextExpectedBlock();
-        if (nextExpectedBlock < earliestManagedBlock) {
-            nextExpectedBlock = UNKNOWN_BLOCK_NUMBER;
-        }
+        final long nextExpectedBlock = resolveNextExpectedBlock(
+                stateFacility.nextExpectedBlock(), stateFacility.nextExpectedPublisherBlock(), earliestManagedBlock);
 
         // TODO(#579) Should get from state config or status, which would be provided by
         //     calls to the responsible plugin.
@@ -225,22 +223,41 @@ public class ServerStatusServicePlugin
         }
     }
 
+    /// Resolves the `nextExpectedBlock` reported by `serverStatus`. The publisher manager value wins
+    /// when it is set; until then the value the publisher plugin learned from a `BehindPublisher`
+    /// response is used. A result below `earliestManagedBlock` means this node accepts any block up
+    /// to it, so it is reported as unknown.
+    ///
+    /// @param managerExpectedBlock the next expected block set by the publisher manager, or `-1`
+    /// @param publisherExpectedBlock the next expected block learned from `BehindPublisher`, or `-1`
+    /// @param earliestManagedBlock the earliest block this node manages
+    /// @return the next expected block, or `-1` when unknown
+    static long resolveNextExpectedBlock(
+            final long managerExpectedBlock, final long publisherExpectedBlock, final long earliestManagedBlock) {
+        final long nextExpectedBlock =
+                managerExpectedBlock != UNKNOWN_BLOCK_NUMBER ? managerExpectedBlock : publisherExpectedBlock;
+        return nextExpectedBlock < earliestManagedBlock ? UNKNOWN_BLOCK_NUMBER : nextExpectedBlock;
+    }
+
     /// Emits the single periodic `INFO` status line: the available block range and next expected
-    /// block. This is the one progression signal available to operators at `INFO` without
-    /// enabling `DEBUG`; per-block progress is intentionally left to metrics.
+    /// block, with both of its sources. This is the one progression signal available to operators
+    /// at `INFO` without enabling `DEBUG`; per-block progress is intentionally left to metrics.
     void logStatusHeartbeat() {
         if (!LOGGER.isLoggable(INFO)) {
             return;
         }
         final BlockRangeSet availableBlocks = blockProvider.availableBlocks();
-        final long nextExpectedBlock =
-                blockNodeContext.applicationStateFacility().nextExpectedBlock();
+        final ApplicationStateFacility stateFacility = blockNodeContext.applicationStateFacility();
+        final long managerExpectedBlock = stateFacility.nextExpectedBlock();
+        final long publisherExpectedBlock = stateFacility.nextExpectedPublisherBlock();
         LOGGER.log(
                 INFO,
-                "Status heartbeat: oldestBlock={0} newestBlock={1} nextExpected={2}",
+                "Status heartbeat: oldestBlock={0} newestBlock={1} nextExpected={2} managerNextExpected={3} publisherNextExpected={4}",
                 availableBlocks.min(),
                 availableBlocks.max(),
-                nextExpectedBlock);
+                resolveNextExpectedBlock(managerExpectedBlock, publisherExpectedBlock, earliestManagedBlock),
+                managerExpectedBlock,
+                publisherExpectedBlock);
     }
 
     /// Logs an uncaught exception escaping the heartbeat thread at `WARNING`: the heartbeat is a

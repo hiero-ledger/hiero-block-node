@@ -12,6 +12,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicIntegerArray;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 import org.hiero.block.api.TssData;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
@@ -25,6 +26,7 @@ import org.hiero.block.node.spi.blockmessaging.AvailableBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
+import org.hiero.block.node.spi.blockmessaging.NextExpectedPublisherBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification.UpdateType;
@@ -352,6 +354,39 @@ public class ApplicationStateNotificationTest {
                 1,
                 counters.get(0),
                 "Block handler should only receive verification sentinel, not application state events");
+        service.stop();
+    }
+
+    /**
+     * A {@link NextExpectedPublisherBlockNotification} sent through the facility must reach
+     * {@link BlockNotificationHandler#handleNextExpectedPublisherBlock} unchanged.
+     */
+    @Test
+    void blockHandlerReceivesNextExpectedPublisherBlock() throws InterruptedException {
+        final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicReference<NextExpectedPublisherBlockNotification> received = new AtomicReference<>();
+        final BlockNotificationHandler blockHandler = new BlockNotificationHandler() {
+            @Override
+            public void handleNextExpectedPublisherBlock(final NextExpectedPublisherBlockNotification n) {
+                received.set(n);
+                latch.countDown();
+            }
+        };
+
+        final BlockMessagingFacility service = new BlockMessagingFacilityImpl();
+        service.init(context, null);
+        service.registerBlockNotificationHandler(blockHandler, false, "block-handler");
+        service.start();
+
+        final NextExpectedPublisherBlockNotification notification =
+                new NextExpectedPublisherBlockNotification(11L, 15L);
+        service.sendNextExpectedPublisherBlock(notification);
+        threadPoolManager
+                .executor()
+                .executeAsync(false, 10_000L, true, true, () -> Executors.newSingleThreadExecutor());
+
+        assertTrue(latch.await(20, TimeUnit.SECONDS));
+        assertEquals(notification, received.get());
         service.stop();
     }
 

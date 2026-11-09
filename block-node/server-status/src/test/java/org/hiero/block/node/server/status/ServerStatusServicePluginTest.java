@@ -9,10 +9,16 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.pbj.runtime.ParseException;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.logging.Formatter;
+import java.util.logging.Handler;
+import java.util.logging.LogRecord;
 import java.util.logging.Logger;
+import java.util.logging.SimpleFormatter;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
@@ -118,6 +124,57 @@ public class ServerStatusServicePluginTest
         assertEquals(0, response.firstAvailableBlock());
         assertEquals(blocks - 1, response.lastAvailableBlock());
         assertEquals(blocks, response.nextExpectedBlock());
+    }
+
+    /// Regression for #3910: after a restart the publisher manager has not set a next expected
+    /// block yet, so the value the publisher plugin learned from `BehindPublisher` is reported.
+    ///
+    /// @throws ParseException if there is an error parsing the response
+    @Test
+    @DisplayName("Should report the next expected publisher block when the manager value is unknown")
+    void shouldReportNextExpectedPublisherBlockWhenManagerValueUnknown() throws ParseException {
+        sendBlocks(5);
+        nextExpectedPublisherBlock = 5L;
+
+        final ServerStatusResponse response = requestServerStatus();
+
+        assertEquals(5L, response.nextExpectedBlock());
+    }
+
+    /// The publisher manager value is authoritative once set; the `BehindPublisher` value is only
+    /// a fallback for the time before any header is accepted.
+    ///
+    /// @throws ParseException if there is an error parsing the response
+    @Test
+    @DisplayName("Should report the manager next expected block over the publisher value")
+    void shouldPreferManagerNextExpectedBlockOverPublisherValue() throws ParseException {
+        sendBlocks(5);
+        nextExpectedPublisherBlock = 5L;
+        updateExpectedBlock(7L);
+
+        final ServerStatusResponse response = requestServerStatus();
+
+        assertEquals(7L, response.nextExpectedBlock());
+    }
+
+    /// The `earliestManagedBlock` clamp applies to the publisher value too.
+    ///
+    /// @throws ParseException if there is an error parsing the response
+    @Test
+    @DisplayName("Should report nextExpectedBlock = -1 when the publisher value is below earliestManagedBlock")
+    void shouldReportUnknownWhenPublisherValueBelowEarliestManagedBlock() throws ParseException {
+        final ServerStatusServicePlugin localPlugin = new ServerStatusServicePlugin();
+        start(
+                localPlugin,
+                localPlugin.methods().getFirst(),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of("block.node.earliestManagedBlock", "100"));
+        sendBlocks(5);
+        nextExpectedPublisherBlock = 50L;
+
+        final ServerStatusResponse response = requestServerStatus();
+
+        assertEquals(UNKNOWN_BLOCK_NUMBER, response.nextExpectedBlock());
     }
 
     /// Tests that a next expected block below the configured `earliestManagedBlock` is reported as
@@ -268,6 +325,39 @@ public class ServerStatusServicePluginTest
         assertEquals(1, logHandler.countContaining("Status heartbeat"));
     }
 
+    /// The heartbeat reports the resolved next expected block and both of its sources, so operators
+    /// can tell which one `serverStatus` is using.
+    @Test
+    @DisplayName("Status heartbeat logs the manager and publisher next expected blocks")
+    void shouldLogBothNextExpectedBlockSources() {
+        nextExpectedPublisherBlock = 5L;
+        updateExpectedBlock(7L);
+        final List<String> formattedMessages = new CopyOnWriteArrayList<>();
+        final Handler formattingHandler = new Handler() {
+            private final Formatter formatter = new SimpleFormatter();
+
+            @Override
+            public void publish(final LogRecord record) {
+                formattedMessages.add(formatter.formatMessage(record));
+            }
+
+            @Override
+            public void flush() {}
+
+            @Override
+            public void close() {}
+        };
+        final Logger julLogger = Logger.getLogger(ServerStatusServicePlugin.class.getName());
+        julLogger.addHandler(formattingHandler);
+        try {
+            plugin.logStatusHeartbeat();
+        } finally {
+            julLogger.removeHandler(formattingHandler);
+        }
+        assertTrue(formattedMessages.stream()
+                .anyMatch(message -> message.contains("nextExpected=7 managerNextExpected=7 publisherNextExpected=5")));
+    }
+
     /// Tests that the heartbeat task scheduled by `start()` runs and emits its line when the
     /// executor fires it, exercising the `start()` scheduling path and `runHeartbeat()`.
     @Test
@@ -284,6 +374,12 @@ public class ServerStatusServicePluginTest
             julLogger.removeHandler(logHandler);
         }
         assertTrue(logHandler.countContaining("Status heartbeat") >= 1);
+    }
+
+    private ServerStatusResponse requestServerStatus() throws ParseException {
+        toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(
+                ServerStatusRequest.newBuilder().build()));
+        return standardParse(ServerStatusResponse.PROTOBUF, fromPluginBytes.getLast());
     }
 
     /// Tests that `stop()` shuts down the heartbeat scheduler.

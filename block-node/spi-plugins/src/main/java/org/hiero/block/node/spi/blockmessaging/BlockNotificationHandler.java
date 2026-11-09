@@ -44,6 +44,14 @@ public interface BlockNotificationHandler extends GatingHandler {
     default void handleNewestBlockKnownToNetwork(final NewestBlockKnownToNetworkNotification notification) {}
 
     /**
+     * Handle a next expected publisher block notification. Always called on handler thread. Each registered
+     * handler will have its own virtual thread.
+     *
+     * @param notification the next expected publisher block notification to handle
+     */
+    default void handleNextExpectedPublisherBlock(final NextExpectedPublisherBlockNotification notification) {}
+
+    /**
      * Handle a publisher status update notification. Always called on handler thread. Each registered handler
      * will have its own virtual thread.
      *

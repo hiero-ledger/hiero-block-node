@@ -46,6 +46,7 @@ import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
+import org.hiero.block.node.spi.blockmessaging.NextExpectedPublisherBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification.UpdateType;
@@ -416,6 +417,25 @@ class LiveStreamPublisherManagerTest {
                 assertThat(testApplicationState.nextExpectedBlock()).isEqualTo(11L);
             }
 
+            /// A failed persist resets next-unstreamed to the failed block; the reset must be
+            /// published too, otherwise serverStatus keeps the value from before the failure.
+            @Test
+            @DisplayName("Persistence failure publishes the reset next expected block")
+            void persistenceFailurePublishesResetNextExpectedBlock() {
+                toTest.handlePersisted(new PersistedNotification(10L, false, 0, BlockSource.PUBLISHER));
+                assertThat(testApplicationState.nextExpectedBlock()).isEqualTo(10L);
+            }
+
+            /// [LiveStreamPublisherManager#notifyBehindPublisher] forwards both values to the
+            /// messaging facility, where application state picks them up.
+            @Test
+            @DisplayName("notifyBehindPublisher sends a next expected publisher block notification")
+            void notifyBehindPublisherSendsNotification() {
+                toTest.notifyBehindPublisher(11L, 15L);
+                assertThat(messagingFacility.getSentNextExpectedPublisherBlockNotifications())
+                        .containsExactly(new NextExpectedPublisherBlockNotification(11L, 15L));
+            }
+
             /// An offer that does not advance next-unstreamed (no CAS is attempted) must leave the
             /// previously published next expected block unchanged.
             @Test
@@ -593,40 +613,15 @@ class LiveStreamPublisherManagerTest {
                 assertThat(seededManager.getNextUnstreamed()).isEqualTo(0L);
             }
 
-            /// Regression for #3910: after a restart with stored blocks, serverStatus must report
-            /// the block the manager will accept, not the initial `-1`, before anything is persisted.
+            /// `-1` is the documented startup state of the published next expected block (#3910):
+            /// seeding from stored blocks must not publish it, only the first accepted header,
+            /// persisted block or reset does.
             @Test
-            @DisplayName("initializeBlockNumbers publishes next expected block = latest stored + 1")
-            void publishesNextExpectedBlockFromStoredBlocks() {
+            @DisplayName("initializeBlockNumbers leaves the published next expected block at -1 after a restart")
+            void restartWithStoredBlocksLeavesNextExpectedBlockUnknown() {
                 final BlockNodeContext seededContext = generateContext();
                 new LiveStreamPublisherManager(
                         seededContext, generateManagerMetrics(), List.of(new BlockRange(0L, 4_965L)));
-
-                assertThat(testApplicationState.nextExpectedBlock()).isEqualTo(4_966L);
-            }
-
-            /// With no stored blocks the manager accepts any block up to earliestManagedBlock, so the
-            /// published next expected block stays `-1`.
-            @Test
-            @DisplayName("initializeBlockNumbers leaves next expected block at -1 when no blocks are stored")
-            void leavesNextExpectedBlockUnknownWhenNoBlocksStored() {
-                final BlockNodeContext seededContext = generateContext();
-                new LiveStreamPublisherManager(seededContext, generateManagerMetrics(), List.of());
-
-                assertThat(testApplicationState.nextExpectedBlock()).isEqualTo(-1L);
-            }
-
-            /// Stored blocks below earliestManagedBlock still accept any block up to it, so the
-            /// published next expected block stays `-1`.
-            @Test
-            @DisplayName("initializeBlockNumbers leaves next expected block at -1 when stored blocks end below EMB")
-            void leavesNextExpectedBlockUnknownWhenStoredBlocksBelowEarliestManagedBlock() {
-                final Configuration embConfig = TestStreamPublisherManager.createTestConfiguration(
-                        Map.of("block.node.earliestManagedBlock", "100"));
-                final SimpleInMemoryHistoricalBlockFacility embHistorical = new SimpleInMemoryHistoricalBlockFacility();
-                final BlockNodeContext embContext =
-                        generateContext(embHistorical, threadPoolManager, messagingFacility, embConfig);
-                new LiveStreamPublisherManager(embContext, generateManagerMetrics(), List.of(new BlockRange(0L, 50L)));
 
                 assertThat(testApplicationState.nextExpectedBlock()).isEqualTo(-1L);
             }

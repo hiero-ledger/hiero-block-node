@@ -35,6 +35,7 @@ import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
+import org.hiero.block.node.spi.blockmessaging.NextExpectedPublisherBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.stream.publisher.PublisherHandler.MetricsHolder;
 import org.hiero.block.node.stream.publisher.StreamPublisherManager.ActionForBlock;
@@ -966,6 +967,23 @@ class PublisherHandlerTest {
                         .first()
                         .returns(ResponseOneOfType.NODE_BEHIND_PUBLISHER, responseKindExtractor)
                         .returns(expectedLatestBlockNumber, nodeBehindBlockNumberExtractor);
+            }
+
+            /// Regression for #3910: once a [BehindPublisher] response is sent,
+            /// the manager must be told the next block this node expects
+            /// (latest persisted + 1) and the block the publisher offered, so
+            /// `serverStatus` can report it before any header is accepted.
+            @Test
+            @DisplayName("BehindPublisher response notifies the next expected publisher block and the offered block")
+            void testBehindPublisherNotifiesNextExpectedPublisherBlock() {
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(15L);
+                manager.setBlockActionForBlock(BlockAction.SEND_BEHIND);
+                manager.setLatestBlockNumber(10L);
+                toTest.onNext(PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block.asItemSetUnparsed())
+                        .build());
+                assertThat(manager.getBlockMessagingFacility().getSentNextExpectedPublisherBlockNotifications())
+                        .containsExactly(new NextExpectedPublisherBlockNotification(11L, 15L));
             }
 
             /// This test aims to assert that the [PublisherHandler] correctly
@@ -2079,6 +2097,42 @@ class PublisherHandlerTest {
                         .blockItems(block.asItemSetUnparsed())
                         .build());
                 assertThat(metrics.sendResponseFailed().get()).isEqualTo(1);
+            }
+
+            /// A [BehindPublisher] that could not be sent never reached the
+            /// publisher, so the next expected publisher block must not be
+            /// notified.
+            @Test
+            @DisplayName("BehindPublisher send failure does not notify the next expected publisher block")
+            void testBehindPublisherSendFailureDoesNotNotify() {
+                final Pipeline<PublishStreamResponse> throwingPipeline = new Pipeline<>() {
+                    @Override
+                    public void onNext(final PublishStreamResponse item) {
+                        throw new RuntimeException("Simulated pipeline failure");
+                    }
+
+                    @Override
+                    public void onSubscribe(final Subscription subscription) {}
+
+                    @Override
+                    public void onError(final Throwable throwable) {}
+
+                    @Override
+                    public void onComplete() {}
+
+                    @Override
+                    public void clientEndStreamReceived() {}
+                };
+                final PublisherHandler handler = new PublisherHandler(2L, throwingPipeline, metrics, manager, null);
+                manager.addHandler(handler);
+                manager.setBlockActionForBlock(BlockAction.SEND_BEHIND);
+                manager.setLatestBlockNumber(10L);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(15L);
+                handler.onNext(PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block.asItemSetUnparsed())
+                        .build());
+                assertThat(manager.getBlockMessagingFacility().getSentNextExpectedPublisherBlockNotifications())
+                        .isEmpty();
             }
         }
 
