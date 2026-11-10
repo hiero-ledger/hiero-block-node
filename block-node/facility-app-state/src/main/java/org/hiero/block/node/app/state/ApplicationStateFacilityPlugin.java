@@ -46,6 +46,7 @@ import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockRangesState;
 import org.hiero.block.node.base.ranges.CombinedBlockRangeSet;
 import org.hiero.block.node.base.ranges.ConcurrentBlockRangeSet;
+import org.hiero.block.node.base.ranges.ImmutableBlockRangeSet;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -100,9 +101,16 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility,
     ///
     /// @param available the available block ranges, in ascending order
     /// @param stored the stored block ranges, in ascending order
-    record BlockRangesSnapshot(List<BlockRange> available, List<BlockRange> stored) {
+    /// @param availableSet the available blocks as an immutable set, built once so readers need no copy
+    record BlockRangesSnapshot(List<BlockRange> available, List<BlockRange> stored, BlockRangeSet availableSet) {
         /// The state before any blocks have been reported.
-        static final BlockRangesSnapshot EMPTY = new BlockRangesSnapshot(List.of(), List.of());
+        static final BlockRangesSnapshot EMPTY =
+                new BlockRangesSnapshot(List.of(), List.of(), new ImmutableBlockRangeSet(List.of()));
+
+        /// Creates a snapshot, building the immutable set from the available ranges.
+        BlockRangesSnapshot(final List<BlockRange> available, final List<BlockRange> stored) {
+            this(available, stored, new ImmutableBlockRangeSet(available));
+        }
     }
 
     /// The logger for this class.
@@ -487,9 +495,7 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility,
     /// {@inheritDoc}
     @Override
     public BlockRangeSet availableBlockSet() {
-        final ConcurrentBlockRangeSet snapshot = new ConcurrentBlockRangeSet();
-        availableBlocks().forEach(snapshot::add);
-        return snapshot;
+        return blockRanges.get().availableSet();
     }
 
     /// {@inheritDoc}

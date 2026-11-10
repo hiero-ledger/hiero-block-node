@@ -188,7 +188,7 @@ public interface ApplicationStateFacility extends BlockNodePlugin {
      * The same as {@link #availableBlocks()} but as a {@link BlockRangeSet} for querying
      * {@code min()}, {@code max()} and {@code contains()}.
      *
-     * @return a snapshot set of the available blocks; never {@code null}
+     * @return an immutable snapshot of the available blocks, safe to share and cheap to call; never {@code null}
      */
     BlockRangeSet availableBlockSet();
 

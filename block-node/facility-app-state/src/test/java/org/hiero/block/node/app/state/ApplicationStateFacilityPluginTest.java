@@ -373,6 +373,8 @@ class ApplicationStateFacilityPluginTest {
 
         assertThat(f.plugin.availableBlockSet().min()).isEqualTo(5);
         assertThat(f.plugin.availableBlockSet().max()).isEqualTo(9);
+        // the same immutable set is returned until the available blocks change
+        assertThat(f.plugin.availableBlockSet()).isSameAs(f.plugin.availableBlockSet());
     }
 
     @Test
