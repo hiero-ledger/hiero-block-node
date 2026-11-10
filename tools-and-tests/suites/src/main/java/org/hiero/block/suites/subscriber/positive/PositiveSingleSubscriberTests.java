@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -29,8 +28,6 @@ import org.junit.jupiter.api.Test;
  */
 @DisplayName("Positive Single Subscriber Tests")
 public class PositiveSingleSubscriberTests extends BaseSuite {
-    private static final Duration WAIT_TIMEOUT = Duration.ofSeconds(30);
-
     private final List<Future<?>> simulators = new ArrayList<>();
     private final List<BlockStreamSimulatorApp> simulatorAppsRef = new ArrayList<>();
 
@@ -121,7 +118,7 @@ public class PositiveSingleSubscriberTests extends BaseSuite {
         final Future<?> publisherSimulatorThread =
                 startPublisherAndAwaitFirstResponse(publisherSimulator, WAIT_TIMEOUT);
         simulators.add(publisherSimulatorThread);
-        waitFor(() -> publisherSimulator.getStreamStatus().publishedBlocks() > endBlock, WAIT_TIMEOUT);
+        awaitPublishedBlocks(publisherSimulator, endBlock + 1, WAIT_TIMEOUT);
         // ===== Start consumer and wait for the requested range to complete ========================
         final Future<?> consumerSimulatorThread = startSimulatorInThread(consumerSimulator);
         simulators.add(consumerSimulatorThread);
@@ -166,7 +163,7 @@ public class PositiveSingleSubscriberTests extends BaseSuite {
                 startPublisherAndAwaitFirstResponse(publisherSimulator, WAIT_TIMEOUT);
         simulators.add(publisherSimulatorThread);
 
-        waitFor(() -> publisherSimulator.getStreamStatus().publishedBlocks() > endBlock, WAIT_TIMEOUT);
+        awaitPublishedBlocks(publisherSimulator, endBlock + 1, WAIT_TIMEOUT);
 
         // ===== Start consumer and validate slowdown ===============================================
         final Future<?> consumerSimulatorThread = startSimulatorInThread(consumerSimulator);

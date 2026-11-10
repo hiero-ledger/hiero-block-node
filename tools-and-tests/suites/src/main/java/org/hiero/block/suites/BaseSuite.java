@@ -49,6 +49,9 @@ import org.testcontainers.utility.DockerImageName;
  * <p>The Block Node Application version is retrieved from the system property 'block.node.version'.
  */
 public abstract class BaseSuite {
+    /** Default time a suite waits for a publisher, consumer or block node to reach a state. */
+    protected static final Duration WAIT_TIMEOUT = Duration.ofSeconds(30);
+
     /** Container running the Block Node Application */
     protected static GenericContainer<?> blockNodeContainer;
 
@@ -434,10 +437,11 @@ public abstract class BaseSuite {
     }
 
     /**
-     * Starts a publisher simulator and waits until the block node has answered it once, which
+     * Starts a publisher simulator and waits until the block node has acknowledged it once, which
      * proves the publisher is connected and streaming. Tests that only need a live publisher
      * should use this rather than waiting for several acknowledgements, whose rate depends on
-     * runner load.
+     * runner load. Fails if the first response is not an acknowledgement, for example an error
+     * `EndStream`.
      *
      * @param publisher the publisher simulator to start
      * @param timeout the maximum time to wait for the first response
@@ -452,10 +456,37 @@ public abstract class BaseSuite {
                         .lastKnownPublisherClientStatuses()
                         .isEmpty(),
                 timeout);
+        final String firstResponse =
+                publisher.getStreamStatus().lastKnownPublisherClientStatuses().getFirst();
+        if (!firstResponse.toLowerCase().contains("acknowledgement")) {
+            fail("Publisher's first response is not an acknowledgement: " + firstResponse);
+        }
         if (!publisher.isRunning()) {
             fail("Publisher simulator stopped after its first response");
         }
         return publisherThread;
+    }
+
+    /**
+     * Waits until the publisher simulator has published at least `minimumPublishedBlocks` blocks.
+     * Fails as soon as the publisher stops, instead of waiting for the full timeout.
+     *
+     * @param publisher the running publisher simulator
+     * @param minimumPublishedBlocks the number of published blocks to wait for
+     * @param timeout the maximum time to wait
+     */
+    protected static void awaitPublishedBlocks(
+            final BlockStreamSimulatorApp publisher, final long minimumPublishedBlocks, final Duration timeout) {
+        waitFor(
+                () -> !publisher.isRunning() || publisher.getStreamStatus().publishedBlocks() >= minimumPublishedBlocks,
+                timeout);
+        if (publisher.getStreamStatus().publishedBlocks() < minimumPublishedBlocks) {
+            fail("Publisher simulator stopped after %d of %d blocks, last responses: %s"
+                    .formatted(
+                            publisher.getStreamStatus().publishedBlocks(),
+                            minimumPublishedBlocks,
+                            publisher.getStreamStatus().lastKnownPublisherClientStatuses()));
+        }
     }
 
     /**

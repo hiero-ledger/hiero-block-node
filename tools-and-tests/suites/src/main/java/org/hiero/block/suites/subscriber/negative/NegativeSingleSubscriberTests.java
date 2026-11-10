@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -28,9 +27,8 @@ import org.junit.jupiter.api.Test;
 @DisplayName("Negative Single Subscriber Tests")
 public class NegativeSingleSubscriberTests extends BaseSuite {
     /** Bounds every status poll so a dead simulator fails the test instead of spinning forever. */
-    private static final Duration WAIT_TIMEOUT = Duration.ofSeconds(30);
-
     private final List<Future<?>> simulators = new ArrayList<>();
+
     private final List<BlockStreamSimulatorApp> simulatorAppsRef = new ArrayList<>();
 
     /** Default constructor for the {@link NegativeSingleSubscriberTests} class */
@@ -219,7 +217,7 @@ public class NegativeSingleSubscriberTests extends BaseSuite {
                 startPublisherAndAwaitFirstResponse(publisherSimulator, WAIT_TIMEOUT);
         simulators.add(publisherSimulatorThread);
 
-        waitFor(() -> publisherSimulator.getStreamStatus().publishedBlocks() > endBlock, WAIT_TIMEOUT);
+        awaitPublishedBlocks(publisherSimulator, endBlock + 1, WAIT_TIMEOUT);
 
         // ===== Start consumer and validate slowdown ===============================================
         final Future<?> consumerSimulatorThread = startSimulatorInThread(consumerSimulator);

@@ -8,7 +8,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Future;
@@ -20,8 +19,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 public class PositiveServerStatusTests extends BaseSuite {
-    private static final Duration WAIT_TIMEOUT = Duration.ofSeconds(30);
-
     private final List<Future<?>> simulators = new ArrayList<>();
     private final List<BlockStreamSimulatorApp> simulatorAppsRef = new ArrayList<>();
 

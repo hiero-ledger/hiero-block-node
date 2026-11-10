@@ -5,7 +5,6 @@ import static org.hiero.block.suites.utils.BlockSimulatorUtils.createBlockSimula
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -24,8 +23,6 @@ import org.junit.jupiter.api.Test;
  */
 @DisplayName("Positive Multiple Subscribers Tests")
 public class PositiveMultipleSubscribersTests extends BaseSuite {
-    private static final Duration WAIT_TIMEOUT = Duration.ofSeconds(30);
-
     private final List<Future<?>> simulators = new ArrayList<>();
     private final List<BlockStreamSimulatorApp> simulatorAppsRef = new ArrayList<>();
 
