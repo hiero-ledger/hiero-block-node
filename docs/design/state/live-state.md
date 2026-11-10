@@ -276,7 +276,8 @@ the oldest block history has):
   request if history could not yet supply the gap.
 
 After a successful apply, readiness is latched if the plugin reached the latest block history
-has on hand. The apply and hash of a next-in-line block run on the messaging thread, so their
+has on hand. If history still holds blocks past the one just applied (for example, the block filled
+a hole that had stalled catch-up), a catch-up is requested so the rest apply on the catch-up thread. The apply and hash of a next-in-line block run on the messaging thread, so their
 cost on a full-size state matters (unmeasured, #4031). A gap does not: catch-up applies blocks
 on its own thread, taking the `applyLock` per block, so a live block waits for at most one
 block's apply. A block that arrives before it is persisted is applied from the notification
