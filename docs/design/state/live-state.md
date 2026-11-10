@@ -433,9 +433,11 @@ reservation with `tryReserve()` the same way (§6.6). See §8.
 ### 6.6 `saveSnapshot()` (scheduled, runs every `snapshotIntervalMillis`)
 
 The schedule is the trigger. The `StateManagement-snapshot` executor invokes `saveSnapshot()`
-on a fixed delay whether or not anything changed, and `stop()` invokes it once more (§6.7).
-`snapshotLock` (a `ReentrantLock`) serialises the two, so a final snapshot waits for an
-in-flight one. `saveSnapshot()` returns `true` only when it wrote a new snapshot directory.
+on a fixed delay whether or not anything changed, and `stop()` queues it once more (§6.7).
+Both run on that one thread, so two snapshot writes never overlap and `saveSnapshot()` takes
+no lock. This is thread confinement, the same pattern `ApplicationStateFacilityPlugin` uses for
+its periodic persist and final flush. `saveSnapshot()` returns `true` only when it wrote a new
+snapshot directory.
 
 1. **Skip check.** If `attested.state() == null` or `attested.blockNumber() <= lastSnapshottedBlock`,
    there is nothing new to write. A successful restore (§6.2) sets `lastSnapshottedBlock` to the
@@ -474,8 +476,8 @@ in-flight one. `saveSnapshot()` returns `true` only when it wrote a new snapshot
    and only ever deletes two kinds of entry:
    - numeric snapshot directories beyond the newest `snapshotRecentRetentionCount`, oldest
      first. The just-written `<blockNumber>` directory is always kept.
-   - `.tmp-<digits>` staging directories. This is safe because `snapshotLock` is held, so no
-     write is in flight.
+   - `.tmp-<digits>` staging directories. This is safe because pruning runs on the snapshot
+     thread, so no other write is in flight.
 
    Everything else is left alone. In particular `tmp` is never touched: `FileSystemManager` owns
    it and it holds the live MerkleDb files (§6.1). Deleting it would delete the live database.
@@ -496,11 +498,14 @@ leaves `attested.state() == null`, so nothing is written there.
 2. Unregister from `blockMessaging`.
 3. Interrupt and join the catch-up thread (if still running). From here on no new block is
    applied.
-4. `snapshotExecutor.shutdown()`, not `shutdownNow()`: interrupting a write mid-flight would
-   only waste it.
-5. One final `saveSnapshot()`. It takes `snapshotLock`, so it waits for any in-flight scheduled
-   write, then skips if that write already covered the latest attested block. A
-   `RuntimeException` is logged at WARNING.
+4. Queue one final `saveSnapshot()` on `snapshotExecutor`, behind any write already in flight,
+   then `shutdown()` it. The queued run captures the latest attested block, or skips if the
+   in-flight write already covered it.
+5. Wait up to a fixed 10 s (`SNAPSHOT_STOP_TIMEOUT_SECONDS`) for the executor to finish. On
+   timeout, log at WARNING and `shutdownNow()`: the interrupted write fails and its staging
+   directory is removed (or left for the next `start()` to delete). Nothing partial is ever
+   published, so the next start restores the previous snapshot and replays the blocks since.
+   The wait is bounded so a slow write cannot hold up node shutdown indefinitely.
 
 ## 7. State change application
 
@@ -712,10 +717,14 @@ Snapshot creation (§6.6) is covered by `StateManagementSnapshotTest`, which run
    writable again.
 6. A halted node still snapshots its last attested block.
 7. `stop()` writes a final snapshot of the latest attested block.
-8. The scheduler writes a snapshot within a short interval without an explicit call.
-9. Concurrent `saveSnapshot()` calls during live apply cause no failures or halt, and the
-   newest snapshot restores cleanly.
-10. Config defaults (`900000`, `3`) and out-of-range rejection.
+8. `stop()` queues its final snapshot behind a task already holding the snapshot thread: it
+   is not written until that task finishes.
+9. `stop()` gives up after the 10 s timeout on a task that never finishes, interrupts it, and
+   publishes nothing. The next start is clean.
+10. The scheduler writes a snapshot within a short interval without an explicit call.
+11. A snapshot loop on its own thread during live apply causes no failures or halt, and the
+    newest snapshot restores cleanly.
+12. Config defaults (`900000`, `3`) and out-of-range rejection.
 
 Other test classes:
 

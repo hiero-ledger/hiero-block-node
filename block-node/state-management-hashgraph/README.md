@@ -63,6 +63,7 @@ classpath; opt-in lives in the deployment manifest.
 | Verification gap (block ahead of the next expected)                        | Block dropped; the catch-up thread fetches the missing blocks from `historicalBlockProvider` one at a time. Retried on the next notification if history lacks them. |
 | Snapshot write fails                                                       | WARNING, `state_snapshot_failures_total` incremented, staging dir removed; the next run retries.          |
 | Crash mid-snapshot                                                         | Only a `.tmp-<block>` staging dir is left; deleted on the next `start()`.                                 |
+| Final snapshot on `stop()` takes over 10 s                                 | WARNING; the write is interrupted and nothing is published. The next start uses the previous snapshot.    |
 | Pruning an old snapshot fails                                              | WARNING; the new snapshot is kept and the next snapshot retries the prune.                                |
 
 A restored snapshot is trusted as a previously stored attested state. Its root hash is first
