@@ -18,12 +18,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
@@ -567,6 +569,112 @@ class ZipBlockArchiveTest {
         }
 
         /**
+         * This test aims to assert that {@link ZipBlockArchive#storedBlockRanges()}
+         * returns one range per zip file, so missing zip files show up as gaps.
+         */
+        @Test
+        @DisplayName("Test storedBlockRanges() keeps gaps between zip files")
+        void testStoredBlockRangesKeepsGaps() throws IOException {
+            createAndAddBlockEntry(3L);
+            createAndAddBlockEntry(33L);
+            createAndAddBlockEntry(1003L);
+            final List<BlockRange> actual = toTest.storedBlockRanges();
+            assertThat(actual)
+                    .containsExactlyInAnyOrder(
+                            new BlockRange(0L, 9L), new BlockRange(30L, 39L), new BlockRange(1000L, 1009L));
+        }
+
+        /**
+         * This test aims to assert that {@link ZipBlockArchive#storedBlockRanges()}
+         * returns an empty list when no zip files are present.
+         */
+        @Test
+        @DisplayName("Test storedBlockRanges() returns empty list when no zip files are present")
+        void testStoredBlockRangesNoZipFiles() throws IOException {
+            final List<BlockRange> actual = toTest.storedBlockRanges();
+            assertThat(actual).isEmpty();
+        }
+
+        /**
+         * This test aims to assert that {@link ZipBlockArchive#storedBlockRanges()}
+         * ignores zip files outside the numeric directory tree and zip files with non-numeric names.
+         */
+        @Test
+        @DisplayName("Test storedBlockRanges() ignores non-numeric and quarantined zip files")
+        void testStoredBlockRangesIgnoresNonArchiveZips() throws IOException {
+            createAndAddBlockEntry(3L);
+            final BlockPath archived = BlockPath.computeBlockPath(testConfig, 3L);
+            final Path quarantined = testConfig
+                    .rootPath()
+                    .resolve("corrupted")
+                    .resolve(testConfig
+                            .rootPath()
+                            .relativize(
+                                    BlockPath.computeBlockPath(testConfig, 23L).zipFilePath()));
+            Files.createDirectories(quarantined.getParent());
+            Files.createFile(quarantined);
+            Files.createFile(linksTempDir.resolve("40.zip"));
+            Files.createFile(archived.dirPath().resolve("temp.zip"));
+            final List<BlockRange> actual = toTest.storedBlockRanges();
+            assertThat(actual).containsExactly(new BlockRange(0L, 9L));
+        }
+
+        /**
+         * This test aims to assert that {@link ZipBlockArchive#storedBlockRanges()}
+         * ignores a zip file placed directly in the archive root, as it has no block directories.
+         */
+        @Test
+        @DisplayName("Test storedBlockRanges() ignores zip files directly in the archive root")
+        void testStoredBlockRangesIgnoresRootLevelZip() throws IOException {
+            Files.createFile(testConfig.rootPath().resolve("0.zip"));
+            final List<BlockRange> actual = toTest.storedBlockRanges();
+            assertThat(actual).isEmpty();
+        }
+
+        /**
+         * This test aims to assert that {@link ZipBlockArchive#storedBlockRanges()}
+         * ignores a zip file whose name has no digits before the extension.
+         */
+        @Test
+        @DisplayName("Test storedBlockRanges() ignores zip files with an empty name")
+        void testStoredBlockRangesIgnoresEmptyZipName() throws IOException {
+            final Path blockDirectory = testConfig.rootPath().resolve("0");
+            Files.createDirectories(blockDirectory);
+            Files.createFile(blockDirectory.resolve(".zip"));
+            final List<BlockRange> actual = toTest.storedBlockRanges();
+            assertThat(actual).isEmpty();
+        }
+
+        /**
+         * This test aims to assert that {@link ZipBlockArchive#storedBlockRanges()}
+         * ignores a zip file whose path digits exceed the range of a {@code long}.
+         */
+        @Test
+        @DisplayName("Test storedBlockRanges() ignores zip files whose start block does not fit in a long")
+        void testStoredBlockRangesIgnoresStartBlockOverflow() throws IOException {
+            final Path blockDirectory = testConfig.rootPath().resolve("99999999999999999999");
+            Files.createDirectories(blockDirectory);
+            Files.createFile(blockDirectory.resolve("00.zip"));
+            final List<BlockRange> actual = toTest.storedBlockRanges();
+            assertThat(actual).isEmpty();
+        }
+
+        /**
+         * This test aims to assert that {@link ZipBlockArchive#storedBlockRanges()}
+         * ignores a zip file whose last block would exceed {@link Long#MAX_VALUE}.
+         */
+        @Test
+        @DisplayName("Test storedBlockRanges() ignores zip files whose end block does not fit in a long")
+        void testStoredBlockRangesIgnoresEndBlockOverflow() throws IOException {
+            // start block 9_223_372_036_854_775_800 fits, but its 10-block range ends past Long.MAX_VALUE
+            final Path blockDirectory = testConfig.rootPath().resolve("92233720368547758");
+            Files.createDirectories(blockDirectory);
+            Files.createFile(blockDirectory.resolve("00.zip"));
+            final List<BlockRange> actual = toTest.storedBlockRanges();
+            assertThat(actual).isEmpty();
+        }
+
+        /**
          * This test aims to assert that the
          * {@link ZipBlockArchive#createZip(BlockAccessorBatch, Path)}  will successfully
          * create the target zip file
@@ -576,7 +684,8 @@ class ZipBlockArchiveTest {
         void testZipSuccessfullyCreated() throws IOException {
             // setup
             final int firstBlockNumber = 0;
-            final int batchSize = StrictMath.toIntExact(intPowerOfTen(testConfig.powersOfTenPerZipFileContents()));
+            final int batchSize =
+                    StrictMath.toIntExact(ZipBlockArchive.powerOfTen(testConfig.powersOfTenPerZipFileContents()));
             final BlockAccessorBatch batch = new BlockAccessorBatch();
             for (int i = firstBlockNumber; i < batchSize; i++) {
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(i);
@@ -615,7 +724,8 @@ class ZipBlockArchiveTest {
         void testZipContents() throws IOException, ParseException {
             // setup
             final int firstBlockNumber = 0;
-            final int batchSize = StrictMath.toIntExact(intPowerOfTen(testConfig.powersOfTenPerZipFileContents()));
+            final int batchSize =
+                    StrictMath.toIntExact(ZipBlockArchive.powerOfTen(testConfig.powersOfTenPerZipFileContents()));
             final Map<String, Bytes> first10BlocksWithExpectedEntryNames = new TreeMap<>();
             final BlockAccessorBatch batch = new BlockAccessorBatch();
             for (int i = firstBlockNumber; i < batchSize; i++) {
@@ -715,27 +825,5 @@ class ZipBlockArchiveTest {
             final Path blocksRoot, final int powersOfTenPerZipFileContents) {
         // for simplicity let's use no compression
         return new FilesHistoricConfig(blocksRoot, CompressionType.NONE, powersOfTenPerZipFileContents, 0L, 3, false);
-    }
-
-    /**
-     * Simple power of ten function that avoids the inaccuracies possible
-     * with floating point and also ensures the value must fit within
-     * a long.
-     *
-     * @param powerToCreate the exponent to raise 10 to.  This must be
-     *     between 1 and 18, inclusive.
-     * @return 10 raised to (powerToCreate), or -1 if the result would not
-     *     fit within a long primitive.
-     */
-    private long intPowerOfTen(final int powerToCreate) {
-        if (powerToCreate > 18 || powerToCreate < 1) {
-            return -1;
-        } else {
-            long currentTotal = 1;
-            for (int i = 0; i < powerToCreate; i++) {
-                currentTotal *= 10;
-            }
-            return currentTotal;
-        }
     }
 }
