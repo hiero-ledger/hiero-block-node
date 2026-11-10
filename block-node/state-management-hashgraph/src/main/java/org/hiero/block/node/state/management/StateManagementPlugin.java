@@ -192,16 +192,18 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// `true` while a catch-up sweep is queued or running, so at most one runs at a time.
     private final AtomicBoolean catchUpRunning = new AtomicBoolean(false);
 
-    /// Runs the periodic snapshot task. Separate from the catch-up thread and the messaging
-    /// thread that applies live blocks, so a snapshot that takes minutes never delays apply.
-    /// `null` until `start()`.
+    /// How long `stop()` waits for the final snapshot (and any write already in flight) before
+    /// interrupting it. A write cut short leaves only a staging dir, removed on the next start.
+    static final long SNAPSHOT_STOP_TIMEOUT_SECONDS = 10L;
+
+    /// The only thread that writes snapshots: the periodic task and the final snapshot queued by
+    /// `stop()` both run here, so two writes never overlap and `saveSnapshot` needs no lock.
+    /// Separate from the catch-up thread and the messaging thread that applies live blocks, so a
+    /// snapshot that takes minutes never delays apply. `null` until `start()`.
     private ScheduledExecutorService snapshotExecutor;
 
-    /// Serialises scheduled snapshots and the final snapshot taken in `stop()`.
-    private final ReentrantLock snapshotLock = new ReentrantLock();
-
     /// Block number of the newest snapshot written or restored, `-1` if none. Volatile: written
-    /// under `snapshotLock` (or during start-up), read by the metrics-scrape thread.
+    /// by the snapshot thread (or during start-up), read by the metrics-scrape thread.
     private volatile long lastSnapshottedBlock = -1L;
 
     /// Duration of the most recent successful snapshot write, exported via
@@ -341,7 +343,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                         "StateManagement-snapshot",
                         (t, e) -> LOGGER.log(System.Logger.Level.WARNING, "Uncaught exception in " + t.getName(), e));
         final long interval = config.snapshotIntervalMillis();
-        snapshotExecutor.scheduleWithFixedDelay(this::runScheduledSnapshot, interval, interval, TimeUnit.MILLISECONDS);
+        snapshotExecutor.scheduleWithFixedDelay(this::runSnapshotTask, interval, interval, TimeUnit.MILLISECONDS);
     }
 
     /// {@inheritDoc}
@@ -364,17 +366,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                 Thread.currentThread().interrupt();
             }
         }
-        if (snapshotExecutor != null) {
-            // shutdown, not shutdownNow: interrupting an in-flight write only wastes it.
-            snapshotExecutor.shutdown();
-        }
-        // Final snapshot of the latest attested block. Waits on snapshotLock for any in-flight
-        // write, then no-ops if that write already covered the latest attested block.
-        try {
-            saveSnapshot();
-        } catch (final RuntimeException e) {
-            LOGGER.log(System.Logger.Level.WARNING, "Final state snapshot on stop failed", e);
-        }
+        stopSnapshotExecutor();
     }
 
     /// Applies a verified block inline on the notification thread when it is the next expected
@@ -994,13 +986,45 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         return Path.of(config.snapshotRecentPath(), Long.toString(blockNumber));
     }
 
-    /// Body of the periodic snapshot task. Catches everything `saveSnapshot` can throw, because
-    /// a scheduled task that throws is silently never run again.
-    private void runScheduledSnapshot() {
+    /// Body of every snapshot task on `snapshotExecutor`, periodic and final. Catches everything
+    /// `saveSnapshot` can throw, because a scheduled task that throws is silently never run again.
+    private void runSnapshotTask() {
         try {
             saveSnapshot();
         } catch (final RuntimeException e) {
-            LOGGER.log(System.Logger.Level.WARNING, "Scheduled state snapshot failed", e);
+            LOGGER.log(System.Logger.Level.WARNING, "State snapshot task failed", e);
+        }
+    }
+
+    /// Take a final snapshot of the latest attested block and shut down `snapshotExecutor`. The
+    /// final snapshot is queued on the snapshot thread, behind any write already in flight, so
+    /// the two never overlap. Catch-up is already stopped and `stopping` blocks new applies, so
+    /// the queued run captures the latest attested block (or no-ops if the in-flight write
+    /// already covered it). Waits up to `SNAPSHOT_STOP_TIMEOUT_SECONDS`, then interrupts: the
+    /// interrupted write fails, its staging dir is removed, and the next start restores the
+    /// previous snapshot and replays the blocks since.
+    private void stopSnapshotExecutor() {
+        if (snapshotExecutor == null) {
+            return;
+        }
+        try {
+            snapshotExecutor.execute(this::runSnapshotTask);
+        } catch (final RejectedExecutionException e) {
+            LOGGER.log(System.Logger.Level.WARNING, "Snapshot executor already shut down; skipping final snapshot");
+        }
+        snapshotExecutor.shutdown();
+        try {
+            if (!snapshotExecutor.awaitTermination(SNAPSHOT_STOP_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                LOGGER.log(
+                        System.Logger.Level.WARNING,
+                        "Final state snapshot did not finish within {0}s; interrupting it. The next start "
+                                + "restores the previous snapshot.",
+                        SNAPSHOT_STOP_TIMEOUT_SECONDS);
+                snapshotExecutor.shutdownNow();
+            }
+        } catch (final InterruptedException e) {
+            snapshotExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -1012,87 +1036,85 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// `VirtualMapStateLifecycleManager.createSnapshot`, which catches and only logs write
     /// errors, so a failed write would look like success. Runs even when apply has halted: the
     /// attested state was confirmed by a footer before the halt and is a valid recovery point.
-    /// Package-private so tests can drive it directly.
+    ///
+    /// Not thread-safe by design: two concurrent calls could write and prune the same staging
+    /// dir. In production it only runs on `snapshotExecutor` (thread confinement, the same
+    /// pattern as `ApplicationStateFacilityPlugin`'s dispatcher). Package-private so tests can
+    /// drive it directly from a single thread.
     ///
     /// @return `true` only if a new snapshot directory was written
     boolean saveSnapshot() {
-        snapshotLock.lock();
-        try {
-            if (lifecycleManager == null) {
-                return false;
-            }
-            // The apply thread can release the attested root on the next promotion at any
-            // moment, so reserve it with tryReserve and re-read on a lost race.
-            AttestedSnapshot current;
-            while (true) {
-                current = attested;
-                if (current.state() == null || current.blockNumber() <= lastSnapshottedBlock) {
-                    return false;
-                }
-                if (current.state().getRoot().tryReserve()) {
-                    break;
-                }
-                if (attested == current) {
-                    // Destroyed but still published, with nothing newer to retry with. Give up
-                    // rather than spin; the next scheduled run tries again.
-                    LOGGER.log(
-                            System.Logger.Level.WARNING,
-                            "Attested state for block {0} already released; skipping snapshot",
-                            current.blockNumber());
-                    return false;
-                }
-            }
-            final long block = current.blockNumber();
-            final Path root = Path.of(config.snapshotRecentPath());
-            final Path target = recentSnapshotDirectoryFor(block);
-            final Path staging = root.resolve(STAGING_PREFIX + block);
-            try {
-                if (Files.isDirectory(target)) {
-                    // Only complete snapshots are ever renamed into place, so this one is whole.
-                    lastSnapshottedBlock = block;
-                    return false;
-                }
-                Files.createDirectories(root);
-                deleteRecursively(staging);
-                final long startNanos = System.nanoTime();
-                current.state().getRoot().createSnapshot(staging);
-                // No REPLACE_EXISTING: a non-empty directory can't be replaced, and target was
-                // checked absent above.
-                Files.move(staging, target, StandardCopyOption.ATOMIC_MOVE);
-                lastSnapshotDurationMs = (System.nanoTime() - startNanos) / 1_000_000L;
-                lastSnapshottedBlock = block;
-                LOGGER.log(
-                        System.Logger.Level.INFO,
-                        "Wrote state snapshot for block {0} to {1} in {2} ms",
-                        block,
-                        target,
-                        lastSnapshotDurationMs);
-            } catch (final IOException | RuntimeException e) {
-                LOGGER.log(System.Logger.Level.WARNING, "Failed to write state snapshot for block {0}", block, e);
-                snapshotFailureTotal.incrementAndGet();
-                snapshotFailureMetric.increment();
-                try {
-                    deleteRecursively(staging);
-                } catch (final IOException | RuntimeException cleanup) {
-                    LOGGER.log(
-                            System.Logger.Level.WARNING, "Failed to delete snapshot staging dir {0}", staging, cleanup);
-                }
-                return false;
-            } finally {
-                current.state().getRoot().release();
-            }
-            pruneOldRecentSnapshots(block);
-            return true;
-        } finally {
-            snapshotLock.unlock();
+        if (lifecycleManager == null) {
+            return false;
         }
+        // The apply thread can release the attested root on the next promotion at any
+        // moment, so reserve it with tryReserve and re-read on a lost race.
+        AttestedSnapshot current;
+        while (true) {
+            current = attested;
+            if (current.state() == null || current.blockNumber() <= lastSnapshottedBlock) {
+                return false;
+            }
+            if (current.state().getRoot().tryReserve()) {
+                break;
+            }
+            if (attested == current) {
+                // Destroyed but still published, with nothing newer to retry with. Give up
+                // rather than spin; the next scheduled run tries again.
+                LOGGER.log(
+                        System.Logger.Level.WARNING,
+                        "Attested state for block {0} already released; skipping snapshot",
+                        current.blockNumber());
+                return false;
+            }
+        }
+        final long block = current.blockNumber();
+        final Path root = Path.of(config.snapshotRecentPath());
+        final Path target = recentSnapshotDirectoryFor(block);
+        final Path staging = root.resolve(STAGING_PREFIX + block);
+        try {
+            if (Files.isDirectory(target)) {
+                // Only complete snapshots are ever renamed into place, so this one is whole.
+                lastSnapshottedBlock = block;
+                return false;
+            }
+            Files.createDirectories(root);
+            deleteRecursively(staging);
+            final long startNanos = System.nanoTime();
+            current.state().getRoot().createSnapshot(staging);
+            // No REPLACE_EXISTING: a non-empty directory can't be replaced, and target was
+            // checked absent above.
+            Files.move(staging, target, StandardCopyOption.ATOMIC_MOVE);
+            lastSnapshotDurationMs = (System.nanoTime() - startNanos) / 1_000_000L;
+            lastSnapshottedBlock = block;
+            LOGGER.log(
+                    System.Logger.Level.INFO,
+                    "Wrote state snapshot for block {0} to {1} in {2} ms",
+                    block,
+                    target,
+                    lastSnapshotDurationMs);
+        } catch (final IOException | RuntimeException e) {
+            LOGGER.log(System.Logger.Level.WARNING, "Failed to write state snapshot for block {0}", block, e);
+            snapshotFailureTotal.incrementAndGet();
+            snapshotFailureMetric.increment();
+            try {
+                deleteRecursively(staging);
+            } catch (final IOException | RuntimeException cleanup) {
+                LOGGER.log(System.Logger.Level.WARNING, "Failed to delete snapshot staging dir {0}", staging, cleanup);
+            }
+            return false;
+        } finally {
+            current.state().getRoot().release();
+        }
+        pruneOldRecentSnapshots(block);
+        return true;
     }
 
     /// Delete old snapshots so at most `snapshotRecentRetentionCount` numeric dirs remain,
     /// always keeping `current`, and delete any `.tmp-<digits>` staging dir. Nothing else under
     /// the root is touched: in particular `tmp` holds the live MerkleDb files. Failures are
-    /// logged and skipped, since the new snapshot is already written. Callers hold
-    /// `snapshotLock`, so no staging dir is in flight.
+    /// logged and skipped, since the new snapshot is already written. Runs on the snapshot
+    /// thread, so no other staging dir is in flight.
     ///
     /// @param current the block number of the snapshot just written
     private void pruneOldRecentSnapshots(final long current) {
