@@ -16,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -155,18 +156,18 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// `init` (always before any apply runs in `start`).
     private LongCounter.Measurement hashMismatchMetric;
 
-    /// One-shot start-up catch-up thread: replays history block by block, then ends. `null`
-    /// until `start()`. This is the plugin's only thread of its own; live blocks are applied
-    /// inline on the messaging thread that delivers them.
+    /// The catch-up thread: the plugin's only thread of its own, and the only one that reads
+    /// history. It replays missing blocks at start-up and whenever a live block arrives ahead of
+    /// the next expected one. Live blocks that are next in line are applied inline on the
+    /// messaging thread that delivers them, which never reads history. `null` until `start()`.
     private ExecutorService catchUpExecutor;
 
-    /// `true` while the start-up catch-up owns the walk through history. Live blocks ahead of
-    /// the next expected one are dropped meanwhile rather than racing it to fetch the gap.
+    /// `true` while a catch-up sweep is queued or running, so at most one runs at a time.
     private final AtomicBoolean catchUpRunning = new AtomicBoolean(false);
 
-    /// Serialises every apply (live inline, gap fill, start-up catch-up) so only one thread
-    /// mutates the lifecycle-managed state at a time. Fair, so the catch-up thread cannot starve
-    /// a live block waiting on it.
+    /// Serialises every apply (live inline and catch-up) so only one thread mutates the
+    /// lifecycle-managed state at a time. Taken per block, so a live block waits for at most one
+    /// block's apply. Fair, so the catch-up thread cannot starve a live block waiting on it.
     private final ReentrantLock applyLock = new ReentrantLock(true);
 
     /// Block number of the most recent block whose state_changes have been applied to the
@@ -271,18 +272,10 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         loadPersistedState();
         context.blockMessaging().registerBlockNotificationHandler(this, true, name());
 
-        // One-shot catch-up from history. Needed because an idle node (no live blocks) would
-        // otherwise never become ready; the thread ends once the sweep returns.
-        catchUpRunning.set(true);
+        // Catch up from history. Needed because an idle node (no live blocks) would otherwise
+        // never become ready. The thread stays up for later catch-ups, see `requestCatchUp`.
         catchUpExecutor = context.threadPoolManager().createSingleThreadExecutor("StateManagement-catchup");
-        catchUpExecutor.submit(() -> {
-            try {
-                catchUpFromHistoricalBlocks();
-            } finally {
-                catchUpRunning.set(false);
-            }
-        });
-        catchUpExecutor.shutdown();
+        requestCatchUp();
     }
 
     /// {@inheritDoc}
@@ -307,11 +300,10 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         }
     }
 
-    /// Applies a verified block inline on the notification thread. Holds no block data between
-    /// notifications: a stale block is dropped, the next expected block is applied, and a block
-    /// ahead of it triggers a one-block-at-a-time fetch of the missing blocks from history (then
-    /// the notified block is applied). If history cannot supply the gap yet, the block is
-    /// dropped and the next notification retries.
+    /// Applies a verified block inline on the notification thread when it is the next expected
+    /// one. Holds no block data between notifications: a stale block is dropped, and a block ahead
+    /// of the next expected one is dropped too and triggers a catch-up on the catch-up thread, so
+    /// this thread never reads history. The next notification retries if history was not ready.
     ///
     /// {@inheritDoc}
     @Override
@@ -325,8 +317,8 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         if (lastApplied >= 0L && blockNumber <= lastApplied) {
             return; // a resend or backfill-sourced verification of an already applied block
         }
-        // Held across any gap-fill history reads below, which run on this messaging thread. That
-        // cost is not yet measured (#4031).
+        // The inline apply and hash below run on this messaging thread; their cost on a full-size
+        // state is not yet measured (#4031).
         applyLock.lock();
         try {
             if (applyHalted.get() || stopping.get()) {
@@ -338,28 +330,13 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                 return; // applied by another thread while we waited on the lock
             }
             if (blockNumber > expectedNext) {
-                if (catchUpRunning.get() || historic == null) {
-                    return; // start-up catch-up owns the history walk; drop, do not hold the block
-                }
-                final boolean filled;
-                try {
-                    filled = applyFromHistory(historic, expectedNext, blockNumber - 1L);
-                } catch (final RuntimeException e) {
-                    LOGGER.log(
-                            System.Logger.Level.WARNING,
-                            "Gap recovery failed before block {0}; dropping it",
-                            blockNumber,
-                            e);
-                    return;
-                }
-                if (!filled) {
-                    LOGGER.log(
-                            System.Logger.Level.WARNING,
-                            "Block {0} arrived ahead of block {1}, which history cannot supply yet; dropping it",
-                            blockNumber,
-                            Math.max(lastAppliedBlock, attested.blockNumber()) + 1L);
-                    return;
-                }
+                LOGGER.log(
+                        System.Logger.Level.DEBUG,
+                        "Block {0} arrived ahead of block {1}; dropping it and catching up from history",
+                        blockNumber,
+                        expectedNext);
+                requestCatchUp();
+                return;
             }
             if (applyGuarded(notification.block(), blockNumber)) {
                 refreshReady(historic);
@@ -621,8 +598,8 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
 
     /// Fetch blocks `from..to` from `historic` and apply them in order, holding at most one block
     /// at a time (open accessor, parse, apply, close). Stops at the first block history cannot
-    /// supply, at a halt, or when stopping. The lock is taken per block, so a live block can
-    /// interleave; blocks another thread already applied are skipped.
+    /// supply, at a halt, or when stopping. Runs on the catch-up thread. The lock is taken per block,
+    /// so a live block can interleave; blocks another thread already applied are skipped.
     ///
     /// @param historic the historical facility to read from
     /// @param from first block number to apply
@@ -676,10 +653,30 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         }
     }
 
+    /// Queue a catch-up sweep on the catch-up thread unless one is already queued or running.
+    /// Does nothing once stopping.
+    private void requestCatchUp() {
+        if (catchUpExecutor == null || stopping.get() || !catchUpRunning.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            catchUpExecutor.execute(() -> {
+                try {
+                    catchUpFromHistoricalBlocks();
+                } finally {
+                    catchUpRunning.set(false);
+                }
+            });
+        } catch (final RejectedExecutionException e) {
+            catchUpRunning.set(false); // executor shut down by stop()
+        }
+    }
+
     /// Bring the live state up to the latest block on hand by replaying history one block at a
-    /// time. Runs once on the start-up catch-up thread. Ready only if the sweep reached the
-    /// latest available block and is not halted. A sweep that stops short leaves the plugin not
-    /// ready: the next live block ahead of the gap retries from history, see `handleVerification`.
+    /// time. Runs on the catch-up thread, at start-up and whenever a live block arrives ahead of the
+    /// next expected one. Ready only if the sweep reached the latest available block and is not
+    /// halted. A sweep that stops short leaves the plugin not ready: the next live block ahead of
+    /// the gap requests another one, see `handleVerification`.
     void catchUpFromHistoricalBlocks() {
         boolean reachedTip = false;
         try {
