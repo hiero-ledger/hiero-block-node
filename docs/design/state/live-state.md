@@ -220,9 +220,13 @@ service StateService {
 
 ### 6.2 `start()`
 
-1. `StateSnapshotManager.restoreLatest()` scans `${recentPath}/*` for numerically-named
-   directories. If none exist, it returns `NoSnapshot`: there's no persisted operator intent to
-   honor, so the plugin treats it as genesis.
+1. `StateSnapshotManager.restoreLatest()` scans `${recentPath}/*` for snapshot directories. A
+   directory counts only if its name is a canonical block number, exactly `Long.toString(n)` for
+   some `n >= 0`, which is the only form the plugin writes. Leading zeros, non-ASCII digits or a
+   value too large for a `long` are ignored like any other non-snapshot entry, since `<root>/n`
+   would be a different directory from the one scanned. If none exist, it returns `NoSnapshot`:
+   there's no persisted operator intent to honor, so the plugin treats it as genesis. An I/O
+   error while listing the root, including one part way through, returns `UNLISTABLE_ROOT`.
 2. If one or more exist, the manager takes the highest-numbered directory `${recentPath}/N` as
    the restore candidate and calls `lifecycleManager.loadSnapshot(...)` to replace the eager
    genesis state with the on-disk state. It then reads `BlockStreamInfo.block_number` back out of
@@ -264,7 +268,7 @@ service StateService {
    `cpuIntensive=true` because state apply is CPU-bound parsing work.
 
 4. Call `StateSnapshotManager.deleteStagingDirectories()` to delete stale staging directories
-   (`.tmp-<digits>` under `${recentPath}`) left by a crash mid-snapshot. Then start a
+   (`.tmp-<blockNumber>` under `${recentPath}`) left by a crash mid-snapshot. Then start a
    **catch-up thread** (`StateManagement-catchup`) that runs historical catch-up (§6.4) now and
    whenever a live block arrives ahead of the next expected one. It is the only thread that
    reads history. Live blocks that are next in line are applied inline on the messaging thread,
@@ -491,9 +495,10 @@ Steps 1 and 2 run in the plugin. Steps 3 to 5 are
      `state_snapshot_failures_total`. `lastSnapshottedBlock` is unchanged, so the next run retries.
 5. **Prune.** After a `WRITTEN` result only, the manager's `pruneOldRecentSnapshots(blockNumber)`
    lists the direct children of `recentPath` and only ever deletes two kinds of entry:
-   - numeric snapshot directories beyond the newest `snapshotRecentRetentionCount`, oldest
-     first. The just-written `<blockNumber>` directory is always kept.
-   - `.tmp-<digits>` staging directories. This is safe because pruning runs on the snapshot
+   - snapshot directories (canonical block numbers, §6.2) beyond the newest
+     `snapshotRecentRetentionCount`, oldest first. The just-written `<blockNumber>` directory is
+     always kept.
+   - `.tmp-<blockNumber>` staging directories, with the same canonical rule for the suffix. This is safe because pruning runs on the snapshot
      thread, so no other write is in flight.
 
    Everything else is left alone. In particular `tmp` is never touched: `FileSystemManager` owns
@@ -757,11 +762,17 @@ and sealed, hashed states, with no plugin and no executors:
    none of its contents end up in `<n>`.
 6. `FAILED` on a non-writable root leaves no `<n>` and no staging directory. The write succeeds
    once the root is writable again.
-7. Retention and prune scope: only numbered directories beyond the retention count and
-   `.tmp-<digits>` staging directories are deleted. `tmp`, `notes` and `.tmp-keep` survive.
-   `deleteStagingDirectories` only removes `.tmp-<digits>`.
+7. Retention and prune scope: with retention 3, writing blocks 1..5 leaves `{3,4,5}` and a
+   sixth write leaves `{4,5,6}`. Only numbered directories beyond the retention count and
+   `.tmp-<n>` staging directories are deleted. `tmp`, `notes` and `.tmp-keep` survive.
+   `deleteStagingDirectories` only removes `.tmp-<n>`.
 8. `blockNumberOf` returns the stored block number, and `-1` when `BlockStreamInfo` is absent
    or unparseable.
+9. `parseBlockNumber` accepts only canonical block numbers. It rejects leading zeros,
+   non-ASCII digits, values above `Long.MAX_VALUE`, signs, spaces and letters.
+10. Restore and prune leave non-canonical names alone: with a 20-digit, a non-ASCII digit, a
+    `0005` and a `.tmp-007` directory present, restore still returns the real snapshot and
+    retention-1 pruning deletes none of them.
 
 Other test classes:
 
