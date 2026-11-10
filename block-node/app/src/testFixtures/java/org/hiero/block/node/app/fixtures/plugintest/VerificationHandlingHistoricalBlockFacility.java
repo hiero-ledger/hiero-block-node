@@ -32,12 +32,12 @@ public class VerificationHandlingHistoricalBlockFacility implements HistoricalBl
 
     @Override
     public void start() {
-        context.blockMessaging().registerBlockNotificationHandler(this, true, name());
+        context.blockMessaging().registerVerifiedBlockHandler(this, true, name());
     }
 
     @Override
     public void stop() {
-        context.blockMessaging().unregisterBlockNotificationHandler(this);
+        context.blockMessaging().unregisterVerifiedBlockHandler(this);
     }
 
     @Override

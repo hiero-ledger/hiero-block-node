@@ -275,7 +275,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             return;
         }
         loadPersistedState();
-        context.blockMessaging().registerBlockNotificationHandler(this, true, name());
+        context.blockMessaging().registerVerifiedBlockHandler(this, true, name());
 
         // Catch up from history. Needed because an idle node (no live blocks) would otherwise
         // never become ready. The thread stays up for later catch-ups, see `requestCatchUp`.
@@ -290,7 +290,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         stateIsCaughtUp.set(false);
         if (context != null) {
             try {
-                context.blockMessaging().unregisterBlockNotificationHandler(this);
+                context.blockMessaging().unregisterVerifiedBlockHandler(this);
             } catch (final RuntimeException ignored) {
                 // facility may already be torn down — non-fatal.
             }
