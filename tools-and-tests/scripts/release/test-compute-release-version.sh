@@ -269,6 +269,17 @@ expect_ok "lifecycle: rc for the next patch" COMPUTED_VERSION=0.45.3-rc1
 run rc main 0.46.0-SNAPSHOT
 expect_ok "lifecycle: the next minor still starts on main" COMPUTED_VERSION=0.46.0-rc1
 
+# rc1 -> GA, then rc again on the same branch: X.Y.Z+1-rc1, never X.Y.Z-rc2 (which would leave
+# the line unable to GA, since X.Y.Z already exists).
+TAGS=(v0.45.0-rc1 v0.45.0) BRANCHES=(main release/0.45)
+run rc release/0.45 0.45.0
+expect_ok "rc after rc1 -> GA gives the next patch rc1, not rc2" COMPUTED_VERSION=0.45.1-rc1
+run rc release/0.45 0.45.0-rc1
+expect_ok "same with version.txt still stale at the rc" COMPUTED_VERSION=0.45.1-rc1
+TAGS=(v0.45.0-rc1 v0.45.0 v0.45.1-rc1)
+run GA release/0.45 0.45.1-rc1
+expect_ok "and that patch rc then goes GA" COMPUTED_VERSION=0.45.1 SOURCE_TAG=v0.45.1-rc1
+
 # --- input validation -------------------------------------------------------------------------
 # A flag with no value must be a clean ::error::, not an unbound-variable crash under set -u.
 for flag in --release-type --ref-name --current-version --custom-version --tags-file \
