@@ -338,8 +338,10 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                 requestCatchUp();
                 return;
             }
-            if (applyGuarded(notification.block(), blockNumber)) {
-                refreshReady(historic);
+            if (applyGuarded(notification.block(), blockNumber) && !refreshReady(historic)) {
+                // History holds blocks past this one (for example, this block filled a hole that
+                // had stalled catch-up): let the catch-up thread apply them.
+                requestCatchUp();
             }
         } finally {
             applyLock.unlock();
@@ -643,14 +645,17 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// history has on hand (or there is no history to catch up to). Caller holds `applyLock`.
     ///
     /// @param historic the historical facility, may be `null`
-    private void refreshReady(@Nullable final HistoricalBlockFacility historic) {
+    /// @return `false` only if the plugin is running and history holds blocks it has not applied
+    private boolean refreshReady(@Nullable final HistoricalBlockFacility historic) {
         if (applyHalted.get() || stopping.get()) {
-            return;
+            return true;
         }
         final BlockRangeSet available = historic == null ? null : historic.availableBlocks();
         if (available == null || available.size() == 0L || lastAppliedBlock >= available.max()) {
             stateIsCaughtUp.set(true);
+            return true;
         }
+        return false;
     }
 
     /// Queue a catch-up sweep on the catch-up thread unless one is already queued or running.
