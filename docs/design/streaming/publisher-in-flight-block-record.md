@@ -112,10 +112,8 @@ obsolete cleanup, `discardIfInconsistent`, or a resend won by another handler) c
 - call `blockIsEnding(N, handlerId)` and remove the *other* handler's queue and schedule a resend.
 
 The window is narrow (a stall ends the old handler's stream with TIMEOUT, so the old handler is
-usually already on its way out), but nothing in the code prevents it. This is the same defect as
-
-# 3975 seen from the handler side, and per-record identity fixes it as well. I have not
-
+usually already on its way out), but nothing in the code prevents it. This is the same defect
+as #3975 seen from the handler side, and per-record identity fixes it as well. I have not
 reproduced it with a test. That should be the first characterisation test (section 6).
 
 **(b) The manager can't tell the handler its queue is dead.** Because the handler writes straight
