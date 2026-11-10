@@ -287,9 +287,10 @@ Effects:
   `LiveStreamPublisherManagerTest` (26 references to `registerQueueForBlock` or
   `blockIsEnding`), `PublisherManagerRegressionTest` (8), `LiveStreamPublisherManagerRecoveryTest`
   (3), `PublisherHandlerAcknowledgeOnlyTest` (1) and the `TestStreamPublisherManager` fixture (2).
-  `PublishApiUtility` also calls `endOfBlock`. Expect a mechanical but sizeable update. The
-  signature change is the main cost of this proposal, and the identity checks are its main
-  benefit.
+  `LiveStreamPublisherManagerTest` also calls the manager's `endOfBlock(long)` 11 times
+  (`PublishApiUtility` only builds `BlockEnd` requests and is not affected). Expect a mechanical
+  but sizeable update. The signature change is the main cost of this proposal, and the identity
+  checks are its main benefit.
 - **Behaviour change for displaced handlers.** A handler that today keeps getting ACCEPT after
   being displaced will, after the change, learn its attempt is dead. The handler needs a defined
   response (most likely the same path as SKIP: send SKIP, reset state). That response should be
