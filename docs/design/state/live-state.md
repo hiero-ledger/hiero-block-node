@@ -253,10 +253,11 @@ service StateService {
    `cpuIntensive=true` because state apply is CPU-bound parsing work.
 
 4. Start the periodic snapshot executor
-   (`snapshotExecutor.scheduleWithFixedDelay(this::saveSnapshot, …)`) and a one-shot
-   **catch-up thread** (`StateManagement-catchup`) that runs historical catch-up (§6.4) and
-   then ends. It is the plugin's only thread of its own. It exists so an idle node with no live
-   blocks still becomes ready. Live blocks are applied inline on the messaging thread.
+   (`snapshotExecutor.scheduleWithFixedDelay(this::saveSnapshot, …)`) and a
+   **catch-up thread** (`StateManagement-catchup`) that runs historical catch-up (§6.4) now and
+   whenever a live block arrives ahead of the next expected one. It is the plugin's only thread
+   of its own and the only one that reads history. Live blocks that are next in line are applied
+   inline on the messaging thread, which never reads history.
 
 ### 6.3 `handleVerification(VerificationNotification)`
 
@@ -268,19 +269,20 @@ the oldest block history has):
 - Not `success`, no block payload, or apply halted: drop.
 - At or below the last applied block (a resend or backfill-sourced verification): drop.
 - Equal to the next expected block: apply inline via `applyBlockStateChanges`.
-- Ahead of it: do not store it. Fetch the missing blocks from `historicalBlockProvider` one at
-  a time (open the accessor, parse, apply, close; never more than one held), then apply the
-  notified block. If history cannot supply a missing block yet, or the fetch fails, drop the
-  notified block; the next notification repeats the attempt. While the start-up catch-up is
-  still walking history, an ahead block is dropped instead, so the two do not race for the same
-  gap.
+- Ahead of it: do not store it and do not read history here. Drop it and request a catch-up on
+  the catch-up thread (a no-op if one is already queued or running), which fetches the missing
+  blocks from `historicalBlockProvider` one at a time (§6.4). The messaging thread that also
+  carries block progression is never blocked on history. The next notification repeats the
+  request if history could not yet supply the gap.
 
 After a successful apply, readiness is latched if the plugin reached the latest block history
-has on hand. Applying happens on the messaging thread that delivered the block, so a long gap
-fill delays that handler; a block that arrives before it is persisted is applied from the
-notification itself, not from storage.
+has on hand. The apply and hash of a next-in-line block run on the messaging thread, so their
+cost on a full-size state matters (unmeasured, #4031). A gap does not: catch-up applies blocks
+on its own thread, taking the `applyLock` per block, so a live block waits for at most one
+block's apply. A block that arrives before it is persisted is applied from the notification
+itself, not from storage.
 
-### 6.4 `catchUpFromHistoricalBlocks()` (one-shot on `start()`)
+### 6.4 `catchUpFromHistoricalBlocks()` (on the catch-up thread, at `start()` and on demand)
 
 Closes the gap between `attested.blockNumber()` and the latest verified block the
 Block-Node has on hand without waiting for verification notifications.
@@ -301,7 +303,7 @@ Block-Node has on hand without waiting for verification notifications.
    it did and the plugin is not `applyHalted`**. Ready means caught up *without* halting, not
    merely "catch-up attempt finished." A sweep that stops short (hole in `availableBlocks`,
    failed fetch, exception) leaves the plugin not ready. There is no retry timer: the next
-   live block ahead of the gap re-drives the fetch from history (§6.3) and latches `ready=true`
+   live block ahead of the gap requests another catch-up (§6.3), which latches `ready=true`
    once the tip is reached. This lets a monitoring consumer
    tell "healthy and caught up" apart from "caught up once, then halted" from `ready` alone,
    without also having to check `apply_halted`. A halt logs a warning and leaves `state_ready`
@@ -554,20 +556,20 @@ alongside those features.
 
 ## 10. Failure modes
 
-|                                                                                                        Failure                                                                                                         |                                                                                                                                Behaviour                                                                                                                                |
-|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| No snapshot directories under `recentPath` at startup                                                                                                                                                                  | Genesis, cleanly — there's no operator intent to honor, so this is the normal first-boot path, not a failure.                                                                                                                                                           |
-| Snapshot root cannot be listed, or the highest-numbered snapshot directory is unreadable, fails to load, or fails its self-consistency check (loaded `BlockStreamInfo.block_number` disagrees with the directory name) | Halt (`applyHalted=true`), log at ERROR. Starting from genesis instead would silently discard the operator's recorded intent and surface only later as a confusing hash mismatch on an unrelated block. Plugin still starts; never becomes `ready`.                     |
-| `startOfBlockStateRootHash` mismatch                                                                                                                                                                                   | Increment `hashMismatchTotal`, set `applyHalted=true`, log at ERROR. Apply loop short-circuits thereafter; further blocks ignored until restart.                                                                                                                        |
-| Footer hash digest length differs from this build's (e.g. a SHA-256 footer against a SHA-384 `VirtualMap` hash)                                                                                                        | Same halt as any other `startOfBlockStateRootHash` mismatch, but logged distinctly as a digest-length mismatch rather than genuine divergence (#3813). Does not self-resolve: needs a CN release or state-library pin that matches the source chain's digest. See §6.5. |
-| First block after a fresh (no-snapshot) start is N > 0, not 0                                                                                                                                                          | Halt with a distinct "No seed state for block N" ERROR log; `hashMismatchTotal` is not incremented. Provide a snapshot (§6.5).                                                                                                                                          |
-| Malformed `state_changes` item                                                                                                                                                                                         | Applier returns `MALFORMED_STATE_CHANGES`; plugin halts and refuses to advance past that block.                                                                                                                                                                         |
-| Partial update with no prior value (`PARTIAL_WITHOUT_BASELINE`)                                                                                                                                                        | Applier returns `PARTIAL_WITHOUT_BASELINE`; plugin halts, since state and stream have diverged. Recovery is a restart from a snapshot at or before the missing value.                                                                                                   |
-| Legacy field-2 token-association encoding on a `stateId == 9` change                                                                                                                                                   | Halt with a distinct "unsupported legacy token-association encoding" error, not a generic hash mismatch — this plugin does not remap field 2 the way consensus-node's reference applier does. See §7.                                                                   |
-| Verification gap                                                                                                                                                                                                       | A block ahead of the next expected one is not stored: the missing blocks are fetched from `historicalBlockProvider` one at a time, then the block is applied. If history lacks one, the block is dropped and the next notification retries.                             |
-| Historical block missing locally                                                                                                                                                                                       | Catch-up skips it; the same block can arrive via notification later.                                                                                                                                                                                                    |
-| Snapshot write fails (I/O)                                                                                                                                                                                             | Log at WARNING; recent dir not deleted; next snapshot cycle retries.                                                                                                                                                                                                    |
-| Missing-queue query                                                                                                                                                                                                    | gRPC handler defensively maps NPE from `getQueueState`/`getQueueAsList`/`peekQueue` to `NOT_FOUND`.                                                                                                                                                                     |
+|                                                                                                        Failure                                                                                                         |                                                                                                                                    Behaviour                                                                                                                                    |
+|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| No snapshot directories under `recentPath` at startup                                                                                                                                                                  | Genesis, cleanly — there's no operator intent to honor, so this is the normal first-boot path, not a failure.                                                                                                                                                                   |
+| Snapshot root cannot be listed, or the highest-numbered snapshot directory is unreadable, fails to load, or fails its self-consistency check (loaded `BlockStreamInfo.block_number` disagrees with the directory name) | Halt (`applyHalted=true`), log at ERROR. Starting from genesis instead would silently discard the operator's recorded intent and surface only later as a confusing hash mismatch on an unrelated block. Plugin still starts; never becomes `ready`.                             |
+| `startOfBlockStateRootHash` mismatch                                                                                                                                                                                   | Increment `hashMismatchTotal`, set `applyHalted=true`, log at ERROR. Apply loop short-circuits thereafter; further blocks ignored until restart.                                                                                                                                |
+| Footer hash digest length differs from this build's (e.g. a SHA-256 footer against a SHA-384 `VirtualMap` hash)                                                                                                        | Same halt as any other `startOfBlockStateRootHash` mismatch, but logged distinctly as a digest-length mismatch rather than genuine divergence (#3813). Does not self-resolve: needs a CN release or state-library pin that matches the source chain's digest. See §6.5.         |
+| First block after a fresh (no-snapshot) start is N > 0, not 0                                                                                                                                                          | Halt with a distinct "No seed state for block N" ERROR log; `hashMismatchTotal` is not incremented. Provide a snapshot (§6.5).                                                                                                                                                  |
+| Malformed `state_changes` item                                                                                                                                                                                         | Applier returns `MALFORMED_STATE_CHANGES`; plugin halts and refuses to advance past that block.                                                                                                                                                                                 |
+| Partial update with no prior value (`PARTIAL_WITHOUT_BASELINE`)                                                                                                                                                        | Applier returns `PARTIAL_WITHOUT_BASELINE`; plugin halts, since state and stream have diverged. Recovery is a restart from a snapshot at or before the missing value.                                                                                                           |
+| Legacy field-2 token-association encoding on a `stateId == 9` change                                                                                                                                                   | Halt with a distinct "unsupported legacy token-association encoding" error, not a generic hash mismatch — this plugin does not remap field 2 the way consensus-node's reference applier does. See §7.                                                                           |
+| Verification gap                                                                                                                                                                                                       | A block ahead of the next expected one is dropped, not stored, and requests a catch-up on the catch-up thread, which fetches the missing blocks from `historicalBlockProvider` one at a time. If history lacks one, catch-up stops and the next notification requests it again. |
+| Historical block missing locally                                                                                                                                                                                       | Catch-up skips it; the same block can arrive via notification later.                                                                                                                                                                                                            |
+| Snapshot write fails (I/O)                                                                                                                                                                                             | Log at WARNING; recent dir not deleted; next snapshot cycle retries.                                                                                                                                                                                                            |
+| Missing-queue query                                                                                                                                                                                                    | gRPC handler defensively maps NPE from `getQueueState`/`getQueueAsList`/`peekQueue` to `NOT_FOUND`.                                                                                                                                                                             |
 
 **Recovery from a halt** is restart-from-snapshot, but *which* restart recovers depends on
 whether the cause is transient or deterministic. A snapshot-hash-mismatch or missing-snapshot
@@ -596,8 +598,8 @@ and exercise the real `VirtualMapStateLifecycleManager`:
 1. **scenario1** — genesis startup applies the first verified block.
 2. **scenario2** — with block `n` already applied, verification of `n+1` with the right
    footer hash promotes the attested block to `n`.
-3. **scenario3** — gap: block `n+2` parks until `n+1` fills the gap; both
-   then apply in order.
+3. **scenario3** — gap: block `n+2` is dropped and the catch-up thread fills `n+1` from
+   history; the next `n+2` then applies in order.
 4. **scenario4** — chained blocks `0..3` apply in order; under lag-1 the exposed
    block is `2` (the tip stays staged until confirmed).
 5. **scenario5** — `saveSnapshot` atomically writes the `recent/<block>/` directory tree; a
@@ -627,10 +629,13 @@ and `getKV` / `getQueue` structured responses.
 ## 12. Design decisions
 
 **Apply is inline and unbuffered.** `handleVerification` applies the next expected block on the
-delivering thread, fills a gap from `historicalBlockProvider` one block at a time, and drops
-anything it cannot apply. Verification only emits successful blocks in order, so keeping a copy
-here would duplicate what history already stores. The only plugin-owned thread is the one-shot
-start-up catch-up.
+delivering thread, and drops anything it cannot apply. A block ahead of the next expected one
+triggers a catch-up on the plugin's catch-up thread, so the messaging thread, which also carries
+block progression, never waits on history. Verification only emits successful blocks in order,
+so keeping a copy here would duplicate what history already stores. The expected adoption path
+is a node restored from a snapshot that must replay history to catch up, so catch-up is the
+primary path for filling gaps, not an exception. The only plugin-owned thread is the catch-up
+thread.
 
 **`roundNumber` is sourced from `RoundHeader`, kept in-memory only.** Pulled directly from the
 `RoundHeader` block item — every block carries at least one. The applier tracks the last seen
