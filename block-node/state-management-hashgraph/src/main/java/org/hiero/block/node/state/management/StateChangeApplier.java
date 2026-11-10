@@ -98,9 +98,10 @@ final class StateChangeApplier {
     /// @param bytes the raw bytes of that field's value
     private record OneOfPayload(int fieldNumber, @NonNull Bytes bytes) {}
 
-    /// Mutable progress of one block's `state_changes` walk: how many mutations were applied and
-    /// the first failure, if any. A failure stops the walk.
-    private static final class Walk {
+    /// The in-progress outcome of applying one block's `state_changes`: how many mutations have
+    /// been applied and the first failure, if any. Helpers record into it instead of throwing, and
+    /// a failure stops the walk. `applyBlock` turns it into the final, immutable `ApplyResult`.
+    private static final class ApplyProgress {
         private int applied;
         private Status failureStatus;
         private String failureDetail;
@@ -130,10 +131,10 @@ final class StateChangeApplier {
         private boolean unknown;
 
         /// Read the `partial` flag, which must be encoded as 0 or 1.
-        void readPartial(@NonNull final ReadableSequentialData input, @NonNull final Walk walk) {
+        void readPartial(@NonNull final ReadableSequentialData input, @NonNull final ApplyProgress progress) {
             final int flag = input.readVarInt(false);
             if (flag != 0 && flag != 1) {
-                walk.fail(Status.MALFORMED_STATE_CHANGES, "Invalid partial flag " + flag);
+                progress.fail(Status.MALFORMED_STATE_CHANGES, "Invalid partial flag " + flag);
                 return;
             }
             partial = flag == 1;
@@ -141,10 +142,12 @@ final class StateChangeApplier {
 
         /// Read a packed `cleared_fields` run that must end by `endPosition`.
         void readPackedCleared(
-                @NonNull final ReadableSequentialData input, final long endPosition, @NonNull final Walk walk) {
+                @NonNull final ReadableSequentialData input,
+                final long endPosition,
+                @NonNull final ApplyProgress progress) {
             final int length = input.readVarInt(false);
             if (length < 0 || length > endPosition - input.position()) {
-                walk.fail(Status.MALFORMED_STATE_CHANGES, "Invalid cleared_fields length " + length);
+                progress.fail(Status.MALFORMED_STATE_CHANGES, "Invalid cleared_fields length " + length);
                 return;
             }
             final ReadableSequentialData packed = input.readBytes(length).toReadableSequentialData();
@@ -159,27 +162,27 @@ final class StateChangeApplier {
         /// @param prior the value currently held, or `null` if none
         /// @param payload the oneof payload bytes: the full value, or the changed fields only
         /// @param what the message name, for failure details
-        /// @param walk records the failure if the update cannot be applied
+        /// @param progress records the failure if the update cannot be applied
         /// @return the bytes to store, or `null` if a failure was recorded
         @Nullable
         Bytes resolve(
                 @Nullable final Bytes prior,
                 @NonNull final Bytes payload,
                 @NonNull final String what,
-                @NonNull final Walk walk) {
+                @NonNull final ApplyProgress progress) {
             if (!partial) {
                 if (!cleared.isEmpty()) {
-                    walk.fail(Status.MALFORMED_STATE_CHANGES, what + " has cleared_fields but is not partial");
+                    progress.fail(Status.MALFORMED_STATE_CHANGES, what + " has cleared_fields but is not partial");
                     return null;
                 }
                 return payload;
             }
             if (unknown) {
-                walk.fail(Status.MALFORMED_STATE_CHANGES, "Partial " + what + " carries unknown metadata");
+                progress.fail(Status.MALFORMED_STATE_CHANGES, "Partial " + what + " carries unknown metadata");
                 return null;
             }
             if (prior == null) {
-                walk.fail(Status.PARTIAL_WITHOUT_BASELINE, "Partial " + what + " has no prior value to apply to");
+                progress.fail(Status.PARTIAL_WITHOUT_BASELINE, "Partial " + what + " has no prior value to apply to");
                 return null;
             }
             try {
@@ -190,7 +193,7 @@ final class StateChangeApplier {
             } catch (final RuntimeException e) {
                 // splice rejects bad framing, unsorted or duplicate cleared fields, and overlap
                 // between replaced and cleared fields.
-                walk.fail(Status.MALFORMED_STATE_CHANGES, "Invalid partial " + what + ": " + e);
+                progress.fail(Status.MALFORMED_STATE_CHANGES, "Invalid partial " + what + ": " + e);
                 return null;
             }
         }
@@ -206,7 +209,7 @@ final class StateChangeApplier {
     ApplyResult applyBlock(@NonNull final BinaryState binaryState, @NonNull final BlockUnparsed block) {
         long blockNumber = -1L;
         long roundNumber = -1L;
-        final Walk walk = new Walk();
+        final ApplyProgress progress = new ApplyProgress();
 
         for (final var item : block.blockItems()) {
             if (item.hasBlockHeader() && blockNumber < 0L) {
@@ -226,10 +229,10 @@ final class StateChangeApplier {
                     // Keep previous round number on parse failure.
                 }
             } else if (item.hasStateChanges()) {
-                applyStateChangesBytes(binaryState, item.stateChangesOrThrow(), walk);
-                if (walk.failed()) {
+                applyStateChangesBytes(binaryState, item.stateChangesOrThrow(), progress);
+                if (progress.failed()) {
                     return new ApplyResult(
-                            walk.failureStatus, walk.failureDetail, blockNumber, roundNumber, walk.applied);
+                            progress.failureStatus, progress.failureDetail, blockNumber, roundNumber, progress.applied);
                 }
             }
             // BlockFooter is read by extractStartOfBlockStateRootHash before this
@@ -237,9 +240,13 @@ final class StateChangeApplier {
         }
         if (blockNumber < 0L) {
             return new ApplyResult(
-                    Status.UNPARSEABLE_HEADER, "block has no parseable BlockHeader", -1L, roundNumber, walk.applied);
+                    Status.UNPARSEABLE_HEADER,
+                    "block has no parseable BlockHeader",
+                    -1L,
+                    roundNumber,
+                    progress.applied);
         }
-        return new ApplyResult(Status.APPLIED, null, blockNumber, roundNumber, walk.applied);
+        return new ApplyResult(Status.APPLIED, null, blockNumber, roundNumber, progress.applied);
     }
 
     /// Pull the `BlockFooter.startOfBlockStateRootHash` from a block without walking the
@@ -271,7 +278,7 @@ final class StateChangeApplier {
     // Mirrors CN's BlockStreamRecoveryWorkflow.BinaryStateChangeApplier. Field numbers below are
     // from block/stream/output/state_changes.proto (StateChanges, StateChange, MapUpdateChange,
     // MapDeleteChange) and don't change independently of that schema. Helpers record a failure
-    // on the `Walk` and return; a malformed wire encoding that the protobuf reader itself
+    // on the `ApplyProgress` and return; a malformed wire encoding that the protobuf reader itself
     // rejects (truncation) is caught once, in `applyStateChangesBytes`.
 
     /// Walk one `StateChanges` message's raw bytes (field 1 = consensus_timestamp, skipped;
@@ -279,19 +286,21 @@ final class StateChangeApplier {
     ///
     /// @param binaryState the state to mutate
     /// @param stateChangesBytes the raw `StateChanges` protobuf bytes
-    /// @param walk records the applied count and the first failure
+    /// @param progress records the applied count and the first failure
     private static void applyStateChangesBytes(
-            @NonNull final BinaryState binaryState, @NonNull final Bytes stateChangesBytes, @NonNull final Walk walk) {
+            @NonNull final BinaryState binaryState,
+            @NonNull final Bytes stateChangesBytes,
+            @NonNull final ApplyProgress progress) {
         final ReadableSequentialData input = stateChangesBytes.toReadableSequentialData();
         try {
-            while (input.hasRemaining() && !walk.failed()) {
+            while (input.hasRemaining() && !progress.failed()) {
                 final int tag = input.readVarInt(false);
                 switch (tag) {
                     case 10 -> skipMessage(input); // consensus_timestamp: field 1, message
                     case 18 -> { // state_changes: field 2, message
                         final int messageLength = input.readVarInt(false);
                         if (messageLength > 0) {
-                            applyStateChange(binaryState, input, input.position() + messageLength, walk);
+                            applyStateChange(binaryState, input, input.position() + messageLength, progress);
                         }
                     }
                     default -> skipField(input, tag);
@@ -300,7 +309,7 @@ final class StateChangeApplier {
         } catch (final RuntimeException | IOException e) {
             // The protobuf reader rejects truncated or invalid bytes by throwing; this is the one
             // place that turns that into a status.
-            walk.fail(Status.MALFORMED_STATE_CHANGES, "Failed to parse state_changes item: " + e);
+            progress.fail(Status.MALFORMED_STATE_CHANGES, "Failed to parse state_changes item: " + e);
         }
     }
 
@@ -309,19 +318,19 @@ final class StateChangeApplier {
     /// @param binaryState the state to mutate
     /// @param input positioned at the start of the `StateChange` message
     /// @param endPosition the byte offset the message ends at
-    /// @param walk records the applied count and the first failure
+    /// @param progress records the applied count and the first failure
     private static void applyStateChange(
             @NonNull final BinaryState binaryState,
             @NonNull final ReadableSequentialData input,
             final long endPosition,
-            @NonNull final Walk walk)
+            @NonNull final ApplyProgress progress)
             throws IOException {
         // `state_id` is field 1 and PBJ writes it first, but the wire format allows any order, so
         // it is only known once its tag has been read. Each case that needs it checks it then,
         // instead of once up front.
         int stateId = -1;
         boolean applied = false;
-        while (input.position() < endPosition && !walk.failed()) {
+        while (input.position() < endPosition && !progress.failed()) {
             final int tag = input.readVarInt(false);
             switch (tag) {
                 case 8 -> stateId = ProtoParserTools.readUint32(input); // state_id: field 1, uint32
@@ -332,25 +341,27 @@ final class StateChangeApplier {
                 case 34 -> { // singleton_update: field 4, message
                     final int messageLength = input.readVarInt(false);
                     if (messageLength > 0) {
-                        final boolean done = requireStateId(stateId, walk)
+                        final boolean done = requireStateId(stateId, progress)
                                 && applySingletonUpdate(
-                                        binaryState, stateId, input, input.position() + messageLength, walk);
+                                        binaryState, stateId, input, input.position() + messageLength, progress);
                         applied |= done;
                     }
                 }
                 case 42 -> { // map_update: field 5, message
                     final int messageLength = input.readVarInt(false);
                     if (messageLength > 0) {
-                        final boolean done = requireStateId(stateId, walk)
-                                && applyMapUpdate(binaryState, stateId, input, input.position() + messageLength, walk);
+                        final boolean done = requireStateId(stateId, progress)
+                                && applyMapUpdate(
+                                        binaryState, stateId, input, input.position() + messageLength, progress);
                         applied |= done;
                     }
                 }
                 case 50 -> { // map_delete: field 6, message
                     final int messageLength = input.readVarInt(false);
                     if (messageLength > 0) {
-                        final boolean done = requireStateId(stateId, walk)
-                                && applyMapDelete(binaryState, stateId, input, input.position() + messageLength, walk);
+                        final boolean done = requireStateId(stateId, progress)
+                                && applyMapDelete(
+                                        binaryState, stateId, input, input.position() + messageLength, progress);
                         applied |= done;
                     }
                 }
@@ -358,8 +369,8 @@ final class StateChangeApplier {
                     final int messageLength = input.readVarInt(false);
                     if (messageLength > 0) {
                         final OneOfPayload payload =
-                                readOneOfPayload(input, input.position() + messageLength, "QueuePushChange", walk);
-                        if (payload != null && requireStateId(stateId, walk)) {
+                                readOneOfPayload(input, input.position() + messageLength, "QueuePushChange", progress);
+                        if (payload != null && requireStateId(stateId, progress)) {
                             binaryState.pushQueue(stateId, payload.bytes());
                             applied = true;
                         }
@@ -367,7 +378,7 @@ final class StateChangeApplier {
                 }
                 case 66 -> { // queue_pop: field 8, message (empty)
                     skipMessage(input);
-                    if (requireStateId(stateId, walk)) {
+                    if (requireStateId(stateId, progress)) {
                         binaryState.popQueue(stateId);
                         applied = true;
                     }
@@ -375,8 +386,8 @@ final class StateChangeApplier {
                 default -> skipField(input, tag);
             }
         }
-        if (applied && !walk.failed()) {
-            walk.applied++;
+        if (applied && !progress.failed()) {
+            progress.applied++;
         }
     }
 
@@ -389,18 +400,18 @@ final class StateChangeApplier {
             final int stateId,
             @NonNull final ReadableSequentialData input,
             final long endPosition,
-            @NonNull final Walk walk)
+            @NonNull final ApplyProgress progress)
             throws IOException {
         Bytes payload = null;
         final DeltaMetadata delta = new DeltaMetadata();
-        while (input.position() < endPosition && !walk.failed()) {
+        while (input.position() < endPosition && !progress.failed()) {
             final int tag = input.readVarInt(false);
             final int fieldNumber = tag >>> ProtoParserTools.TAG_FIELD_OFFSET;
             final ProtoConstants wireType = ProtoConstants.get(tag & ProtoConstants.TAG_WIRE_TYPE_MASK);
             if (fieldNumber == SINGLETON_PARTIAL_FIELD && wireType == ProtoConstants.WIRE_TYPE_VARINT_OR_ZIGZAG) {
-                delta.readPartial(input, walk);
+                delta.readPartial(input, progress);
             } else if (fieldNumber == SINGLETON_CLEARED_FIELD && wireType == ProtoConstants.WIRE_TYPE_DELIMITED) {
-                delta.readPackedCleared(input, endPosition, walk);
+                delta.readPackedCleared(input, endPosition, progress);
             } else if (fieldNumber == SINGLETON_CLEARED_FIELD
                     && wireType == ProtoConstants.WIRE_TYPE_VARINT_OR_ZIGZAG) {
                 delta.cleared.add(ProtoParserTools.readUint32(input)); // unpacked encoding
@@ -413,15 +424,15 @@ final class StateChangeApplier {
                 ProtoParserTools.skipField(input, wireType);
             }
         }
-        if (walk.failed()) {
+        if (progress.failed()) {
             return false;
         }
         if (payload == null) {
-            walk.fail(Status.MALFORMED_STATE_CHANGES, "SingletonUpdateChange payload missing");
+            progress.fail(Status.MALFORMED_STATE_CHANGES, "SingletonUpdateChange payload missing");
             return false;
         }
         final Bytes value = delta.resolve(
-                delta.partial ? binaryState.getSingleton(stateId) : null, payload, "SingletonUpdateChange", walk);
+                delta.partial ? binaryState.getSingleton(stateId) : null, payload, "SingletonUpdateChange", progress);
         if (value == null) {
             return false;
         }
@@ -438,20 +449,20 @@ final class StateChangeApplier {
             final int stateId,
             @NonNull final ReadableSequentialData input,
             final long endPosition,
-            @NonNull final Walk walk)
+            @NonNull final ApplyProgress progress)
             throws IOException {
         Bytes rawKey = null;
         Bytes rawValue = null;
         final DeltaMetadata delta = new DeltaMetadata();
-        while (input.position() < endPosition && !walk.failed()) {
+        while (input.position() < endPosition && !progress.failed()) {
             final int tag = input.readVarInt(false);
             switch (tag) {
                 case 10 -> { // key: field 1, message
                     final int messageLength = input.readVarInt(false);
                     if (messageLength > 0) {
                         final OneOfPayload keyPayload =
-                                readOneOfPayload(input, input.position() + messageLength, "MapChangeKey", walk);
-                        if (keyPayload != null && acceptKey(stateId, keyPayload, walk)) {
+                                readOneOfPayload(input, input.position() + messageLength, "MapChangeKey", progress);
+                        if (keyPayload != null && acceptKey(stateId, keyPayload, progress)) {
                             rawKey = keyPayload.bytes();
                         }
                     }
@@ -460,15 +471,15 @@ final class StateChangeApplier {
                     final int messageLength = input.readVarInt(false);
                     if (messageLength > 0) {
                         final OneOfPayload valuePayload =
-                                readOneOfPayload(input, input.position() + messageLength, "MapChangeValue", walk);
+                                readOneOfPayload(input, input.position() + messageLength, "MapChangeValue", progress);
                         if (valuePayload != null) {
                             rawValue = valuePayload.bytes();
                         }
                     }
                 }
                 case 24 -> input.readVarInt(false); // identical: field 3, not needed to apply
-                case 32 -> delta.readPartial(input, walk); // partial: field 4, bool
-                case 42 -> delta.readPackedCleared(input, endPosition, walk); // cleared_fields: field 5, packed
+                case 32 -> delta.readPartial(input, progress); // partial: field 4, bool
+                case 42 -> delta.readPackedCleared(input, endPosition, progress); // cleared_fields: field 5, packed
                 case 40 -> delta.cleared.add(ProtoParserTools.readUint32(input)); // cleared_fields, unpacked
                 default -> {
                     delta.unknown = true;
@@ -476,15 +487,16 @@ final class StateChangeApplier {
                 }
             }
         }
-        if (walk.failed()) {
+        if (progress.failed()) {
             return false;
         }
         if (rawKey == null || rawValue == null) {
-            walk.fail(Status.MALFORMED_STATE_CHANGES, "MapChangeKey or MapChangeValue missing from MapUpdateChange");
+            progress.fail(
+                    Status.MALFORMED_STATE_CHANGES, "MapChangeKey or MapChangeValue missing from MapUpdateChange");
             return false;
         }
         final Bytes value = delta.resolve(
-                delta.partial ? binaryState.getKv(stateId, rawKey) : null, rawValue, "MapUpdateChange", walk);
+                delta.partial ? binaryState.getKv(stateId, rawKey) : null, rawValue, "MapUpdateChange", progress);
         if (value == null) {
             return false;
         }
@@ -500,17 +512,17 @@ final class StateChangeApplier {
             final int stateId,
             @NonNull final ReadableSequentialData input,
             final long endPosition,
-            @NonNull final Walk walk)
+            @NonNull final ApplyProgress progress)
             throws IOException {
         Bytes rawKey = null;
-        while (input.position() < endPosition && !walk.failed()) {
+        while (input.position() < endPosition && !progress.failed()) {
             final int tag = input.readVarInt(false);
             if (tag == 10) { // key: field 1, message
                 final int messageLength = input.readVarInt(false);
                 if (messageLength > 0) {
                     final OneOfPayload keyPayload =
-                            readOneOfPayload(input, input.position() + messageLength, "MapChangeKey", walk);
-                    if (keyPayload != null && acceptKey(stateId, keyPayload, walk)) {
+                            readOneOfPayload(input, input.position() + messageLength, "MapChangeKey", progress);
+                    if (keyPayload != null && acceptKey(stateId, keyPayload, progress)) {
                         rawKey = keyPayload.bytes();
                     }
                 }
@@ -518,11 +530,11 @@ final class StateChangeApplier {
                 skipField(input, tag);
             }
         }
-        if (walk.failed()) {
+        if (progress.failed()) {
             return false;
         }
         if (rawKey == null) {
-            walk.fail(Status.MALFORMED_STATE_CHANGES, "MapChangeKey missing from MapDeleteChange");
+            progress.fail(Status.MALFORMED_STATE_CHANGES, "MapChangeKey missing from MapDeleteChange");
             return false;
         }
         binaryState.removeKv(stateId, rawKey);
@@ -535,14 +547,14 @@ final class StateChangeApplier {
     /// @param input positioned at the start of the oneof wrapper message
     /// @param endPosition the byte offset the message ends at
     /// @param description the wrapper type name, for the failure detail if nothing is set
-    /// @param walk records a failure if the payload is missing
+    /// @param progress records a failure if the payload is missing
     /// @return the payload and its field number, or `null` if a failure was recorded
     @Nullable
     private static OneOfPayload readOneOfPayload(
             @NonNull final ReadableSequentialData input,
             final long endPosition,
             @NonNull final String description,
-            @NonNull final Walk walk)
+            @NonNull final ApplyProgress progress)
             throws IOException {
         Bytes payload = null;
         int fieldNumber = -1;
@@ -558,7 +570,7 @@ final class StateChangeApplier {
             }
         }
         if (payload == null) {
-            walk.fail(Status.MALFORMED_STATE_CHANGES, description + " payload missing");
+            progress.fail(Status.MALFORMED_STATE_CHANGES, description + " payload missing");
             return null;
         }
         return new OneOfPayload(fieldNumber, payload);
@@ -571,12 +583,12 @@ final class StateChangeApplier {
     ///
     /// @param stateId the state ID the key belongs to
     /// @param keyPayload the decoded `MapChangeKey` oneof payload
-    /// @param walk records the failure if the legacy encoding is detected
+    /// @param progress records the failure if the legacy encoding is detected
     /// @return `true` if the key is usable
     private static boolean acceptKey(
-            final int stateId, @NonNull final OneOfPayload keyPayload, @NonNull final Walk walk) {
+            final int stateId, @NonNull final OneOfPayload keyPayload, @NonNull final ApplyProgress progress) {
         if (stateId == TOKEN_ASSOCIATION_STATE_ID && keyPayload.fieldNumber() == LEGACY_TOKEN_ASSOCIATION_FIELD) {
-            walk.fail(
+            progress.fail(
                     Status.LEGACY_TOKEN_ASSOCIATION,
                     "MapChangeKey for stateId=" + TOKEN_ASSOCIATION_STATE_ID + " carries the legacy, reserved "
                             + "field-2 TokenAssociation encoding, which this plugin does not remap");
@@ -588,9 +600,9 @@ final class StateChangeApplier {
     /// Record a failure if no `state_id` has been read yet.
     ///
     /// @return `true` if `stateId` is known
-    private static boolean requireStateId(final int stateId, @NonNull final Walk walk) {
+    private static boolean requireStateId(final int stateId, @NonNull final ApplyProgress progress) {
         if (stateId < 0) {
-            walk.fail(Status.MALFORMED_STATE_CHANGES, "StateChange missing state_id");
+            progress.fail(Status.MALFORMED_STATE_CHANGES, "StateChange missing state_id");
             return false;
         }
         return true;
