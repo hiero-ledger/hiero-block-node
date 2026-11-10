@@ -9,11 +9,16 @@ on:
           Release type.
           rc     → next rc derived from existing vX.Y.Z-rcN tags of that version only.
                    From main: only rc1 (creates release/X.Y). From release/X.Y: the next rc.
+                   Once vX.Y.N is released, it targets the next patch (vX.Y.(N+1)-rc1);
+                   fails if the branch has no commits since the last release tag.
           alpha  → main only. Counter derived from existing vX.Y.Z-alphaN tags, not
                    version.txt. No release branch, no version.txt commit anywhere - only
                    the tag is pushed.
           GA     → release/X.Y only. Strips the pre-release suffix and builds from the
-                   highest existing vX.Y.Z-rcN tag (0.38.0-rc2 → 0.38.0).
+                   highest existing vX.Y.Z-rcN tag (0.38.0-rc2 → 0.38.0), or from the branch
+                   tip if there is none. Once vX.Y.N is released, it targets the next patch
+                   (0.38.0 → 0.38.1). Fails if that rc is not on the branch, if commits
+                   landed after it, or if there is nothing new since the last release.
           custom → uses the custom_version field below verbatim. Tags off the branch you
                    dispatch from - no release branch, no version.txt commit anywhere - only
                    the tag is pushed. A plain X.Y.Z (final release) or an rc-shaped version
