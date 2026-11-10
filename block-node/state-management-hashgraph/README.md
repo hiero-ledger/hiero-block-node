@@ -20,7 +20,7 @@ The apply pipeline runs each block through three state versions, one block behin
 | Catch up  | On the catch-up thread, at `start()` and whenever a live block arrives ahead of the next expected one: replays history from the next expected block to the latest, one block at a time. Ready only once the latest block is reached; a stalled sweep is re-driven by the next live block. |
 | Apply     | The next expected block is applied inline on the notification thread. A block ahead of it is dropped and triggers a catch-up, so that thread never reads history.                                                                                                                         |
 | Restore   | On `start()`, scans `snapshotRecentPath` for the highest-numbered directory, loads it, then checks the loaded state's `BlockStreamInfo.block_number` against the directory name before trusting it.                                                                                       |
-| Snapshot  | Every `snapshotIntervalMillis` and on `stop()`, on its own thread: writes the attested state to `snapshotRecentPath/<block>` (staging dir, then atomic rename) and prunes old ones.                 |
+| Snapshot  | Every `snapshotIntervalMillis` and on `stop()`, on its own thread: writes the attested state to `snapshotRecentPath/<block>` (staging dir, then atomic rename) and prunes old ones.                                                                                                       |
 
 Full per-block walkthrough: `docs/design/state/live-state.md` §6.
 
@@ -61,10 +61,10 @@ classpath; opt-in lives in the deployment manifest.
 | Malformed `state_changes` item                                             | That block's apply aborts; plugin does not advance past it.                                                                                                         |
 | Partial update with no prior value                                         | Halt (`PARTIAL_WITHOUT_BASELINE`).                                                                                                                                  |
 | Verification gap (block ahead of the next expected)                        | Block dropped; the catch-up thread fetches the missing blocks from `historicalBlockProvider` one at a time. Retried on the next notification if history lacks them. |
-| Snapshot write fails                                                       | WARNING, `state_snapshot_failures_total` incremented, staging dir removed; the next run retries.          |
-| Crash mid-snapshot                                                         | Only a `.tmp-<block>` staging dir is left; deleted on the next `start()`.                                 |
-| Final snapshot on `stop()` takes over 10 s                                 | WARNING; the write is interrupted and nothing is published. The next start uses the previous snapshot.    |
-| Pruning an old snapshot fails                                              | WARNING; the new snapshot is kept and the next snapshot retries the prune.                                |
+| Snapshot write fails                                                       | WARNING, `state_snapshot_failures_total` incremented, staging dir removed; the next run retries.                                                                    |
+| Crash mid-snapshot                                                         | Only a `.tmp-<block>` staging dir is left; deleted on the next `start()`.                                                                                           |
+| Final snapshot on `stop()` takes over 10 s                                 | WARNING; the write is interrupted and nothing is published. The next start uses the previous snapshot.                                                              |
+| Pruning an old snapshot fails                                              | WARNING; the new snapshot is kept and the next snapshot retries the prune.                                                                                          |
 
 A restored snapshot is trusted as a previously stored attested state. Its root hash is first
 checked against the chain by the next block's footer, so a node that restores state but ingests
