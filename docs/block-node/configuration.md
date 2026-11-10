@@ -383,6 +383,10 @@ The opposite holds for IPv6: one client usually controls a whole /64, so it can 
 | VERIFICATION_DUMP_DIRECTORY_PATH                  | Root path to be used by the bad block dumper.                                                                                   | /opt/hiero/block-node/verification/dumps |
 | VERIFICATION_DUMP_RETENTION_DAYS                  | How many days dumped blocks will be retained for.                                                                               |                                        7 |
 
+> _NOTE_ a Block Node that starts with no stored blocks and backfills history while it receives the live stream needs
+> `VERIFICATION_FIRST_ORDERED_BLOCK` set above the network head until it has caught up, otherwise it can stall. See
+> [Empty Block Node stalls while backfilling and receiving the live stream](./troubleshooting.md#empty-block-node-stalls-while-backfilling-and-receiving-the-live-stream).
+>
 > _NOTE_ the `VERIFICATION_ALL_SOURCES_REQUIRE_ORDERING` value should remain `true` in all "Tier 1" Block Nodes.
 >
 > _NOTE_ even if the `VERIFICATION_ALL_SOURCES_REQUIRE_ORDERING` value is set to false, strict ordering will always
