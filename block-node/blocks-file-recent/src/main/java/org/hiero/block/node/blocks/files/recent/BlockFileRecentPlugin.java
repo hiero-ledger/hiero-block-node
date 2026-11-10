@@ -175,7 +175,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
             context.serverHealth().shutdown(name(), "Could not create root directory");
         }
         // we want to listen to block notifications and to know when blocks are verified
-        context.blockMessaging().registerBlockNotificationHandler(this, false, "BlocksFilesRecent");
+        context.blockMessaging().registerVerifiedBlockHandler(this, false, "BlocksFilesRecent");
         // scan file system to find the oldest and newest blocks
         // TODO this can be way for efficient, very brute force at the moment
         getAllBlockNumbers(liveRootPath, config.compression()).forEach(blockNumber -> {
@@ -303,7 +303,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
     /**
      * {@inheritDoc}
      * <p>
-     * This method is called when a block verification notification is received. It is called on the block notification
+     * This method is called when a block verification notification is received. It is called on the verified block
      * thread.
      */
     @Override
