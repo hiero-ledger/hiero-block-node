@@ -103,7 +103,7 @@ used for `swirlds-config-*`.
 | `port`                         | `null` (share `server.port`)                       | Dedicated port for the `StateService` gRPC API; `null` shares the default server port.                                                                                                                                                                |
 | `maxQueueRangeSize`            | `1000`                                             | Largest number of queue elements `getQueue` will serve in one call (§8), whether requested as a `queue_range` or as a full-queue read; anything larger is `INVALID_REQUEST`. Operator-adjustable to allow raising it over time without a code change. |
 
-There is no apply-interval setting: state changes are applied inline the moment a verified block arrives (see §6.3). There is no buffer, retry timer or batch size to configure.
+`snapshotRecentPath` is the plugin's only property. State changes are applied as each verified block arrives (see §6.3).
 
 ## 5. Data model
 
@@ -295,7 +295,7 @@ Block-Node has on hand without waiting for verification notifications.
    - otherwise → `from = attested.blockNumber() + 1`
    - `to = availableBlocks().max()`
 3. Walk `from..to` one block at a time: `context.historicalBlockProvider().block(n)`, parse,
-   apply, close. Nothing is staged. The latest block is re-read when the walk finishes, so
+   apply, close; each block is released before the next is read. The latest block is re-read when the walk finishes, so
    blocks persisted meanwhile are included.
 4. Stop early at a hole or failed fetch, if the plugin is `applyHalted` (a hash mismatch
    occurred), or `stopping`.
@@ -303,9 +303,9 @@ Block-Node has on hand without waiting for verification notifications.
 6. The sweep returns whether it reached the latest available block. Set `ready=true` **only if
    it did and the plugin is not `applyHalted`**. Ready means caught up *without* halting, not
    merely "catch-up attempt finished." A sweep that stops short (hole in `availableBlocks`,
-   failed fetch, exception) leaves the plugin not ready. There is no retry timer: the next
-   live block ahead of the gap requests another catch-up (§6.3), which latches `ready=true`
-   once the tip is reached. This lets a monitoring consumer
+   failed fetch, exception) leaves the plugin not ready. It resumes when the next block ahead
+   of the gap, or the next hole-filling block, requests another catch-up (§6.3), which latches
+   `ready=true` once the tip is reached. This lets a monitoring consumer
    tell "healthy and caught up" apart from "caught up once, then halted" from `ready` alone,
    without also having to check `apply_halted`. A halt logs a warning and leaves `state_ready`
    at `0`/`state_apply_halted` at `1` permanently (until a restart) — these metrics (§9), not the
@@ -350,7 +350,7 @@ range, stale blocks dropped without reads, and a sweep that stops at a hole with
 
 ### 6.5 Applying a block (inline, event-driven)
 
-A block is applied the moment its notification arrives (no timer, no queue). Every apply path
+A block is applied the moment its notification arrives. Every apply path
 (live inline, gap fill, catch-up) runs `applyBlockStateChanges` under the `applyLock`, so only
 one thread mutates state at a time. A halt is terminal: the failed block is not retried.
 
@@ -368,11 +368,8 @@ The apply pipeline runs three versions of the state concurrently:
 
 A state is hashed **exactly once**, never while it is still mutable (3). `VirtualMap.getHash()`
 caches its result. The hash of (2) is computed inline, on first use, when the next block's footer
-needs it to validate against. There is no background hashing thread, so the cost lands on the
-thread applying that block instead of overlapping with it. This trades the overlap that CN gets
-from hashing each copy in a separate component for having no thread of our own to manage. If
-hashing latency matters on a full-size state, hashing on a single background thread right after
-`copyMutableState()` is the alternative to revisit.
+needs it to validate against, so its cost lands on the thread applying that block. Hashing on a
+separate thread is a deferred alternative, see §14.
 
 `applyBlockStateChanges(block N)` — **lag-1 commit**: a block is applied into the live
 mutable, but only exposed once the *next* block's footer attests its root hash.
@@ -504,15 +501,15 @@ token-association encoding" error, rather than the generic hash-mismatch halt. T
 applier's "no per-variant switch" simplicity for every other wire variant while still failing
 fast and legibly for the one encoding this plugin deliberately does not support.
 
-Because stored bytes are now the oneof payload rather than the wrapper carrier, a caller can no
-longer recover the concrete entity type from the bytes alone (the wrapper's field number, which
+Because stored bytes are the oneof payload rather than the wrapper carrier, a caller cannot
+recover the concrete entity type from the bytes alone (the wrapper's field number, which
 disclosed the type, isn't stored) — `get*` callers need that mapping from elsewhere, e.g.
 a `stateId → type` table. This is an open API-surface question for the not-yet-implemented
 `StateService` gRPC query path (§8); it doesn't affect this plugin's own apply-and-store logic.
 
 A malformed `state_changes` item is reported by the applier as an `ApplyResult` status
 (`MALFORMED_STATE_CHANGES`, with the legacy token association encoding and an unparseable header
-as separate statuses) rather than thrown, and the plugin halts on any status other than
+as separate statuses), and the plugin halts on any status other than
 `APPLIED` (does not advance past the block). Truncated protobuf, which the reader rejects by
 throwing, is converted to `MALFORMED_STATE_CHANGES` once at the walk boundary. An open question for upstream feedback:
 whether to centralize this applier into `swirlds-state-impl` so every
@@ -712,3 +709,22 @@ since the Block Node doesn't track rounds the way the Consensus Node does.
 - `hiero-consensus-node/platform-sdk/swirlds-state-api/README.md` — current API.
 - `hiero-consensus-node/platform-sdk/swirlds-state-api/docs/state-snapshot-spec.md` — disk layout.
 - `hiero-consensus-node/hedera-state-validator/src/main/java/com/hedera/statevalidation/blockstream/BlockStreamRecoveryWorkflow.java` — canonical `BinaryStateChangeApplier`.
+
+## 14. Rejected alternatives
+
+Designs considered and not taken, so they are not reopened without new information.
+
+- **A staging buffer with an apply worker.** Holding verified blocks until they can apply needs a
+  bound, and an unbounded one is a memory risk. History already persists every verified block, so
+  a copy here duplicates it. The plugin applies what is next and fetches the rest from history.
+- **Filling gaps on the messaging thread.** That thread also carries block progression, so
+  reading history there would stall it. Gaps are filled on the catch-up thread (§6.4).
+- **A retry timer for a stalled catch-up.** It adds a timer for a case already covered: a stalled
+  sweep resumes when the next block ahead of the gap or the next hole-filling block arrives. Worth
+  revisiting if stalls on an idle network prove long.
+- **Hashing on a background thread.** Hashing each sealed copy right after `copyMutableState()`
+  would overlap the cost with the next apply, at the price of a thread to manage. Deferred until
+  the inline cost on a full-size state is measured (#4031).
+- **Exceptions as the applier's failure signal.** Expected data problems (malformed items, the
+  legacy token encoding, a partial with no prior value) are returned as an `ApplyResult` status
+  so the plugin switches on them instead of catching exceptions as flow control.
