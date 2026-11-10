@@ -281,6 +281,34 @@ class StateManagementCatchUpTest {
     }
 
     @Test
+    void aLiveBlockFillingTheHoleAppliesInlineThenCatchUpAppliesTheRestOfHistory(@TempDir final Path tmp)
+            throws Exception {
+        final ChainHashes hashes = chainHashes(tmp);
+        // Block 1 is a hole, with blocks 2 and 3 already in history past it.
+        final InMemoryHistoricalBlockFacility historic = new InMemoryHistoricalBlockFacility();
+        historic.put(0L, buildBlock(0L, 0L, hashes.genesis()));
+        historic.put(2L, buildBlock(2L, 2L, hashes.afterBlock0()));
+        historic.put(3L, buildBlock(3L, 3L, hashes.afterBlock0()));
+        final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
+        final StateManagementPlugin plugin = startPlugin(tmp.resolve("run"), historic, facility);
+        awaitCatchUpFinished(plugin);
+        assertThat(plugin.isReady()).as("stalled at the hole").isFalse();
+        historic.resetAccessorStats();
+
+        // Block 1 arrives from any source (here a backfill) and is the next expected block, so it
+        // applies inline on the delivering thread. Nothing else is notified, yet catch-up then
+        // applies 2 and 3 from history.
+        facility.sendBlockVerification(new VerificationNotification(
+                true, null, 1L, Bytes.fromHex("aabb"), buildBlock(1L, 1L, hashes.afterBlock0()), BlockSource.BACKFILL));
+        awaitCatchUpFinished(plugin);
+
+        assertThat(plugin.isReady()).isTrue();
+        assertThat(plugin.attested().blockNumber()).isEqualTo(2L); // lag-1: applied through 3
+        assertThat(historic.readerThreads()).doesNotContain(Thread.currentThread());
+        plugin.stop();
+    }
+
+    @Test
     void sweepFailureLeavesPluginNotReadyThenALiveBlockTriggersARecoveringCatchUp(@TempDir final Path tmp)
             throws Exception {
         final ChainHashes hashes = chainHashes(tmp);
