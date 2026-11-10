@@ -30,8 +30,8 @@ final class StateManagementPluginTestSupport {
 
     /**
      * A {@code ThreadPoolManager} backed by real (daemon) executors, for tests that drive the
-     * plugin through {@code start()}/{@code stop()} and need its apply worker and background
-     * executor to actually run.
+     * plugin through {@code start()}/{@code stop()} and need its catch-up and snapshot executors
+     * to actually run.
      */
     static TestThreadPoolManager<ExecutorService, ScheduledExecutorService> newThreadPoolManager() {
         return new TestThreadPoolManager<>(

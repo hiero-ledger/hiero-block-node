@@ -32,14 +32,20 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.BooleanSupplier;
+import java.util.logging.Logger;
 import java.util.stream.Stream;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
+import org.hiero.block.node.app.fixtures.logging.TestLogHandler;
 import org.hiero.block.node.app.fixtures.plugintest.RecordingServiceBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -308,6 +314,96 @@ class StateManagementSnapshotTest {
     }
 
     @Test
+    void stopQueuesFinalSnapshotBehindAnInFlightSnapshotTask(@TempDir final Path tmp) throws Exception {
+        final Path root = tmp.resolve("recent");
+        final CountDownLatch inFlightStarted = new CountDownLatch(1);
+        final CountDownLatch releaseInFlight = new CountDownLatch(1);
+        try (Node node = Node.start(root)) {
+            node.applyRange(0L, 3L); // attested = 2
+
+            // Stand-in for a snapshot write already in flight: occupy the snapshot thread.
+            node.threads.scheduledExecutor().execute(() -> {
+                inFlightStarted.countDown();
+                try {
+                    releaseInFlight.await();
+                } catch (final InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+            assertThat(inFlightStarted.await(5L, TimeUnit.SECONDS)).isTrue();
+
+            final Thread stopper = new Thread(node::close, "stop-under-test");
+            stopper.start();
+            assertThat(awaitCondition(() -> Files.isDirectory(root.resolve("2")), 500L))
+                    .as("the final snapshot must not run alongside the task holding the snapshot thread")
+                    .isFalse();
+            assertThat(stopper.isAlive())
+                    .as("stop() waits for the snapshot thread")
+                    .isTrue();
+
+            releaseInFlight.countDown();
+            stopper.join(TimeUnit.SECONDS.toMillis(StateManagementPlugin.SNAPSHOT_STOP_TIMEOUT_SECONDS + 5L));
+            assertThat(stopper.isAlive()).isFalse();
+            assertThat(numericDirs(root))
+                    .as("the queued final snapshot ran once the snapshot thread was free")
+                    .containsExactly(2L);
+            assertThat(stagingDirs(root)).isEmpty();
+            assertThat(node.plugin.snapshotFailureTotal()).isZero();
+        }
+    }
+
+    @Test
+    void stopInterruptsAFinalSnapshotThatOverrunsTheTimeout(@TempDir final Path tmp) throws Exception {
+        final Path root = tmp.resolve("recent");
+        final CountDownLatch overrunStarted = new CountDownLatch(1);
+        final AtomicBoolean overrunInterrupted = new AtomicBoolean(false);
+        final TestLogHandler logHandler = new TestLogHandler();
+        final Logger julLogger = Logger.getLogger(StateManagementPlugin.class.getName());
+        try (Node node = Node.start(root)) {
+            node.applyRange(0L, 3L); // attested = 2
+
+            // A snapshot task that never finishes on its own, e.g. a very slow write.
+            node.threads.scheduledExecutor().execute(() -> {
+                overrunStarted.countDown();
+                try {
+                    new CountDownLatch(1).await();
+                } catch (final InterruptedException e) {
+                    overrunInterrupted.set(true);
+                }
+            });
+            assertThat(overrunStarted.await(5L, TimeUnit.SECONDS)).isTrue();
+
+            julLogger.addHandler(logHandler);
+            final long startNanos = System.nanoTime();
+            try {
+                node.close();
+            } finally {
+                julLogger.removeHandler(logHandler);
+            }
+            final long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
+
+            final long timeoutMillis = TimeUnit.SECONDS.toMillis(StateManagementPlugin.SNAPSHOT_STOP_TIMEOUT_SECONDS);
+            assertThat(elapsedMillis)
+                    .as("stop() waits the fixed timeout, then returns rather than blocking indefinitely")
+                    .isBetween(timeoutMillis - 100L, timeoutMillis + 5_000L);
+            assertThat(awaitCondition(overrunInterrupted::get, 5_000L))
+                    .as("the overrunning task is interrupted")
+                    .isTrue();
+            assertThat(logHandler.countContaining("did not finish within")).isEqualTo(1);
+            assertThat(numericDirs(root))
+                    .as("the queued final snapshot never ran, so nothing was published")
+                    .isEmpty();
+            assertThat(stagingDirs(root)).isEmpty();
+        }
+
+        // Nothing partial was left behind: the next start is a clean genesis start.
+        try (Node restarted = Node.start(root)) {
+            assertThat(restarted.plugin.isApplyHalted()).isFalse();
+            assertThat(restarted.plugin.attested().state()).isNull();
+        }
+    }
+
+    @Test
     void scheduledTaskWritesSnapshotWithoutExplicitCall(@TempDir final Path tmp) throws Exception {
         final Path root = tmp.resolve("recent");
         try (Node node = Node.start(root, "state.management.snapshotIntervalMillis", "1000")) {
@@ -407,6 +503,10 @@ class StateManagementSnapshotTest {
     private static final class Node implements AutoCloseable {
         private final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
         private final StateManagementPlugin plugin = new StateManagementPlugin();
+        /// In tests the snapshot executor is this manager's single scheduled executor, so a task
+        /// submitted here occupies the snapshot thread.
+        private final TestThreadPoolManager<ExecutorService, ScheduledExecutorService> threads =
+                StateManagementPluginTestSupport.newThreadPoolManager();
         private boolean stopped;
 
         /// @param overrides alternating config key/value pairs
@@ -429,7 +529,7 @@ class StateManagementSnapshotTest {
                     null,
                     null,
                     null,
-                    StateManagementPluginTestSupport.newThreadPoolManager(),
+                    node.threads,
                     null);
             node.plugin.init(context, NOOP_SERVICE_BUILDER);
             node.plugin.start();
