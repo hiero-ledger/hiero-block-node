@@ -10,7 +10,7 @@ ARG SOURCE_DATE_EPOCH="0"
 # Setup Builder Image
 #
 ########################################################################################################################
-FROM eclipse-temurin:25.0.2_10-jre-ubi10-minimal AS base-image
+FROM eclipse-temurin:25.0.2_10-jre-ubi10-minimal@sha256:c897ce903faf6736e4b5cbb2dd5e05e6b74909d71105f3cfe33840b3ce7b8b21 AS base-image
 # Define Build Arguments
 ARG SOURCE_DATE_EPOCH
 ARG UID=2000
