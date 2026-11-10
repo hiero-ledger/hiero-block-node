@@ -243,6 +243,21 @@ class StateManagementSnapshotTest {
     }
 
     @Test
+    void configuredRetentionCountReachesThePruning(@TempDir final Path tmp) throws Exception {
+        final Path root = tmp.resolve("recent");
+        try (Node node = Node.start(root, "state.management.snapshotRecentRetentionCount", "1")) {
+            for (long last = 1L; last <= 3L; last++) {
+                node.applyRange(last == 1L ? 0L : last, last); // attested = last - 1
+                assertThat(node.plugin.saveSnapshot()).isTrue();
+            }
+            // The default retention of 3 would keep {0,1,2}; only the newest survives with 1.
+            assertThat(numericDirs(root))
+                    .as("snapshotRecentRetentionCount=1 from config keeps only the newest snapshot")
+                    .containsExactly(2L);
+        }
+    }
+
+    @Test
     void stopWritesAFinalSnapshotOfTheLatestAttestedBlock(@TempDir final Path tmp) throws Exception {
         final Path root = tmp.resolve("recent");
         try (Node node = Node.start(root)) {
