@@ -101,63 +101,75 @@ class StateManagementCatchUpTest {
     }
 
     @Test
-    void aheadLiveBlockFetchesAndAppliesTheGapFromHistory(@TempDir final Path tmp) throws Exception {
-        final InMemoryHistoricalBlockFacility historic = new InMemoryHistoricalBlockFacility();
-        final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
-        final StateManagementPlugin plugin = startPlugin(tmp, historic, facility);
-        final Bytes genesisHash = plugin.stagedStateRootHash();
-        historic.put(0L, buildBlock(0L, 0L, genesisHash));
-        plugin.catchUpFromHistoricalBlocks();
-        assertThat(plugin.isApplyHalted()).isFalse();
-
-        // Blocks 1 and 2 are only in historical storage. Live block 3 arrives ahead of them:
-        // the plugin must fetch 1 and 2 one at a time, then apply 3, all on the delivering
-        // thread (no timer, no worker), so the result is visible as soon as the call returns.
-        final Bytes stagedAfter0 = plugin.stagedStateRootHash();
-        historic.put(1L, buildBlock(1L, 1L, stagedAfter0));
-        historic.put(2L, buildBlock(2L, 2L, stagedAfter0));
-        historic.resetAccessorStats();
-
-        facility.sendBlockVerification(new VerificationNotification(
-                true, null, 3L, Bytes.fromHex("aabb"), buildBlock(3L, 3L, stagedAfter0), BlockSource.PUBLISHER));
-
-        assertThat(plugin.isApplyHalted()).isFalse();
-        assertThat(plugin.attested().blockNumber())
-                .as("blocks 1-3 applied, exposing up to 2 under lag-1")
-                .isEqualTo(2L);
-        assertThat(historic.opened()).as("only the two missing blocks are read").isEqualTo(2);
-        assertThat(historic.maxConcurrentlyOpen()).isEqualTo(1);
-        assertThat(historic.currentlyOpen()).isZero();
-        plugin.stop();
-    }
-
-    @Test
-    void liveBlockAheadOfAGapHistoryCannotFillIsDroppedAndRetriedByNextNotification(@TempDir final Path tmp)
+    void aheadLiveBlockIsDroppedAndTheGapIsFilledFromHistoryOnTheCatchUpThread(@TempDir final Path tmp)
             throws Exception {
         final InMemoryHistoricalBlockFacility historic = new InMemoryHistoricalBlockFacility();
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
         final StateManagementPlugin plugin = startPlugin(tmp, historic, facility);
         final Bytes genesisHash = plugin.stagedStateRootHash();
         historic.put(0L, buildBlock(0L, 0L, genesisHash));
-        plugin.catchUpFromHistoricalBlocks();
+        plugin.catchUpFromHistoricalBlocks(); // the start-up sweep ran before block 0 existed
+        assertThat(plugin.isApplyHalted()).isFalse();
+
+        // Blocks 1 and 2 are only in historical storage. Live block 3 arrives ahead of them: it is
+        // dropped, and the catch-up thread (never the delivering thread) reads 1 and 2 one at a time.
+        final Bytes stagedAfter0 = plugin.stagedStateRootHash();
+        historic.put(1L, buildBlock(1L, 1L, stagedAfter0));
+        historic.put(2L, buildBlock(2L, 2L, stagedAfter0));
+        historic.resetAccessorStats();
+        final VerificationNotification block3 = new VerificationNotification(
+                true, null, 3L, Bytes.fromHex("aabb"), buildBlock(3L, 3L, stagedAfter0), BlockSource.PUBLISHER);
+
+        facility.sendBlockVerification(block3);
+        awaitCatchUpFinished(plugin);
+
+        assertThat(plugin.isApplyHalted()).isFalse();
+        assertThat(plugin.attested().blockNumber())
+                .as("blocks 1 and 2 applied, exposing up to 1 under lag-1; block 3 was not kept")
+                .isEqualTo(1L);
+        assertThat(historic.opened()).as("only the two missing blocks are read").isEqualTo(2);
+        assertThat(historic.readerThreads()).doesNotContain(Thread.currentThread());
+        assertThat(historic.maxConcurrentlyOpen()).isEqualTo(1);
+        assertThat(historic.currentlyOpen()).isZero();
+
+        // Block 3 is now the next expected one, so re-sending it applies it inline with no read.
+        historic.resetAccessorStats();
+        facility.sendBlockVerification(block3);
+
+        assertThat(plugin.attested().blockNumber()).isEqualTo(2L);
+        assertThat(historic.opened()).isZero();
+        plugin.stop();
+    }
+
+    @Test
+    void liveBlockAheadOfAGapHistoryCannotFillIsDroppedAndTheNextNotificationRetries(@TempDir final Path tmp)
+            throws Exception {
+        final InMemoryHistoricalBlockFacility historic = new InMemoryHistoricalBlockFacility();
+        final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
+        final StateManagementPlugin plugin = startPlugin(tmp, historic, facility);
+        final Bytes genesisHash = plugin.stagedStateRootHash();
+        historic.put(0L, buildBlock(0L, 0L, genesisHash));
+        plugin.catchUpFromHistoricalBlocks(); // the start-up sweep ran before block 0 existed
         final Bytes stagedAfter0 = plugin.stagedStateRootHash();
 
         // History has block 0 only. Live block 3 is ahead of 1 and 2, which nobody can supply.
         final VerificationNotification block3 = new VerificationNotification(
                 true, null, 3L, Bytes.fromHex("aabb"), buildBlock(3L, 3L, stagedAfter0), BlockSource.PUBLISHER);
         facility.sendBlockVerification(block3);
+        awaitCatchUpFinished(plugin);
 
         assertThat(plugin.isApplyHalted()).isFalse();
         assertThat(plugin.attested().state()).as("nothing applied past block 0").isNull();
         assertThat(plugin.stagedStateRootHash()).isEqualTo(stagedAfter0);
 
         // Block 3 was not kept. Once history has 1 and 2, the next notification (block 3 re-sent,
-        // standing in for block 4) recovers the whole run.
+        // standing in for block 4) makes the catch-up thread fill them in.
         historic.put(1L, buildBlock(1L, 1L, stagedAfter0));
         historic.put(2L, buildBlock(2L, 2L, stagedAfter0));
         facility.sendBlockVerification(block3);
+        awaitCatchUpFinished(plugin);
 
-        assertThat(plugin.attested().blockNumber()).isEqualTo(2L);
+        assertThat(plugin.attested().blockNumber()).isEqualTo(1L);
         assertThat(plugin.isApplyHalted()).isFalse();
         plugin.stop();
     }
@@ -232,7 +244,7 @@ class StateManagementCatchUpTest {
     }
 
     @Test
-    void notReadyUntilSweepReachesTipThenReadyOnceANotificationFillsTheHole(@TempDir final Path tmp) throws Exception {
+    void notReadyUntilCatchUpReachesTipThenReadyOnceANotificationRetriesIt(@TempDir final Path tmp) throws Exception {
         final ChainHashes hashes = chainHashes(tmp);
         // Block 1 is missing from history, so start-up catch-up applies block 0 and stalls.
         final InMemoryHistoricalBlockFacility historic = new InMemoryHistoricalBlockFacility();
@@ -253,8 +265,8 @@ class StateManagementCatchUpTest {
                 .as("nothing re-drives catch-up without a notification")
                 .isFalse();
 
-        // Live block 4 arrives ahead of 1: blocks 1-3 come from history, then 4 is applied, which
-        // reaches the latest available block (3), so the plugin becomes ready.
+        // Live block 4 arrives ahead of 1: it is dropped and requests a catch-up, which reads 1-3
+        // from history and reaches the latest available block (3), so the plugin becomes ready.
         facility.sendBlockVerification(new VerificationNotification(
                 true,
                 null,
@@ -262,13 +274,15 @@ class StateManagementCatchUpTest {
                 Bytes.fromHex("aabb"),
                 buildBlock(4L, 4L, hashes.afterBlock0()),
                 BlockSource.PUBLISHER));
+        awaitCatchUpFinished(plugin);
         assertThat(plugin.isReady()).isTrue();
-        assertThat(plugin.attested().blockNumber()).isEqualTo(3L); // lag-1: applied through 4
+        assertThat(plugin.attested().blockNumber()).isEqualTo(2L); // lag-1: applied through 3
         plugin.stop();
     }
 
     @Test
-    void sweepFailureLeavesPluginNotReadyThenALiveBlockRecovers(@TempDir final Path tmp) throws Exception {
+    void sweepFailureLeavesPluginNotReadyThenALiveBlockTriggersARecoveringCatchUp(@TempDir final Path tmp)
+            throws Exception {
         final ChainHashes hashes = chainHashes(tmp);
         final InMemoryHistoricalBlockFacility historic = new InMemoryHistoricalBlockFacility();
         historic.put(0L, buildBlock(0L, 0L, hashes.genesis()));
@@ -281,7 +295,8 @@ class StateManagementCatchUpTest {
         assertThat(plugin.isReady()).isFalse();
         assertThat(plugin.isApplyHalted()).isFalse();
 
-        // Live block 1 is ahead of the never-applied block 0: it is read from history, then 1 applies.
+        // Live block 1 is ahead of the never-applied block 0: it is dropped and requests a
+        // catch-up, which now reads block 0 from history and reaches the latest block.
         facility.sendBlockVerification(new VerificationNotification(
                 true,
                 null,
@@ -289,6 +304,7 @@ class StateManagementCatchUpTest {
                 Bytes.fromHex("aabb"),
                 buildBlock(1L, 1L, hashes.afterBlock0()),
                 BlockSource.PUBLISHER));
+        awaitCatchUpFinished(plugin);
         assertThat(plugin.isReady()).isTrue();
         assertThat(plugin.isApplyHalted()).isFalse();
         plugin.stop();
@@ -360,10 +376,17 @@ class StateManagementCatchUpTest {
         private final AtomicInteger opened = new AtomicInteger();
         private final AtomicInteger currentlyOpen = new AtomicInteger();
         private final AtomicInteger maxConcurrentlyOpen = new AtomicInteger();
+        private final java.util.Set<Thread> readerThreads = ConcurrentHashMap.newKeySet();
 
         void resetAccessorStats() {
             opened.set(0);
             maxConcurrentlyOpen.set(currentlyOpen.get());
+            readerThreads.clear();
+        }
+
+        /// The threads that opened a block since the last `resetAccessorStats`.
+        java.util.Set<Thread> readerThreads() {
+            return readerThreads;
         }
 
         int opened() {
@@ -397,6 +420,7 @@ class StateManagementCatchUpTest {
                 return null;
             }
             opened.incrementAndGet();
+            readerThreads.add(Thread.currentThread());
             maxConcurrentlyOpen.accumulateAndGet(currentlyOpen.incrementAndGet(), Math::max);
             return new InMemoryAccessor(blockNumber, block, currentlyOpen);
         }
