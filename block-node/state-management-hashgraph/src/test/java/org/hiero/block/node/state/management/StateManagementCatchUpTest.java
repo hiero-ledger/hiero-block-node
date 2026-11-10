@@ -309,6 +309,78 @@ class StateManagementCatchUpTest {
     }
 
     @Test
+    void aBlockNotifiedBeforeItsPredecessorIsNotLostBecausePersistenceHasIt(@TempDir final Path tmp) throws Exception {
+        final ChainHashes hashes = chainHashes(tmp);
+        final InMemoryHistoricalBlockFacility historic = new InMemoryHistoricalBlockFacility();
+        historic.put(0L, buildBlock(0L, 0L, hashes.genesis()));
+        final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
+        final StateManagementPlugin plugin = startPlugin(tmp.resolve("run"), historic, facility);
+        awaitCatchUpFinished(plugin);
+        assertThat(plugin.isReady()).isTrue();
+
+        // Block 2 is verified before block 1: it is ahead of the next expected block, so it is
+        // dropped from the notification. Persistence stores it regardless of what this plugin does.
+        final BlockUnparsed block1 = buildBlock(1L, 1L, hashes.afterBlock0());
+        final BlockUnparsed block2 = buildBlock(2L, 2L, hashes.afterBlock0());
+        facility.sendBlockVerification(
+                new VerificationNotification(true, null, 2L, Bytes.fromHex("aabb"), block2, BlockSource.PUBLISHER));
+        awaitCatchUpFinished(plugin);
+        historic.put(2L, block2);
+        assertThat(plugin.attested().state())
+                .as("block 2 cannot apply before block 1")
+                .isNull();
+
+        // Block 1 is now persisted and notified. It is the next expected block, applies inline,
+        // and finding block 2 on disk, requests a catch-up that applies it from history.
+        historic.put(1L, block1);
+        facility.sendBlockVerification(
+                new VerificationNotification(true, null, 1L, Bytes.fromHex("aabb"), block1, BlockSource.PUBLISHER));
+        awaitCatchUpFinished(plugin);
+
+        assertThat(plugin.isApplyHalted()).isFalse();
+        assertThat(plugin.attested().blockNumber()).isEqualTo(1L); // lag-1: applied through 2
+        plugin.stop();
+    }
+
+    @Test
+    void aHoleFilledIncrementallyFromItsTipIsFollowedByThePersistedRangeAbove(@TempDir final Path tmp)
+            throws Exception {
+        final ChainHashes hashes = chainHashes(tmp);
+        // History is two ranges, 0 and 5-7. The block-height tip (5-7) is already persisted; the
+        // gap 1-4 is filled one block at a time, in order, as backfill persists it.
+        final InMemoryHistoricalBlockFacility historic = new InMemoryHistoricalBlockFacility();
+        historic.put(0L, buildBlock(0L, 0L, hashes.genesis()));
+        for (long n = 5L; n <= 7L; n++) {
+            historic.put(n, buildBlock(n, n, hashes.afterBlock0()));
+        }
+        final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
+        final StateManagementPlugin plugin = startPlugin(tmp.resolve("run"), historic, facility);
+        awaitCatchUpFinished(plugin);
+        assertThat(plugin.isReady()).as("stalled at the hole").isFalse();
+
+        for (long n = 1L; n <= 3L; n++) {
+            final BlockUnparsed block = buildBlock(n, n, hashes.afterBlock0());
+            historic.put(n, block);
+            facility.sendBlockVerification(
+                    new VerificationNotification(true, null, n, Bytes.fromHex("aabb"), block, BlockSource.BACKFILL));
+            awaitCatchUpFinished(plugin);
+            assertThat(plugin.isReady()).as("still a hole at block " + (n + 1)).isFalse();
+            assertThat(plugin.isApplyHalted()).isFalse();
+        }
+
+        // The last block of the gap closes it: it applies inline and catch-up applies 5-7.
+        final BlockUnparsed block4 = buildBlock(4L, 4L, hashes.afterBlock0());
+        historic.put(4L, block4);
+        facility.sendBlockVerification(
+                new VerificationNotification(true, null, 4L, Bytes.fromHex("aabb"), block4, BlockSource.BACKFILL));
+        awaitCatchUpFinished(plugin);
+
+        assertThat(plugin.isReady()).isTrue();
+        assertThat(plugin.attested().blockNumber()).isEqualTo(6L); // lag-1: applied through 7
+        plugin.stop();
+    }
+
+    @Test
     void sweepFailureLeavesPluginNotReadyThenALiveBlockTriggersARecoveringCatchUp(@TempDir final Path tmp)
             throws Exception {
         final ChainHashes hashes = chainHashes(tmp);
