@@ -4001,6 +4001,85 @@ class LiveStreamPublisherManagerTest {
         }
 
         @Test
+        @DisplayName("An AcknowledgeOnly for a block that was only ever backfilled gets an immediate ack")
+        void acknowledgeOnlyForBackfilledBlockGetsImmediateAck() {
+            final TestResponsePipeline<PublishStreamResponse> replies = new TestResponsePipeline<>();
+            final PublisherHandler handler = toTest.addHandler(replies, generateHandlerMetrics(), null);
+            // No publisher ever streamed these blocks, they reached this node through backfill.
+            toTest.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.BACKFILL));
+            toTest.handlePersisted(new PersistedNotification(1L, true, 0, BlockSource.BACKFILL));
+            final int acksBefore = replies.getOnNextCalls().size();
+
+            handler.onNext(PublishStreamRequestUnparsed.newBuilder()
+                    .acknowledgeOnly(
+                            AcknowledgeOnly.newBuilder().blockNumber(1L).build())
+                    .build());
+
+            assertThat(replies.getOnNextCalls()).hasSize(acksBefore + 1);
+            assertThat(replies.getOnNextCalls().getLast().response().kind())
+                    .isEqualTo(ResponseOneOfType.ACKNOWLEDGEMENT);
+            assertThat(replies.getOnNextCalls().getLast().acknowledgement().blockNumber())
+                    .isEqualTo(1L);
+        }
+
+        @Test
+        @DisplayName("An AcknowledgeOnly below the latest backfilled block gets an ack at the latest block")
+        void acknowledgeOnlyBelowLatestBackfilledBlockGetsAckAtLatest() {
+            final TestResponsePipeline<PublishStreamResponse> replies = new TestResponsePipeline<>();
+            final PublisherHandler handler = toTest.addHandler(replies, generateHandlerMetrics(), null);
+            toTest.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.BACKFILL));
+            toTest.handlePersisted(new PersistedNotification(1L, true, 0, BlockSource.BACKFILL));
+            final int acksBefore = replies.getOnNextCalls().size();
+
+            handler.onNext(PublishStreamRequestUnparsed.newBuilder()
+                    .acknowledgeOnly(
+                            AcknowledgeOnly.newBuilder().blockNumber(0L).build())
+                    .build());
+
+            assertThat(replies.getOnNextCalls()).hasSize(acksBefore + 1);
+            assertThat(replies.getOnNextCalls().getLast().acknowledgement().blockNumber())
+                    .isEqualTo(1L);
+        }
+
+        @Test
+        @DisplayName(
+                "An AcknowledgeOnly inside a backfilled range after a publisher acked block gets an ack at the end")
+        void acknowledgeOnlyInsideBackfilledRangeGetsAckAtRangeEnd() {
+            final TestResponsePipeline<PublishStreamResponse> replies = new TestResponsePipeline<>();
+            final PublisherHandler handler = toTest.addHandler(replies, generateHandlerMetrics(), null);
+            // The last block this node acknowledged for a publisher, then a range that arrives only by backfill.
+            toTest.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.PUBLISHER));
+            for (long block = 1L; block <= 20L; block++) {
+                toTest.handlePersisted(new PersistedNotification(block, true, 0, BlockSource.BACKFILL));
+            }
+            assertThat(toTest.getLatestBlockNumber()).isEqualTo(20L);
+            final int acksBefore = replies.getOnNextCalls().size();
+
+            handler.onNext(PublishStreamRequestUnparsed.newBuilder()
+                    .acknowledgeOnly(
+                            AcknowledgeOnly.newBuilder().blockNumber(1L).build())
+                    .build());
+
+            assertThat(replies.getOnNextCalls()).hasSize(acksBefore + 1);
+            assertThat(replies.getOnNextCalls().getLast().acknowledgement().blockNumber())
+                    .isEqualTo(20L);
+        }
+
+        @Test
+        @DisplayName("An AcknowledgeOnly on a node that holds no blocks gets no ack")
+        void acknowledgeOnlyOnEmptyNodeGetsNoAck() {
+            final TestResponsePipeline<PublishStreamResponse> replies = new TestResponsePipeline<>();
+            final PublisherHandler handler = toTest.addHandler(replies, generateHandlerMetrics(), null);
+
+            handler.onNext(PublishStreamRequestUnparsed.newBuilder()
+                    .acknowledgeOnly(
+                            AcknowledgeOnly.newBuilder().blockNumber(0L).build())
+                    .build());
+
+            assertThat(replies.getOnNextCalls()).isEmpty();
+        }
+
+        @Test
         @DisplayName("Passive handler receives Acknowledgement on next handlePersisted broadcast")
         void passiveHandlerStillGetsAcksOnPersistedBroadcast() {
             final PublisherHandler.MetricsHolder handlerMetrics = generateHandlerMetrics();
