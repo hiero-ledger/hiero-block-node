@@ -22,6 +22,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.util.List;
 import org.hiero.base.crypto.Hash;
 import org.hiero.base.file.FileSystemManager;
 import org.hiero.block.node.state.management.StateSnapshotManager.Failed;
@@ -66,6 +67,64 @@ class StateSnapshotManagerTest {
         writeFile(others.resolve(".tmp-5").resolve("junk"));
         writeFile(others.resolve("9")); // numeric, but a file rather than a directory
         assertThat(restore(others, lifecycle)).as("only non-snapshot entries").isEqualTo(new NoSnapshot());
+    }
+
+    @Test
+    void parseBlockNumberAcceptsOnlyCanonicalBlockNumbers() {
+        assertThat(StateSnapshotManager.parseBlockNumber("0")).isZero();
+        assertThat(StateSnapshotManager.parseBlockNumber("42")).isEqualTo(42L);
+        assertThat(StateSnapshotManager.parseBlockNumber(Long.toString(Long.MAX_VALUE)))
+                .isEqualTo(Long.MAX_VALUE);
+
+        final List<String> notSnapshotNames = List.of(
+                "",
+                "007", // leading zeros: <root>/7 is a different directory
+                "00",
+                "9223372036854775808", // Long.MAX_VALUE + 1
+                "99999999999999999999", // 20 digits
+                "٣", // ARABIC-INDIC DIGIT THREE: Character.isDigit, but not ASCII
+                "1٢",
+                "12a",
+                "-1",
+                "+1",
+                " 1");
+        for (final String name : notSnapshotNames) {
+            assertThat(StateSnapshotManager.parseBlockNumber(name))
+                    .as("'%s' is not a snapshot directory name", name)
+                    .isEqualTo(-1L);
+        }
+    }
+
+    @Test
+    void restoreAndPruneLeaveNonCanonicalNumericNamesAlone(@TempDir final Path tmp) throws Exception {
+        final Path root = tmp.resolve("recent");
+        final VirtualMapStateLifecycleManager seeder = newLifecycleManager(tmp.resolve("seed"));
+        final Hash hash2 = seedSnapshot(seeder, root.resolve("2"), 2L);
+        // Each of these used to break restore or prune: the 20-digit name threw out of the
+        // scan, and the others parsed to a number whose directory is a different path.
+        final List<Path> nonCanonical = List.of(
+                writeFile(root.resolve("99999999999999999999").resolve("marker")),
+                writeFile(root.resolve("٣").resolve("marker")),
+                writeFile(root.resolve("0005").resolve("marker")),
+                writeFile(root.resolve(".tmp-007").resolve("marker")));
+
+        final VirtualMapStateLifecycleManager lifecycle = newLifecycleManager(root);
+        final StateSnapshotManager manager = new StateSnapshotManager(root, 1, lifecycle);
+        assertThat(manager.restoreLatest())
+                .as("restore ignores non-canonical names instead of throwing or loading the wrong dir")
+                .isEqualTo(new Restored(2L, hash2, root.resolve("2")));
+
+        // Retention 1: each write prunes every other snapshot dir and every staging dir.
+        assertThat(write(manager, sealState(lifecycle, 3L), 3L).status()).isEqualTo(WriteStatus.WRITTEN);
+        assertThat(write(manager, sealState(lifecycle, 4L), 4L).status()).isEqualTo(WriteStatus.WRITTEN);
+        manager.deleteStagingDirectories();
+
+        assertThat(numericDirs(root)).containsExactly(4L);
+        for (final Path marker : nonCanonical) {
+            assertThat(marker)
+                    .as("%s is not a snapshot or staging dir, so it is never deleted", marker.getParent())
+                    .exists();
+        }
     }
 
     @Test

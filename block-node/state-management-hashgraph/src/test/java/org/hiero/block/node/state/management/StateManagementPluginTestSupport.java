@@ -47,9 +47,9 @@ final class StateManagementPluginTestSupport {
     /** Numerically named (snapshot) dirs directly under {@code root}, ascending. */
     static List<Long> numericDirs(final Path root) throws IOException {
         return listNames(root).stream()
-                .filter(name -> !name.isEmpty() && name.chars().allMatch(Character::isDigit))
+                .filter(name -> StateSnapshotManager.parseBlockNumber(name) >= 0L)
                 .filter(name -> Files.isDirectory(root.resolve(name)))
-                .map(Long::parseLong)
+                .map(StateSnapshotManager::parseBlockNumber)
                 .sorted()
                 .toList();
     }
