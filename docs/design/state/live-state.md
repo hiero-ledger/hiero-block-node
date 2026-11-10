@@ -734,15 +734,17 @@ blocks:
 3. Write failure (root made non-writable): returns `false`, counts one failure and leaves
    `lastSnapshottedBlock` unchanged. The next call succeeds once the root is writable again.
 4. A halted node still snapshots its last attested block.
-5. `stop()` writes a final snapshot of the latest attested block.
-6. `stop()` queues its final snapshot behind a task already holding the snapshot thread: it
+5. `snapshotRecentRetentionCount=1` set through config keeps only the newest snapshot, which
+   proves the configured value reaches the manager's pruning.
+6. `stop()` writes a final snapshot of the latest attested block.
+7. `stop()` queues its final snapshot behind a task already holding the snapshot thread: it
    is not written until that task finishes.
-7. `stop()` gives up after the 10 s timeout on a task that never finishes, interrupts it, and
+8. `stop()` gives up after the 10 s timeout on a task that never finishes, interrupts it, and
    publishes nothing. The next start is clean.
-8. The scheduler writes a snapshot within a short interval without an explicit call.
-9. A snapshot loop on its own thread during live apply causes no failures or halt, and the
-   newest snapshot restores cleanly.
-10. Config defaults (`900000`, `3`) and out-of-range rejection.
+9. The scheduler writes a snapshot within a short interval without an explicit call.
+10. A snapshot loop on its own thread during live apply causes no failures or halt, and the
+    newest snapshot restores cleanly.
+11. Config defaults (`900000`, `3`) and out-of-range rejection.
 
 On-disk snapshot handling (§3) is covered by `StateSnapshotManagerTest`. It drives
 `StateSnapshotManager` directly with a real `VirtualMapStateLifecycleManager`, a `@TempDir` root
