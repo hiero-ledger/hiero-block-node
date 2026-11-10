@@ -73,6 +73,8 @@ public class MemoryRegressionTests extends BaseSuite {
             "128",
             "MESSAGING_BLOCK_NOTIFICATION_QUEUE_SIZE",
             "16",
+            "MESSAGING_UNVALIDATED_BLOCK_QUEUE_SIZE",
+            "16",
             "MALLOC_ARENA_MAX",
             "2");
 
