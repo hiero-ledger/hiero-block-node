@@ -10,6 +10,7 @@ import com.swirlds.state.merkle.VirtualMapStateLifecycleManager;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -241,21 +242,24 @@ final class StateSnapshotManager {
         }
     }
 
-    /// Scan the snapshot root for numerically-named directories and return the highest one.
+    /// Scan the snapshot root for snapshot directories (see `parseBlockNumber`) and return the
+    /// highest one.
     ///
     /// @return the highest-numbered snapshot directory's block number, or `-1` if none exist
-    /// @throws IOException if the snapshot root exists but cannot be listed
+    /// @throws IOException if the snapshot root exists but cannot be listed, including an I/O
+    ///     error part way through the listing
     private long highestNumberedSnapshotDirectory() throws IOException {
         if (!Files.isDirectory(root)) {
             return -1L;
         }
         try (final var entries = Files.list(root)) {
             return entries.filter(Files::isDirectory)
-                    .map(p -> p.getFileName().toString())
-                    .filter(StateSnapshotManager::isDigits)
-                    .mapToLong(Long::parseLong)
+                    .mapToLong(p -> parseBlockNumber(p.getFileName().toString()))
                     .max()
                     .orElse(-1L);
+        } catch (final UncheckedIOException e) {
+            // The listing stream reports mid-iteration I/O errors unchecked.
+            throw e.getCause();
         }
     }
 
@@ -270,10 +274,8 @@ final class StateSnapshotManager {
         final List<Long> others;
         try (final Stream<Path> entries = Files.list(root)) {
             others = entries.filter(Files::isDirectory)
-                    .map(p -> p.getFileName().toString())
-                    .filter(StateSnapshotManager::isDigits)
-                    .map(Long::parseLong)
-                    .filter(n -> n != current)
+                    .map(p -> parseBlockNumber(p.getFileName().toString()))
+                    .filter(n -> n >= 0L && n != current)
                     .sorted(Comparator.reverseOrder())
                     .toList();
         } catch (final IOException | RuntimeException e) {
@@ -296,16 +298,37 @@ final class StateSnapshotManager {
         return root.resolve(Long.toString(blockNumber));
     }
 
+    /// Parse a directory name as a snapshot block number. Only the canonical form this class
+    /// writes counts: `Long.toString(n)` for some `n >= 0`. Anything else (non-ASCII digits,
+    /// leading zeros, a value too large for a `long`) is not a snapshot directory, because
+    /// `recentSnapshotDirectoryFor(n)` would resolve to a different directory than the one
+    /// scanned. Such entries are left alone like any other non-snapshot entry.
+    ///
     /// @param name a directory's file name
-    /// @return `true` if `name` is non-empty and every character is an ASCII digit
-    private static boolean isDigits(@NonNull final String name) {
-        return !name.isEmpty() && name.chars().allMatch(Character::isDigit);
+    /// @return the block number, or `-1` if `name` is not a canonical block number
+    static long parseBlockNumber(@NonNull final String name) {
+        if (name.isEmpty() || name.length() > 19) {
+            return -1L;
+        }
+        for (int i = 0; i < name.length(); i++) {
+            final char c = name.charAt(i);
+            if (c < '0' || c > '9') {
+                return -1L;
+            }
+        }
+        final long value;
+        try {
+            value = Long.parseLong(name);
+        } catch (final NumberFormatException e) {
+            return -1L; // 19 digits above Long.MAX_VALUE
+        }
+        return Long.toString(value).equals(name) ? value : -1L;
     }
 
     /// @param name a directory's file name
-    /// @return `true` if `name` is `.tmp-` followed by one or more ASCII digits
+    /// @return `true` if `name` is `.tmp-` followed by a canonical block number
     private static boolean isStagingName(@NonNull final String name) {
-        return name.startsWith(STAGING_PREFIX) && isDigits(name.substring(STAGING_PREFIX.length()));
+        return name.startsWith(STAGING_PREFIX) && parseBlockNumber(name.substring(STAGING_PREFIX.length())) >= 0L;
     }
 
     /// Recursively delete `dir`, logging rather than throwing on failure.
