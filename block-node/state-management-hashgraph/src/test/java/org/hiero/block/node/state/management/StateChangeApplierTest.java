@@ -2,7 +2,6 @@
 package org.hiero.block.node.state.management;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.hedera.hapi.block.stream.output.MapChangeKey;
 import com.hedera.hapi.block.stream.output.MapChangeValue;
@@ -144,10 +143,10 @@ class StateChangeApplierTest {
                                 .build())
                 .build();
 
-        assertThatThrownBy(() -> applier.applyBlock(state, block))
-                .isInstanceOf(StateChangeApplier.UnsupportedLegacyEncodingException.class)
-                .hasMessageContaining("legacy")
-                .hasMessageContaining("stateId=" + TOKEN_ASSOCIATION_STATE_ID);
+        final var result = applier.applyBlock(state, block);
+
+        assertThat(result.status()).isEqualTo(StateChangeApplier.Status.LEGACY_TOKEN_ASSOCIATION);
+        assertThat(result.detail()).contains("legacy").contains("stateId=" + TOKEN_ASSOCIATION_STATE_ID);
         assertThat(state.size()).isZero();
     }
 
@@ -165,16 +164,194 @@ class StateChangeApplierTest {
                                 .build())
                 .build();
 
-        assertThatThrownBy(() -> applier.applyBlock(state, block)).isInstanceOf(IllegalStateException.class);
+        final var result = applier.applyBlock(state, block);
+
+        assertThat(result.status()).isEqualTo(StateChangeApplier.Status.MALFORMED_STATE_CHANGES);
         assertThat(state.size()).isZero();
+    }
+
+    @Test
+    void incompleteChangesAreReportedAsMalformedWithoutMutatingState() {
+        final StateChangeApplier applier = new StateChangeApplier();
+        // map_update with a key but no value, a state change with no state_id, and a queue push
+        // whose wrapper carries no payload: each is malformed, none may touch the state.
+        final byte[] key = lengthDelimitedField(1, Bytes.fromHex("0a03666f6f").toByteArray());
+        final byte[] keyOnlyUpdate = lengthDelimitedField(1, key); // MapUpdateChange.key only
+        final byte[] noValue = concat(varintField(1, 4), lengthDelimitedField(5, keyOnlyUpdate));
+        final byte[] noStateId =
+                lengthDelimitedField(5, concat(lengthDelimitedField(1, key), lengthDelimitedField(2, key)));
+        final byte[] emptyPush = concat(varintField(1, 5), lengthDelimitedField(7, new byte[] {0x08, 0x01}));
+
+        for (final byte[] change : List.of(noValue, noStateId, emptyPush)) {
+            final InMemoryBinaryState state = new InMemoryBinaryState();
+            final BlockUnparsed block = BlockUnparsed.newBuilder()
+                    .blockItems(
+                            blockHeaderItem(7L),
+                            BlockItemUnparsed.newBuilder()
+                                    .stateChanges(Bytes.wrap(lengthDelimitedField(2, change)))
+                                    .build())
+                    .build();
+
+            final var result = applier.applyBlock(state, block);
+
+            assertThat(result.status()).isEqualTo(StateChangeApplier.Status.MALFORMED_STATE_CHANGES);
+            assertThat(result.detail()).isNotBlank();
+            assertThat(state.size()).isZero();
+        }
+    }
+
+    @Test
+    void blockWithoutParseableHeaderIsReportedAsUnparseableHeader() {
+        final InMemoryBinaryState state = new InMemoryBinaryState();
+        final StateChangeApplier applier = new StateChangeApplier();
+        final BlockUnparsed block = BlockUnparsed.newBuilder()
+                .blockItems(BlockItemUnparsed.newBuilder()
+                        .blockHeader(Bytes.fromHex("ffffffff"))
+                        .build())
+                .build();
+
+        final var result = applier.applyBlock(state, block);
+
+        assertThat(result.status()).isEqualTo(StateChangeApplier.Status.UNPARSEABLE_HEADER);
+        assertThat(result.blockNumber()).isEqualTo(-1L);
+    }
+
+    @Test
+    void partialUpdatesSpliceChangedFieldsAndClearedFieldsOntoThePriorValue() {
+        // The prior value has fields 1..3. The partial replaces field 2 and clears field 3, so
+        // the result is field 1 unchanged plus the new field 2. Cleared fields are checked in
+        // both the packed and the unpacked encoding, for a map entry and for a singleton.
+        final byte[] prior = concat(
+                lengthDelimitedField(1, "aaa".getBytes()),
+                lengthDelimitedField(2, "bbb".getBytes()),
+                lengthDelimitedField(3, "ccc".getBytes()));
+        final byte[] changed = lengthDelimitedField(2, "XX".getBytes());
+        final byte[] expected = concat(lengthDelimitedField(1, "aaa".getBytes()), changed);
+        final byte[] packedCleared = lengthDelimitedField(5, varint(3));
+        final byte[] unpackedCleared = varintField(5, 3);
+
+        for (final byte[] cleared : List.of(packedCleared, unpackedCleared)) {
+            final InMemoryBinaryState state = new InMemoryBinaryState();
+            final StateChangeApplier applier = new StateChangeApplier();
+            applyRaw(applier, state, mapUpdate(4, KEY, prior));
+            final var result = applyRaw(applier, state, mapUpdate(4, KEY, changed, varintField(4, 1), cleared));
+
+            assertThat(result.status()).isEqualTo(StateChangeApplier.Status.APPLIED);
+            assertThat(state.getKv(4, Bytes.wrap(KEY))).isEqualTo(Bytes.wrap(expected));
+        }
+
+        final byte[] singletonCleared = lengthDelimitedField(10002, varint(3));
+        final byte[] singletonUnpackedCleared = varintField(10002, 3);
+        for (final byte[] cleared : List.of(singletonCleared, singletonUnpackedCleared)) {
+            final InMemoryBinaryState state = new InMemoryBinaryState();
+            final StateChangeApplier applier = new StateChangeApplier();
+            applyRaw(applier, state, singletonUpdate(5, prior));
+            final var result = applyRaw(applier, state, singletonUpdate(5, changed, varintField(10001, 1), cleared));
+
+            assertThat(result.status()).isEqualTo(StateChangeApplier.Status.APPLIED);
+            assertThat(state.getSingleton(5)).isEqualTo(Bytes.wrap(expected));
+        }
+    }
+
+    @Test
+    void fullUpdateWithIdenticalFlagIsStoredAsTheValue() {
+        final InMemoryBinaryState state = new InMemoryBinaryState();
+        final byte[] value = lengthDelimitedField(1, "aaa".getBytes());
+
+        final var result = applyRaw(
+                new StateChangeApplier(), state, mapUpdate(4, KEY, value, varintField(3, 1), varintField(4, 0)));
+
+        assertThat(result.status()).isEqualTo(StateChangeApplier.Status.APPLIED);
+        assertThat(state.getKv(4, Bytes.wrap(KEY))).isEqualTo(Bytes.wrap(value));
+    }
+
+    @Test
+    void partialUpdateWithoutAPriorValueIsReportedAndLeavesStateUnchanged() {
+        final byte[] changed = lengthDelimitedField(2, "XX".getBytes());
+
+        for (final byte[] change : List.of(
+                mapUpdate(4, KEY, changed, varintField(4, 1)), singletonUpdate(5, changed, varintField(10001, 1)))) {
+            final InMemoryBinaryState state = new InMemoryBinaryState();
+
+            final var result = applyRaw(new StateChangeApplier(), state, change);
+
+            assertThat(result.status()).isEqualTo(StateChangeApplier.Status.PARTIAL_WITHOUT_BASELINE);
+            assertThat(result.detail()).contains("no prior value");
+            assertThat(state.size()).isZero();
+        }
+    }
+
+    @Test
+    void invalidPartialUpdatesAreReportedAsMalformedAndLeaveTheValueUnchanged() {
+        final byte[] prior =
+                concat(lengthDelimitedField(1, "aaa".getBytes()), lengthDelimitedField(2, "bbb".getBytes()));
+        final byte[] changed = lengthDelimitedField(2, "XX".getBytes());
+        final byte[] partial = varintField(4, 1);
+        final List<byte[]> invalid = List.of(
+                mapUpdate(4, KEY, changed, varintField(4, 2)), // flag is not 0 or 1
+                mapUpdate(4, KEY, changed, lengthDelimitedField(5, varint(3))), // cleared but not partial
+                mapUpdate(4, KEY, changed, partial, varintField(9, 1)), // unknown metadata on a partial
+                mapUpdate(4, KEY, changed, partial, lengthDelimitedField(5, concat(varint(3), varint(2)))), // unsorted
+                mapUpdate(4, KEY, changed, partial, lengthDelimitedField(5, varint(2))), // clears a replaced field
+                mapUpdate(4, KEY, new byte[] {0x7f}, partial)); // truncated partial bytes
+
+        for (final byte[] change : invalid) {
+            final InMemoryBinaryState state = new InMemoryBinaryState();
+            final StateChangeApplier applier = new StateChangeApplier();
+            applyRaw(applier, state, mapUpdate(4, KEY, prior));
+
+            final var result = applyRaw(applier, state, change);
+
+            assertThat(result.status()).isEqualTo(StateChangeApplier.Status.MALFORMED_STATE_CHANGES);
+            assertThat(state.getKv(4, Bytes.wrap(KEY))).isEqualTo(Bytes.wrap(prior));
+        }
     }
 
     // ── Fixtures ───────────────────────────────────────────────────────────
 
     private static final int TOKEN_ASSOCIATION_STATE_ID = 9;
 
-    /// Minimal hand-rolled protobuf wire encoding, used only to construct the legacy field-2
-    /// `MapChangeKey` shape that has no PBJ builder accessor (reserved fields get none).
+    private static final byte[] KEY = "key".getBytes();
+
+    /// A `StateChange` for `stateId` carrying a `MapUpdateChange` with the given key and value
+    /// payloads, plus any extra raw `MapUpdateChange` fields (for example `partial`).
+    private static byte[] mapUpdate(
+            final int stateId, final byte[] keyPayload, final byte[] valuePayload, final byte[]... extra) {
+        final byte[] update = concat(
+                lengthDelimitedField(1, lengthDelimitedField(1, keyPayload)), // key: MapChangeKey
+                lengthDelimitedField(2, lengthDelimitedField(1, valuePayload)), // value: MapChangeValue
+                concat(extra));
+        return concat(varintField(1, stateId), lengthDelimitedField(5, update));
+    }
+
+    /// A `StateChange` for `stateId` carrying a `SingletonUpdateChange` whose oneof payload is
+    /// field 3, plus any extra raw fields (for example `partial`).
+    private static byte[] singletonUpdate(final int stateId, final byte[] payload, final byte[]... extra) {
+        final byte[] update = concat(lengthDelimitedField(3, payload), concat(extra));
+        return concat(varintField(1, stateId), lengthDelimitedField(4, update));
+    }
+
+    /// Apply one block holding the given raw `StateChange` messages, each as its own
+    /// `StateChanges.state_changes` entry.
+    private static StateChangeApplier.ApplyResult applyRaw(
+            final StateChangeApplier applier, final InMemoryBinaryState state, final byte[]... stateChanges) {
+        final byte[][] entries = new byte[stateChanges.length][];
+        for (int i = 0; i < stateChanges.length; i++) {
+            entries[i] = lengthDelimitedField(2, stateChanges[i]);
+        }
+        return applier.applyBlock(
+                state,
+                BlockUnparsed.newBuilder()
+                        .blockItems(
+                                blockHeaderItem(7L),
+                                BlockItemUnparsed.newBuilder()
+                                        .stateChanges(Bytes.wrap(concat(entries)))
+                                        .build())
+                        .build());
+    }
+
+    /// Minimal hand-rolled protobuf wire encoding, used for shapes PBJ builders cannot produce (the
+    /// legacy field-2 `MapChangeKey`, and partial-update metadata not in the pinned proto).
 
     private static byte[] varint(long value) {
         final var out = new java.io.ByteArrayOutputStream();
