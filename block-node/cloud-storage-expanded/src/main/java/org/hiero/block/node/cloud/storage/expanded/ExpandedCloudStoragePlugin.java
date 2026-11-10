@@ -226,7 +226,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
             LOGGER.log(
                     WARNING, "cloud.storage.expanded.secretKey is blank; S3 uploads will be skipped until configured.");
         }
-        blockMessaging.registerBlockNotificationHandler(this, false, name());
+        blockMessaging.registerVerifiedBlockHandler(this, false, name());
     }
 
     /// {@inheritDoc}
@@ -266,7 +266,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     @Override
     public void stop() {
         // Unregister first so no new upload tasks are submitted during drain.
-        blockMessaging.unregisterBlockNotificationHandler(this);
+        blockMessaging.unregisterVerifiedBlockHandler(this);
         if (scheduler != null) {
             scheduler.shutdown();
             try {

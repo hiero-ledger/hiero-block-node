@@ -223,7 +223,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         if (configValid) {
             recoveryFuture = virtualThreadExecutor.submit(new StartupRecoveryTask(config));
             // register to listen to block notifications if config is valid
-            context.blockMessaging().registerBlockNotificationHandler(this, false, "Cloud Storage Archive");
+            context.blockMessaging().registerVerifiedBlockHandler(this, false, "Cloud Storage Archive");
         }
         LOGGER.log(TRACE, "Cloud storage archive plugin started");
     }
@@ -1074,7 +1074,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     @Override
     public void stop() {
         if (configValid) {
-            context.blockMessaging().unregisterBlockNotificationHandler(this);
+            context.blockMessaging().unregisterVerifiedBlockHandler(this);
         }
         // Cancelling with true interrupts the virtual thread, causing blockQueue.take() to throw
         // InterruptedException inside BlockUploadTask.call()

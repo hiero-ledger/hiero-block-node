@@ -290,7 +290,7 @@ class CloudStorageArchivePluginTest {
         }
 
         /// Verifies that [CloudStorageArchivePlugin#stop] does not throw and does not attempt to
-        /// unregister a notification handler that was never registered (because `configValid` is
+        /// unregister a verified block handler that was never registered (because `configValid` is
         /// `false` when a required configuration field is absent).
         @Test
         @DisplayName("stop() with invalid config does not throw and does not unregister handler")
@@ -312,9 +312,9 @@ class CloudStorageArchivePluginTest {
                     null);
             final CloudStorageArchivePlugin plugin = new CloudStorageArchivePlugin();
             plugin.init(testContext, null);
-            assertThat(messaging.getBlockNotificationHandlerCount()).isZero();
+            assertThat(messaging.getVerifiedBlockHandlerCount()).isZero();
             assertThatNoException().isThrownBy(plugin::stop);
-            assertThat(messaging.getBlockNotificationHandlerCount()).isZero();
+            assertThat(messaging.getVerifiedBlockHandlerCount()).isZero();
         }
     }
 
@@ -344,13 +344,13 @@ class CloudStorageArchivePluginTest {
             pluginExecutor.executeSerially();
         }
 
-        /// Verifies that the plugin registers as a block notification handler once started with a
+        /// Verifies that the plugin registers as a verified block handler once started with a
         /// valid configuration (registration happens in [CloudStorageArchivePlugin#start], after the
         /// startup recovery task has been submitted).
         @Test
-        @DisplayName("Plugin registers as notification handler once started with a valid configuration")
+        @DisplayName("Plugin registers as verified block handler once started with a valid configuration")
         void testPluginRegisteredOnStart() {
-            assertThat(blockMessaging.getBlockNotificationHandlerCount()).isOne();
+            assertThat(blockMessaging.getVerifiedBlockHandlerCount()).isOne();
         }
 
         /// Verifies that [CloudStorageArchivePlugin#start] does not register or submit a startup
@@ -358,7 +358,8 @@ class CloudStorageArchivePluginTest {
         /// context, since the class-level ones already belong to a plugin started with valid config.
         @ParameterizedTest(name = "plugin not registered when {0} is blank or empty")
         @MethodSource("blankOrEmptyFieldConfigs")
-        @DisplayName("start() does not register as notification handler when a required config field is blank or empty")
+        @DisplayName(
+                "start() does not register as verified block handler when a required config field is blank or empty")
         void testStartDoesNotRegisterForMissingField(String fieldName, Map<String, String> configValues) {
             final ConfigurationBuilder builder =
                     ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
@@ -380,7 +381,7 @@ class CloudStorageArchivePluginTest {
             final CloudStorageArchivePlugin invalidConfigPlugin = new CloudStorageArchivePlugin();
             invalidConfigPlugin.init(testContext, null);
             invalidConfigPlugin.start();
-            assertThat(messaging.getBlockNotificationHandlerCount()).isZero();
+            assertThat(messaging.getVerifiedBlockHandlerCount()).isZero();
             assertThat(executor.wasAnyTaskSubmitted()).isFalse();
         }
 
@@ -1250,22 +1251,22 @@ class CloudStorageArchivePluginTest {
         /// Verifies that [CloudStorageArchivePlugin#stop] does not throw and unregisters the plugin
         /// from the block messaging facility when there is no active archive task.
         @Test
-        @DisplayName("stop() with no active task does not throw and unregisters the notification handler")
+        @DisplayName("stop() with no active task does not throw and unregisters the verified block handler")
         void testStopWithNoActiveTask() {
             assertThat(plugin.currentUploadFuture).isNull();
-            assertThat(blockMessaging.getBlockNotificationHandlerCount()).isOne();
+            assertThat(blockMessaging.getVerifiedBlockHandlerCount()).isOne();
             assertThatNoException().isThrownBy(plugin::stop);
-            assertThat(blockMessaging.getBlockNotificationHandlerCount()).isZero();
+            assertThat(blockMessaging.getVerifiedBlockHandlerCount()).isZero();
         }
 
         /// Verifies that [CloudStorageArchivePlugin#stop] cancels the active [BlockUploadTask]
         /// future and unregisters the plugin.
         @Test
-        @DisplayName("stop() with an active task aborts the upload and unregisters the notification handler")
+        @DisplayName("stop() with an active task aborts the upload and unregisters the verified block handler")
         void testStopWithActiveTaskAbortsAndUnregisters() throws Exception {
             sendVerification(TestBlockBuilder.generateBlocksInRange(0, 0).getFirst());
             assertThat(plugin.currentUploadFuture).isNotNull();
-            assertThat(blockMessaging.getBlockNotificationHandlerCount()).isOne();
+            assertThat(blockMessaging.getVerifiedBlockHandlerCount()).isOne();
 
             plugin.stop();
             // CancellationException is expected: the future was cancelled before the task ran
@@ -1274,7 +1275,7 @@ class CloudStorageArchivePluginTest {
             } catch (java.util.concurrent.CancellationException ignored) {
             }
 
-            assertThat(blockMessaging.getBlockNotificationHandlerCount()).isZero();
+            assertThat(blockMessaging.getVerifiedBlockHandlerCount()).isZero();
             assertThat(getAllObjects()).doesNotContain("0000/0000/0000/0000/0.tar");
         }
 
@@ -1307,7 +1308,7 @@ class CloudStorageArchivePluginTest {
             assertThat(consolFuture.isCancelled()).isTrue();
             assertThat(plugin.tempUploadFutures).isEmpty();
             assertThat(plugin.consolidationFutures).isEmpty();
-            assertThat(blockMessaging.getBlockNotificationHandlerCount()).isZero();
+            assertThat(blockMessaging.getVerifiedBlockHandlerCount()).isZero();
         }
 
         /// Verifies that a notification arriving after the active [BlockUploadTask] future was
@@ -1377,17 +1378,17 @@ class CloudStorageArchivePluginTest {
         }
 
         /// Verifies that [CloudStorageArchivePlugin#stop] cancels the queued startup recovery task
-        /// and unregisters the notification handler before the task has had a chance to run.
+        /// and unregisters the verified block handler before the task has had a chance to run.
         @Test
         @DisplayName("stop() cancels the in-flight startup recovery task and unregisters the handler")
         void testStopCancelsInFlightRecovery() {
             // Recovery task is queued in the BlockingExecutor but has not yet run.
             assertThat(pluginExecutor.getQueue()).hasSize(1);
-            assertThat(blockMessaging.getBlockNotificationHandlerCount()).isOne();
+            assertThat(blockMessaging.getVerifiedBlockHandlerCount()).isOne();
 
             plugin.stop();
 
-            assertThat(blockMessaging.getBlockNotificationHandlerCount()).isZero();
+            assertThat(blockMessaging.getVerifiedBlockHandlerCount()).isZero();
             // Drive the cancelled task to flush it from the executor queue.
             try {
                 pluginExecutor.executeSerially();

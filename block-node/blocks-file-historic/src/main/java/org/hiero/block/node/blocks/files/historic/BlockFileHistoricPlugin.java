@@ -148,7 +148,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             Files.createDirectories(linksRootPath);
             Files.createDirectories(zipWorkRootPath);
             // register to listen to block notifications
-            context.blockMessaging().registerBlockNotificationHandler(this, false, "Blocks Files Historic");
+            context.blockMessaging().registerVerifiedBlockHandler(this, false, "Blocks Files Historic");
             numberOfBlocksPerZipFile = intPowerOfTen(config.powersOfTenPerZipFileContents());
             // create the executor service for moving blocks to zip files
             zipMoveExecutorService = context.threadPoolManager().createSingleThreadExecutor("FilesHistoricZipMove");

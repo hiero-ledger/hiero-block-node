@@ -117,6 +117,22 @@ class StreamPublisherPluginTest {
                     .forEach(m -> System.out.println("Methods registered for plugin tests: " + m));
         }
 
+        /// This test aims to assert that the plugin registers its publisher manager both as a block
+        /// notification handler, for persisted notifications, and as a verified block handler, for
+        /// verification notifications, and that stopping the plugin unregisters the manager from both, so it
+        /// receives neither kind of notification any more. The test verification plugin is a block
+        /// notification handler too, so that count only drops by one.
+        @Test
+        @DisplayName("Test the publisher manager is registered on both rings while running and unregistered on stop")
+        void testManagerRegisteredOnBothRingsUntilStop() {
+            final int notificationHandlersWhileRunning = blockMessaging.getBlockNotificationHandlerCount();
+            assertThat(blockMessaging.getVerifiedBlockHandlerCount()).isOne();
+            plugin.stop();
+            assertThat(blockMessaging.getVerifiedBlockHandlerCount()).isZero();
+            assertThat(blockMessaging.getBlockNotificationHandlerCount())
+                    .isEqualTo(notificationHandlersWhileRunning - 1);
+        }
+
         /// This test aims to verify that when null block items are published to
         /// the pipeline, an
         /// [PublishStreamResponse.EndOfStream]

@@ -277,6 +277,55 @@ class ExpandedCloudStoragePluginTest
         assertTrue(notifications.getFirst().succeeded(), "PersistedNotification must report succeeded=true");
     }
 
+    /// This test aims to assert that the plugin receives verified blocks through the messaging facility:
+    /// a verification notification sent with `sendBlockVerification` reaches the plugin, which uploads the
+    /// block and publishes a persisted notification for it. The other tests call `handleVerification`
+    /// directly, so this is the one that shows the plugin registered itself as a verified block handler.
+    @Test
+    @DisplayName("A verified block sent through the messaging facility is uploaded")
+    void verifiedBlockSentThroughMessagingIsUploaded() throws InterruptedException {
+        final CapturingS3Client capturing = new CapturingS3Client();
+        start(
+                new ExpandedCloudStoragePlugin(capturing),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1"));
+
+        blockMessaging.sendBlockVerification(
+                verifiedNotification(7L, testBlock(7).blockUnparsed()));
+        awaitNotifications(1);
+
+        assertEquals(1, capturing.uploads.size(), "The block sent through the messaging facility must be uploaded");
+        final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+        assertEquals(1, notifications.size(), "Exactly one PersistedNotification expected");
+        assertEquals(7L, notifications.getFirst().blockNumber());
+        assertTrue(notifications.getFirst().succeeded(), "PersistedNotification must report succeeded=true");
+    }
+
+    /// This test aims to assert that the plugin is registered as a verified block handler, and not as a
+    /// block notification handler, while it runs, and that stopping it unregisters it, so it receives no
+    /// more verification notifications.
+    @Test
+    @DisplayName("The plugin is a verified block handler while it runs and is unregistered on stop")
+    void registeredAsVerifiedBlockHandlerUntilStop() {
+        start(
+                new ExpandedCloudStoragePlugin(new CapturingS3Client()),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.storage.expanded.retryEnabled", "false",
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1"));
+
+        assertEquals(1, blockMessaging.getVerifiedBlockHandlerCount(), "The plugin must be a verified block handler");
+        assertEquals(0, blockMessaging.getBlockNotificationHandlerCount(), "No block notification handler expected");
+        plugin.stop();
+        assertEquals(0, blockMessaging.getVerifiedBlockHandlerCount(), "stop() must unregister the plugin");
+    }
+
     @Test
     @DisplayName("UploadException from uploadFile produces PersistedNotification with succeeded=false")
     void uploadExceptionProducesFailedNotification() throws InterruptedException {

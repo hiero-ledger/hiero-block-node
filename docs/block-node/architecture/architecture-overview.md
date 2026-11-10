@@ -24,6 +24,8 @@ for additional service processing.
    - Plugins may publish notification events to the `BlockMessagingFacility`.
    - Notifications are distributed via a notification ring buffer to registered plugins.
    - Blocks fetched by backfill are distributed via an unvalidated block ring buffer to the verification plugin.
+   - Block verification results, with the verified blocks, are distributed via a verified block ring buffer to the
+     plugins that store or act on them.
 3. **Plugin Processing:** Each registered plugin processes block items and notifications independently, enabling
    dynamic, asynchronous, and extensible workflows.
 

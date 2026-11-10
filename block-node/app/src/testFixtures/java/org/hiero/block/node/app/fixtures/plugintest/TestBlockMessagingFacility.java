@@ -51,6 +51,9 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     /** set of unvalidated block handlers */
     private final Set<BlockNotificationHandler> unvalidatedBlockHandlers =
             new ConcurrentSkipListSet<>(Comparator.comparingInt(Object::hashCode));
+    /** set of verified block handlers */
+    private final Set<BlockNotificationHandler> verifiedBlockHandlers =
+            new ConcurrentSkipListSet<>(Comparator.comparingInt(Object::hashCode));
     /** set of application state notification handlers */
     private final Set<ApplicationStateNotificationHandler> applicationStateNotificationHandlers =
             new ConcurrentSkipListSet<>(Comparator.comparingInt(Object::hashCode));
@@ -168,6 +171,15 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
      */
     public int getBlockNotificationHandlerCount() {
         return blockNotificationHandlers.size();
+    }
+
+    /**
+     * Get the number of verified block handlers registered.
+     *
+     * @return the number of verified block handlers
+     */
+    public int getVerifiedBlockHandlerCount() {
+        return verifiedBlockHandlers.size();
     }
 
     /**
@@ -320,7 +332,7 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     public void sendBlockVerification(final VerificationNotification notification) {
         logNotification(notification);
         sentVerificationNotifications.add(notification);
-        for (final BlockNotificationHandler handler : blockNotificationHandlers) {
+        for (final BlockNotificationHandler handler : verifiedBlockHandlers) {
             handler.handleVerification(notification);
         }
     }
@@ -398,6 +410,23 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     @Override
     public void unregisterUnvalidatedBlockHandler(final BlockNotificationHandler handler) {
         unvalidatedBlockHandlers.remove(handler);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void registerVerifiedBlockHandler(
+            final BlockNotificationHandler handler, final boolean cpuIntensiveHandler, final String handlerName) {
+        verifiedBlockHandlers.add(handler);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void unregisterVerifiedBlockHandler(final BlockNotificationHandler handler) {
+        verifiedBlockHandlers.remove(handler);
     }
 
     /**

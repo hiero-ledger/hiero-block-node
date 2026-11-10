@@ -8,8 +8,9 @@ public interface BlockNotificationHandler extends GatingHandler {
     /**
      * Handle a block verification notification.
      * <p>
-     * This is always called on a messaging thread.
-     * Each registered notification handler will have its own virtual thread.
+     * This is only called for handlers registered with
+     * {@link BlockMessagingFacility#registerVerifiedBlockHandler}, always on a messaging thread of its own,
+     * separate from the thread that calls the other methods of this handler.
      *
      * @param notification the block verification notification to handle
      */

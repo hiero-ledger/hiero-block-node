@@ -277,11 +277,12 @@ for the JSON schema.
 
 ### Messaging Plugin Configuration
 
-| ENV Variable                            | Description                                                                               | Default |
-|:----------------------------------------|:------------------------------------------------------------------------------------------|--------:|
-| MESSAGING_BLOCK_ITEM_QUEUE_SIZE         | Max messages in block item queue. Each batch ~100 items. Must be power of 2.              |     512 |
-| MESSAGING_BLOCK_NOTIFICATION_QUEUE_SIZE | Max block notifications queued. Each may hold a full block in memory. Must be power of 2. |      32 |
-| MESSAGING_UNVALIDATED_BLOCK_QUEUE_SIZE  | Max backfilled blocks queued for verification. Each is a full block. Must be power of 2.  |      32 |
+| ENV Variable                            | Description                                                                              | Default |
+|:----------------------------------------|:-----------------------------------------------------------------------------------------|--------:|
+| MESSAGING_BLOCK_ITEM_QUEUE_SIZE         | Max messages in block item queue. Each batch ~100 items. Must be power of 2.             |     512 |
+| MESSAGING_BLOCK_NOTIFICATION_QUEUE_SIZE | Max block notifications queued. Small, never a full block. Must be power of 2.           |      32 |
+| MESSAGING_UNVALIDATED_BLOCK_QUEUE_SIZE  | Max backfilled blocks queued for verification. Each is a full block. Must be power of 2. |      32 |
+| MESSAGING_VERIFIED_BLOCK_QUEUE_SIZE     | Max verification results queued. Each verified one is a full block. Must be power of 2.  |      32 |
 
 ### Server Status Plugin Configuration
 

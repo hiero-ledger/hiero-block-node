@@ -229,9 +229,9 @@ public abstract class PluginTestBase<
             blockMessaging.registerBlockItemHandler(
                     blockItemHandler, false, historicalBlockFacility.getClass().getSimpleName());
         }
-        // if HistoricalBlockFacility is a BlockNotificationHandler, register it with the messaging facility
+        // if HistoricalBlockFacility is a BlockNotificationHandler, register it for verified blocks
         if (historicalBlockFacility instanceof BlockNotificationHandler blockNotificationHandler) {
-            blockMessaging.registerBlockNotificationHandler(
+            blockMessaging.registerVerifiedBlockHandler(
                     blockNotificationHandler,
                     false,
                     historicalBlockFacility.getClass().getSimpleName());

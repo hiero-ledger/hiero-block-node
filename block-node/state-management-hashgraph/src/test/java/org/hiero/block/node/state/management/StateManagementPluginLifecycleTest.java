@@ -39,6 +39,20 @@ import org.junit.jupiter.api.io.TempDir;
 /// and snapshot restore.
 class StateManagementPluginLifecycleTest {
 
+    /// This test aims to assert that the plugin is registered as a verified block handler, and not as a
+    /// block notification handler, while it runs, and that stopping it unregisters it, so it receives no
+    /// more verification notifications.
+    @Test
+    void registeredAsVerifiedBlockHandlerUntilStop(@TempDir final Path tmp) throws Exception {
+        final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
+        final StateManagementPlugin plugin = startPlugin(tmp.resolve("recent"), facility);
+
+        assertThat(facility.getVerifiedBlockHandlerCount()).isOne();
+        assertThat(facility.getBlockNotificationHandlerCount()).isZero();
+        plugin.stop();
+        assertThat(facility.getVerifiedBlockHandlerCount()).isZero();
+    }
+
     @Test
     void rejectsBlockWithUnparseableHeader(@TempDir final Path tmp) throws Exception {
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();

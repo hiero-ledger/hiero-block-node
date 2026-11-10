@@ -30,7 +30,7 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
-import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
@@ -223,7 +223,7 @@ public class BlockNotificationTest {
         final AtomicInteger handler2Sum = new AtomicInteger(0);
         final BlockNotificationHandler handler1 = new BlockNotificationHandler() {
             @Override
-            public void handleVerification(VerificationNotification notification) {
+            public void handlePersisted(PersistedNotification notification) {
                 // process notifications
                 int receivedValue = (int) notification.blockNumber();
                 // add up all the received values
@@ -234,7 +234,7 @@ public class BlockNotificationTest {
         };
         final BlockNotificationHandler handler2 = new BlockNotificationHandler() {
             @Override
-            public void handleVerification(VerificationNotification notification) {
+            public void handlePersisted(PersistedNotification notification) {
                 // process notifications
                 int receivedValue = (int) notification.blockNumber();
                 // add up all the received values
@@ -259,8 +259,7 @@ public class BlockNotificationTest {
                 // wait for a bit to let the handler unregister
                 LockSupport.parkNanos(500_000);
             }
-            messagingService.sendBlockVerification(
-                    new VerificationNotification(true, null, i, null, null, BlockSource.PUBLISHER));
+            messagingService.sendBlockPersisted(new PersistedNotification(i, true, 0, BlockSource.PUBLISHER));
             // have to slow down production to make test reliable
             LockSupport.parkNanos(500_000);
         }
@@ -340,8 +339,7 @@ public class BlockNotificationTest {
         @Override
         public void run() {
             for (int i = 0; i < TEST_DATA_COUNT; i++) {
-                messagingService.sendBlockVerification(
-                        new VerificationNotification(true, null, i, null, null, BlockSource.PUBLISHER));
+                messagingService.sendBlockPersisted(new PersistedNotification(i, true, 0, BlockSource.PUBLISHER));
                 int totalSent = sentCounter.incrementAndGet();
                 if (pauseControl != null) {
                     // release the pause control occasionally, to slow a handler by some amount.
@@ -379,7 +377,7 @@ public class BlockNotificationTest {
         }
 
         @Override
-        public void handleVerification(VerificationNotification notification) {
+        public void handlePersisted(PersistedNotification notification) {
             if (expectedCount <= counters.incrementAndGet(identifier)) {
                 // call the latch countdown when we reach the expected count
                 latch.countDown();

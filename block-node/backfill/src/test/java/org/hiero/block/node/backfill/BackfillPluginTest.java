@@ -703,7 +703,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // 20 blocks (31..50) must eventually succeed, including the one that fails its first attempt
         CountDownLatch countDownLatch = new CountDownLatch(20);
         registerDefaultTestBackfillHandler();
-        this.blockMessaging.registerBlockNotificationHandler(
+        this.blockMessaging.registerVerifiedBlockHandler(
                 new BlockNotificationHandler() {
                     @Override
                     public void handleVerification(VerificationNotification notification) {
@@ -1030,7 +1030,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // register the backfill handler
         registerDefaultTestBackfillHandler();
         // register the verification handler
-        this.blockMessaging.registerBlockNotificationHandler(
+        this.blockMessaging.registerVerifiedBlockHandler(
                 new BlockNotificationHandler() {
                     @Override
                     public void handleVerification(VerificationNotification notification) {
@@ -1118,7 +1118,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // register the backfill handler
         registerDefaultTestBackfillHandler();
         // register the verification handler
-        this.blockMessaging.registerBlockNotificationHandler(
+        this.blockMessaging.registerVerifiedBlockHandler(
                 new BlockNotificationHandler() {
                     @Override
                     public void handleVerification(VerificationNotification notification) {
@@ -1213,7 +1213,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // register the backfill handler
         registerDefaultTestBackfillHandler();
         // register the verification handler
-        this.blockMessaging.registerBlockNotificationHandler(
+        this.blockMessaging.registerVerifiedBlockHandler(
                 new BlockNotificationHandler() {
                     @Override
                     public void handleVerification(VerificationNotification notification) {
@@ -1307,7 +1307,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // register the backfill handler
         registerDefaultTestBackfillHandler();
         // register the verification handler
-        this.blockMessaging.registerBlockNotificationHandler(
+        this.blockMessaging.registerVerifiedBlockHandler(
                 new BlockNotificationHandler() {
                     @Override
                     public void handleVerification(VerificationNotification notification) {
@@ -1398,7 +1398,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         AtomicLong gapsSubmittedWhileRunning = new AtomicLong(-1);
 
         registerDefaultTestBackfillHandler();
-        this.blockMessaging.registerBlockNotificationHandler(
+        this.blockMessaging.registerVerifiedBlockHandler(
                 new BlockNotificationHandler() {
                     @Override
                     public void handleVerification(VerificationNotification notification) {
@@ -1886,6 +1886,89 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 "A subsequent scan should re-fetch the block that failed verification");
     }
 
+    /**
+     * This test aims to assert that a backfilled block that fails verification is reported back to the backfill
+     * plugin through the messaging facility, as a verified block result. The backfill run waiting for the block is
+     * released at once instead of waiting out the per block timeout, which here is far longer than the test waits,
+     * so the block can only be fetched again in time if the failure reached the waiting run. The plugin also counts
+     * the failure as a fetch error. Both only happen when the plugin and its persistence awaiters receive
+     * verification results.
+     */
+    @Test
+    @DisplayName("A block that fails verification releases the waiting backfill run at once")
+    void testVerificationFailureReleasesTheWaitingRunAtOnce() throws InterruptedException {
+        // Peer serves a small range that lands entirely as LIVE_TAIL on an empty store.
+        final int blockCount = 5;
+        final long targetBlock = 2L;
+        final TestBlockNodeServer server = new TestBlockNodeServer(0, getHistoricalBlockFacility(0, blockCount - 1));
+        testBlockNodeServers.add(server);
+        BlockNodeSource backfillSource = BlockNodeSource.newBuilder()
+                .nodes(BlockNodeSourceConfig.newBuilder()
+                        .address("localhost")
+                        .port(server.port())
+                        .priority(1)
+                        .build())
+                .build();
+        final String backfillSourcePath = testTempDir + "/backfill-source-verification-failure-release.json";
+        createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
+
+        // A per block timeout far beyond the waits below: only a released wait lets the next scan run in time.
+        final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(backfillSourcePath)
+                .greedy(true)
+                .initialDelay(50)
+                .scanInterval(300)
+                .maxRetries(1)
+                .perBlockProcessingTimeout(60_000)
+                .build();
+
+        final AtomicInteger targetFetchCount = new AtomicInteger();
+        final CountDownLatch resubmitFetchLatch = new CountDownLatch(1);
+        final AtomicBoolean targetFailedOnce = new AtomicBoolean();
+        blockMessaging.registerUnvalidatedBlockHandler(
+                new BlockNotificationHandler() {
+                    @Override
+                    public void handleBackfilled(BackfilledBlockNotification notification) {
+                        final long blockNumber = notification.blockNumber();
+                        if (blockNumber == targetBlock && targetFetchCount.incrementAndGet() == 2) {
+                            resubmitFetchLatch.countDown();
+                        }
+                        final boolean induceFailure =
+                                blockNumber == targetBlock && targetFailedOnce.compareAndSet(false, true);
+                        blockNodeContext
+                                .blockMessaging()
+                                .sendBlockVerification(new VerificationNotification(
+                                        !induceFailure,
+                                        induceFailure
+                                                ? VerificationNotification.FailureInfo.standard(
+                                                        VerificationNotification.FailureType.MISSING_VERIFICATION_DATA)
+                                                : null,
+                                        blockNumber,
+                                        Bytes.wrap("123"),
+                                        notification.block(),
+                                        BlockSource.BACKFILL));
+                        if (!induceFailure) {
+                            blockNodeContext
+                                    .blockMessaging()
+                                    .sendBlockPersisted(
+                                            new PersistedNotification(blockNumber, true, 10, BlockSource.BACKFILL));
+                        }
+                    }
+                },
+                false,
+                "test-verification-failure-release-handler");
+
+        start(new BackfillPlugin(), new SimpleInMemoryHistoricalBlockFacility(), configOverride);
+
+        assertTrue(
+                resubmitFetchLatch.await(10, TimeUnit.SECONDS),
+                "The failed block should be fetched again long before the per block timeout ends");
+        assertEquals(
+                1,
+                plugin.metricsHolder().backfillFetchErrors().get(),
+                "Exactly the one verification failure should be counted as a fetch error");
+    }
+
     @Test
     @DisplayName("The genesis block is backfilled and persisted before any of its successors is fetched")
     void testGenesisBlockIsBackfilledBeforeItsSuccessors() throws InterruptedException {
@@ -2145,7 +2228,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     }
 
     private void registerDefaultTestVerificationHandler(CountDownLatch countDownLatch) {
-        this.blockMessaging.registerBlockNotificationHandler(
+        this.blockMessaging.registerVerifiedBlockHandler(
                 new BlockNotificationHandler() {
                     @Override
                     public void handleVerification(VerificationNotification notification) {

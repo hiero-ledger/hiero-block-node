@@ -15,6 +15,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Duration;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -860,13 +861,15 @@ class BackfillRunnerTest {
         /**
          * Runs a single-block gap whose only block gets the given outcome published for it as soon as it
          * is dispatched. TestBlockMessagingFacility dispatches synchronously on the caller's thread, so
-         * the outcome always lands before the runner starts awaiting.
+         * the outcome always lands before the runner starts awaiting. The per block timeout is far longer
+         * than the time the run is allowed to take, so the run only ends in time if the outcome reached the
+         * persistence awaiter, and never by waiting the timeout out.
          */
         private long runSingleBlockGapWithOutcome(
                 long blockNumber, Consumer<BackfilledBlockNotification> outcomePublisher) throws Exception {
             BackfillConfiguration singleAttemptConfig = BackfillPluginTest.BackfillConfigBuilder.NewBuilder()
                     .delayBetweenBatches(0)
-                    .perBlockProcessingTimeout(500)
+                    .perBlockProcessingTimeout(30_000)
                     .maxRetries(1)
                     .buildRecord();
             BackfillRunner failureSubject = new BackfillRunner(
@@ -891,6 +894,7 @@ class BackfillRunnerTest {
                     .thenReturn(List.of(createTestBlock(blockNumber)));
 
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
+            messaging.registerVerifiedBlockHandler(persistenceAwaiter, false, "persistence-awaiter");
             messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
@@ -901,7 +905,14 @@ class BackfillRunnerTest {
                     false,
                     "test-failure-handler");
 
-            return failureSubject.run(gap);
+            final long startNanos = System.nanoTime();
+            final long lastSuccessful = failureSubject.run(gap);
+            final Duration elapsed = Duration.ofNanos(System.nanoTime() - startNanos);
+            assertTrue(
+                    elapsed.compareTo(Duration.ofSeconds(5)) < 0,
+                    "The outcome did not release the wait for block %d, the run took %s"
+                            .formatted(blockNumber, elapsed));
+            return lastSuccessful;
         }
     }
 

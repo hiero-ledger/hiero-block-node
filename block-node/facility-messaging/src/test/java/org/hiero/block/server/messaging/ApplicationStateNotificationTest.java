@@ -22,9 +22,11 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.AddressBookHistoryNotification;
 import org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.AvailableBlocksNotification;
+import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
+import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification.UpdateType;
@@ -279,19 +281,38 @@ public class ApplicationStateNotificationTest {
     }
 
     /**
-     * An {@link ApplicationStateNotificationHandler} must silently ignore block-stream notification
-     * events; only the application state notification used as a sentinel must be delivered.
+     * This test aims to assert that an {@link ApplicationStateNotificationHandler} silently ignores block-stream
+     * notification events: three block-stream notifications and then a TSS sentinel are sent, and the handler must be
+     * called exactly once, for the sentinel. Every callback of the handler is counted and only the sentinel itself
+     * ends the wait, so a block-stream event delivered to any callback before the sentinel makes the test fail.
      */
     @Test
     void applicationStateHandlerIgnoresBlockStreamEvents() throws InterruptedException {
+        final TssDataNotification sentinel = new TssDataNotification(null);
         final CountDownLatch sentinelLatch = new CountDownLatch(1);
         final AtomicIntegerArray counters = new AtomicIntegerArray(1);
         final ApplicationStateNotificationHandler handler = new ApplicationStateNotificationHandler() {
             @Override
             public void handleTssDataUpdate(final TssDataNotification n) {
-                // Sentinel: only this should arrive.
                 counters.incrementAndGet(0);
-                sentinelLatch.countDown();
+                if (n == sentinel) {
+                    sentinelLatch.countDown();
+                }
+            }
+
+            @Override
+            public void handleAddressBookHistoryUpdate(final AddressBookHistoryNotification n) {
+                counters.incrementAndGet(0);
+            }
+
+            @Override
+            public void handleStoredBlocksUpdate(final StoredBlocksNotification n) {
+                counters.incrementAndGet(0);
+            }
+
+            @Override
+            public void handleAvailableBlocksUpdate(final AvailableBlocksNotification n) {
+                counters.incrementAndGet(0);
             }
         };
 
@@ -301,15 +322,15 @@ public class ApplicationStateNotificationTest {
         service.start();
 
         // Send three block-stream notifications, then one TSS as sentinel.
-        service.sendBlockVerification(new VerificationNotification(true, null, 1L, null, null, BlockSource.PUBLISHER));
+        service.sendNewestBlockKnownToNetwork(new NewestBlockKnownToNetworkNotification(1L));
         service.sendBlockPersisted(new PersistedNotification(1L, true, 0, BlockSource.PUBLISHER));
         service.sendPublisherStatusUpdate(new PublisherStatusUpdateNotification(UpdateType.PUBLISHER_CONNECTED, 1));
-        service.sendTssDataUpdate(new TssDataNotification(null));
+        service.sendTssDataUpdate(sentinel);
         threadPoolManager
                 .executor()
                 .executeAsync(false, 10_000L, true, true, () -> Executors.newSingleThreadExecutor());
 
-        // Wait for sentinel; only 1 application state notification should have been delivered.
+        // Wait for the sentinel; it is the last notification sent, so everything before it was handled already.
         assertTrue(sentinelLatch.await(20, TimeUnit.SECONDS));
         assertEquals(
                 1,
@@ -319,18 +340,43 @@ public class ApplicationStateNotificationTest {
     }
 
     /**
-     * A {@link BlockNotificationHandler} must silently ignore application state notification
-     * events; only the verification notification used as a sentinel must trigger the block handler.
+     * This test aims to assert that a {@link BlockNotificationHandler} silently ignores application state notification
+     * events: all four application state notifications and then a persisted sentinel are sent, and the handler must be
+     * called exactly once, for the sentinel. Every callback of the handler is counted and only the sentinel itself
+     * ends the wait, so an application state event delivered to any callback before the sentinel makes the test fail.
      */
     @Test
     void blockHandlerIgnoresApplicationStateEvents() throws InterruptedException {
-        final CountDownLatch verificationLatch = new CountDownLatch(1);
+        final PersistedNotification sentinel = new PersistedNotification(1L, true, 0, BlockSource.PUBLISHER);
+        final CountDownLatch sentinelLatch = new CountDownLatch(1);
         final AtomicIntegerArray counters = new AtomicIntegerArray(1);
         final BlockNotificationHandler blockHandler = new BlockNotificationHandler() {
             @Override
+            public void handlePersisted(final PersistedNotification n) {
+                counters.incrementAndGet(0);
+                if (n == sentinel) {
+                    sentinelLatch.countDown();
+                }
+            }
+
+            @Override
             public void handleVerification(final VerificationNotification n) {
                 counters.incrementAndGet(0);
-                verificationLatch.countDown();
+            }
+
+            @Override
+            public void handleBackfilled(final BackfilledBlockNotification n) {
+                counters.incrementAndGet(0);
+            }
+
+            @Override
+            public void handleNewestBlockKnownToNetwork(final NewestBlockKnownToNetworkNotification n) {
+                counters.incrementAndGet(0);
+            }
+
+            @Override
+            public void handlePublisherStatusUpdate(final PublisherStatusUpdateNotification n) {
+                counters.incrementAndGet(0);
             }
         };
 
@@ -339,19 +385,19 @@ public class ApplicationStateNotificationTest {
         service.registerBlockNotificationHandler(blockHandler, false, "block-handler");
         service.start();
 
-        // Send all four application state notifications, then one verification as sentinel.
+        // Send all four application state notifications, then one persisted notification as sentinel.
         sendAllApplicationStateNotifications(service);
-        service.sendBlockVerification(new VerificationNotification(true, null, 1L, null, null, BlockSource.PUBLISHER));
+        service.sendBlockPersisted(sentinel);
         threadPoolManager
                 .executor()
                 .executeAsync(false, 10_000L, true, true, () -> Executors.newSingleThreadExecutor());
 
-        // Wait for sentinel; block handler should only have fired once (the verification).
-        assertTrue(verificationLatch.await(20, TimeUnit.SECONDS));
+        // Wait for the sentinel; it is the last notification sent, so everything before it was handled already.
+        assertTrue(sentinelLatch.await(20, TimeUnit.SECONDS));
         assertEquals(
                 1,
                 counters.get(0),
-                "Block handler should only receive verification sentinel, not application state events");
+                "Block handler should only receive persisted sentinel, not application state events");
         service.stop();
     }
 

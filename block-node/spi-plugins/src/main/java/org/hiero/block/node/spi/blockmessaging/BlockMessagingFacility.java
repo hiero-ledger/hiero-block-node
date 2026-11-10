@@ -60,7 +60,9 @@ public interface BlockMessagingFacility extends BlockNodePlugin {
     void unregisterBlockItemHandler(final BlockItemHandler handler);
 
     /**
-     * Use this method to send block verification notifications to all registered handlers.
+     * Use this method to send block verification notifications to all handlers registered with
+     * {@link #registerVerifiedBlockHandler}. If those handlers are too slow, it will apply back pressure to this
+     * caller, by this call taking a long time to return. Several threads may call this method at the same time.
      *
      * @param notification the block verification notification to send
      */
@@ -144,6 +146,29 @@ public interface BlockMessagingFacility extends BlockNodePlugin {
      * @param handler the unvalidated block handler to unregister
      */
     void unregisterUnvalidatedBlockHandler(BlockNotificationHandler handler);
+
+    /**
+     * Use this method to register a verified block handler. Verified blocks are the results of block verification, sent
+     * with {@link #sendBlockVerification}; a successful result carries the whole block. The
+     * {@link BlockNotificationHandler#handleVerification} method of the handler will be called for every one of them,
+     * on its own thread. It can consume verified blocks at its own pace, if it is too slow then it will apply back
+     * pressure to the senders of verified blocks, never to the senders of block notifications.
+     *
+     * @param handler             the verified block handler to register
+     * @param cpuIntensiveHandler hint to the service that this handler is CPU intensive vs IO intensive
+     * @param handlerName         the name of the handler, used for thread name and logging
+     */
+    void registerVerifiedBlockHandler(
+            BlockNotificationHandler handler, boolean cpuIntensiveHandler, String handlerName);
+
+    /**
+     * Use this method to dynamically unregister a verified block handler. The handler will no longer be called when
+     * new verified blocks arrive. You only need to unregister handlers if they need to be unregistered before the
+     * service is shutdown. Shutting down the service will unregister all handlers.
+     *
+     * @param handler the verified block handler to unregister
+     */
+    void unregisterVerifiedBlockHandler(BlockNotificationHandler handler);
 
     /**
      * Use this method to send a TSS data update notification to all registered application notification handlers.

@@ -197,6 +197,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
         // Register the service
         context.blockMessaging().registerBlockNotificationHandler(this, false, "BackfillPlugin");
+        context.blockMessaging().registerVerifiedBlockHandler(this, false, "BackfillPlugin");
         context.blockMessaging().registerApplicationStateNotificationHandler(this, false, name());
     }
 
@@ -295,6 +296,9 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             BackfillPersistenceAwaiter persistenceAwaiter = new BackfillPersistenceAwaiter();
             context.blockMessaging()
                     .registerBlockNotificationHandler(
+                            persistenceAwaiter, false, "BackfillPersistenceAwaiter-" + schedulerName);
+            context.blockMessaging()
+                    .registerVerifiedBlockHandler(
                             persistenceAwaiter, false, "BackfillPersistenceAwaiter-" + schedulerName);
             BackfillRunner runner = new BackfillRunner(
                     fetcher,

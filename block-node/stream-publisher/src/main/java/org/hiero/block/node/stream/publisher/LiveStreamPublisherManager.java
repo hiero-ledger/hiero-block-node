@@ -125,6 +125,10 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private int consecutiveFlowControlRefreshFailures;
     /// Held by the one caller that is currently replacing a finished queue forwarder task.
     private final AtomicBoolean forwarderRestarting = new AtomicBoolean(false);
+    /// Held for the whole of [#handlePersisted] and for the handling of a failed publisher verification in
+    /// [#handleVerification]. They are called on two different messaging threads, and this keeps them from running
+    /// at the same time. Any other verification notification needs no lock, it does not touch the manager state.
+    private final ReentrantLock notificationLock = new ReentrantLock();
     /// Set once on shutdown so recovery checks never start tasks on a stopped manager.
     private volatile boolean stopped;
     /// Reference to application state facility, used to update the next
@@ -468,17 +472,25 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// the response to the supplying handler, are captured by @todo(3436).
     @Override
     public void handleVerification(@NonNull final VerificationNotification notification) {
-        final long blockNumber = notification.blockNumber();
         // Critical note: Only handle _failed_ verifications.
         // If we ever handle successful verifications, we must add conditions
         // to handle if the block is the first block received after a
         // restart.
-        final boolean shouldHandle = !notification.success()
-                && notification.source() == BlockSource.PUBLISHER
-                && blockNumber > lastPersistedBlockNumber.get()
-                && blockNumber < nextUnstreamedBlockNumber.get();
-        if (shouldHandle) {
-            resolveFailureAction(blockNumber, notification.failureInfo()).handle(this);
+        // Only a failed publisher verification touches the manager state, and the notification fields
+        // decide that on their own, so every other notification returns without waiting for the lock.
+        if (!notification.success() && notification.source() == BlockSource.PUBLISHER) {
+            notificationLock.lock();
+            try {
+                final long blockNumber = notification.blockNumber();
+                final boolean shouldHandle =
+                        blockNumber > lastPersistedBlockNumber.get() && blockNumber < nextUnstreamedBlockNumber.get();
+                if (shouldHandle) {
+                    resolveFailureAction(blockNumber, notification.failureInfo())
+                            .handle(this);
+                }
+            } finally {
+                notificationLock.unlock();
+            }
         }
     }
 
@@ -576,74 +588,79 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// significantly exceed the time to send a single acknowledgement.
     @Override
     public void handlePersisted(@NonNull final PersistedNotification notification) {
-        if (notification != null) {
-            final long blockNumber = notification.blockNumber();
-            if (notification.succeeded()) {
-                // @todo(#1841) reconsider this conditional in light of other changes.
-                // Persistence success (as from backfill) can also detect stalled handlers...
-                checkForStalledHandlers(blockNumber);
-                // Record the block as stored _before_ clearing any scheduled resend, so a
-                // concurrent scheduleResend either sees it stored or is cleaned up below.
-                // Blocks at or below the acknowledged number (such as historic backfill) are
-                // not tracked, they cannot be scheduled for resend in the first place.
-                if (blockNumber > lastPersistedBlockNumber.get()) {
-                    persistedAheadOfAck.add(blockNumber);
-                }
-                // A block that is persisted no longer needs to be resent, whichever copy of it
-                // was persisted (another publisher, or backfill). Left in place, the entry would
-                // clamp every acknowledgement below it and keep asking publishers to resend a
-                // block they may no longer hold. Only the exact block is removed; persisting a
-                // block says nothing about the blocks before it.
-                blocksToResend.remove(blockNumber);
-                if (blockNumber > lastPersistedBlockNumber.get()) {
-                    // Drop stale resend entries that no publisher could realistically still
-                    // supply. Without this, an entry left behind by a TOCTOU race between
-                    // blockIsEnding and a concurrent BACKFILL handlePersisted would clamp
-                    // every future ack via correctForResendAndStreaming and force every
-                    // fresh publisher to receive RESEND for an already-persisted block —
-                    // killing the connection with TOO_FAR_BEHIND. The buffer keeps recent
-                    // (still-fillable) entries intact.
-                    pruneStaleResendEntries(blockNumber);
-                    // Ensure we don't acknowledge past known gaps
-                    final long blockToAcknowledge = correctForResendAndStreaming(blockNumber);
-                    clearObsoleteQueueItems(blockToAcknowledge);
-                    // Don't update values or notify publishers if the block to be
-                    // acknowledged isn't greater than previous acknowledgement(s).
-                    if (blockToAcknowledge >= 0 && blockToAcknowledge > lastPersistedBlockNumber.get()) {
-                        // Update internal manager state before sending acknowledgement
-                        // The hash belongs to the notified block, which is not necessarily the block
-                        // acknowledged when a known gap clamps the acknowledgement.
-                        final Bytes rootHash =
-                                blockToAcknowledge == blockNumber ? notification.blockRootHash() : Bytes.EMPTY;
-                        latestAckedBlock.set(new AckedBlock(blockToAcknowledge, rootHash));
-                        lastPersistedBlockNumber.set(blockToAcknowledge);
-                        handlers.values().parallelStream().unordered().forEach(handler -> {
-                            // _Important_, we only need the last persisted block number
-                            // all previous blocks are implicitly acknowledged.
-                            handler.sendAcknowledgement(blockToAcknowledge, rootHash);
-                        });
-                        metrics.latestBlockNumberAcknowledged.set(blockToAcknowledge);
+        notificationLock.lock();
+        try {
+            if (notification != null) {
+                final long blockNumber = notification.blockNumber();
+                if (notification.succeeded()) {
+                    // @todo(#1841) reconsider this conditional in light of other changes.
+                    // Persistence success (as from backfill) can also detect stalled handlers...
+                    checkForStalledHandlers(blockNumber);
+                    // Record the block as stored _before_ clearing any scheduled resend, so a
+                    // concurrent scheduleResend either sees it stored or is cleaned up below.
+                    // Blocks at or below the acknowledged number (such as historic backfill) are
+                    // not tracked, they cannot be scheduled for resend in the first place.
+                    if (blockNumber > lastPersistedBlockNumber.get()) {
+                        persistedAheadOfAck.add(blockNumber);
                     }
-                    // Forget blocks the ack tracker has passed, and any that fell too far behind.
-                    final long forgetThrough =
-                            Math.max(lastPersistedBlockNumber.get(), blockNumber - staleResendPruneBuffer);
-                    if (forgetThrough >= 0) {
-                        persistedAheadOfAck.remove(0, forgetThrough);
+                    // A block that is persisted no longer needs to be resent, whichever copy of it
+                    // was persisted (another publisher, or backfill). Left in place, the entry would
+                    // clamp every acknowledgement below it and keep asking publishers to resend a
+                    // block they may no longer hold. Only the exact block is removed; persisting a
+                    // block says nothing about the blocks before it.
+                    blocksToResend.remove(blockNumber);
+                    if (blockNumber > lastPersistedBlockNumber.get()) {
+                        // Drop stale resend entries that no publisher could realistically still
+                        // supply. Without this, an entry left behind by a TOCTOU race between
+                        // blockIsEnding and a concurrent BACKFILL handlePersisted would clamp
+                        // every future ack via correctForResendAndStreaming and force every
+                        // fresh publisher to receive RESEND for an already-persisted block,
+                        // killing the connection with TOO_FAR_BEHIND. The buffer keeps recent
+                        // (still-fillable) entries intact.
+                        pruneStaleResendEntries(blockNumber);
+                        // Ensure we don't acknowledge past known gaps
+                        final long blockToAcknowledge = correctForResendAndStreaming(blockNumber);
+                        clearObsoleteQueueItems(blockToAcknowledge);
+                        // Don't update values or notify publishers if the block to be
+                        // acknowledged isn't greater than previous acknowledgement(s).
+                        if (blockToAcknowledge >= 0 && blockToAcknowledge > lastPersistedBlockNumber.get()) {
+                            // Update internal manager state before sending acknowledgement
+                            // The hash belongs to the notified block, which is not necessarily the block
+                            // acknowledged when a known gap clamps the acknowledgement.
+                            final Bytes rootHash =
+                                    blockToAcknowledge == blockNumber ? notification.blockRootHash() : Bytes.EMPTY;
+                            latestAckedBlock.set(new AckedBlock(blockToAcknowledge, rootHash));
+                            lastPersistedBlockNumber.set(blockToAcknowledge);
+                            handlers.values().parallelStream().unordered().forEach(handler -> {
+                                // _Important_, we only need the last persisted block number
+                                // all previous blocks are implicitly acknowledged.
+                                handler.sendAcknowledgement(blockToAcknowledge, rootHash);
+                            });
+                            metrics.latestBlockNumberAcknowledged.set(blockToAcknowledge);
+                        }
+                        // Forget blocks the ack tracker has passed, and any that fell too far behind.
+                        final long forgetThrough =
+                                Math.max(lastPersistedBlockNumber.get(), blockNumber - staleResendPruneBuffer);
+                        if (forgetThrough >= 0) {
+                            persistedAheadOfAck.remove(0, forgetThrough);
+                        }
+                        // This needs to advance regardless, because we must handle that
+                        // backfill might be _ahead_ of the current blocks...
+                        // @todo We still need to work out a better way to handle this.
+                        //    We might need to look for and add any gaps created by
+                        //    this method call to the blocks to resend set.
+                        ensureNextGreaterThanPersisted(blockNumber);
                     }
-                    // This needs to advance regardless, because we must handle that
-                    // backfill might be _ahead_ of the current blocks...
-                    // @todo We still need to work out a better way to handle this.
-                    //    We might need to look for and add any gaps created by
-                    //    this method call to the blocks to resend set.
-                    ensureNextGreaterThanPersisted(blockNumber);
-                }
-            } else {
-                if (notification.blockSource() == BlockSource.PUBLISHER) {
-                    endAllHandlersAndClearTracking(blockNumber, Code.PERSISTENCE_FAILED);
-                    // @todo(2240,2236) Mark the publisher plugin _unhealthy_
-                    //     when the Health Plugin supports that.
+                } else {
+                    if (notification.blockSource() == BlockSource.PUBLISHER) {
+                        endAllHandlersAndClearTracking(blockNumber, Code.PERSISTENCE_FAILED);
+                        // @todo(2240,2236) Mark the publisher plugin _unhealthy_
+                        //     when the Health Plugin supports that.
+                    }
                 }
             }
+        } finally {
+            notificationLock.unlock();
         }
     }
 

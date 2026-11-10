@@ -261,7 +261,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                         "StateManagement-background",
                         (t, e) -> LOGGER.log(System.Logger.Level.WARNING, "Uncaught exception in " + t.getName(), e));
         loadPersistedState();
-        context.blockMessaging().registerBlockNotificationHandler(this, true, name());
+        context.blockMessaging().registerVerifiedBlockHandler(this, true, name());
 
         // Single apply worker: runs one-shot historical catch-up, then blocks on `arrivals`
         // and drains `pendingBlocks` the instant a verified block shows up — no polling.
@@ -276,7 +276,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         stateIsCaughtUp.set(false);
         if (context != null) {
             try {
-                context.blockMessaging().unregisterBlockNotificationHandler(this);
+                context.blockMessaging().unregisterVerifiedBlockHandler(this);
             } catch (final RuntimeException ignored) {
                 // facility may already be torn down — non-fatal.
             }

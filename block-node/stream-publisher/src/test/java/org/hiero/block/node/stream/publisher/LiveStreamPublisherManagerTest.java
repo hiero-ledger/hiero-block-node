@@ -9,11 +9,13 @@ import static org.hiero.block.node.stream.publisher.PublishApiUtility.sendHeader
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
@@ -886,6 +888,109 @@ class LiveStreamPublisherManagerTest {
         @Nested
         @DisplayName("handleVerification() Tests")
         class HandleVerificationTests {
+            /// This test aims to assert that a failed publisher verification that arrives while a
+            /// persisted notification is still being handled waits until that handling is done. The
+            /// two notifications are delivered on different messaging threads and both can change the
+            /// manager state, so the manager itself must keep
+            /// [LiveStreamPublisherManager#handleVerification(VerificationNotification)] and
+            /// [LiveStreamPublisherManager#handlePersisted(PersistedNotification)] from running at the
+            /// same time. Here the persisted notification is held inside the acknowledgement it sends
+            /// to a publisher, and a failed publisher verification is handled on another thread
+            /// meanwhile: it must not finish before the acknowledgement is released.
+            @Test
+            @DisplayName("handleVerification() of a failed publisher block waits while handlePersisted() is running")
+            void testFailedPublisherVerificationWaitsForHandlePersisted() throws InterruptedException {
+                final HeldPersisted heldPersisted = holdPersistedInsideAcknowledgement();
+                // Call
+                final Thread verificationThread = Thread.ofVirtual()
+                        .start(() -> toTest.handleVerification(new VerificationNotification(
+                                false,
+                                FailureInfo.standard(FailureType.CANCELLED_INCOMPLETE),
+                                0L,
+                                Bytes.EMPTY,
+                                null,
+                                BlockSource.PUBLISHER)));
+                // Assert that the verification waits for the persisted notification to be handled
+                assertThat(verificationThread.join(Duration.ofMillis(200))).isFalse();
+                heldPersisted.release().countDown();
+                assertThat(heldPersisted.thread().join(Duration.ofSeconds(10))).isTrue();
+                assertThat(verificationThread.join(Duration.ofSeconds(10))).isTrue();
+            }
+
+            /// This test aims to assert that a verification notification that cannot change the
+            /// manager state, a successful one or a failed one from a source other than the
+            /// publishers, is handled at once even while a persisted notification is still being
+            /// handled. Such a notification must never wait for acknowledgements to be sent, or a slow
+            /// publisher would hold back the verified block ring. The persisted notification stays
+            /// held until the verification notification is done.
+            ///
+            /// @param successful `true` for a successful publisher verification, `false` for a
+            ///     failed backfill verification
+            @ParameterizedTest
+            @ValueSource(booleans = {true, false})
+            @DisplayName("handleVerification() does not wait for handlePersisted() unless it is a publisher failure")
+            void testOtherVerificationsDoNotWaitForHandlePersisted(final boolean successful)
+                    throws InterruptedException {
+                final VerificationNotification notification = successful
+                        ? new VerificationNotification(true, null, 1L, Bytes.EMPTY, null, BlockSource.PUBLISHER)
+                        : new VerificationNotification(
+                                false,
+                                FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                                1L,
+                                Bytes.EMPTY,
+                                null,
+                                BlockSource.BACKFILL);
+                final HeldPersisted heldPersisted = holdPersistedInsideAcknowledgement();
+                // Call
+                final Thread verificationThread =
+                        Thread.ofVirtual().start(() -> toTest.handleVerification(notification));
+                // Assert that the verification finishes while the persisted notification is still held
+                assertThat(verificationThread.join(Duration.ofSeconds(5))).isTrue();
+                assertThat(heldPersisted.thread().isAlive()).isTrue();
+                heldPersisted.release().countDown();
+                assertThat(heldPersisted.thread().join(Duration.ofSeconds(10))).isTrue();
+            }
+
+            /// Starts [LiveStreamPublisherManager#handlePersisted(PersistedNotification)] for block 0
+            /// on a thread of its own and holds it inside the acknowledgement it sends to an extra
+            /// publisher, until the returned latch is released.
+            ///
+            /// @return the thread handling the persisted notification and the latch that lets it
+            ///     finish
+            /// @throws InterruptedException if the test thread is interrupted while waiting for the
+            ///     hold
+            private HeldPersisted holdPersistedInsideAcknowledgement() throws InterruptedException {
+                final CountDownLatch acknowledging = new CountDownLatch(1);
+                final CountDownLatch release = new CountDownLatch(1);
+                final TestResponsePipeline<PublishStreamResponse> holdingPipeline = new TestResponsePipeline<>() {
+                    @Override
+                    public void onNext(final PublishStreamResponse response) {
+                        if (response.response().kind() == ResponseOneOfType.ACKNOWLEDGEMENT) {
+                            acknowledging.countDown();
+                            try {
+                                release.await(10, TimeUnit.SECONDS);
+                            } catch (final InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                            }
+                        }
+                        super.onNext(response);
+                    }
+                };
+                toTest.addHandler(holdingPipeline, sharedHandlerMetrics, null);
+                final Thread persistedThread = Thread.ofVirtual()
+                        .start(() ->
+                                toTest.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.PUBLISHER)));
+                assertThat(acknowledging.await(10, TimeUnit.SECONDS)).isTrue();
+                return new HeldPersisted(persistedThread, release);
+            }
+
+            /// A persisted notification held inside an acknowledgement.
+            ///
+            /// @param thread the thread handling the persisted notification
+            /// @param release counted down to let the held acknowledgement, and so the persisted
+            ///     notification, finish
+            private record HeldPersisted(Thread thread, CountDownLatch release) {}
+
             /// This test aims to assert that the
             /// [LiveStreamPublisherManager#handleVerification(VerificationNotification)]
             /// does nothing when the notification states that the block has passed verification.

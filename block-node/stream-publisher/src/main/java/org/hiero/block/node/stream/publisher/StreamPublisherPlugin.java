@@ -188,15 +188,20 @@ public final class StreamPublisherPlugin
                 currentContext,
                 managerMetrics,
                 currentContext.applicationStateFacility().storedBlocks());
-        // register the manager as a notification handler
+        // register the manager as a notification handler and as a verified block handler
         currentContext
                 .blockMessaging()
                 .registerBlockNotificationHandler(
+                        publisherManager, false, LiveStreamPublisherManager.class.getSimpleName());
+        currentContext
+                .blockMessaging()
+                .registerVerifiedBlockHandler(
                         publisherManager, false, LiveStreamPublisherManager.class.getSimpleName());
     }
 
     @Override
     public void stop() {
+        context.get().blockMessaging().unregisterVerifiedBlockHandler(publisherManager);
         context.get().blockMessaging().unregisterBlockNotificationHandler(publisherManager);
         publisherManager.shutdown();
     }

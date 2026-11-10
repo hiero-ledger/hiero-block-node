@@ -8,6 +8,7 @@ blockNode:
     JAVA_OPTS: '-Xms8G -Xmx8G -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath="/tmp/dump.hprof"'
     MESSAGING_BLOCK_ITEM_QUEUE_SIZE: "1024"
     MESSAGING_BLOCK_NOTIFICATION_QUEUE_SIZE: "64"
+    MESSAGING_VERIFIED_BLOCK_QUEUE_SIZE: "64"
     BACKFILL_FETCH_BATCH_SIZE: "20"
   persistence:
     archive:
