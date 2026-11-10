@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.cloud.storage.archive;
 
-import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.base.ParseHelper.standardParse;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
@@ -27,8 +26,6 @@ import org.hiero.block.node.base.CompressionType;
 /// part) to locate the last valid tar header — used by [StartupRecoveryTask] when trimming a
 /// partially-written part.
 final class TarEntries {
-
-    private static final System.Logger LOGGER = System.getLogger(TarEntries.class.getName());
 
     /// The extension appended to every block entry's filename inside the tar.
     private static final String EXTENSION = ".blk.zstd";
@@ -116,22 +113,28 @@ final class TarEntries {
     /// Returns the block's consensus time in whole seconds, used as the tar entry modification time so
     /// that an entry's bytes depend only on the block, never on when it was written.
     ///
+    /// Blocks reach the archive only after verification, so a block without a parsable, timestamped
+    /// header is corrupt and must not be archived.
+    ///
     /// @param block the block to read the consensus time from
-    /// @return the block header's timestamp seconds, or `0` if the first item is not a parsable block
-    ///     header with a timestamp
-    static long consensusTimeSeconds(@NonNull final BlockUnparsed block) {
+    /// @return the block header's timestamp seconds
+    /// @throws IOException if the first item is not a parsable block header with a timestamp
+    static long consensusTimeSeconds(@NonNull final BlockUnparsed block) throws IOException {
         if (block.blockItems().isEmpty() || !block.blockItems().getFirst().hasBlockHeader()) {
-            return 0L;
+            throw new IOException("Block does not start with a block header");
         }
+        final BlockHeader header;
         try {
-            final BlockHeader header = standardParse(
+            header = standardParse(
                     BlockHeader.PROTOBUF, block.blockItems().getFirst().blockHeader());
-            final Timestamp blockTimestamp = header.blockTimestamp();
-            return blockTimestamp == null ? 0L : blockTimestamp.seconds();
         } catch (final ParseException e) {
-            LOGGER.log(WARNING, "Unable to parse block header, tar entry modification time set to 0", e);
-            return 0L;
+            throw new IOException("Unable to parse block header", e);
         }
+        final Timestamp blockTimestamp = header.blockTimestamp();
+        if (blockTimestamp == null) {
+            throw new IOException("Block header has no timestamp");
+        }
+        return blockTimestamp.seconds();
     }
 
     /// Creates a tar header for the given file.

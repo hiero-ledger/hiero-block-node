@@ -5,6 +5,7 @@ import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.generate
 import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.sampleProofUnparsed;
 import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -77,17 +78,17 @@ class TarEntriesTest {
     }
 
     @Test
-    @DisplayName("Consensus time is 0 when the block does not start with a block header")
-    void testConsensusTimeWithoutHeaderIsZero() {
+    @DisplayName("Consensus time fails when the block does not start with a block header")
+    void testConsensusTimeWithoutHeaderThrows() {
         final BlockUnparsed blockWithoutHeader =
                 BlockUnparsed.newBuilder().blockItems(sampleProofUnparsed(7)).build();
 
-        assertEquals(0L, TarEntries.consensusTimeSeconds(blockWithoutHeader));
+        assertThrows(IOException.class, () -> TarEntries.consensusTimeSeconds(blockWithoutHeader));
     }
 
     @Test
-    @DisplayName("Consensus time is 0 when the block header has no timestamp")
-    void testConsensusTimeWithoutTimestampIsZero() {
+    @DisplayName("Consensus time fails when the block header has no timestamp")
+    void testConsensusTimeWithoutTimestampThrows() {
         final Bytes headerWithoutTimestamp =
                 BlockHeader.PROTOBUF.toBytes(BlockHeader.newBuilder().number(7).build());
         final BlockUnparsed block = BlockUnparsed.newBuilder()
@@ -96,12 +97,12 @@ class TarEntriesTest {
                         .build())
                 .build();
 
-        assertEquals(0L, TarEntries.consensusTimeSeconds(block));
+        assertThrows(IOException.class, () -> TarEntries.consensusTimeSeconds(block));
     }
 
     @Test
-    @DisplayName("Consensus time is 0 when the block header cannot be parsed")
-    void testConsensusTimeWithUnparsableHeaderIsZero() {
+    @DisplayName("Consensus time fails when the block header cannot be parsed")
+    void testConsensusTimeWithUnparsableHeaderThrows() {
         // Field 1 with the invalid wire type 7.
         final Bytes unparsableHeader = Bytes.wrap(new byte[] {(byte) 0x0F});
         final BlockUnparsed block = BlockUnparsed.newBuilder()
@@ -110,7 +111,7 @@ class TarEntriesTest {
                         .build())
                 .build();
 
-        assertEquals(0L, TarEntries.consensusTimeSeconds(block));
+        assertThrows(IOException.class, () -> TarEntries.consensusTimeSeconds(block));
     }
 
     private boolean checkBlockTarFileContents(Path tempDir, Path tarFile, List<TestBlock> blocks) throws Exception {
