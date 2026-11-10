@@ -162,6 +162,10 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// messaging thread that delivers them, which never reads history. `null` until `start()`.
     private ExecutorService catchUpExecutor;
 
+    /// The block the last stalled sweep stopped at, so a repeated stall is not logged as a new one.
+    /// Only the catch-up thread touches it.
+    private long lastReportedStall = -1L;
+
     /// `true` while a catch-up sweep is queued or running, so at most one runs at a time.
     private final AtomicBoolean catchUpRunning = new AtomicBoolean(false);
 
@@ -694,7 +698,14 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         } else if (reachedTip) {
             stateIsCaughtUp.set(!stopping.get());
         } else {
-            LOGGER.log(System.Logger.Level.WARNING, "Catch-up stopped short of the latest block; plugin not ready yet");
+            // Every live block ahead of a long hole requests a sweep that stops at the same place,
+            // so only a new stall position is worth a WARNING.
+            final long stalledAt = Math.max(lastAppliedBlock, attested.blockNumber()) + 1L;
+            LOGGER.log(
+                    stalledAt == lastReportedStall ? System.Logger.Level.DEBUG : System.Logger.Level.WARNING,
+                    "Catch-up stopped short at block {0}; plugin not ready yet",
+                    stalledAt);
+            lastReportedStall = stalledAt;
         }
     }
 
