@@ -3,6 +3,10 @@ package org.hiero.block.node.state.management;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hiero.block.node.state.management.StateManagementPluginTestSupport.listNames;
+import static org.hiero.block.node.state.management.StateManagementPluginTestSupport.numericDirs;
+import static org.hiero.block.node.state.management.StateManagementPluginTestSupport.stagingDirs;
+import static org.hiero.block.node.state.management.StateManagementPluginTestSupport.writeFile;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.hedera.hapi.block.stream.input.RoundHeader;
@@ -55,9 +59,10 @@ import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-/// Periodic state snapshot creation in `StateManagementPlugin`: the write itself, retention,
-/// restore round trip, failure handling, the final snapshot on `stop()`, the scheduler, and
-/// concurrency with apply. Uses a real `VirtualMapStateLifecycleManager` on a temp dir.
+/// Periodic state snapshot creation in `StateManagementPlugin`: the restore round trip, when a
+/// snapshot is skipped, the reaction to write outcomes, the final snapshot on `stop()`, the
+/// scheduler, and concurrency with apply. Uses a real `VirtualMapStateLifecycleManager` on a
+/// temp dir. On-disk details (staging, retention, prune scope) are in `StateSnapshotManagerTest`.
 ///
 /// Every block chains to the previous one through its footer and sets the `BlockStreamInfo`
 /// singleton to its own number (restore's self-check reads it), plus one extra singleton and
@@ -100,8 +105,13 @@ class StateManagementSnapshotTest {
             assertThat(node.plugin.snapshotFailureTotal()).isZero();
         }
 
+        // Left over from a crash mid-write: start-up removes it.
+        writeFile(root.resolve(".tmp-2").resolve("junk"));
         try (Node restored = Node.start(root)) {
             final StateManagementPlugin plugin = restored.plugin;
+            assertThat(stagingDirs(root))
+                    .as("stale staging dir removed on start")
+                    .isEmpty();
             assertThat(plugin.isApplyHalted()).isFalse();
             assertThat(plugin.attested().blockNumber()).isEqualTo(1L);
             assertThat(plugin.lastSnapshottedBlock()).isEqualTo(1L);
@@ -163,89 +173,26 @@ class StateManagementSnapshotTest {
             assertThat(restored.plugin.saveSnapshot())
                     .as("a restored snapshot is never rewritten")
                     .isFalse();
+
+            restored.applyRange(2L, 3L);
+            final Path marker = writeFile(root.resolve("2").resolve("marker"));
+            assertThat(restored.plugin.saveSnapshot())
+                    .as("an existing <N> dir is treated as complete")
+                    .isFalse();
+            assertThat(restored.plugin.lastSnapshottedBlock())
+                    .as("an already-present snapshot still advances the marker")
+                    .isEqualTo(2L);
+            assertThat(listNames(root.resolve("2")))
+                    .containsExactly(marker.getFileName().toString());
+            assertThat(restored.plugin.snapshotFailureTotal()).isZero();
         }
         assertThat(fingerprint(root.resolve("1")))
                 .as("the restored dir is untouched by restore, saveSnapshot and stop")
                 .isEqualTo(before);
-        assertThat(numericDirs(root)).containsExactly(1L);
-    }
-
-    @Test
-    void retentionKeepsNewestSnapshotsAndOnlyDeletesSnapshotEntries(@TempDir final Path tmp) throws Exception {
-        final Path root = tmp.resolve("recent");
-        // Left over from a crash before start: removed by the start-up cleanup.
-        writeFile(root.resolve(".tmp-2").resolve("junk"));
-        // Not snapshot entries: must survive every prune.
-        writeFile(root.resolve("notes").resolve("readme.txt"));
-        writeFile(root.resolve(".tmp-keep").resolve("file"));
-
-        try (Node node = Node.start(root, "state.management.snapshotRecentRetentionCount", "3")) {
-            assertThat(root.resolve(".tmp-2"))
-                    .as("stale staging dir removed on start")
-                    .doesNotExist();
-
-            node.applyRange(0L, 1L);
-            for (long attestedBlock = 1L; attestedBlock <= 5L; attestedBlock++) {
-                node.applyRange(attestedBlock + 1L, attestedBlock + 1L);
-                if (attestedBlock == 4L) {
-                    // Appears mid-run: removed by the prune that follows the next write.
-                    writeFile(root.resolve(".tmp-77").resolve("junk"));
-                }
-                assertThat(node.plugin.saveSnapshot())
-                        .as("snapshot of block %d", attestedBlock)
-                        .isTrue();
-            }
-
-            assertThat(numericDirs(root)).containsExactly(3L, 4L, 5L);
-            assertThat(stagingDirs(root)).isEmpty();
-            assertThat(root.resolve("notes").resolve("readme.txt")).exists();
-            assertThat(root.resolve(".tmp-keep").resolve("file"))
-                    .as("only .tmp-<digits> counts as staging")
-                    .exists();
-            assertThat(root.resolve("tmp"))
-                    .as("the live MerkleDb dir is never pruned")
-                    .isDirectory();
-
-            // The live state still works after all that pruning.
-            node.applyRange(7L, 7L);
-            assertThat(node.plugin.attested().blockNumber()).isEqualTo(6L);
-            assertThat(node.plugin.snapshotFailureTotal()).isZero();
-        }
-    }
-
-    @Test
-    void existingTargetDirIsKeptAndStaleStagingDirIsReplaced(@TempDir final Path tmp) throws Exception {
-        final Path root = tmp.resolve("recent");
-        try (Node node = Node.start(root)) {
-            node.applyRange(0L, 2L);
-            // Created after start so restore does not try to load it.
-            final Path marker = writeFile(root.resolve("1").resolve("marker"));
-
-            assertThat(node.plugin.saveSnapshot())
-                    .as("an existing <N> dir is treated as complete")
-                    .isFalse();
-            assertThat(node.plugin.lastSnapshottedBlock()).isEqualTo(1L);
-            assertThat(listNames(root.resolve("1")))
-                    .as("the existing dir is not overwritten")
-                    .containsExactly(marker.getFileName().toString());
-
-            node.applyRange(3L, 3L);
-            writeFile(root.resolve(".tmp-2").resolve("junk"));
-            assertThat(node.plugin.saveSnapshot()).isTrue();
-            assertThat(root.resolve("2").resolve("junk"))
-                    .as("the stale staging content was cleared before the write")
-                    .doesNotExist();
-            assertThat(stagingDirs(root)).isEmpty();
-            assertThat(numericDirs(root)).containsExactly(1L, 2L);
-            assertThat(node.plugin.snapshotFailureTotal()).isZero();
-        }
-
-        try (Node restored = Node.start(root)) {
-            assertThat(restored.plugin.isApplyHalted()).isFalse();
-            assertThat(restored.plugin.attested().blockNumber())
-                    .as("the snapshot written over a stale staging dir is loadable")
-                    .isEqualTo(2L);
-        }
+        assertThat(numericDirs(root)).containsExactly(1L, 2L);
+        assertThat(listNames(root.resolve("2")))
+                .as("stop() does not rewrite the already-present snapshot")
+                .containsExactly("marker");
     }
 
     @Test
@@ -656,32 +603,6 @@ class StateManagementSnapshotTest {
         return builder.build().getConfigData(StateManagementConfig.class);
     }
 
-    /// Numerically named (snapshot) dirs directly under `root`, ascending.
-    private static List<Long> numericDirs(final Path root) throws IOException {
-        return listNames(root).stream()
-                .filter(name -> !name.isEmpty() && name.chars().allMatch(Character::isDigit))
-                .filter(name -> Files.isDirectory(root.resolve(name)))
-                .map(Long::parseLong)
-                .sorted()
-                .toList();
-    }
-
-    /// `.tmp-<digits>` staging dirs directly under `root`.
-    private static List<String> stagingDirs(final Path root) throws IOException {
-        return listNames(root).stream()
-                .filter(name -> name.matches("\\.tmp-\\d+"))
-                .toList();
-    }
-
-    private static List<String> listNames(final Path dir) throws IOException {
-        if (!Files.isDirectory(dir)) {
-            return List.of();
-        }
-        try (Stream<Path> entries = Files.list(dir)) {
-            return entries.map(p -> p.getFileName().toString()).sorted().toList();
-        }
-    }
-
     /// Relative path -> size and modification time of every file under `dir`, to show a
     /// directory was not rewritten.
     private static Map<String, String> fingerprint(final Path dir) throws IOException {
@@ -692,11 +613,6 @@ class StateManagementSnapshotTest {
             }
         }
         return result;
-    }
-
-    private static Path writeFile(final Path file) throws IOException {
-        Files.createDirectories(file.getParent());
-        return Files.writeString(file, "x");
     }
 
     private static boolean awaitCondition(final BooleanSupplier condition, final long timeoutMillis)
