@@ -267,9 +267,9 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         unvalidatedBlockDisruptor = new Disruptor<>(
                 UnvalidatedBlockRingEvent::new,
                 messagingConfig.unvalidatedBlockQueueSize(),
-                VIRTUAL_THREAD_FACTORY,
+                PLATFORM_THREAD_FACTORY,
                 ProducerType.MULTI,
-                new SleepingWaitStrategy());
+                createWaitStrategy(messagingConfig));
 
         // Initialize metrics
         initMetrics(context);
@@ -799,7 +799,6 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         if (unvalidatedBlockDisruptor.hasStarted()) {
             registerHandler(
                     handler,
-                    cpuIntensiveHandler,
                     unvalidatedBlockHandlerName,
                     unvalidatedBlockDisruptor.getRingBuffer(),
                     informedEventHandler,
@@ -807,15 +806,14 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                     unvalidatedBlockHandlerToThread);
         } else {
             preRegisteredUnvalidatedBlockHandlers.add(new PreRegisteredUnvalidatedBlockHandler(
-                    handler, informedEventHandler, cpuIntensiveHandler, unvalidatedBlockHandlerName));
+                    handler, informedEventHandler, unvalidatedBlockHandlerName));
         }
 
         // log the registration of the handler
         LOGGER.log(
                 DEBUG,
-                "Registering unvalidated block handler: {0}, cpuIntensive: {1}, handlerName: {2}",
+                "Registering unvalidated block handler: {0}, handlerName: {1}",
                 handler.getClass().getSimpleName(),
-                cpuIntensiveHandler,
                 handlerName);
     }
 
@@ -880,7 +878,6 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         for (var preRegisteredHandler : preRegisteredUnvalidatedBlockHandlers) {
             registerHandler(
                     preRegisteredHandler.handler(),
-                    preRegisteredHandler.cpuIntensiveHandler(),
                     preRegisteredHandler.handlerName(),
                     unvalidatedBlockDisruptor.getRingBuffer(),
                     preRegisteredHandler.informedHandler(),
@@ -1207,12 +1204,10 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      *
      * @param handler the unvalidated block handler
      * @param informedHandler the informed event handler
-     * @param cpuIntensiveHandler hint to the service that this handler is CPU intensive vs IO intensive
      * @param handlerName the name of the handler, used for thread name and logging
      */
     private record PreRegisteredUnvalidatedBlockHandler(
             BlockNotificationHandler handler,
             InformedEventHandler<UnvalidatedBlockRingEvent> informedHandler,
-            boolean cpuIntensiveHandler,
             String handlerName) {}
 }

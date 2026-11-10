@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.hiero.block.node.messaging.MessagingConfig;
+import org.hiero.block.node.messaging.MessagingWaitStrategy;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -34,6 +35,8 @@ class MessagingConfigTest {
     @ValueSource(ints = {0, -32, 6, 33})
     @DisplayName("The unvalidated block queue size must be a positive power of two")
     void unvalidatedBlockQueueSizeMustBeAPositivePowerOfTwo(final int queueSize) {
-        assertThrows(IllegalArgumentException.class, () -> new MessagingConfig(512, 32, queueSize));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new MessagingConfig(512, 32, queueSize, MessagingWaitStrategy.BLOCKING, 1_000L));
     }
 }

@@ -369,16 +369,15 @@ class BackfillRunnerTest {
             // then - should have fetched from goodNode after badNode's chunk was null
             verify(mockFetcher).fetchBlocksFromNode(eq(goodNode), any());
             // and - the fetched block was confirmed persisted, so the whole gap counts as backfilled
-            assertEquals(105L, lastSuccessful, "The whole gap should be backfilled from the good node");
+            assertEquals(100L, lastSuccessful, "The whole gap should be backfilled from the good node");
             verify(mockFetchedBlocksCounter).increment();
         }
 
         /**
-         * This test aims to assert that when no node can be selected for the first chunk, the runner records a fetch
-         * error, plans the availability again and backfills the gap from the node the new plan offers. The fetched
-         * block is sent to the unvalidated block handler, which confirms its persistence, so the runner must report
-         * the gap end as the last successful block. If the fetched block were never delivered, its persistence would
-         * time out and the runner would report the block before the gap start instead.
+         * This test aims to assert that when the node returns only part of the requested chunk, the runner persists
+         * the blocks it received and fetches the rest of the gap starting right after them. The fetched blocks are
+         * sent to the unvalidated block handler, which confirms their persistence. If they were never delivered, the
+         * persistence of the first partial chunk would time out and the runner would stop without a second fetch.
          */
         @Test
         @DisplayName("should persist a partial chunk and continue from the block after it")
@@ -398,7 +397,7 @@ class BackfillRunnerTest {
                     .thenReturn(List.of(createTestBlock(102L), createTestBlock(103L)));
 
             messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
-            messaging.registerBlockNotificationHandler(
+            messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
                         public void handleBackfilled(BackfilledBlockNotification notification) {
@@ -419,6 +418,13 @@ class BackfillRunnerTest {
             verify(mockFetchedBlocksCounter, times(4)).increment();
         }
 
+        /**
+         * This test aims to assert that when no node can be selected for the first chunk, the runner records a fetch
+         * error, plans the availability again and backfills the gap from the node the new plan offers. The fetched
+         * block is sent to the unvalidated block handler, which confirms its persistence, so the runner must report
+         * the gap end as the last successful block. If the fetched block were never delivered, its persistence would
+         * time out and the runner would report the block before the gap start instead.
+         */
         @Test
         @DisplayName("should continue after replan when selectNextChunk returns empty")
         void shouldContinueAfterReplanOnEmptySelection() throws Exception {

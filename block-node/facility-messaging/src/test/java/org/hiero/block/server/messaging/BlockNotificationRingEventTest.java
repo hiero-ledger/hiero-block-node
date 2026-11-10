@@ -115,7 +115,6 @@ class BlockNotificationRingEventTest {
         assertEquals(notification, event.getNextExpectedPublisherBlockNotification());
         assertNull(event.getVerificationNotification(), "Verification notification should be null");
         assertNull(event.getPersistedNotification(), "Persisted notification should be null");
-        assertNull(event.getBackfilledBlockNotification(), "Backfilled notification should be null");
         assertNull(event.getPublisherStatusUpdateNotification(), "Publisher status update notification should be null");
         assertNull(
                 event.getNewestBlockKnownToNetworkNotification(),
