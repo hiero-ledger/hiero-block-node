@@ -314,6 +314,40 @@ Block-Node has on hand without waiting for verification notifications.
    after a halt (§8), so `NOT_READY` itself is unaffected by `applyHalted` once anything has been
    attested.
 
+### 6.4.1 When gaps happen and how they resolve
+
+A gap is a block that is verified or persisted but is not the next one to apply. The plugin never
+applies out of order, never skips a block and never holds one, so every gap is closed by applying
+the missing blocks in order from history.
+
+**What this relies on.** The Block Node persists blocks in order from each tip: the block-height
+tip (live blocks) and the gap tip (backfill filling the lowest hole upward). Persisted ranges
+therefore only grow at their upper end, with no hole below a newly persisted block inside the
+same range. So the next expected block becomes available in history in increasing order, and a
+sweep that reads contiguously from it and stops at the first absent block loses nothing. Blocks
+dropped from a notification are still persisted, so a drop is never a loss.
+
+|                          Situation                           |                                                                                                                                               What the plugin does                                                                                                                                                |
+|--------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Restored from a snapshot at block S, network at T            | The first live block is ahead of S+1: dropped, and a catch-up replays S+1 onward from history. Ready once it reaches history's latest block. This is the expected adoption path.                                                                                                                                  |
+| Node was down; history has a hole (`[..a]` and `[b..]`)      | Catch-up applies up to `a` and stops at `a+1`: not ready, not halted, one WARNING per stall position. Backfill persists `a+1` upward; each backfilled block is notified, applies inline and requests a catch-up for whatever is persisted above it. When the hole closes, the range `[b..]` applies from history. |
+| Block N+1 is verified before block N                         | N+1 is dropped from the notification. Persistence stores it anyway. When N arrives it applies inline, finds N+1 on disk and a catch-up applies it.                                                                                                                                                                |
+| Block N fails verification, N+1 verifies                     | N+1 is dropped and catch-up stops at N. Nothing advances past N and nothing halts. The plugin recovers when N is verified and persisted by a resend or backfill.                                                                                                                                                  |
+| Duplicate or older block (resend, backfill of applied range) | Dropped as stale without reading history.                                                                                                                                                                                                                                                                         |
+| History read fails or lacks a block                          | The sweep stops short and the plugin stays not ready. The next block ahead of the gap, or the next hole-filling block, requests another catch-up.                                                                                                                                                                 |
+
+A catch-up is requested at three points: `start()`, a block ahead of the next expected one, and
+an inline apply after which history still holds blocks the plugin has not applied. The last one
+is what makes a single hole-filling block enough: it applies on the messaging thread like any
+next-in-line block, and the rest of the persisted range follows on the catch-up thread without
+waiting for another notification. The block's source (publisher, backfill or other) does not
+matter, only its number.
+
+Covered by `StateManagementCatchUpTest`: gap filled on the catch-up thread, unfillable gap
+retried by a later notification, hole filled by a block followed by catch-up of later history,
+block verified before its predecessor, a hole filled incrementally below an already persisted
+range, stale blocks dropped without reads, and a sweep that stops at a hole without reading past it.
+
 ### 6.5 Applying a block (inline, event-driven)
 
 A block is applied the moment its notification arrives (no timer, no queue). Every apply path
