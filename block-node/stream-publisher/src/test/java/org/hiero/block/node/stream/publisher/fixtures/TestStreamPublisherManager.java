@@ -28,6 +28,7 @@ import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
+import org.hiero.block.node.spi.blockmessaging.NextExpectedPublisherBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.stream.publisher.PublisherConfig;
@@ -153,6 +154,13 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
         final NewestBlockKnownToNetworkNotification notification =
                 new NewestBlockKnownToNetworkNotification(newestKnownBlockNumber);
         blockMessagingFacility.sendNewestBlockKnownToNetwork(notification);
+    }
+
+    @Override
+    public void notifyBehindPublisher(final long nextExpectedBlock, final long publisherOfferedBlock) {
+        final NextExpectedPublisherBlockNotification notification =
+                new NextExpectedPublisherBlockNotification(nextExpectedBlock, publisherOfferedBlock);
+        blockMessagingFacility.sendNextExpectedPublisherBlock(notification);
     }
 
     @Override

@@ -667,6 +667,11 @@ class TempArchiveUploadTaskTest {
         }
 
         @Override
+        public long nextExpectedPublisherBlock() {
+            return -1L;
+        }
+
+        @Override
         public void updateExpectedBlock(final long updatedExpectedBlock) {
             nextExpectedBlock = updatedExpectedBlock;
         }

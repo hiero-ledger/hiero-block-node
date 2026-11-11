@@ -36,6 +36,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.GatingHandler;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
+import org.hiero.block.node.spi.blockmessaging.NextExpectedPublisherBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification;
@@ -74,6 +75,10 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     /** Metric key for notifications issued after the newest block known to network */
     public static final MetricKey<LongCounter> METRIC_MESSAGING_NEWEST_BLOCK_KNOWN_TO_NETWORK_NOTIFICATIONS =
             MetricKey.of("messaging_newest_block_known_to_network_notifications", LongCounter.class)
+                    .addCategory(METRICS_CATEGORY);
+    /** Metric key for notifications issued after a publisher was told this node is behind it */
+    public static final MetricKey<LongCounter> METRIC_MESSAGING_NEXT_EXPECTED_PUBLISHER_BLOCK_NOTIFICATIONS =
+            MetricKey.of("messaging_next_expected_publisher_block_notifications", LongCounter.class)
                     .addCategory(METRICS_CATEGORY);
     /** Metric key for publisher status update notifications sent */
     public static final MetricKey<LongCounter> METRIC_MESSAGING_PUBLISHER_STATUS_UPDATE_NOTIFICATIONS = MetricKey.of(
@@ -126,6 +131,8 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     private LongCounter.Measurement blockBackfilledNotificationsCounter;
     /** Counter for notifications issued after the newest block known to network */
     private LongCounter.Measurement newestBlockKnownToNetworkNotificationsCounter;
+    /** Counter for notifications issued after a publisher was told this node is behind it */
+    private LongCounter.Measurement nextExpectedPublisherBlockNotificationsCounter;
     /** Counter for publisher status update notifications sent */
     private LongCounter.Measurement publisherStatusUpdateNotificationsCounter;
     /** Counter for TSS data update notifications sent */
@@ -281,6 +288,11 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         newestBlockKnownToNetworkNotificationsCounter = metricRegistry
                 .register(LongCounter.builder(METRIC_MESSAGING_NEWEST_BLOCK_KNOWN_TO_NETWORK_NOTIFICATIONS)
                         .setDescription("Notifications issued after the newest block known to network"))
+                .getOrCreateNotLabeled();
+
+        nextExpectedPublisherBlockNotificationsCounter = metricRegistry
+                .register(LongCounter.builder(METRIC_MESSAGING_NEXT_EXPECTED_PUBLISHER_BLOCK_NOTIFICATIONS)
+                        .setDescription("Notifications issued after a publisher was told this node is behind it"))
                 .getOrCreateNotLabeled();
 
         publisherStatusUpdateNotificationsCounter = metricRegistry
@@ -536,6 +548,15 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     }
 
     @Override
+    public void sendNextExpectedPublisherBlock(final NextExpectedPublisherBlockNotification notification) {
+        forward(() -> {
+            LOGGER.log(DEBUG, "Sending next expected publisher block notification: {0}", notification);
+            blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
+            nextExpectedPublisherBlockNotificationsCounter.increment();
+        });
+    }
+
+    @Override
     public void sendPublisherStatusUpdate(final PublisherStatusUpdateNotification notification) {
         forward(() -> {
             LOGGER.log(DEBUG, "Sending publisher status update notification: {0}", notification);
@@ -664,6 +685,8 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                         handler.handleBackfilled(event.getBackfilledBlockNotification());
                     } else if (event.getNewestBlockKnownToNetworkNotification() != null) {
                         handler.handleNewestBlockKnownToNetwork(event.getNewestBlockKnownToNetworkNotification());
+                    } else if (event.getNextExpectedPublisherBlockNotification() != null) {
+                        handler.handleNextExpectedPublisherBlock(event.getNextExpectedPublisherBlockNotification());
                     } else if (event.getPublisherStatusUpdateNotification() != null) {
                         handler.handlePublisherStatusUpdate(event.getPublisherStatusUpdateNotification());
                     } else if (event.getTssDataNotification() == null
