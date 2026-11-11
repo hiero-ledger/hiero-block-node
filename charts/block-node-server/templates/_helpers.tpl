@@ -118,8 +118,8 @@ empty or partial set.
 {{- $names := default "" .Values.plugins.names -}}
 {{- $profile := default "" .Values.plugins.profile -}}
 {{- if $profile -}}
-{{- $profileNames := include "hiero-block-node.pluginProfileNames" (dict "root" . "profile" $profile) -}}
-{{- if not $profileNames -}}
+{{- $profilePluginNames := include "hiero-block-node.pluginProfileNames" (dict "root" . "profile" $profile) -}}
+{{- if not $profilePluginNames -}}
 {{- $available := list -}}
 {{- range $path, $_ := .Files.Glob "values-overrides/plugin-profile-*.yaml" -}}
 {{- $available = append $available (base $path | trimPrefix "plugin-profile-" | trimSuffix ".yaml") -}}
@@ -129,7 +129,7 @@ empty or partial set.
 {{- $chartDefault := include "hiero-block-node.pluginProfileNames" (dict "root" . "profile" "lfh") -}}
 {{- if eq $names $chartDefault -}}
 {{- /* plugins.names is at the chart default -> the profile selection wins (rule 2) */ -}}
-{{- $profileNames -}}
+{{- $profilePluginNames -}}
 {{- else -}}
 {{- /* plugins.names was set explicitly (incl. an explicit "") -> it wins (rule 1) */ -}}
 {{- $names -}}

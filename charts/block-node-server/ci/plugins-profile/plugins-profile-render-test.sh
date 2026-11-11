@@ -22,11 +22,15 @@ pass=0
 fail() { echo "FAIL: $*"; exit 1; }
 ok() { echo "OK: $*"; pass=$((pass + 1)); }
 
-# Expected plugin lists, kept here only to assert the chart resolves them correctly.
-LFH="backfill,block-access-service,block-verification,blocks-file-historic,blocks-file-recent,facility-app-state,facility-messaging,health,roster-bootstrap-rsa,roster-bootstrap-tss,server-status,stream-publisher,stream-subscriber"
-RFH="backfill,block-verification,cloud-storage-archive,cloud-storage-expanded,facility-app-state,facility-messaging,health,roster-bootstrap-rsa,roster-bootstrap-tss,server-status"
-ALL="backfill,block-access-service,block-verification,blocks-file-historic,blocks-file-recent,cloud-storage-archive,cloud-storage-expanded,facility-app-state,facility-messaging,health,roster-bootstrap-rsa,roster-bootstrap-tss,server-status,stream-publisher,stream-subscriber"
-MINIMAL="facility-app-state,facility-messaging,block-access-service,health,server-status"
+# Expected plugin lists, read straight from the profile files (the single source of truth) so
+# this test never hardcodes a second copy. The assertions below compare these file-parsed lists
+# against what the chart resolves through Helm -- two independent parse paths, so a helper bug is
+# still caught while the lists cannot drift from values-overrides/plugin-profile-*.yaml.
+profile_names() { sed -n 's/^[[:space:]]*names:[[:space:]]*"\(.*\)"$/\1/p' "${OVERRIDES}/plugin-profile-$1.yaml" | head -n1; }
+LFH=$(profile_names lfh)
+RFH=$(profile_names rfh)
+ALL=$(profile_names all)
+MINIMAL=$(profile_names minimal)
 
 # Resolve the effective plugin-name list the chart renders for the given --set/-f args, by
 # reading the DESIRED_HASH line of the resolve-plugins init container (maven source), which
