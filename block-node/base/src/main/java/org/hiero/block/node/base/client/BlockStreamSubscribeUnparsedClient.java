@@ -15,11 +15,12 @@ import com.hedera.pbj.runtime.grpc.Pipeline;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Flow;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse;
@@ -127,7 +128,9 @@ public class BlockStreamSubscribeUnparsedClient {
 
     /**
      * Per-request state holder. All fields are confined to a single request.
-     * The {@link CountDownLatch} establishes happens-before from callback threads to the waiter.
+     * The {@link CountDownLatch} establishes happens-before from callback threads to the waiter when a
+     * callback ends the request; the {@link ConcurrentLinkedQueue} does so for each block when the waiter
+     * ends it.
      */
     private static final class RequestContext {
         private static final Object COMPLETED = new Object();
@@ -135,49 +138,29 @@ public class BlockStreamSubscribeUnparsedClient {
         final CountDownLatch done = new CountDownLatch(1);
         final long startBlock;
         final long endBlock;
-        final long requestedCount;
         long expectedBlockNumber;
         List<BlockItemUnparsed> currentBlockItems = new ArrayList<>();
         boolean blockStarted;
-        /// The complete blocks received and how the request ended ([#COMPLETED] or the failure, `null`
-        /// while it runs). Both change together by `compareAndSet`, so the first terminal event wins and
-        /// no block is added after it, even while the callback thread is still running when the waiter
-        /// times out. The block list is never modified after it is published.
-        private final AtomicReference<State> state = new AtomicReference<>(new State(List.of(), null));
-
-        private record State(List<BlockUnparsed> blocks, Object outcome) {}
+        /// The complete blocks, in the order received. Only the callback thread adds to it, so it always holds
+        /// a contiguous run from the start block, and the waiter can copy it at any time.
+        private final ConcurrentLinkedQueue<BlockUnparsed> blocks = new ConcurrentLinkedQueue<>();
+        /// How the request ended: [#COMPLETED] or the failure. Set once, by whichever of [#complete()]
+        /// and [#fail(Throwable)] gets there first.
+        private final AtomicReference<Object> outcome = new AtomicReference<>();
 
         RequestContext(long startBlock, long endBlock) {
             this.startBlock = startBlock;
             this.endBlock = endBlock;
-            this.requestedCount = endBlock - startBlock + 1;
             this.expectedBlockNumber = startBlock;
         }
 
         boolean isFinished() {
-            return state.get().outcome() != null;
+            return outcome.get() != null;
         }
 
-        /// Adds a complete block unless the request has already ended.
-        ///
-        /// @return the number of blocks held after the call
-        int addBlock(BlockUnparsed block) {
-            State current = state.get();
-            boolean added = false;
-            while (!added && current.outcome() == null) {
-                final List<BlockUnparsed> blocks =
-                        new ArrayList<>(current.blocks().size() + 1);
-                blocks.addAll(current.blocks());
-                blocks.add(block);
-                final State next = new State(Collections.unmodifiableList(blocks), null);
-                if (state.compareAndSet(current, next)) {
-                    current = next;
-                    added = true;
-                } else {
-                    current = state.get();
-                }
-            }
-            return current.blocks().size();
+        /// Adds a complete block.
+        void addBlock(BlockUnparsed block) {
+            blocks.add(block);
         }
 
         void fail(Throwable t) {
@@ -188,17 +171,8 @@ public class BlockStreamSubscribeUnparsedClient {
             finish(COMPLETED);
         }
 
-        private void finish(Object outcome) {
-            State current = state.get();
-            boolean finished = false;
-            while (!finished && current.outcome() == null) {
-                if (state.compareAndSet(current, new State(current.blocks(), outcome))) {
-                    finished = true;
-                } else {
-                    current = state.get();
-                }
-            }
-            if (finished) {
+        private void finish(Object result) {
+            if (outcome.compareAndSet(null, result)) {
                 done.countDown();
             }
         }
@@ -206,7 +180,7 @@ public class BlockStreamSubscribeUnparsedClient {
         BatchResult await(long timeoutMs) {
             try {
                 if (timeoutMs > 0) {
-                    if (!done.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                    if (!done.await(timeoutMs, TimeUnit.MILLISECONDS)) {
                         final String msg =
                                 "BACKFILL_GRPC_OVERALL_TIMEOUT=%d, exceeded for Block range starting with block %d"
                                         .formatted(timeoutMs, expectedBlockNumber);
@@ -221,10 +195,10 @@ public class BlockStreamSubscribeUnparsedClient {
                 Thread.currentThread().interrupt();
                 fail(e);
             }
-            // The request has ended here, so this state is final.
-            final State last = state.get();
-            final Throwable error = last.outcome() instanceof Throwable failure ? failure : null;
-            return new BatchResult(last.blocks(), error);
+            // The request has ended here, so the outcome is final. A block the callback thread was still adding
+            // when the request ended is returned if it lands before this copy; later blocks are not returned.
+            final Throwable error = outcome.get() instanceof Throwable failure ? failure : null;
+            return new BatchResult(List.copyOf(blocks), error);
         }
     }
 
@@ -296,12 +270,11 @@ public class BlockStreamSubscribeUnparsedClient {
                     }
                     // Snapshot the current items to avoid retaining the large buffer in the finished block.
                     final List<BlockItemUnparsed> snapshot = List.copyOf(ctx.currentBlockItems);
-                    final int received = ctx.addBlock(
-                            BlockUnparsed.newBuilder().blockItems(snapshot).build());
+                    ctx.addBlock(BlockUnparsed.newBuilder().blockItems(snapshot).build());
                     ctx.currentBlockItems.clear();
                     ctx.blockStarted = false;
                     ctx.expectedBlockNumber++;
-                    if (received == ctx.requestedCount) {
+                    if (ctx.expectedBlockNumber > ctx.endBlock) {
                         ctx.complete();
                     }
                 } else {
