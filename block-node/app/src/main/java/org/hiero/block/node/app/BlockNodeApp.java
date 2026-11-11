@@ -313,13 +313,15 @@ public class BlockNodeApp implements HealthFacility {
         state.set(State.RUNNING);
         serviceBuilder.startAll();
         // log the server has started
-        LOGGER.log(
-                INFO,
-                "Started BlockNode Server : State={0} HistoricBlockRange={1}",
-                state.get(),
-                applicationStateFacility.availableBlocks().stream()
-                        .map(BlockRange::toString)
-                        .collect(Collectors.joining(", ")));
+        if (LOGGER.isLoggable(DEBUG)) {
+            LOGGER.log(
+                    DEBUG,
+                    "Started BlockNode Server : State={0} HistoricBlockRange={1}",
+                    state.get(),
+                    applicationStateFacility.availableBlocks().stream()
+                            .map(BlockRange::toString)
+                            .collect(Collectors.joining(", ")));
+        }
         // Publish a metric with the full version in a label,
         // and the major version as the value.
         versionMetricInstance.set(BLOCK_NODE_VERSION.major());
