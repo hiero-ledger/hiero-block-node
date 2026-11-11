@@ -604,7 +604,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                         "[{0}] Handler {1} unexpectedly received the block action {2} as an action for new header/block in progress";
                 yield handleEndError(WARNING, errorMessage, correlationIdPrefix, handlerId, actionFromPublisher);
             }
-            case SEND_BEHIND -> handleSendBehind();
+            case SEND_BEHIND -> handleSendBehind(blockNumber);
             case END_DUPLICATE -> handleEndDuplicate();
             case END_ERROR -> {
                 final String errorMessage =
@@ -870,7 +870,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     }
 
     /// Handle the END_BEHIND action for a block.
-    private PublisherRequestResult handleSendBehind() {
+    ///
+    /// @param offeredBlockNumber the block the publisher offered, which this node cannot accept
+    private PublisherRequestResult handleSendBehind(final long offeredBlockNumber) {
         LOGGER.log(
                 DEBUG,
                 "[{0}] Handler {1} is sending Behind({2}).",
@@ -882,7 +884,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         final BehindPublisher behindMessage = BehindPublisher.newBuilder()
                 .blockNumber(publisherManager.getLatestBlockNumber())
                 .build();
-        return new BehindPublisherResult(this, behindMessage, currentStreamingBlockNumber.get());
+        return new BehindPublisherResult(this, behindMessage, currentStreamingBlockNumber.get(), offeredBlockNumber);
     }
 
     /// Handle the END_DUPLICATE action for a block.
@@ -1184,19 +1186,23 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     }
 
     /// This type of result aims to send a [BehindPublisher] to the publisher
-    /// and then reset the state. The handler will be closed if sending the
-    /// response is not successful.
+    /// and then reset the state. Once the response is sent, the manager is
+    /// told which block this node expects next. The handler will be closed if
+    /// sending the response is not successful.
     private static final class BehindPublisherResult extends PublisherRequestResultBase {
         private final BehindPublisher behindPublisherResponse;
         private final long currentStreamingNumber;
+        private final long offeredBlockNumber;
 
         private BehindPublisherResult(
                 @NonNull final PublisherHandler handler,
                 @NonNull final BehindPublisher behindPublisherResponse,
-                final long currentStreamingNumber) {
+                final long currentStreamingNumber,
+                final long offeredBlockNumber) {
             super(handler);
             this.behindPublisherResponse = Objects.requireNonNull(behindPublisherResponse);
             this.currentStreamingNumber = currentStreamingNumber;
+            this.offeredBlockNumber = offeredBlockNumber;
         }
 
         @Override
@@ -1207,6 +1213,8 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             if (handler.sendResponse(response)) {
                 handler.metrics.nodeBehindSent.increment(); // @todo(1415) add label
                 handler.resetState();
+                handler.publisherManager.notifyBehindPublisher(
+                        behindPublisherResponse.blockNumber() + 1L, offeredBlockNumber);
             } else {
                 // Connection is broken, and we failed to send a message.
                 // Close the connection and let the client reconnect.

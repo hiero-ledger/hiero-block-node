@@ -128,6 +128,15 @@ public interface ApplicationStateFacility extends BlockNodePlugin {
     long nextExpectedBlock();
 
     /**
+     * The next block expected from publishers, as last reported by the publisher plugin after it
+     * told a publisher this node is behind it. This value is held in memory only, it only moves
+     * forward, and it <b>must</b> be {@code -1} at startup, before any publisher has been answered.
+     *
+     * @return the next expected publisher block, or {@code -1} if no publisher has been answered yet
+     */
+    long nextExpectedPublisherBlock();
+
+    /**
      * Registers (or replaces) the set of backfill source connections. Called by the backfill plugin
      * when it loads its sources, so that all connection information is owned by the Application State
      * facility rather than read directly from backfill configuration.

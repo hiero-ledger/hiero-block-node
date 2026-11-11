@@ -85,6 +85,7 @@ public abstract class PluginTestBase<
     protected List<BlockRange> storedBlocks = List.of();
     protected List<BlockRange> availableBlocks = List.of();
     protected volatile long nextExpectedBlock = -1L;
+    protected volatile long nextExpectedPublisherBlock = -1L;
     /** Current address book history, updated via {@link #updateAddressBookHistory}. */
     protected volatile RangedAddressBookHistory currentAddressBookHistory;
 
@@ -368,6 +369,11 @@ public abstract class PluginTestBase<
     @Override
     public long nextExpectedBlock() {
         return nextExpectedBlock;
+    }
+
+    @Override
+    public long nextExpectedPublisherBlock() {
+        return nextExpectedPublisherBlock;
     }
 
     @Override

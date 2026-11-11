@@ -150,6 +150,11 @@ public class TestApplicationStateFacility implements ApplicationStateFacility {
     }
 
     @Override
+    public long nextExpectedPublisherBlock() {
+        return -1L;
+    }
+
+    @Override
     public void updateBackfillSources(NetworkData sources) {
         this.backfillSources = sources;
     }
