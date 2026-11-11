@@ -158,13 +158,13 @@ profile is picked up by deployers with no change on their side beyond pulling th
 helm install "${RELEASE}" charts/block-node-server --set plugins.profile=rfh
 ```
 
-| Profile   | Plugin set                                                        |
-|-----------|-------------------------------------------------------------------|
-| `lfh`     | Local File History (the chart default set)                        |
-| `rfh`     | Remote File History — cloud archiving, no local block storage     |
-| `all`     | Every plugin (`lfh` plus cloud-storage archiving)                 |
-| `minimal` | Smallest set that still boots and serves gRPC                     |
-| `""`      | Selector not used (default); `plugins.names` applies              |
+|  Profile  |                          Plugin set                           |
+|-----------|---------------------------------------------------------------|
+| `lfh`     | Local File History (the chart default set)                    |
+| `rfh`     | Remote File History — cloud archiving, no local block storage |
+| `all`     | Every plugin (`lfh` plus cloud-storage archiving)             |
+| `minimal` | Smallest set that still boots and serves gRPC                 |
+| `""`      | Selector not used (default); `plugins.names` applies          |
 
 **Precedence** (first match wins):
 
