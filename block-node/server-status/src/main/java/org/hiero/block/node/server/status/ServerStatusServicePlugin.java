@@ -8,8 +8,6 @@ import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
-import com.hedera.pbj.runtime.grpc.GrpcException;
-import com.hedera.pbj.runtime.grpc.GrpcStatus;
 import com.swirlds.config.api.Configuration;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
@@ -131,11 +129,13 @@ public class ServerStatusServicePlugin
     /**
      * Handle a request for server status details
      *
-     * @param request the request containing the available blocks, state snapshot status and software version
-     * @return the response containing the block or an error status
+     * @param request the request, whose flags leave out the version information, the available ranges, the stored
+     *     ranges, the address book or the TSS data
+     * @return the response with the parts that were not excluded
      */
     @Override
     @NonNull
+    @SuppressWarnings("deprecation")
     public ServerStatusDetailResponse serverStatusDetail(@NonNull final ServerStatusDetailRequest request) {
         requestDetailCounter.increment();
 
@@ -145,46 +145,71 @@ public class ServerStatusServicePlugin
         final TssData localTss = tssData;
         final RangedAddressBookHistory localHistory = rangedAddressBookHistory;
 
-        // Derive the latest NodeAddressBook from the history: the address book of its last era.
-        final NodeAddressBook nodeAddressBook =
-                localHistory != null && !localHistory.addressBooks().isEmpty()
-                        ? localHistory.addressBooks().getLast().addressBook()
-                        : null;
-
-        return ServerStatusDetailResponse.newBuilder()
-                .versionInformation(blockNodeContext.blockNodeVersions())
-                .availableRanges(localAvailable)
-                .storedRanges(localStored)
-                .tssData(localTss)
-                .nodeAddressBook(nodeAddressBook)
-                .rangedAddressBookHistory(localHistory)
-                .build();
+        final ServerStatusDetailResponse.Builder response = ServerStatusDetailResponse.newBuilder();
+        if (!request.excludeVersions()) {
+            response.versionInformation(blockNodeContext.blockNodeVersions());
+        }
+        if (!request.excludeAvailableRanges()) {
+            response.availableRanges(localAvailable);
+        }
+        if (!request.excludeStoredRanges()) {
+            response.storedRanges(localStored);
+        }
+        // The TSS data and the address book are deprecated in favour of dedicated calls. They are still returned by
+        // default for one release so that older clients keep working. A client can leave either out, and the address
+        // book is the large part of the response.
+        if (!request.excludeTssData()) {
+            response.tssData(localTss);
+        }
+        if (!request.excludeAddressBook()) {
+            response.nodeAddressBook(latestAddressBook(localHistory)).rangedAddressBookHistory(localHistory);
+        }
+        return response.build();
     }
 
     /**
-     * Not implemented yet. The API is defined first, the handler follows in a separate change.
+     * Handle a request for the address book
      *
-     * @param request the request
-     * @return never returns normally
-     * @throws GrpcException always, with status {@code UNIMPLEMENTED}
+     * @param request the request, whose flag leaves out the address book history
+     * @return the response with the most recent address book, and the history unless it was excluded
      */
     @Override
     @NonNull
     public AddressBookResponse getAddressBook(@NonNull final AddressBookRequest request) {
-        throw new GrpcException(GrpcStatus.UNIMPLEMENTED, "getAddressBook is not implemented yet");
+        // Capture a volatile snapshot for a consistent read within this call.
+        final RangedAddressBookHistory localHistory = rangedAddressBookHistory;
+        final AddressBookResponse.Builder response =
+                AddressBookResponse.newBuilder().nodeAddressBook(latestAddressBook(localHistory));
+        if (!request.excludeHistory()) {
+            response.rangedAddressBookHistory(localHistory);
+        }
+        return response.build();
     }
 
     /**
-     * Not implemented yet. The API is defined first, the handler follows in a separate change.
+     * Handle a request for the TSS data
      *
-     * @param request the request
-     * @return never returns normally
-     * @throws GrpcException always, with status {@code UNIMPLEMENTED}
+     * @param request the request, whose flag leaves out the TSS data history
+     * @return the response with the most recent TSS data
      */
     @Override
     @NonNull
     public TssDataResponse getTssData(@NonNull final TssDataRequest request) {
-        throw new GrpcException(GrpcStatus.UNIMPLEMENTED, "getTssData is not implemented yet");
+        // Only the most recent TSS data is kept today, so the history is never filled in, whatever the request
+        // asks for. Keeping a history is tracked as its own task.
+        return TssDataResponse.newBuilder().tssData(tssData).build();
+    }
+
+    /**
+     * Derive the latest address book from the history: the address book of its last era.
+     *
+     * @param history the address book history, or null if none is known yet
+     * @return the latest address book, or null if there is none
+     */
+    private static NodeAddressBook latestAddressBook(final RangedAddressBookHistory history) {
+        return history != null && !history.addressBooks().isEmpty()
+                ? history.addressBooks().getLast().addressBook()
+                : null;
     }
 
     // ==== BlockNodePlugin Methods ====================================================================================
