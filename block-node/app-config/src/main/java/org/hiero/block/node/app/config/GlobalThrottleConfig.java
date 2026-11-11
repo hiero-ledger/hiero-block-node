@@ -17,6 +17,9 @@ import org.hiero.block.node.base.Loggable;
 /// @param serverStatusMaxConcurrent maximum concurrent in-flight `serverStatus` calls across all clients
 /// @param serverStatusDetailMaxConcurrent maximum concurrent in-flight `serverStatusDetail` calls
 ///     across all clients
+/// @param getAddressBookMaxConcurrent maximum concurrent in-flight `getAddressBook` calls across all
+///     clients
+/// @param getTssDataMaxConcurrent maximum concurrent in-flight `getTssData` calls across all clients
 /// @param clientStateTtlMinutes how long a throttled method keeps a client's rate/concurrency
 ///     state after its last call before the entry becomes eligible for eviction
 /// @param clientStateSweepIntervalMinutes how often the backstop sweep for stale client entries runs
@@ -27,6 +30,12 @@ public record GlobalThrottleConfig(
 
         @Loggable @ConfigProperty(defaultValue = "1000") @Min(1)
         int serverStatusDetailMaxConcurrent,
+
+        @Loggable @ConfigProperty(defaultValue = "500") @Min(1)
+        int getAddressBookMaxConcurrent,
+
+        @Loggable @ConfigProperty(defaultValue = "500") @Min(1)
+        int getTssDataMaxConcurrent,
 
         @Loggable @ConfigProperty(defaultValue = "30") @Min(1)
         int clientStateTtlMinutes,
