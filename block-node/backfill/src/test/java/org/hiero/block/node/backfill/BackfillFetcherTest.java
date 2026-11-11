@@ -312,13 +312,16 @@ class BackfillFetcherTest {
             final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
             final List<BlockUnparsed> prefix = List.of(createTestBlock(0L));
 
-            BlockStreamSubscribeUnparsedClient subscribeClient = mock(BlockStreamSubscribeUnparsedClient.class);
-            when(subscribeClient.getBatchOfBlocks(any(Long.class), any(Long.class)))
-                    .thenReturn(new BatchResult(prefix, new InterruptedException()));
+            BlockStreamSubscribeUnparsedClient subscribeClient = mockInterruptedClient(prefix);
             BackfillFetcher fetcher =
                     createFetcherWithClient(nodeConfig, 3, createTestMetricsHolder(), mockClientWith(subscribeClient));
 
-            assertEquals(prefix, fetcher.fetchBlocksFromNode(nodeConfig, BlockRangeSet.of(0, 1)));
+            try {
+                assertEquals(prefix, fetcher.fetchBlocksFromNode(nodeConfig, BlockRangeSet.of(0, 1)));
+                assertTrue(Thread.currentThread().isInterrupted());
+            } finally {
+                Thread.interrupted();
+            }
 
             verify(subscribeClient, times(1)).getBatchOfBlocks(any(Long.class), any(Long.class));
         }
@@ -328,17 +331,54 @@ class BackfillFetcherTest {
         void interruptionWithoutBlocksIsNotAFailure() throws Exception {
             final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
 
+            BlockStreamSubscribeUnparsedClient subscribeClient = mockInterruptedClient(List.of());
+            BackfillFetcher fetcher =
+                    createFetcherWithClient(nodeConfig, 3, createTestMetricsHolder(), mockClientWith(subscribeClient));
+
+            try {
+                assertTrue(fetcher.fetchBlocksFromNode(nodeConfig, BlockRangeSet.of(0, 1))
+                        .isEmpty());
+                assertTrue(Thread.currentThread().isInterrupted());
+            } finally {
+                Thread.interrupted();
+            }
+
+            verify(subscribeClient, times(1)).getBatchOfBlocks(any(Long.class), any(Long.class));
+            assertNull(fetcher.healthMap.get(nodeConfig));
+        }
+
+        @Test
+        @DisplayName("retries when the error is an InterruptedException but the thread is not interrupted")
+        void interruptedExceptionWithoutInterruptStatusIsRetried() throws Exception {
+            final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
+
             BlockStreamSubscribeUnparsedClient subscribeClient = mock(BlockStreamSubscribeUnparsedClient.class);
             when(subscribeClient.getBatchOfBlocks(any(Long.class), any(Long.class)))
                     .thenReturn(new BatchResult(List.of(), new InterruptedException()));
             BackfillFetcher fetcher =
-                    createFetcherWithClient(nodeConfig, 3, createTestMetricsHolder(), mockClientWith(subscribeClient));
+                    createFetcherWithClient(nodeConfig, 2, createTestMetricsHolder(), mockClientWith(subscribeClient));
 
             assertTrue(fetcher.fetchBlocksFromNode(nodeConfig, BlockRangeSet.of(0, 1))
                     .isEmpty());
 
-            verify(subscribeClient, times(1)).getBatchOfBlocks(any(Long.class), any(Long.class));
-            assertNull(fetcher.healthMap.get(nodeConfig));
+            verify(subscribeClient, times(2)).getBatchOfBlocks(any(Long.class), any(Long.class));
+            assertEquals(1, fetcher.healthMap.get(nodeConfig).failures());
+        }
+
+        @Test
+        @DisplayName("treats a client that could not be initialized as a failed attempt")
+        void unreachableClientIsAFailedAttempt() throws Exception {
+            final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
+
+            BlockNodeClient unreachable = mock(BlockNodeClient.class);
+            when(unreachable.isNodeReachable()).thenReturn(false);
+            BackfillFetcher fetcher = createFetcherWithClient(nodeConfig, 2, createTestMetricsHolder(), unreachable);
+
+            assertTrue(fetcher.fetchBlocksFromNode(nodeConfig, BlockRangeSet.of(0, 1))
+                    .isEmpty());
+
+            verify(unreachable, never()).getBlockstreamSubscribeUnparsedClient();
+            assertEquals(1, fetcher.healthMap.get(nodeConfig).failures());
         }
 
         @Test
@@ -349,7 +389,7 @@ class BackfillFetcherTest {
             final BackfillPlugin.MetricsHolder metrics = createTestMetricsHolder();
 
             long retriesBefore = metrics.backfillRetries().get();
-            BlockNodeClient failingClient = mockClientThrowing(new RuntimeException("fail"));
+            BlockNodeClient failingClient = mockClientFailing(new RuntimeException("fail"));
             BackfillFetcher fetcher = createFetcherWithClient(nodeConfig, 2, metrics, failingClient);
             assertTrue(fetcher.fetchBlocksFromNode(nodeConfig, BlockRangeSet.of(0, 1))
                     .isEmpty());
@@ -398,17 +438,27 @@ class BackfillFetcherTest {
 
         private BlockNodeClient mockClientWith(BlockStreamSubscribeUnparsedClient subscribeClient) throws Exception {
             BlockNodeClient client = mock(BlockNodeClient.class);
+            when(client.isNodeReachable()).thenReturn(true);
             when(client.getBlockstreamSubscribeUnparsedClient()).thenReturn(subscribeClient);
             return client;
         }
 
-        private BlockNodeClient mockClientThrowing(Exception e) throws Exception {
+        private BlockNodeClient mockClientFailing(Exception e) throws Exception {
             BlockStreamSubscribeUnparsedClient subscribeClient = mock(BlockStreamSubscribeUnparsedClient.class);
             when(subscribeClient.getBatchOfBlocks(any(Long.class), any(Long.class)))
-                    .thenThrow(e);
-            BlockNodeClient client = mock(BlockNodeClient.class);
-            when(client.getBlockstreamSubscribeUnparsedClient()).thenReturn(subscribeClient);
-            return client;
+                    .thenReturn(new BatchResult(List.of(), e));
+            return mockClientWith(subscribeClient);
+        }
+
+        /// Like the real client, sets the interrupt status of the calling thread before reporting the interruption.
+        private BlockStreamSubscribeUnparsedClient mockInterruptedClient(List<BlockUnparsed> blocks) {
+            BlockStreamSubscribeUnparsedClient subscribeClient = mock(BlockStreamSubscribeUnparsedClient.class);
+            when(subscribeClient.getBatchOfBlocks(any(Long.class), any(Long.class)))
+                    .thenAnswer(invocation -> {
+                        Thread.currentThread().interrupt();
+                        return new BatchResult(blocks, new InterruptedException());
+                    });
+            return subscribeClient;
         }
     }
 
@@ -638,7 +688,8 @@ class BackfillFetcherTest {
             BlockNodeClient failingClient = mock(BlockNodeClient.class);
             BlockStreamSubscribeUnparsedClient subscribeClient = mock(BlockStreamSubscribeUnparsedClient.class);
             when(subscribeClient.getBatchOfBlocks(any(Long.class), any(Long.class)))
-                    .thenThrow(new RuntimeException("fail"));
+                    .thenReturn(new BatchResult(List.of(), new RuntimeException("fail")));
+            when(failingClient.isNodeReachable()).thenReturn(true);
             when(failingClient.getBlockstreamSubscribeUnparsedClient()).thenReturn(subscribeClient);
 
             double healthPenalty = 1000.0;

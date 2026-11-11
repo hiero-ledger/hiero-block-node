@@ -301,20 +301,24 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
         long fetchNanos = 0;
         Throwable lastError = null;
         boolean done = false;
+        // Our own interruption (e.g. shutdown), not the peer's fault. The interrupt status stays set for the callers.
+        boolean interrupted = false;
 
         for (int attempt = 1; attempt <= maxRetries && !done; attempt++) {
             final long firstBlock = blockRange.rangeStart() + received.size();
             final long startNanos = System.nanoTime();
-            Throwable error;
-            try {
-                final BatchResult result = getNodeClient(nodeConfig)
-                        .getBlockstreamSubscribeUnparsedClient()
+            final BlockNodeClient client = getNodeClient(nodeConfig);
+            final Throwable error;
+            if (client.isNodeReachable()) {
+                final BatchResult result = client.getBlockstreamSubscribeUnparsedClient()
                         .getBatchOfBlocks(firstBlock, blockRange.rangeEnd());
                 received.addAll(result.blocks());
                 error = result.error();
-            } catch (RuntimeException e) {
-                error = e;
+            } else {
+                error = new IllegalStateException(
+                        "Client for node [" + nodeConfig.address() + "] could not be initialized");
             }
+            interrupted = Thread.currentThread().isInterrupted();
             final long attemptNanos = System.nanoTime() - startNanos;
             fetchNanos += attemptNanos;
             lastError = error;
@@ -331,9 +335,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
                     TimeUnit.NANOSECONDS.toMillis(attemptNanos),
                     received.size());
 
-            if (received.size() == BlockRangeSet.size(blockRange)
-                    || error == null
-                    || error instanceof InterruptedException) {
+            if (received.size() == BlockRangeSet.size(blockRange) || error == null || interrupted) {
                 done = true;
             } else {
                 final String failedToFetchBlocksMsg =
@@ -359,13 +361,14 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
                         backfillRetries.increment();
                     } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
+                        interrupted = true;
                         done = true;
                     }
                 }
             }
         }
 
-        recordFetchOutcome(nodeConfig, blockRange, received, fetchNanos, lastError);
+        recordFetchOutcome(nodeConfig, blockRange, received, fetchNanos, lastError, interrupted);
         return received;
     }
 
@@ -375,16 +378,15 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
      * @param received the blocks the fetch returns
      * @param fetchNanos the time of the attempts, without the retry delays between them
      * @param lastError the error of the last attempt, or {@code null} if it ended without one
+     * @param interrupted whether the fetch was interrupted, which does not count against the peer
      */
     private void recordFetchOutcome(
             BlockNodeSourceConfig nodeConfig,
             BlockRange blockRange,
             List<BlockUnparsed> received,
             long fetchNanos,
-            Throwable lastError) {
-        // An interruption comes from our side, typically a shutdown, so it says nothing about the peer.
-        final boolean interrupted = lastError instanceof InterruptedException
-                || Thread.currentThread().isInterrupted();
+            Throwable lastError,
+            boolean interrupted) {
         if (received.size() == BlockRangeSet.size(blockRange)) {
             recordBlocksReceived(nodeConfig, fetchNanos, received.size(), true);
         } else {
