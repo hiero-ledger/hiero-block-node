@@ -63,7 +63,7 @@ class ServiceBuilderImplTest {
         final Http2Config http2Config = Http2Config.builder().build();
         final SocketOptions socketOptions = SocketOptions.builder().build();
         ServerConfig testConfig = new ServerConfig(0, 0, 0, PUBLISHER_PORT, 0, 0, 0, 0, false, 0, 0);
-        final GlobalThrottleConfig globalThrottleConfig = new GlobalThrottleConfig(1000, 1000, 30, 5);
+        final GlobalThrottleConfig globalThrottleConfig = new GlobalThrottleConfig(1000, 1000, 500, 500, 30, 5);
         final BlockReadBulkheadConfig blockReadBulkheadConfig = new BlockReadBulkheadConfig(50);
         final MetricRegistry metricRegistry = MetricRegistry.builder().build();
         final ThreadPoolManager threadPoolManager = mock(ThreadPoolManager.class);
@@ -145,7 +145,7 @@ class ServiceBuilderImplTest {
                 new ServerConfig(0, 0, 0, PUBLISHER_PORT, 0, 0, 0, 0, false, 0, 0),
                 Http2Config.builder().build(),
                 SocketOptions.builder().build(),
-                new GlobalThrottleConfig(1000, 1000, 30, 5),
+                new GlobalThrottleConfig(1000, 1000, 500, 500, 30, 5),
                 new BlockReadBulkheadConfig(50),
                 MetricRegistry.builder().build(),
                 threadPoolManager);
@@ -661,7 +661,7 @@ class ServiceBuilderImplTest {
                 .build();
         final ServerConfig serverConfig =
                 new ServerConfig(1_048_576, 32_768, 32_768, PUBLISHER_PORT, 0, 1_000, 1, 1, true, 1_024, 32);
-        final GlobalThrottleConfig globalThrottleConfig = new GlobalThrottleConfig(1000, 1000, 30, 5);
+        final GlobalThrottleConfig globalThrottleConfig = new GlobalThrottleConfig(1000, 1000, 500, 500, 30, 5);
         final BlockReadBulkheadConfig blockReadBulkheadConfig = new BlockReadBulkheadConfig(50);
         final MetricRegistry metricRegistry = MetricRegistry.builder().build();
         return new ServiceBuilderImpl(

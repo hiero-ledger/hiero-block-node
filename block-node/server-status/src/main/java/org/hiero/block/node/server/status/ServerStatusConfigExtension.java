@@ -17,6 +17,10 @@ public class ServerStatusConfigExtension implements ConfigurationExtension {
     @Override
     public Set<Class<? extends Record>> getConfigDataTypes() {
         return Set.of(
-                ServerStatusConfig.class, ServerStatusThrottleConfig.class, ServerStatusDetailThrottleConfig.class);
+                ServerStatusConfig.class,
+                ServerStatusThrottleConfig.class,
+                ServerStatusDetailThrottleConfig.class,
+                ServerStatusAddressBookThrottleConfig.class,
+                ServerStatusTssDataThrottleConfig.class);
     }
 }
