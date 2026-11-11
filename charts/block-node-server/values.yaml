@@ -112,6 +112,34 @@ affinity: {}
 plugins:
   # maven: download plugins.names at pod start; image: select them from hiero-block-node-full's catalog
   source: maven
+
+  # Named plugin selector -- a stable, versioned part of this chart's values API.
+  # Set this to request a plugin set by name instead of copying the full plugins.names list.
+  # The valid values are the names of the chart's values-overrides/plugin-profile-<name>.yaml
+  # files, which are the single source of truth for each plugin set:
+  #   lfh     - local-file-historic node (the chart default set)
+  #   rfh     - remote/cloud-archiving node
+  #   all     - every plugin (lfh plus cloud-storage archiving)
+  #   minimal - smallest set that still boots and serves gRPC
+  #   ""      - selector not used (default); plugins.names below applies
+  # Adding a new values-overrides/plugin-profile-<name>.yaml makes plugins.profile=<name>
+  # selectable automatically, with no edit to this file. The value set is a stable contract;
+  # the plugin lists inside those files may change from release to release -- that is the point.
+  # Precedence (first match wins):
+  #   1. an explicit non-empty plugins.names is used as-is. An explicit empty ("") plugins.names
+  #      also wins and keeps its meaning (plugins baked into the image: no Maven resolution);
+  #      a profile never overrides an intentional empty.
+  #   2. otherwise a non-empty plugins.profile expands to the plugins.names from the matching
+  #      values-overrides/plugin-profile-<profile>.yaml file (read at render time);
+  #   3. otherwise the plugins.names default below applies.
+  # An unrecognized plugins.profile stops templating with a clear error listing the available
+  # profiles -- it never silently resolves to an empty or partial plugin set.
+  profile: ""
+
+  # Default plugin set when neither plugins.names nor plugins.profile is overridden.
+  # This MUST stay byte-identical to values-overrides/plugin-profile-lfh.yaml (the chart default,
+  # and the anchor the selector uses to tell an explicit plugins.names from this default); the
+  # plugins-profile render test asserts the two match so they cannot diverge.
   names: "backfill,block-access-service,block-verification,blocks-file-historic,blocks-file-recent,facility-app-state,facility-messaging,health,roster-bootstrap-rsa,roster-bootstrap-tss,server-status,stream-publisher,stream-subscriber"
   # image for resolving and downloading the above plugins, should have JDK 25 and maven
   mavenImage: "maven:3-eclipse-temurin-25-alpine"
