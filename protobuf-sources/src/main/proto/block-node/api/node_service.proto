@@ -17,8 +17,7 @@ message ServerStatusRequest {}
 /**
  * A request for the detailed status of a Block-Node.
  *
- * Each flag leaves one part out of the response. All flags default to `false`,
- * so an empty request returns every part, exactly as before this message existed.
+ * An empty request returns every part of the response.
  */
 message ServerStatusDetailRequest {
     /**
@@ -40,16 +39,16 @@ message ServerStatusDetailRequest {
      * If set to `true` the response SHALL NOT include `node_address_book` and
      * `ranged_address_book_history`.<br/>
      * Those fields are deprecated in favour of the `getAddressBook` call and are
-     * still returned by default, so this flag lets a client leave out the large
-     * address book payload until they are removed.
+     * still returned by default until release 0.49, so this flag lets a client
+     * leave out the large address book payload.
      */
     bool exclude_address_book = 4;
 
     /**
      * If set to `true` the response SHALL NOT include `tss_data`.<br/>
      * That field is deprecated in favour of the `getTssData` call and is still
-     * returned by default, so this flag lets a client leave it out until it is
-     * removed.
+     * returned by default until release 0.49, so this flag lets a client leave
+     * it out.
      */
     bool exclude_tss_data = 5;
 }
@@ -86,8 +85,8 @@ message ServerStatusDetailResponse {
      * TSS Data from the block node server.
      * Ledger Id, wraps validation key, and TssRoster information
      * <p>
-     * DEPRECATED: use the `getTssData` call. This field is still populated for
-     * one release so older clients keep working, and will then be removed.
+     * DEPRECATED: use the `getTssData` call. This field is still populated so
+     * older clients keep working, and SHALL NOT be provided as of release 0.49.
      */
     TssData tss_data = 3 [deprecated = true];
 
@@ -96,7 +95,7 @@ message ServerStatusDetailResponse {
      * Node Id, rsa public key information
      * <p>
      * DEPRECATED: use the `getAddressBook` call. This field is still populated
-     * for one release so older clients keep working, and will then be removed.
+     * so older clients keep working, and SHALL NOT be provided as of release 0.49.
      */
     proto.NodeAddressBook node_address_book = 4 [deprecated = true];
 
@@ -110,7 +109,7 @@ message ServerStatusDetailResponse {
      * Address Book history by block range
      * <p>
      * DEPRECATED: use the `getAddressBook` call. This field is still populated
-     * for one release so older clients keep working, and will then be removed.
+     * so older clients keep working, and SHALL NOT be provided as of release 0.49.
      */
     RangedAddressBookHistory ranged_address_book_history = 6 [deprecated = true];
 }

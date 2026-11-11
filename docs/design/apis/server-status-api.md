@@ -6,9 +6,8 @@ The status APIs of the `BlockNodeService` let a client learn what a Block Node c
 which blocks it has, which software it runs, and the roster data (address book and TSS) needed to verify blocks.
 Clients are Consensus Nodes, Mirror Nodes, other Block Nodes (backfill and roster bootstrap) and operator tooling.
 
-The detail call carries several large values that change rarely, namely the address book, its history and the TSS data.
-Every caller pays for them even when it only wants block ranges. The design moves those values to dedicated calls and
-makes `serverStatusDetail` cheap and selectable.
+`serverStatusDetail` returns the block serving detail, and a caller can leave out the parts it does not need. The roster
+data is large and changes rarely, so it is requested through the dedicated `getAddressBook` and `getTssData` calls.
 
 The protobuf definition lives in `protobuf-sources/src/main/proto/block-node/api/node_service.proto`.
 
@@ -18,7 +17,6 @@ The protobuf definition lives in `protobuf-sources/src/main/proto/block-node/api
 2. Make `serverStatusDetail` return only block-serving detail, and let the caller leave out the parts it does not need.
 3. Provide `getAddressBook` and `getTssData` so roster data is requested explicitly.
 4. Let the roster calls return only the most recent values, or the full history by block range.
-5. Roll the change out without breaking Block Nodes and clients on older versions.
 
 ## Terms
 
@@ -208,10 +206,10 @@ Sequence:
 
 1. **Add.** Release the new RPCs and the request flags. The flags let a client that does not need the address book or
    the TSS data leave them out, and `getAddressBook` lets another Block Node query the address book directly. Keep
-   populating the roster fields in `serverStatusDetail` for one release, marked deprecated in the proto comments.
+   populating the roster fields in `serverStatusDetail` until release 0.49, marked deprecated in the proto comments.
 2. **Migrate.** Move the roster bootstrap fetchers to the new RPCs. A client falls back to `serverStatusDetail` when a
    peer answers `UNIMPLEMENTED`, so a new node can still bootstrap from an old peer.
-3. **Remove.** In a later release, stop populating the roster fields and mark the field numbers `reserved`.
+3. **Remove.** From release 0.49, stop populating the roster fields and mark the field numbers `reserved`.
 
 Removing the fields in the same release as the new RPCs is simpler, but a new node could not bootstrap its roster from an
 older peer. The fields are therefore deprecated first.
@@ -267,7 +265,7 @@ by throttling use the behavior described in [API Throttling](./api-throttling.md
 
 ## Design Decisions
 
-1. **Rollout.** Deprecate the roster fields in `serverStatusDetail` for one release, migrate clients with a fallback, then
+1. **Rollout.** Deprecate the roster fields in `serverStatusDetail` until release 0.49, migrate clients with a fallback, then
    remove them. This is the safe choice for networks that run mixed versions.
 2. **TSS history.** `getTssData` returns only the latest TSS data until the application state keeps a ranged TSS history.
    `RangedTssDataHistory` is defined so the response can carry it later.
