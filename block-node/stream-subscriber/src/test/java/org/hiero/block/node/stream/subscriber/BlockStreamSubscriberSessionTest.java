@@ -1517,6 +1517,65 @@ class BlockStreamSubscriberSessionTest {
     }
 
     /**
+     * Tests for closed-range requests whose later blocks arrive live.
+     */
+    @Nested
+    @DisplayName("Closed Range Live Tests")
+    class ClosedRangeLiveTests {
+        /** Upper bound for waits, so a regression fails the test instead of hanging it. */
+        private static final long WAIT_TIMEOUT_SECONDS = 10L;
+
+        /**
+         * This test verifies that a closed-range session stops at the requested end block when
+         * the next live block is already queued. Before the fix, the live send loop kept draining
+         * the queue after the last requested block and sent one extra block before SUCCESS.
+         */
+        @Test
+        @DisplayName("should not send live blocks past the requested end block")
+        void testLiveSendStopsAtRequestedEndBlock() throws Exception {
+            historicalBlockFacility.handleBlockItemsReceived(
+                    TestBlockBuilder.generateBlockWithNumber(0).asBlockItems(), false);
+            final GatedResponsePipeline gatedPipeline = new GatedResponsePipeline();
+            final TestBlockMessagingFacility messagingFacility = new TestBlockMessagingFacility();
+            final BlockNodeContext context =
+                    generateContext(blockNodeContext.configuration(), messagingFacility, historicalBlockFacility);
+            final SubscribeStreamRequest closedRangeRequest = SubscribeStreamRequest.newBuilder()
+                    .startBlockNumber(0L)
+                    .endBlockNumber(1L)
+                    .build();
+            final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
+                    SessionContext.create(clientId, closedRangeRequest, context, TEST_BLOCK_READ_BULKHEAD),
+                    gatedPipeline,
+                    context,
+                    sessionReadyLatch);
+
+            try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+                final Future<BlockStreamSubscriberSession> sessionFuture = executor.submit(session);
+                assertThat(sessionReadyLatch.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                        .isTrue();
+                // Block 0 is sent from history; hold that send until blocks 1 and 2 are both queued live.
+                assertThat(gatedPipeline.firstSendStarted.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                        .isTrue();
+                for (long blockNumber = 1L; blockNumber <= 2L; blockNumber++) {
+                    messagingFacility.sendBlockItems(
+                            new BlockItems(List.of(sampleHeaderUnparsed(blockNumber)), blockNumber, true, false));
+                    messagingFacility.sendBlockItems(
+                            new BlockItems(List.of(sampleProofUnparsed(blockNumber)), blockNumber, false, true));
+                }
+                gatedPipeline.releaseFirstSend.countDown();
+
+                sessionFuture.get(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            }
+
+            final List<SubscribeStreamResponseUnparsed> responses = gatedPipeline.getOnNextCalls();
+            assertThat(responses)
+                    .filteredOn(response -> response.response().kind() == ResponseOneOfType.END_OF_BLOCK)
+                    .hasSize(2);
+            assertThat(responses.getLast()).returns(Code.SUCCESS, responseStatusExtractor);
+        }
+    }
+
+    /**
      * Tests for how a session waiting to resolve the first live block reacts to being closed.
      */
     @Nested
@@ -1612,6 +1671,26 @@ class BlockStreamSubscriberSessionTest {
                 Thread.currentThread().interrupt();
             }
             throw new RuntimeException("Flow control update wait time-out.");
+        }
+    }
+
+    /**
+     * Response pipeline whose first send blocks until released, so the test
+     * can queue live batches while the session is busy sending.
+     */
+    private static final class GatedResponsePipeline extends TestResponsePipeline<SubscribeStreamResponseUnparsed> {
+        private final CountDownLatch firstSendStarted = new CountDownLatch(1);
+        private final CountDownLatch releaseFirstSend = new CountDownLatch(1);
+
+        @Override
+        public void onNext(final SubscribeStreamResponseUnparsed item) {
+            super.onNext(item);
+            firstSendStarted.countDown();
+            try {
+                releaseFirstSend.await();
+            } catch (final InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 
