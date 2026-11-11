@@ -44,7 +44,7 @@ MIN_TRANSACTIONS=10
 #
 # Override with MIRROR_NODE_VERSION for a one-off. Use a GA or -rc tag, not 'main' or
 # 'latest' — this is passed straight to `solo mirror node add --mirror-node-version`.
-MIRROR_NODE_VERSION="${MIRROR_NODE_VERSION:-${MN_VERSION:-v0.162.0-rc1}}"
+MIRROR_NODE_VERSION="${MIRROR_NODE_VERSION:-${MN_VERSION:-v0.166.1}}"
 
 # Work directories
 WORK_DIR="/tmp/wrb-test-$$"

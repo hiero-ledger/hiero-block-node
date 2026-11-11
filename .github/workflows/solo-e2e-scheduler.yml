@@ -234,9 +234,9 @@ jobs:
             CN_VERSION="${CN_VERSION:-main}"
             MN_VERSION="${{ inputs.mirror-node-version }}"
             # Mirror Node publishes no 'main' snapshots, so this cannot default to main.
-            # Pinned to the first release carrying the reworked block-root hashing, which is
-            # what a 'main' Consensus Node produces.
-            MN_VERSION="${MN_VERSION:-v0.162.0-rc1}"
+            # Follow the latest GA, as tag and RC runs do: a fixed pin goes stale as the
+            # 'main' Consensus Node moves on (v0.162.0-rc1 ended up rejecting its blocks).
+            MN_VERSION="${MN_VERSION:-latest}"
           else
             # Scheduled runs (daily/weekend) and manual dispatches that named no Block Node
             # version. Honour any explicitly supplied version — this branch used to hardcode
@@ -247,7 +247,7 @@ jobs:
             CN_VERSION="${{ inputs.consensus-node-version }}"
             CN_VERSION="${CN_VERSION:-main}"
             MN_VERSION="${{ inputs.mirror-node-version }}"
-            MN_VERSION="${MN_VERSION:-v0.162.0-rc1}"
+            MN_VERSION="${MN_VERSION:-latest}"
           fi
 
           # Consensus Node source ref and Nova WRAPS TSS library override: scheduled runs carry no
