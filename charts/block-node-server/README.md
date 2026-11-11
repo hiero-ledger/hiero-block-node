@@ -149,29 +149,30 @@ The Block Node uses a plugin architecture where functionality is loaded dynamica
 
 `plugins.profile` lets a deployer request a named plugin set with a single, stable value instead
 of copying the full `plugins.names` list. It is a stable, versioned part of this chart's values
-API: the value set is a public contract, while the underlying plugin lists (in `plugins.profiles`)
-may change from release to release. The chart owns the plugin set, so a release that changes a
-profile is picked up by deployers with no change on their side beyond pulling the new chart.
+API: the value set is a public contract, while the underlying plugin lists (in the
+`values-overrides/plugin-profile-<name>.yaml` files) may change from release to release. The chart
+owns the plugin set, so a release that changes a profile is picked up by deployers with no change
+on their side beyond pulling the new chart.
 
 ```bash
 # Request the remote-file-history plugin set — no file paths, no copied name list:
 helm install "${RELEASE}" charts/block-node-server --set plugins.profile=rfh
 ```
 
-|  Profile  |                          Plugin set                           |
-|-----------|---------------------------------------------------------------|
-| `lfh`     | Local File History (the chart default set)                    |
-| `rfh`     | Remote File History — cloud archiving, no local block storage |
-| `all`     | Every plugin (`lfh` plus cloud-storage archiving)             |
-| `minimal` | Smallest set that still boots and serves gRPC                 |
-| `""`      | Selector not used (default); `plugins.names` applies          |
+| Profile |                          Plugin set                           |
+|---------|---------------------------------------------------------------|
+| `lfh`   | Local Full History (the chart default set)                    |
+| `rfh`   | Remote Full History — cloud archiving, no local block storage |
+| `all`   | Every plugin                                                  |
+| `""`    | Selector not used (default); `plugins.names` applies          |
 
 **Precedence** (first match wins):
 
 1. an explicit non-empty `plugins.names` is used as-is. An explicit empty (`""`) `plugins.names`
    also wins and keeps its meaning (plugins baked into the image, no Maven resolution); a profile
    never overrides an intentional empty.
-2. otherwise a non-empty `plugins.profile` expands to its list from `plugins.profiles`;
+2. otherwise a non-empty `plugins.profile` expands to the `plugins.names` from the matching
+   `values-overrides/plugin-profile-<profile>.yaml` file (read at render time via `.Files.Get`);
 3. otherwise the `plugins.names` chart default applies.
 
 An unrecognized `plugins.profile` fails templating with a clear message listing the available
