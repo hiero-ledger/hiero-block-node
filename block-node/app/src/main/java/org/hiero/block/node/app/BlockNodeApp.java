@@ -318,7 +318,7 @@ public class BlockNodeApp implements HealthFacility {
                 "Started BlockNode Server : State={0} HistoricBlockRange={1}",
                 state.get(),
                 applicationStateFacility.availableBlocks().stream()
-                        .map(BlockRangeSet::toString)
+                        .map(BlockRange::toString)
                         .collect(Collectors.joining(", ")));
         // Publish a metric with the full version in a label,
         // and the major version as the value.
