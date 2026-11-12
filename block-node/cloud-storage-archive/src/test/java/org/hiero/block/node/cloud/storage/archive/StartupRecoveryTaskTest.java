@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.bucky.S3Client;
+import com.hedera.bucky.S3ResponseException;
 import com.swirlds.config.api.ConfigurationBuilder;
 import io.minio.BucketExistsArgs;
 import io.minio.ListObjectsArgs;
@@ -543,6 +544,48 @@ class StartupRecoveryTaskTest {
         assertThat(result.nextBlockNumber()).isEqualTo(28L);
         assertThat(result.trailingBytes()).isEqualTo(Arrays.copyOfRange(part3, 0, boundaryOffset));
         assertThat(result.lastHandedOffBlock()).isEqualTo(27L);
+    }
+
+    /// Verifies that a single hanging upload is still resumed when the backend rejects server-side part copy, as
+    /// Google Cloud Storage does for `UploadPartCopy` into a multipart upload. The clean part that precedes the
+    /// boundary part must be re-uploaded instead, so the resume state matches the server-side copy path.
+    @Test
+    @DisplayName("Single hanging upload: parts are re-uploaded when server-side part copy is rejected")
+    void singleHangingUploadIsResumedWhenServerSideCopyIsRejected() throws Exception {
+        final byte[] part1 = buildTarBytes(TestBlockBuilder.generateBlocksInRange(0, 2));
+        final byte[] part2 = buildTarBytes(TestBlockBuilder.generateBlocksInRange(3, 4));
+        final String key = ArchiveKey.format(0, GROUPING_LEVEL, "");
+        try (S3Client s3 = openS3Client()) {
+            final String uploadId =
+                    s3.createMultipartUpload(key, config.storageClass().name(), CONTENT_TYPE);
+            s3.multipartUploadPart(key, uploadId, 1, Arrays.copyOf(part1, PART_SIZE));
+            s3.multipartUploadPart(key, uploadId, 2, part2);
+            // deliberately NOT completing — simulate a crash mid-upload
+        }
+
+        final RecoveryResult result = new ServerSideCopyRejectingRecoveryTask(config).call();
+
+        assertThat(result.currentGroupStart()).isZero();
+        assertThat(result.uploadId()).isNotNull();
+        assertThat(result.etags()).hasSize(1);
+        assertThat(result.nextBlockNumber()).isEqualTo(4L);
+        try (S3Client s3 = openS3Client()) {
+            assertThat(s3.listParts(key, result.uploadId())).singleElement().satisfies(part -> assertThat(part.size())
+                    .isEqualTo(PART_SIZE));
+        }
+    }
+
+    /// Rejects every server-side part copy the way Google Cloud Storage does.
+    private static final class ServerSideCopyRejectingRecoveryTask extends StartupRecoveryTask {
+        ServerSideCopyRejectingRecoveryTask(CloudStorageArchiveConfig config) {
+            super(config);
+        }
+
+        @Override
+        String copyPart(S3Client s3, String key, long firstByte, long lastByte, String newUploadId, int partNumber)
+                throws S3ResponseException {
+            throw new S3ResponseException(400, null, null, "UploadPartCopy is not implemented for multipart uploads.");
+        }
     }
 
     private static byte[] concat(byte[]... arrays) {
