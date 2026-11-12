@@ -22,6 +22,12 @@ The protobuf definition lives in `protobuf-sources/src/main/proto/block-node/api
 
 * **Client**: The consumer of the API: a Consensus Node, a Mirror Node, another Block Node or operator tooling.
 * **Available ranges**: Block ranges this node can serve to a client.
+* **Next expected block**: The next block this Block Node expects from publishers. It is the value set by the publisher
+  manager when it accepts a block header, persists a block or resets after a failure. Until the manager has set it, for
+  example right after a restart, it is the value the publisher plugin learned when it last answered a publisher with
+  `BehindPublisher` (the block in that response + 1). A value below `earliestManagedBlock` is reported as `-1`. After
+  startup it is `-1` (accept any block) until one of those events happens; this is the required startup state, it is not
+  persisted.
 * **Stored ranges**: Block ranges this node has persisted.
 * **Address book**: RSA node address book data: node ids and RSA public keys used to verify record-based wrapped blocks.
 * **TSS data**: Ledger id, WRAPS verification key and TSS roster information used to verify TSS block proofs.
