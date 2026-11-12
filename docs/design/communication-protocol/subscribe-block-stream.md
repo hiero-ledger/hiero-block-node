@@ -2,7 +2,7 @@
 
 The `subscribeBlockStream` RPC is a server-streaming call exposed by `BlockStreamSubscribeService`. A client sends one `SubscribeStreamRequest` and the Block Node responds with a sequence of `SubscribeStreamResponse` messages until the requested range is delivered or an error occurs. This document describes the wire protocol a subscriber — typically a Mirror Node — must implement to consume that stream correctly.
 
-For how to configure a Mirror Node to connect to a Block Node in production, see [Connecting a Mirror Node to a Block Node](../../block-node/operations/connecting-a-mirror-node-to-a-block-node.md).
+For how to configure a Mirror Node to connect to a Block Node in production, see [Connecting a Mirror Node to a Block Node](../../block-node/connect/connecting-a-mirror-node-to-a-block-node.md).
 
 ![Block Node network architecture showing the Block Node between Consensus Nodes and downstream consumers such as Mirror Nodes](../../assets/block-node-network-architecture.svg)
 
