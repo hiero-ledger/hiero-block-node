@@ -234,7 +234,12 @@ final class BackfillRunner {
             return new ChunkFetchResult(replanned, null, List.of(), outcome);
         }
 
-        return new ChunkFetchResult(availability, chunk, blocks, FetchOutcome.SUCCESS);
+        // The fetcher may return only the start of the chunk: persist that and continue after it.
+        BlockRange received = BlockRangeSet.of(chunk.rangeStart(), chunk.rangeStart() + blocks.size() - 1);
+        if (received.rangeEnd() < chunk.rangeEnd()) {
+            logger.log(DEBUG, "Partial chunk [{0}] fetched, received [{1}]", chunk, received);
+        }
+        return new ChunkFetchResult(availability, received, blocks, FetchOutcome.SUCCESS);
     }
 
     /**

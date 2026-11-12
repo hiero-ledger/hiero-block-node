@@ -450,8 +450,11 @@ details:
 - **Timeouts.** The inactivity timeout and the ceiling end the request the same
   way, each with its own `WARNING` message naming the setting and the first
   block not received.
-- **Interruption.** The interrupt flag is restored, the prefix is returned with
-  an `InterruptedException`, and the fetcher stops retrying.
+- **Interruption.** The waiting thread is interrupted only when the backfill
+  plugin stops: `stop()` shuts down the scheduler executors with
+  `shutdownNow()`. The interrupt flag is restored, the prefix is returned with
+  an `InterruptedException`, the fetcher stops retrying, and the peer is not
+  marked as failed.
 - **Late callbacks.** Any callback after the terminal event is ignored. The log
   level of `onError` depends on when it arrives: an `onError` that ends the
   request is logged at `WARNING`, while one that arrives after
