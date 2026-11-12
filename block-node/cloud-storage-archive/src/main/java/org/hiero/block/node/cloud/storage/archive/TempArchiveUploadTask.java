@@ -31,7 +31,7 @@ import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 ///
 /// Usage:
 /// 1. Construct the task with [firstBlock] and an empty [blockQueue].
-/// 2. Submit the task to a virtual-thread executor — it immediately blocks on [BlockingQueue#take].
+/// 2. Submit the task to a thread-per-task executor — it immediately blocks on [BlockingQueue#take].
 /// 3. Offer verified blocks to the queue in ascending block-number order.
 /// 4. Signal the end of the segment by offering [SEGMENT_END].
 ///

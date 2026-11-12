@@ -5,7 +5,6 @@ import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.LockSupport;
 import java.util.function.Function;
 import org.hiero.block.node.block.verification.VerificationConfig;
 import org.hiero.block.node.block.verification.verifier.BlockVerificationResult;
@@ -13,24 +12,31 @@ import org.hiero.block.node.block.verification.verifier.BlockVerificationResult;
 /// The third stage of a [org.hiero.block.node.block.verification.session.CompletableVerificationSession].
 /// This stage simply awaits the right turn of the successful block verification's result propagation.
 public final class ResultOrderingManager implements Function<BlockVerificationResult, BlockVerificationResult> {
+    /// The longest time to wait for the last verified block to move before checking the cancel flag again.
+    private static final long CANCEL_CHECK_INTERVAL_MILLIS = 10;
     /// The last successfully verified block, shared across sessions; ordering is enforced against it.
     private final AtomicLong lastVerifiedBlock;
     /// The configuration for verification, source of the ordering settings.
     private final VerificationConfig verificationConfig;
     /// Cancellation flag shared with the owning session.
     private final AtomicBoolean isCanceled;
+    /// Wakes this stage when the last verified block moves.
+    private final LastVerifiedBlockSignal lastVerifiedBlockSignal;
 
     /// Constructor.
     ///
     /// @param isCanceled cancellation flag shared with the owning session, must not be null
     /// @param lastVerifiedBlock the last successfully verified block, must not be null
+    /// @param lastVerifiedBlockSignal wakes sessions waiting for the last verified block to move, must not be null
     /// @param verificationConfig the configuration for verification, must not be null
     public ResultOrderingManager(
             final AtomicBoolean isCanceled,
             final AtomicLong lastVerifiedBlock,
+            final LastVerifiedBlockSignal lastVerifiedBlockSignal,
             final VerificationConfig verificationConfig) {
         this.isCanceled = Objects.requireNonNull(isCanceled);
         this.lastVerifiedBlock = Objects.requireNonNull(lastVerifiedBlock);
+        this.lastVerifiedBlockSignal = Objects.requireNonNull(lastVerifiedBlockSignal);
         this.verificationConfig = Objects.requireNonNull(verificationConfig);
     }
 
@@ -45,13 +51,15 @@ public final class ResultOrderingManager implements Function<BlockVerificationRe
     public BlockVerificationResult apply(final BlockVerificationResult blockVerificationResult) {
         checkValidNextExpectedBlock(lastVerifiedBlock, blockVerificationResult.blockNumber());
         while (!isCanceled()) {
+            final long lastVerified = lastVerifiedBlock.get();
             if (OrderingRules.waitsForOrder(
                     verificationConfig,
                     blockVerificationResult.blockNumber(),
                     blockVerificationResult.source(),
-                    lastVerifiedBlock.get())) {
-                // Shortly park to avoid busy-waiting
-                LockSupport.parkNanos(TimeUnit.MICROSECONDS.toNanos(500));
+                    lastVerified)) {
+                // Bounded, so that a cancel (which only sets the flag) is seen within one interval.
+                lastVerifiedBlockSignal.awaitChangeFrom(
+                        lastVerifiedBlock, lastVerified, CANCEL_CHECK_INTERVAL_MILLIS, TimeUnit.MILLISECONDS);
             } else {
                 return blockVerificationResult;
             }
@@ -75,8 +83,8 @@ public final class ResultOrderingManager implements Function<BlockVerificationRe
         // This is acceptable, as it will be filled shortly thereafter and only
         // happens once on startup.
         final long lastVerified = lastVerifiedBlock.get();
-        if (lastVerified < 0) {
-            lastVerifiedBlock.compareAndSet(lastVerified, currentVerifiedBlock);
+        if (lastVerified < 0 && lastVerifiedBlock.compareAndSet(lastVerified, currentVerifiedBlock)) {
+            lastVerifiedBlockSignal.signalChanged();
         }
     }
 

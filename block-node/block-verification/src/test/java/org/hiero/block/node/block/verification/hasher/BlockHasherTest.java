@@ -27,7 +27,8 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
-import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.BlockingDeque;
+import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
@@ -106,7 +107,7 @@ class BlockHasherTest {
         @DisplayName("get() successful hashing produces expected block number")
         void testSuccessfulHashingProducesExpectedBlockNumber(final String name, final ResourceTestBlock block) {
             // Create a new block hasher based on what block we have
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockingDeque<BlockItems> blockItemsDeque = new LinkedBlockingDeque<>();
             final BlockHasher toTest = new BlockHasher(
                     new AtomicBoolean(false),
                     blockItemsDeque,
@@ -129,7 +130,7 @@ class BlockHasherTest {
         @DisplayName("get() successful hashing produces expected block hash")
         void testSuccessfulHashingProducesExpectedHash(final String name, final ResourceTestBlock block) {
             // Create a new block hasher based on what block we have
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockingDeque<BlockItems> blockItemsDeque = new LinkedBlockingDeque<>();
             final BlockHasher toTest = new BlockHasher(
                     new AtomicBoolean(false),
                     blockItemsDeque,
@@ -152,7 +153,7 @@ class BlockHasherTest {
         @DisplayName("get() successful hashing produces expected block source")
         void testSuccessfulHashingProducesExpectedSource(final String name, final ResourceTestBlock block) {
             // Create a new block hasher based on what block we have
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockingDeque<BlockItems> blockItemsDeque = new LinkedBlockingDeque<>();
             final Random random = new Random();
             final List<BlockSource> sources = List.of(BlockSource.PUBLISHER, BlockSource.BACKFILL);
             final BlockSource source = sources.get(random.nextInt(sources.size()));
@@ -178,7 +179,7 @@ class BlockHasherTest {
         @DisplayName("get() successful hashing produces expected block unparsed")
         void testSuccessfulHashingProducesExpectedBlockUnparsed(final String name, final ResourceTestBlock block) {
             // Create a new block hasher based on what block we have
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockingDeque<BlockItems> blockItemsDeque = new LinkedBlockingDeque<>();
             final BlockHasher toTest = new BlockHasher(
                     new AtomicBoolean(false),
                     blockItemsDeque,
@@ -201,7 +202,7 @@ class BlockHasherTest {
         @DisplayName("get() successful hashing produces expected block header")
         void testSuccessfulHashingProducesExpectedHeader(final String name, final ResourceTestBlock block) {
             // Create a new block hasher based on what block we have
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockingDeque<BlockItems> blockItemsDeque = new LinkedBlockingDeque<>();
             final BlockHasher toTest = new BlockHasher(
                     new AtomicBoolean(false),
                     blockItemsDeque,
@@ -224,7 +225,7 @@ class BlockHasherTest {
         @DisplayName("get() successful hashing produces expected block footer")
         void testSuccessfulHashingProducesExpectedFooter(final String name, final ResourceTestBlock block) {
             // Create a new block hasher based on what block we have
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockingDeque<BlockItems> blockItemsDeque = new LinkedBlockingDeque<>();
             final BlockHasher toTest = new BlockHasher(
                     new AtomicBoolean(false),
                     blockItemsDeque,
@@ -247,7 +248,7 @@ class BlockHasherTest {
         @DisplayName("get() successful hashing produces expected block proofs")
         void testSuccessfulHashingProducesExpectedProofs(final String name, final ResourceTestBlock block) {
             // Create a new block hasher based on what block we have
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockingDeque<BlockItems> blockItemsDeque = new LinkedBlockingDeque<>();
             final BlockHasher toTest = new BlockHasher(
                     new AtomicBoolean(false),
                     blockItemsDeque,
@@ -273,7 +274,7 @@ class BlockHasherTest {
         @DisplayName("get() successful hashing produces expected block hapi version")
         void testSuccessfulHashingProducesExpectedHapiVersion(final String name, final ResourceTestBlock block) {
             // Create a new block hasher based on what block we have
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockingDeque<BlockItems> blockItemsDeque = new LinkedBlockingDeque<>();
             final BlockHasher toTest = new BlockHasher(
                     new AtomicBoolean(false),
                     blockItemsDeque,
@@ -297,7 +298,7 @@ class BlockHasherTest {
         @Test
         @DisplayName("get() successful hashing regardless of record file contents and proof version")
         void testWrbContentsAndProofVersionNotInspected() {
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockingDeque<BlockItems> blockItemsDeque = new LinkedBlockingDeque<>();
             final BlockHasher toTest = new BlockHasher(
                     new AtomicBoolean(false),
                     blockItemsDeque,
@@ -341,7 +342,7 @@ class BlockHasherTest {
         @DisplayName("get() failed hashing when header missing")
         void testMissingHeader() {
             final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockingDeque<BlockItems> blockItemsDeque = new LinkedBlockingDeque<>();
             final BlockSource blockSource = BlockSource.PUBLISHER;
             final BlockHasher toTest = new BlockHasher(
                     new AtomicBoolean(false),
@@ -372,7 +373,7 @@ class BlockHasherTest {
         @DisplayName("get() failed hashing when footer missing")
         void testMissingFooter() {
             final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockingDeque<BlockItems> blockItemsDeque = new LinkedBlockingDeque<>();
             final BlockSource blockSource = BlockSource.PUBLISHER;
             final BlockHasher toTest = new BlockHasher(
                     new AtomicBoolean(false),
@@ -403,7 +404,7 @@ class BlockHasherTest {
         @DisplayName("get() failed hashing when proofs missing")
         void testMissingProofs() {
             final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockingDeque<BlockItems> blockItemsDeque = new LinkedBlockingDeque<>();
             final BlockSource blockSource = BlockSource.PUBLISHER;
             final BlockHasher toTest = new BlockHasher(
                     new AtomicBoolean(false),
@@ -436,7 +437,7 @@ class BlockHasherTest {
             final long blockNumber = 0;
             final TestBlock block = TestBlockBuilder.generateBlockWithNumber(blockNumber)
                     .replace(BlockItemUnparsed::hasBlockHeader, headerWithNoValues(blockNumber));
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockingDeque<BlockItems> blockItemsDeque = new LinkedBlockingDeque<>();
             final BlockSource blockSource = BlockSource.PUBLISHER;
             final BlockHasher toTest = new BlockHasher(
                     new AtomicBoolean(false),
@@ -467,7 +468,7 @@ class BlockHasherTest {
             final long blockNumber = 0;
             final TestBlock block = TestBlockBuilder.generateBlockWithNumber(blockNumber)
                     .replace(BlockItemUnparsed::hasBlockHeader, headerWithNoTimestamp(blockNumber));
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockingDeque<BlockItems> blockItemsDeque = new LinkedBlockingDeque<>();
             final BlockSource blockSource = BlockSource.PUBLISHER;
             final BlockHasher toTest = new BlockHasher(
                     new AtomicBoolean(false),
@@ -499,7 +500,7 @@ class BlockHasherTest {
             final long blockNumber = 0;
             final TestBlock block = TestBlockBuilder.generateBlockWithNumber(blockNumber)
                     .replace(BlockItemUnparsed::hasBlockFooter, footerWithMissingValue);
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockingDeque<BlockItems> blockItemsDeque = new LinkedBlockingDeque<>();
             final BlockSource blockSource = BlockSource.PUBLISHER;
             final BlockHasher toTest = new BlockHasher(
                     new AtomicBoolean(false),
@@ -528,7 +529,7 @@ class BlockHasherTest {
         @MethodSource(UNSUPPORTED_ITEM_TYPES)
         @DisplayName("get() fail when getting an unsupported ")
         void testUnsupportedItemTypes(final BlockItemUnparsed unsupportedItem) {
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockingDeque<BlockItems> blockItemsDeque = new LinkedBlockingDeque<>();
             final BlockSource blockSource = BlockSource.PUBLISHER;
             final long blockNumber = 0L;
             final BlockHasher toTest = new BlockHasher(
@@ -559,7 +560,7 @@ class BlockHasherTest {
         @MethodSource(ITEM_TYPES_ALLOWED_ONLY_ONCE_PER_BLOCK)
         @DisplayName("get() failed when block has multiple items when only one of specific type is allowed")
         void testNotAllowedMultipleItems(final BlockItemUnparsed item, final long blockNumber) {
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockingDeque<BlockItems> blockItemsDeque = new LinkedBlockingDeque<>();
             final BlockSource blockSource = BlockSource.PUBLISHER;
             final BlockHasher toTest = new BlockHasher(
                     new AtomicBoolean(false),
@@ -588,7 +589,7 @@ class BlockHasherTest {
         @DisplayName("get() failed when header is not first item")
         void testHeaderNotFirstItem() throws ParseException {
             final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockingDeque<BlockItems> blockItemsDeque = new LinkedBlockingDeque<>();
             final BlockSource blockSource = BlockSource.PUBLISHER;
             final BlockHasher toTest = new BlockHasher(
                     new AtomicBoolean(false),
@@ -632,7 +633,7 @@ class BlockHasherTest {
             final long blockNumber = 0;
             final TestBlock block = TestBlockBuilder.generateBlockWithNumber(blockNumber)
                     .replace(BlockItemUnparsed::hasBlockFooter, footer);
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockingDeque<BlockItems> blockItemsDeque = new LinkedBlockingDeque<>();
             final BlockSource blockSource = BlockSource.PUBLISHER;
             final BlockHasher toTest = new BlockHasher(
                     new AtomicBoolean(false),
@@ -1230,7 +1231,7 @@ class BlockHasherTest {
 
     /// Runs a [BlockHasher] over the given items supplied as one complete block.
     private HashingResult hashBlockItems(final List<BlockItemUnparsed> items) {
-        final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+        final BlockingDeque<BlockItems> blockItemsDeque = new LinkedBlockingDeque<>();
         final BlockHasher toTest = new BlockHasher(
                 new AtomicBoolean(false),
                 blockItemsDeque,
@@ -1245,7 +1246,7 @@ class BlockHasherTest {
     /// Asserts that hashing a block containing the given item fails with the expected
     /// failure type.
     private void assertHashingFails(final BlockItemUnparsed item, final SessionFailureType expectedFailure) {
-        final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+        final BlockingDeque<BlockItems> blockItemsDeque = new LinkedBlockingDeque<>();
         final BlockSource blockSource = BlockSource.PUBLISHER;
         final BlockHasher toTest = new BlockHasher(
                 new AtomicBoolean(false),

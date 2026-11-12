@@ -5,7 +5,8 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.security.NoSuchAlgorithmException;
-import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.BlockingDeque;
+import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.hiero.block.node.app.fixtures.TestConfigurationBuilder;
@@ -86,7 +87,7 @@ class StateProofChainBuilderTest {
     }
 
     private HashingResult runHashing(final TestBlock block) {
-        final ConcurrentLinkedDeque<BlockItems> deque = new ConcurrentLinkedDeque<>();
+        final BlockingDeque<BlockItems> deque = new LinkedBlockingDeque<>();
         final BlockHasher hasher = new BlockHasher(
                 new AtomicBoolean(false),
                 deque,

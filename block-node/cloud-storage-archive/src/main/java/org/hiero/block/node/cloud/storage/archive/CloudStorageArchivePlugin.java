@@ -86,8 +86,8 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     private BlockNodeContext context;
     /// The plugin configuration, set during [init].
     private CloudStorageArchiveConfig config;
-    /// Executor used to run each upload task on a virtual thread.
-    private ExecutorService virtualThreadExecutor;
+    /// Executor used to run each upload task on its own thread.
+    private ExecutorService taskExecutor;
     /// Whether the plugin configuration is valid.  Set during [init]; gates handler registration,
     /// startup recovery, and handler unregistration in [stop].
     private boolean configValid = false;
@@ -101,7 +101,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     Future<UploadResult> currentUploadFuture = null;
     /// The [BlockingQueue] shared with the active [BlockUploadTask].  The plugin enqueues
     /// [BlockWithSource] pairs in ascending block-number order via [drainPendingToQueue]; the
-    /// task's virtual thread consumes them one by one via [BlockingQueue#take].  Replaced each
+    /// task's thread consumes them one by one via [BlockingQueue#take].  Replaced each
     /// time a new task starts.
     BlockingQueue<BlockWithSource> currentBlockQueue = new LinkedBlockingQueue<>();
 
@@ -219,9 +219,9 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     /// {@inheritDoc}
     @Override
     public void start() {
-        virtualThreadExecutor = context.threadPoolManager().getVirtualThreadExecutor();
+        taskExecutor = context.threadPoolManager().getThreadPerTaskExecutor();
         if (configValid) {
-            recoveryFuture = virtualThreadExecutor.submit(new StartupRecoveryTask(config));
+            recoveryFuture = taskExecutor.submit(new StartupRecoveryTask(config));
             // register to listen to block notifications if config is valid
             context.blockMessaging().registerBlockNotificationHandler(this, false, "Cloud Storage Archive");
         }
@@ -392,7 +392,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
             final long groupStart = entry.getKey();
             if (!consolidationFutures.containsKey(groupStart)) {
                 final Future<UploadResult> future =
-                        virtualThreadExecutor.submit(newConsolidationTask(entry.getValue(), groupStart, groupSize));
+                        taskExecutor.submit(newConsolidationTask(entry.getValue(), groupStart, groupSize));
                 consolidationFutures.put(groupStart, future);
                 pendingIt.remove();
                 LOGGER.log(
@@ -527,7 +527,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                                     .addStoredBlockRange(BlockRangeSet.of(0, nextBlockToQueue - 1));
                         }
                         currentBlockQueue = new LinkedBlockingQueue<>();
-                        currentUploadFuture = virtualThreadExecutor.submit(new BlockUploadTask(
+                        currentUploadFuture = taskExecutor.submit(new BlockUploadTask(
                                 config,
                                 context.blockMessaging(),
                                 currentGroupStart,
@@ -577,7 +577,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                         groupStart);
                 tempUploadFutures.put(
                         resumed.firstBlock(),
-                        virtualThreadExecutor.submit(newResumedTempArchiveUploadTask(
+                        taskExecutor.submit(newResumedTempArchiveUploadTask(
                                 resumed.s3Key(), resumed.firstBlock(), queue, resumed)));
             } else if (tempUploadFutures.size() >= config.maxConcurrentTempArchives()) {
                 pendingResumedArchives.add(resumed);
@@ -602,7 +602,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         tempGroupNextExpected.put(groupStart, resumed.nextBlockNumber());
         tempUploadFutures.put(
                 resumed.firstBlock(),
-                virtualThreadExecutor.submit(
+                taskExecutor.submit(
                         newResumedTempArchiveUploadTask(resumed.s3Key(), resumed.firstBlock(), queue, resumed)));
         LOGGER.log(
                 TRACE,
@@ -659,7 +659,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     }
 
     /// Initialises a new [BlockUploadTask] for the group that contains `blockNumber`, submits it
-    /// to [virtualThreadExecutor], and replays any previously stashed blocks that fall within the
+    /// to [taskExecutor], and replays any previously stashed blocks that fall within the
     /// new group's range.
     private void startNewUploadTask(long blockNumber) {
         // Integer division truncates, so this rounds blockNumber down to the nearest group boundary.
@@ -670,8 +670,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         currentBlockQueue = new LinkedBlockingQueue<>();
         LOGGER.log(
                 TRACE, "Starting upload task for group [{0}, {1})", currentGroupStart, currentGroupStart + groupSize);
-        currentUploadFuture =
-                virtualThreadExecutor.submit(newUploadTask(currentGroupStart, groupSize, currentBlockQueue));
+        currentUploadFuture = taskExecutor.submit(newUploadTask(currentGroupStart, groupSize, currentBlockQueue));
         tryReplayStash();
     }
 
@@ -991,8 +990,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
         tempGroupActiveQueues.put(groupStart, queue);
         tempGroupActiveSegmentFirstBlock.put(groupStart, firstBlock);
-        final Future<TempArchiveEntry> future =
-                virtualThreadExecutor.submit(newTempArchiveUploadTask(s3Key, firstBlock, queue));
+        final Future<TempArchiveEntry> future = taskExecutor.submit(newTempArchiveUploadTask(s3Key, firstBlock, queue));
         tempUploadFutures.put(firstBlock, future);
         LOGGER.log(TRACE, "Started streaming temp archive for group {0}, firstBlock={1}", groupStart, firstBlock);
     }
@@ -1065,7 +1063,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                 currentUploadFuture.cancel(true);
             }
             currentUploadFuture = null;
-            recoveryFuture = virtualThreadExecutor.submit(new StartupRecoveryTask(config));
+            recoveryFuture = taskExecutor.submit(new StartupRecoveryTask(config));
             LOGGER.log(TRACE, "Mid-run recovery triggered; {0} pending blocks moved to stash", movedCount);
         }
     }
@@ -1076,7 +1074,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         if (configValid) {
             context.blockMessaging().unregisterBlockNotificationHandler(this);
         }
-        // Cancelling with true interrupts the virtual thread, causing blockQueue.take() to throw
+        // Cancelling with true interrupts the task thread, causing blockQueue.take() to throw
         // InterruptedException inside BlockUploadTask.call()
         if (currentUploadFuture != null) {
             currentUploadFuture.cancel(true);

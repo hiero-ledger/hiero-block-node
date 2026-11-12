@@ -20,10 +20,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.BlockingDeque;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.locks.LockSupport;
 import java.util.function.Supplier;
 import org.hiero.block.api.TssData;
 import org.hiero.block.common.hasher.HashAlgorithm;
@@ -44,8 +43,8 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 /// The hasher is responsible for receiving a block as items and to dynamically hash the items.
 /// Eventually, a [HashingResult] is produced.
 public final class BlockHasher implements Supplier<HashingResult> {
-    /// The time to park between polls of the block items deque when no data is available.
-    private static final long DATA_BUSY_WAIT_TIME_NANOS = TimeUnit.MICROSECONDS.toNanos(200);
+    /// The longest time to wait for block items before checking the cancel flag again.
+    private static final long CANCEL_CHECK_INTERVAL_MILLIS = 10;
     /// The first `BlockItem` field number governed by the block stream forward compatibility
     /// numbering rule. Field numbers below this value belong to the first release; an unknown
     /// field below it is reserved for item types that require specific handling.
@@ -73,7 +72,7 @@ public final class BlockHasher implements Supplier<HashingResult> {
     /// Metrics recorded by the hashing stage.
     private final HashingMetrics hashingMetrics;
     /// The deque through which the block's item batches are supplied to the hasher.
-    private final ConcurrentLinkedDeque<BlockItems> blockItemsRecordsDeque;
+    private final BlockingDeque<BlockItems> blockItemsRecordsDeque;
     /// All items of the block accumulated so far, used to build the complete block for the result.
     private final List<BlockItemUnparsed> accumulatedBlockItems;
     /// All block proofs parsed so far.
@@ -137,7 +136,7 @@ public final class BlockHasher implements Supplier<HashingResult> {
     /// @param verificationDataProvider provider of the verification data, must not be null
     public BlockHasher(
             final AtomicBoolean isCanceled,
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque,
+            final BlockingDeque<BlockItems> blockItemsDeque,
             final HashingMetrics hashingMetrics,
             final long blockNumber,
             final BlockSource blockSource,
@@ -177,10 +176,10 @@ public final class BlockHasher implements Supplier<HashingResult> {
         try {
             final long hashingStartTime = System.nanoTime();
             while (!isCanceled()) {
-                final BlockItems blockItemsRecord = blockItemsRecordsDeque.poll();
-                if (blockItemsRecord == null) {
-                    LockSupport.parkNanos(DATA_BUSY_WAIT_TIME_NANOS);
-                } else {
+                // A timed poll, so that a cancel (which only sets the flag) is seen within one interval.
+                final BlockItems blockItemsRecord =
+                        blockItemsRecordsDeque.poll(CANCEL_CHECK_INTERVAL_MILLIS, TimeUnit.MILLISECONDS);
+                if (blockItemsRecord != null) {
                     final List<BlockItemUnparsed> currentBlockItems = blockItemsRecord.blockItems();
                     if (blockItemsRecord.isStartOfNewBlock()
                             && !currentBlockItems.getFirst().hasBlockHeader()) {
@@ -204,6 +203,9 @@ public final class BlockHasher implements Supplier<HashingResult> {
                 }
             }
             throw new VerificationSessionFailedException(blockNumber, SessionFailureType.CANCELLED, blockSource);
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new VerificationSessionFailedException(blockNumber, SessionFailureType.CANCELLED, blockSource, e);
         } catch (final ParseException e) {
             throw new VerificationSessionFailedException(
                     blockNumber, SessionFailureType.UNABLE_TO_PARSE, blockSource, e);

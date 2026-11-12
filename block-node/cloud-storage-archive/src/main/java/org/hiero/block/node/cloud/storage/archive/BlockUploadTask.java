@@ -41,7 +41,7 @@ import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 /// begins the block loop from [RecoveryResult#nextBlockNumber()] rather than [firstBlock].
 ///
 /// **Cancellation** is handled via standard thread interruption: calling
-/// [java.util.concurrent.Future#cancel(boolean)] with `true` interrupts the virtual thread, which
+/// [java.util.concurrent.Future#cancel(boolean)] with `true` interrupts the task thread, which
 /// causes [BlockingQueue#take] to throw [InterruptedException].
 ///
 /// The [S3Client] lives entirely inside a try-with-resources block, so it is always closed,

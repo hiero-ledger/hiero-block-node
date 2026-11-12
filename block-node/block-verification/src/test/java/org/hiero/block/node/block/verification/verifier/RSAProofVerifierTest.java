@@ -36,7 +36,8 @@ import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.BlockingDeque;
+import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 import org.hiero.block.internal.BlockItemUnparsed;
@@ -202,7 +203,7 @@ class RSAProofVerifierTest {
             final List<BlockItemUnparsed> items, final Map<Long, PublicKey> keyMap) throws Exception {
         final BlockNodeContext context = TestUtils.testContext();
         final MetricsHolder metricsHolder = MetricsHolder.create(context.metricRegistry());
-        final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+        final BlockingDeque<BlockItems> blockItemsDeque = new LinkedBlockingDeque<>();
         final BlockHasher hasher = createHasher(blockItemsDeque, BLOCK_NUMBER, context, metricsHolder);
         blockItemsDeque.offer(new BlockItems(items, BLOCK_NUMBER, true, true));
         final HashingResult hashingResult = hasher.get();
@@ -234,7 +235,7 @@ class RSAProofVerifierTest {
     }
 
     private static BlockHasher createHasher(
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque,
+            final BlockingDeque<BlockItems> blockItemsDeque,
             final long blockNumber,
             final BlockNodeContext context,
             final MetricsHolder metricsHolder) {
@@ -805,7 +806,7 @@ class RSAProofVerifierTest {
             // version's payload from the block on the hashing result
             final BlockNodeContext context = TestUtils.testContext();
             final MetricsHolder metricsHolder = MetricsHolder.create(context.metricRegistry());
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockingDeque<BlockItems> blockItemsDeque = new LinkedBlockingDeque<>();
             final BlockHasher hasher = createHasher(blockItemsDeque, BLOCK_NUMBER, context, metricsHolder);
             blockItemsDeque.offer(new BlockItems(items, BLOCK_NUMBER, true, true));
             final HashingResult hashingResult = hasher.get();
@@ -858,7 +859,7 @@ class RSAProofVerifierTest {
             final ResourceTestWRBBlock block = ResourceTestBlockBuilder.load(fixture);
             final BlockNodeContext context = TestUtils.testContext();
             final MetricsHolder metricsHolder = MetricsHolder.create(context.metricRegistry());
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockingDeque<BlockItems> blockItemsDeque = new LinkedBlockingDeque<>();
             final BlockHasher hasher = createHasher(blockItemsDeque, block.number(), context, metricsHolder);
             blockItemsDeque.offer(block.asBlockItems());
             final HashingResult hashingResult = hasher.get();
@@ -901,7 +902,7 @@ class RSAProofVerifierTest {
                             .build());
             final BlockNodeContext context = TestUtils.testContext();
             final MetricsHolder metricsHolder = MetricsHolder.create(context.metricRegistry());
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockingDeque<BlockItems> blockItemsDeque = new LinkedBlockingDeque<>();
             final BlockHasher hasher = createHasher(blockItemsDeque, block.number(), context, metricsHolder);
             blockItemsDeque.offer(block.asBlockItems());
             final HashingResult hashingResult = hasher.get();
@@ -984,7 +985,7 @@ class RSAProofVerifierTest {
             final ResourceTestWRBBlock block = ResourceTestBlockBuilder.load(fixture);
             final BlockNodeContext context = TestUtils.testContext();
             final MetricsHolder metricsHolder = MetricsHolder.create(context.metricRegistry());
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockingDeque<BlockItems> blockItemsDeque = new LinkedBlockingDeque<>();
             final BlockHasher hasher = createHasher(blockItemsDeque, block.number(), context, metricsHolder);
             blockItemsDeque.offer(block.asBlockItems());
             final HashingResult hashingResult = hasher.get();
@@ -1027,7 +1028,7 @@ class RSAProofVerifierTest {
             }
             final BlockNodeContext context = TestUtils.testContext();
             final MetricsHolder metricsHolder = MetricsHolder.create(context.metricRegistry());
-            final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+            final BlockingDeque<BlockItems> blockItemsDeque = new LinkedBlockingDeque<>();
             final BlockHasher hasher = createHasher(blockItemsDeque, original.number(), context, metricsHolder);
             blockItemsDeque.offer(new BlockItems(changedItems, original.number(), true, true));
             final HashingResult hashingResult = hasher.get();

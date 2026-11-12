@@ -22,59 +22,65 @@ import org.hiero.block.node.spi.threading.ThreadPoolManager;
  * implementation is used systemwide to manage the thread pools.
  */
 final class DefaultThreadPoolManager implements ThreadPoolManager {
-    private static final ExecutorService DEFAULT_VIRTUAL_THREAD_EXECUTOR = Executors.newVirtualThreadPerTaskExecutor();
-    private static final Map<UncaughtExceptionHandler, ExecutorService> VIRTUAL_THREAD_MAP = new ConcurrentHashMap<>();
+    /** Name prefix for threads of executors created without a thread name. */
+    private static final String UNNAMED_THREAD_PREFIX = "block-node-task-";
+
+    private static final ExecutorService DEFAULT_THREAD_PER_TASK_EXECUTOR =
+            createThreadPerTaskExecutor(UNNAMED_THREAD_PREFIX, null);
+    private static final Map<UncaughtExceptionHandler, ExecutorService> HANDLER_TO_EXECUTOR = new ConcurrentHashMap<>();
 
     /**
      * {@inheritDoc}
      * <p>
      * This implementation caches executors based on the exception handler, and
-     * tries to return the same thread-per-task executor specialized to use virtual
-     * threads for each exception handler instance. If threadName is not null,
-     * however, a unique executor service is returned.
+     * tries to return the same thread-per-task executor for each exception
+     * handler instance. If threadName is not null, however, a unique executor
+     * service is returned.
      *
      * If no exception handler or name is provided, this returns the same static
-     * executor as {@link #getVirtualThreadExecutor()}.
+     * executor as {@link #getThreadPerTaskExecutor()}.
      */
     @NonNull
     @Override
-    public ExecutorService getVirtualThreadExecutor(
+    public ExecutorService getThreadPerTaskExecutor(
             @Nullable final String threadName, @Nullable final UncaughtExceptionHandler uncaughtExceptionHandler) {
         if (threadName != null) {
             Preconditions.requireNotBlank(threadName);
-            return createVirtualThreadExecutor(threadName, uncaughtExceptionHandler);
+            return createThreadPerTaskExecutor(threadName, uncaughtExceptionHandler);
         } else if (uncaughtExceptionHandler != null) {
-            if (!VIRTUAL_THREAD_MAP.containsKey(uncaughtExceptionHandler)) {
-                final ExecutorService newExecutor = createVirtualThreadExecutor(threadName, uncaughtExceptionHandler);
-                VIRTUAL_THREAD_MAP.put(uncaughtExceptionHandler, newExecutor);
-            }
-            return VIRTUAL_THREAD_MAP.get(uncaughtExceptionHandler);
+            return HANDLER_TO_EXECUTOR.computeIfAbsent(
+                    uncaughtExceptionHandler, handler -> createThreadPerTaskExecutor(UNNAMED_THREAD_PREFIX, handler));
         } else {
-            return DEFAULT_VIRTUAL_THREAD_EXECUTOR;
+            return DEFAULT_THREAD_PER_TASK_EXECUTOR;
         }
     }
 
     /**
-     * Creates a new virtual thread-per-task executor specialized to use virtual threads.
+     * Creates a new thread-per-task executor that runs each task on a new daemon platform thread.
      *
-     * @param threadName the thread name prefix, may be null
+     * @param threadNamePrefix the thread name prefix, a counter is appended
      * @param uncaughtExceptionHandler the uncaught exception handler, may be null
-     * @return a new virtual thread-per-task executor service if threadName is not null,
-     *         or a cached (based on exception handler instance) executor service otherwise.
+     * @return a new thread-per-task executor service
      */
-    private static ExecutorService createVirtualThreadExecutor(
-            @Nullable final String threadName, @Nullable final UncaughtExceptionHandler uncaughtExceptionHandler) {
-        Thread.Builder factoryBuilder = Thread.ofVirtual();
+    private static ExecutorService createThreadPerTaskExecutor(
+            @NonNull final String threadNamePrefix, @Nullable final UncaughtExceptionHandler uncaughtExceptionHandler) {
+        return Executors.newThreadPerTaskExecutor(daemonThreadFactory(threadNamePrefix, uncaughtExceptionHandler));
+    }
+
+    /**
+     * Creates a factory for daemon platform threads, so that they never keep the JVM alive on shutdown.
+     *
+     * @param threadNamePrefix the thread name prefix, a counter is appended
+     * @param uncaughtExceptionHandler the uncaught exception handler, may be null
+     * @return a new thread factory
+     */
+    private static ThreadFactory daemonThreadFactory(
+            @NonNull final String threadNamePrefix, @Nullable final UncaughtExceptionHandler uncaughtExceptionHandler) {
+        final OfPlatform factoryBuilder = Thread.ofPlatform().daemon(true).name(threadNamePrefix, 0);
         if (uncaughtExceptionHandler != null) {
             factoryBuilder.uncaughtExceptionHandler(uncaughtExceptionHandler);
         }
-        if (threadName != null) {
-            factoryBuilder.name(threadName, 0);
-            return Executors.newThreadPerTaskExecutor(factoryBuilder.factory());
-        } else {
-            final ThreadFactory factory = factoryBuilder.factory();
-            return Executors.newThreadPerTaskExecutor(factory);
-        }
+        return factoryBuilder.factory();
     }
 
     /**
@@ -102,21 +108,16 @@ final class DefaultThreadPoolManager implements ThreadPoolManager {
      */
     @NonNull
     @Override
-    public ScheduledExecutorService createVirtualThreadScheduledExecutor(
+    public ScheduledExecutorService createScheduledExecutor(
             int corePoolSize,
             @Nullable final String threadName,
             @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler) {
-        Thread.Builder factoryBuilder = Thread.ofVirtual();
-        if (uncaughtExceptionHandler != null) {
-            factoryBuilder.uncaughtExceptionHandler(uncaughtExceptionHandler);
-        }
         if (threadName != null) {
-            factoryBuilder.name(threadName, 0);
-            return Executors.newScheduledThreadPool(corePoolSize, factoryBuilder.factory());
-        } else {
-            final ThreadFactory factory = factoryBuilder.factory();
-            return Executors.newScheduledThreadPool(corePoolSize, factory);
+            Preconditions.requireNotBlank(threadName);
         }
+        final String threadNamePrefix = threadName == null ? UNNAMED_THREAD_PREFIX : threadName;
+        return Executors.newScheduledThreadPool(
+                corePoolSize, daemonThreadFactory(threadNamePrefix, uncaughtExceptionHandler));
     }
 
     /**

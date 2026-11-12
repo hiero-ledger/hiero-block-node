@@ -14,7 +14,8 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.BlockingDeque;
+import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.hiero.block.common.hasher.HashAlgorithm;
 import org.hiero.block.common.hasher.StreamingHasher;
@@ -189,7 +190,7 @@ public final class StateProofChainBuilder {
     }
 
     private Bytes computeRootHash(final TestBlock block, final long blockNumber) {
-        final ConcurrentLinkedDeque<BlockItems> deque = new ConcurrentLinkedDeque<>();
+        final BlockingDeque<BlockItems> deque = new LinkedBlockingDeque<>();
         final BlockHasher hasher = new BlockHasher(
                 new AtomicBoolean(false),
                 deque,

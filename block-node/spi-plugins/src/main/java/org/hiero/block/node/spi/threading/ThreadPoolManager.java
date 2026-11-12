@@ -18,32 +18,32 @@ import java.util.concurrent.ScheduledExecutorService;
  */
 public interface ThreadPoolManager {
     /**
-     * Factory method. Creates a new virtual thread-per-task {@link ExecutorService}.
+     * Factory method. Creates a new thread-per-task {@link ExecutorService}. Each task runs on its own platform thread.
      *
-     * @return a new virtual thread-per-task executor service
+     * @return a new thread-per-task executor service
      */
     @NonNull
-    default ExecutorService getVirtualThreadExecutor() {
-        return getVirtualThreadExecutor(null, null);
+    default ExecutorService getThreadPerTaskExecutor() {
+        return getThreadPerTaskExecutor(null, null);
     }
 
     /**
-     * Factory method. Creates a new virtual thread-per-task {@link ExecutorService}.
+     * Factory method. Creates a new thread-per-task {@link ExecutorService}. Each task runs on its own platform thread.
      *
      * Note, the thread name is a debugging aid. Naming threads may prevent
      * caching or reusing executor services, and may result in more overhead.
      *
      * @param threadName the thread name prefix, must not be blank
-     * @return a new virtual thread-per-task executor service
+     * @return a new thread-per-task executor service
      */
     @NonNull
-    default ExecutorService getVirtualThreadExecutor(@NonNull final String threadName) {
-        return getVirtualThreadExecutor(Objects.requireNonNull(threadName), null);
+    default ExecutorService getThreadPerTaskExecutor(@NonNull final String threadName) {
+        return getThreadPerTaskExecutor(Objects.requireNonNull(threadName), null);
     }
 
     /**
-     * Factory method. Creates a new virtual thread-per-task {@link ExecutorService} using
-     * the specified (nullable) {@link Thread.UncaughtExceptionHandler}.
+     * Factory method. Creates a new thread-per-task {@link ExecutorService}. Each task runs on its own platform thread,
+     * with the specified (nullable) {@link Thread.UncaughtExceptionHandler}.
      *
      * Note, the thread name is a debugging aid, and optional. Naming threads
      * may prevent caching or reusing executor services, and may result in more
@@ -56,10 +56,10 @@ public interface ThreadPoolManager {
      *
      * @param threadName the thread name prefix, must not be blank
      * @param uncaughtExceptionHandler the uncaught exception handler, nullable
-     * @return a new virtual thread-per-task executor service
+     * @return a new thread-per-task executor service
      */
     @NonNull
-    ExecutorService getVirtualThreadExecutor(
+    ExecutorService getThreadPerTaskExecutor(
             @Nullable final String threadName,
             @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler);
 
@@ -113,16 +113,22 @@ public interface ThreadPoolManager {
             @Nullable final String threadName,
             @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler);
 
+    /**
+     * Factory method for a scheduled executor with a fixed pool of platform threads.
+     *
+     * @param corePoolSize the number of threads in the pool
+     * @param threadName the thread name prefix, nullable, must not be blank if set
+     * @param uncaughtExceptionHandler the uncaught exception handler, nullable
+     * @return a new scheduled executor service
+     */
     @NonNull
-    ScheduledExecutorService createVirtualThreadScheduledExecutor(
+    ScheduledExecutorService createScheduledExecutor(
             int corePoolSize,
             @Nullable final String threadName,
             @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler);
 
     /**
-     * Factory method for a single thread scheduled executor using platform threads.
-     * Platform threads are required for certain operations where virtual threads
-     * have compatibility issues (e.g., Helidon WebClient HTTP/2 in containers).
+     * Factory method for a single thread scheduled executor.
      *
      * @param threadName the thread's name for debugging, must not be blank
      * @param uncaughtExceptionHandler the uncaught exception handler
