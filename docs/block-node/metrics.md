@@ -404,11 +404,11 @@ is a block-count cap, not a disk-size cap (see [Host / Volume](#host--volume-ext
 
 **Messaging**: Alerts for messaging service operations regarding block items and block notification
 
-| Severity |                   Metric                    |                      Alert Condition                      |
-|----------|---------------------------------------------|-----------------------------------------------------------|
-| L        | `messaging_item_queue_percent_used`         | If percentage exceeds 60%, otherwise, configure as needed |
-| L        | `messaging_notification_queue_percent_used` | If percentage exceeds 60%, otherwise, configure as needed |
-| M        | `messaging_handler_failures`                | If value increases, otherwise, configure as needed        |
+| Severity |                   Metric                    |                          Alert Condition                           |
+|----------|---------------------------------------------|--------------------------------------------------------------------|
+| L        | `messaging_item_queue_percent_used`         | If percentage exceeds 60%, otherwise, configure as needed          |
+| L        | `messaging_notification_queue_percent_used` | If percentage exceeds 60%, otherwise, configure as needed          |
+| M        | `messaging_handler_failures`                | If value exceeds 0 in the last 60s, otherwise, configure as needed |
 
 **Verification**: Alerts for the active sessions buffer of the verification plugin
 
@@ -427,12 +427,15 @@ is a block-count cap, not a disk-size cap (see [Host / Volume](#host--volume-ext
 
 **Cloud Expanded**: Alerts for metrics regarding expanded cloud storage (single-block S3 uploads)
 
-> **Note:** The three counters in this alerting table (`cloud_expanded_total_upload_failures`,
-> `cloud_expanded_total_uploads`, `cloud_expanded_total_upload_bytes`) are registered without a
-> `_total` suffix; Prometheus appends `_total` at scrape time, producing the PromQL names shown here.
+> **Note:** The word "total" in these metric names (`cloud_expanded_total_uploads`,
+> `cloud_expanded_total_upload_failures`, `cloud_expanded_total_upload_bytes`) is part of the
+> descriptive name, not the Prometheus counter suffix. In Prometheus, every Block Node metric carries
+> the app-level `blocknode_` prefix (see the top of this page) and Counter metrics also carry a
+> `_total` suffix, producing the PromQL names shown in the table (for example,
+> `cloud_expanded_total_uploads` is queried as `blocknode_cloud_expanded_total_uploads_total`).
 
-| Severity | Alert                         | Metric                                       |                         Condition                          |
-|:---------|:------------------------------|:---------------------------------------------|------------------------------------------------------------|
-| Warning  | Upload failure rate elevated  | `cloud_expanded_total_upload_failures_total` | `rate(cloud_expanded_total_upload_failures_total[5m]) > 0` |
-| Critical | No uploads in expected window | `cloud_expanded_total_uploads_total`         | `increase(cloud_expanded_total_uploads_total[10m]) == 0`   |
-| Warning  | Bytes stalled                 | `cloud_expanded_total_upload_bytes_total`    | `rate(cloud_expanded_total_upload_bytes_total[10m]) == 0`  |
+| Severity | Alert                         | Metric                                                 |                              Condition                               |
+|:---------|:------------------------------|:-------------------------------------------------------|----------------------------------------------------------------------|
+| Warning  | Upload failure rate elevated  | `blocknode_cloud_expanded_total_upload_failures_total` | `rate(blocknode_cloud_expanded_total_upload_failures_total[5m]) > 0` |
+| Critical | No uploads in expected window | `blocknode_cloud_expanded_total_uploads_total`         | `increase(blocknode_cloud_expanded_total_uploads_total[10m]) == 0`   |
+| Warning  | Bytes stalled                 | `blocknode_cloud_expanded_total_upload_bytes_total`    | `rate(blocknode_cloud_expanded_total_upload_bytes_total[10m]) == 0`  |
