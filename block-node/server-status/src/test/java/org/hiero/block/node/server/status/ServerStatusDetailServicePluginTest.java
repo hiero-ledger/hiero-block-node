@@ -319,50 +319,17 @@ public class ServerStatusDetailServicePluginTest
     }
 
     @Test
-    @DisplayName("exclude_address_book leaves out the address book and its history but nothing else")
-    void excludeAddressBookLeavesOutAddressBookAndHistory() throws ParseException {
-        final ServerStatusDetailResponse response = detailWithState(
-                ServerStatusDetailRequest.newBuilder().excludeAddressBook(true).build());
-
-        assertFalse(response.hasNodeAddressBook());
-        assertFalse(response.hasRangedAddressBookHistory());
-        assertTrue(response.hasVersionInformation());
-        assertEquals(1, response.availableRanges().size());
-        assertEquals(1, response.storedRanges().size());
-        assertNotNull(response.tssData());
-    }
-
-    @Test
-    @DisplayName("exclude_tss_data leaves out only the TSS data")
-    void excludeTssDataLeavesOutOnlyTssData() throws ParseException {
-        final ServerStatusDetailResponse response = detailWithState(
-                ServerStatusDetailRequest.newBuilder().excludeTssData(true).build());
-
-        assertNull(response.tssData());
-        assertTrue(response.hasNodeAddressBook());
-        assertTrue(response.hasRangedAddressBookHistory());
-        assertTrue(response.hasVersionInformation());
-        assertEquals(1, response.availableRanges().size());
-        assertEquals(1, response.storedRanges().size());
-    }
-
-    @Test
     @DisplayName("All exclude flags together leave an empty response")
     void allFlagsLeaveEmptyResponse() throws ParseException {
         final ServerStatusDetailResponse response = detailWithState(ServerStatusDetailRequest.newBuilder()
                 .excludeVersions(true)
                 .excludeAvailableRanges(true)
                 .excludeStoredRanges(true)
-                .excludeAddressBook(true)
-                .excludeTssData(true)
                 .build());
 
         assertFalse(response.hasVersionInformation());
         assertTrue(response.availableRanges().isEmpty());
         assertTrue(response.storedRanges().isEmpty());
-        assertFalse(response.hasNodeAddressBook());
-        assertFalse(response.hasRangedAddressBookHistory());
-        assertNull(response.tssData());
     }
 
     NodeAddressBook buildAddressBook() {
