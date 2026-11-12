@@ -1060,7 +1060,8 @@ class SubscriberServicePluginTest {
             }
 
             /**
-             * This test aims to assert that when we have partial blocks supplied, they will still be sent
+             * This test aims to assert that when we have partial blocks supplied (no block header),
+             * they are NOT sent, because a block must always start with its block header (issue 1581).
              */
             @Test
             @DisplayName("Test Subscriber: Valid Request Live Stream Subscription With Partial Blocks")
@@ -1079,7 +1080,7 @@ class SubscriberServicePluginTest {
                 expected.add(blocksZeroToTwo.getFirst());
                 final TestBlock blockZero = blocksZeroToTwo.getFirst();
                 blockMessaging.sendBlockItems(blockZero.asBlockItems());
-                // Now supply the following blocks without headers
+                // Now supply the following blocks without headers; these must be dropped
                 final List<TestBlock> blocksOneToTwo = blocksZeroToTwo.subList(1, blocksZeroToTwo.size());
                 for (final TestBlock block : blocksOneToTwo) {
                     // remove the header from the block
@@ -1091,12 +1092,9 @@ class SubscriberServicePluginTest {
                             block.number(), // the correct block number
                             false,
                             true));
-                    expected.add(new TestBlock(
-                            block.number(),
-                            Block.newBuilder().items(itemsToSend).build()));
                 }
-                // Wait for responses for block items
-                final int expectedBlockItemResponses = 6; // only one with items and end block
+                // Wait for responses for block zero only (items and end block)
+                final int expectedBlockItemResponses = 2;
                 awaitResponse(fromPluginBytes, expectedBlockItemResponses);
                 // now we need to stop the plugin to end the live stream request and
                 // receive the success status response
