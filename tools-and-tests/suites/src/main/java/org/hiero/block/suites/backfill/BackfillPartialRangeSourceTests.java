@@ -117,7 +117,9 @@ public class BackfillPartialRangeSourceTests {
         final List<BlockUnparsed> blocks;
         try (BlockNodeClient client = new BlockNodeClient(
                 source, GRPC_TIMEOUT_MS, false, MAX_INCOMING_BUFFER_SIZE, MAX_PROTOBUF_MESSAGE_SIZE, null)) {
-            blocks = client.getBlockstreamSubscribeUnparsedClient().getBatchOfBlocks(0L, LAST_REQUESTED_BLOCK);
+            blocks = client.getBlockstreamSubscribeUnparsedClient()
+                    .getBatchOfBlocks(0L, LAST_REQUESTED_BLOCK)
+                    .blocks();
         }
 
         assertThat(blocks).hasSize((int) LAST_PUBLISHED_BLOCK + 1);
