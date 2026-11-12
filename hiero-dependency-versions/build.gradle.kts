@@ -158,7 +158,7 @@ dependencies.constraints {
     api("org.testcontainers:testcontainers:${testContainersVersion}") {
         because("org.testcontainers")
     }
-    api("com.google.jimfs:jimfs:1.3.1") { because("com.google.common.jimfs") }
+    api("com.google.jimfs:jimfs:1.3.2") { because("com.google.common.jimfs") }
     api("com.hedera.bucky:bucky-client:${buckyVersion}") { because("com.hedera.bucky") }
     api("io.minio:minio:8.5.17") { because("io.minio") }
     api("com.squareup.okio:okio-jvm:3.18.2") { because("okio") } // required by minio
