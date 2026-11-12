@@ -14,13 +14,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import org.hiero.block.api.AddressBookRequest;
+import org.hiero.block.api.AddressBookResponse;
 import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.RangedAddressBookHistory;
+import org.hiero.block.api.ServerStatusDetailRequest;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
 import org.hiero.block.api.TssData;
+import org.hiero.block.api.TssDataRequest;
+import org.hiero.block.api.TssDataResponse;
 import org.hiero.block.node.app.config.GlobalThrottleConfig;
 import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.spi.ApplicationStateFacility;
@@ -124,12 +129,14 @@ public class ServerStatusServicePlugin
     /**
      * Handle a request for server status details
      *
-     * @param request the request containing the available blocks, state snapshot status and software version
-     * @return the response containing the block or an error status
+     * @param request the request, whose flags leave out the version information, the available ranges, the stored
+     *     ranges, the address book or the TSS data
+     * @return the response with the parts that were not excluded
      */
     @Override
     @NonNull
-    public ServerStatusDetailResponse serverStatusDetail(@NonNull final ServerStatusRequest request) {
+    @SuppressWarnings("deprecation")
+    public ServerStatusDetailResponse serverStatusDetail(@NonNull final ServerStatusDetailRequest request) {
         requestDetailCounter.increment();
 
         // Capture volatile snapshots for a consistent read within this call.
@@ -138,20 +145,69 @@ public class ServerStatusServicePlugin
         final TssData localTss = tssData;
         final RangedAddressBookHistory localHistory = rangedAddressBookHistory;
 
-        // Derive the latest NodeAddressBook from the history: the address book of its last era.
-        final NodeAddressBook nodeAddressBook =
-                localHistory != null && !localHistory.addressBooks().isEmpty()
-                        ? localHistory.addressBooks().getLast().addressBook()
-                        : null;
-
-        return ServerStatusDetailResponse.newBuilder()
-                .versionInformation(blockNodeContext.blockNodeVersions())
-                .availableRanges(localAvailable)
-                .storedRanges(localStored)
+        // The TSS data and the address book are deprecated in favour of dedicated calls. They are still returned by
+        // default for one release so that older clients keep working. The address book is the large part of the
+        // response.
+        final ServerStatusDetailResponse.Builder response = ServerStatusDetailResponse.newBuilder()
                 .tssData(localTss)
-                .nodeAddressBook(nodeAddressBook)
-                .rangedAddressBookHistory(localHistory)
-                .build();
+                .nodeAddressBook(latestAddressBook(localHistory))
+                .rangedAddressBookHistory(localHistory);
+
+        if (!request.excludeVersions()) {
+            response.versionInformation(blockNodeContext.blockNodeVersions());
+        }
+        if (!request.excludeAvailableRanges()) {
+            response.availableRanges(localAvailable);
+        }
+        if (!request.excludeStoredRanges()) {
+            response.storedRanges(localStored);
+        }
+        return response.build();
+    }
+
+    /**
+     * Handle a request for the address book
+     *
+     * @param request the request, whose flag leaves out the address book history
+     * @return the response with the most recent address book, and the history unless it was excluded
+     */
+    @Override
+    @NonNull
+    public AddressBookResponse getAddressBook(@NonNull final AddressBookRequest request) {
+        // Capture a volatile snapshot for a consistent read within this call.
+        final RangedAddressBookHistory localHistory = rangedAddressBookHistory;
+        final AddressBookResponse.Builder response =
+                AddressBookResponse.newBuilder().nodeAddressBook(latestAddressBook(localHistory));
+        if (!request.excludeHistory()) {
+            response.rangedAddressBookHistory(localHistory);
+        }
+        return response.build();
+    }
+
+    /**
+     * Handle a request for the TSS data
+     *
+     * @param request the request, whose flag leaves out the TSS data history
+     * @return the response with the most recent TSS data
+     */
+    @Override
+    @NonNull
+    public TssDataResponse getTssData(@NonNull final TssDataRequest request) {
+        // Only the most recent TSS data is kept today, so the history is never filled in, whatever the request
+        // asks for. Keeping a history is tracked as its own task.
+        return TssDataResponse.newBuilder().tssData(tssData).build();
+    }
+
+    /**
+     * Derive the latest address book from the history: the address book of its last era.
+     *
+     * @param history the address book history, or null if none is known yet
+     * @return the latest address book, or null if there is none
+     */
+    private static NodeAddressBook latestAddressBook(final RangedAddressBookHistory history) {
+        return history != null && !history.addressBooks().isEmpty()
+                ? history.addressBooks().getLast().addressBook()
+                : null;
     }
 
     // ==== BlockNodePlugin Methods ====================================================================================

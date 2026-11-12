@@ -20,6 +20,8 @@ import io.helidon.webserver.WebServer;
 import io.helidon.webserver.WebServerConfig;
 import java.util.ArrayList;
 import java.util.List;
+import org.hiero.block.api.AddressBookRequest;
+import org.hiero.block.api.AddressBookResponse;
 import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.BlockItemSet;
 import org.hiero.block.api.BlockNodeServiceInterface;
@@ -28,6 +30,7 @@ import org.hiero.block.api.BlockStreamSubscribeServiceInterface;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.api.RosterEntry;
+import org.hiero.block.api.ServerStatusDetailRequest;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
@@ -35,6 +38,8 @@ import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse;
 import org.hiero.block.api.SubscribeStreamResponse.Code;
 import org.hiero.block.api.TssData;
+import org.hiero.block.api.TssDataRequest;
+import org.hiero.block.api.TssDataResponse;
 import org.hiero.block.api.TssRoster;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
@@ -218,7 +223,7 @@ public class TestBlockNodeServer {
 
         @Override
         @NonNull
-        public ServerStatusDetailResponse serverStatusDetail(@NonNull ServerStatusRequest request) {
+        public ServerStatusDetailResponse serverStatusDetail(@NonNull ServerStatusDetailRequest request) {
             List<BlockRange> blockRanges = new ArrayList<>();
 
             BlockRange.Builder blockRangeBuilder = BlockRange.newBuilder();
@@ -243,6 +248,18 @@ public class TestBlockNodeServer {
                     .nodeAddressBook(buildAddressBook(4))
                     .rangedAddressBookHistory(buildRangedHistory(5, 1000, 4))
                     .build();
+        }
+
+        @Override
+        @NonNull
+        public AddressBookResponse getAddressBook(@NonNull final AddressBookRequest request) {
+            return AddressBookResponse.DEFAULT;
+        }
+
+        @Override
+        @NonNull
+        public TssDataResponse getTssData(@NonNull final TssDataRequest request) {
+            return TssDataResponse.DEFAULT;
         }
 
         /// build a `TssData` object from individual fields from the `TssBootstrapConfig`
