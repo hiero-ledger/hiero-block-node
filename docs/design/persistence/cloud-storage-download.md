@@ -42,6 +42,11 @@ expected to live roughly 3 to 6 months.
   configure it.
 * The plugin must work with any S3-compatible store, including Google Cloud Storage through S3
   interoperability.
+* The probe block of each pull must be persisted within 30 seconds of its consensus timestamp.
+  This is the provisional latency SLO from the epic; the Mirror Node's own failover spike (10 to
+  20 seconds) uses part of the same budget. Earlier blocks of the pull range are older by design,
+  since the plugin acts only once the node is `aheadThresholdBlocks` behind. Where the clock
+  starts is open question 3.
 
 ## Terms
 
@@ -220,11 +225,16 @@ new BackfilledBlockNotification(blockNumber, block, BlockSource.CLOUD_STORAGE)
 
 and waits for a successful `PersistedNotification` for that block number before moving on, the
 same way backfill waits for each chunk. Any source ends the wait: if the publisher or backfill
-persists the block first, the plugin does not wait for its own copy. On a timeout it keeps
-waiting on the same submission and never resends it, as backfill does; a resend would race the
-first submission through verification.
+persists the block first, the plugin does not wait for its own copy. Within a pull the plugin
+never resends a submission, since a resend would race the first one through verification.
 
-Submitting in order and waiting per window keeps the plugin within the verification plugin's
+The wait is bounded by `persistWaitTimeoutMs`. If the block is not persisted by then, the plugin
+logs it, counts a persist timeout, and ends the pull, so a lost notification cannot park the
+poll thread for good. The next poll recomputes `last` from the stored blocks: a block that
+persisted late is skipped as already stored, and only a block that really never came back is
+submitted again.
+
+Submitting in order and waiting for each block keeps the plugin within the verification plugin's
 active session buffer and satisfies its result ordering, which already applies to sources other
 than the publisher. It also handles block 0 correctly, which must persist before later blocks.
 
@@ -335,6 +345,7 @@ flowchart TD
     G2 -- no --> X["Count download failure,<br/>end pull"]
     G -- good copy --> S["Send BackfilledBlockNotification<br/>source CLOUD_STORAGE"]
     S --> W{"Persisted?"}
+    W -- timeout --> T["Count persist timeout,<br/>end pull"]
     W -- "verification failed" --> R{"Retried once<br/>already?"}
     R -- no --> G
     R -- yes --> X
@@ -376,21 +387,21 @@ sequenceDiagram
 
 All properties are under the `cloud.storage.download` namespace.
 
-|          Property          | Default |                                             Description                                              |
-|----------------------------|---------|------------------------------------------------------------------------------------------------------|
-| `enabled`                  | `false` | Master switch. When `false` the plugin does nothing.                                                 |
-| `endpointUrl`              | `""`    | S3-compatible endpoint, for example `https://storage.googleapis.com` for GCS. Required when enabled. |
-| `regionName`               | `""`    | Region of the bucket. Required when enabled.                                                         |
-| `bucketName`               | `""`    | Name of the CN upload bucket. Required when enabled.                                                 |
-| `accessKey`                | `""`    | Read-only access key (HMAC key for GCS). Not logged. Required when enabled.                          |
-| `secretKey`                | `""`    | Read-only secret key. Not logged. Required when enabled.                                             |
-| `objectKeyPrefix`          | `""`    | `<prefix>` in `<prefix>/<node-id>/<archive>`. Empty means no prefix.                                 |
-| `pollIntervalMs`           | `5000`  | Time between probes.                                                                                 |
-| `aheadThresholdBlocks`     | TBD     | The probe block is `last stored + this`. Must be positive and a little below the CN buffer limit.    |
-| `downloadWindow`           | `10`    | Blocks downloaded in parallel before being submitted in order. Must be positive.                     |
-| `requestTimeoutMs`         | `10000` | Timeout for one bucket request.                                                                      |
-| `perBlockPersistTimeoutMs` | `30000` | How long to wait for the persisted notification before logging and continuing to wait.               |
-| `peerCheckTimeoutMs`       | `2000`  | Overall limit for the peer check; peers are queried in parallel.                                     |
+|        Property        | Default |                                             Description                                              |
+|------------------------|---------|------------------------------------------------------------------------------------------------------|
+| `enabled`              | `false` | Master switch. When `false` the plugin does nothing.                                                 |
+| `endpointUrl`          | `""`    | S3-compatible endpoint, for example `https://storage.googleapis.com` for GCS. Required when enabled. |
+| `regionName`           | `""`    | Region of the bucket. Required when enabled.                                                         |
+| `bucketName`           | `""`    | Name of the CN upload bucket. Required when enabled.                                                 |
+| `accessKey`            | `""`    | Read-only access key (HMAC key for GCS). Not logged. Required when enabled.                          |
+| `secretKey`            | `""`    | Read-only secret key. Not logged. Required when enabled.                                             |
+| `objectKeyPrefix`      | `""`    | `<prefix>` in `<prefix>/<node-id>/<archive>`. Empty means no prefix.                                 |
+| `pollIntervalMs`       | `5000`  | Time between probes.                                                                                 |
+| `aheadThresholdBlocks` | TBD     | The probe block is `last stored + this`. Must be positive and a little below the CN buffer limit.    |
+| `downloadWindow`       | `10`    | Blocks downloaded in parallel before being submitted in order. Must be positive.                     |
+| `requestTimeoutMs`     | `10000` | Timeout for one bucket request.                                                                      |
+| `persistWaitTimeoutMs` | `90000` | How long to wait for the persisted notification of one block before ending the pull.                 |
+| `peerCheckTimeoutMs`   | `2000`  | Overall limit for the peer check; peers are queried in parallel.                                     |
 
 The following are deliberately not configuration:
 
@@ -416,6 +427,7 @@ counters, so the keys below do not end in it.
 | `cloud_download_download_failures`     | counter | Blocks for which no node folder had a usable copy.                                                         |
 | `cloud_download_verification_failures` | counter | `CLOUD_STORAGE` blocks that failed verification.                                                           |
 | `cloud_download_peer_check_skips`      | counter | Pulls skipped because a peer block node had the blocks.                                                    |
+| `cloud_download_persist_timeouts`      | counter | Pulls ended because a submitted block was not persisted within `persistWaitTimeoutMs`.                     |
 | `cloud_download_request_failures`      | counter | Bucket requests (probe or download) that timed out or failed with an S3 error; a plain 404 is not counted. |
 
 `cloud_download_blocks_pulled` is the recovery signal. It feeds the decision to re-enable back
@@ -438,7 +450,7 @@ so that distance is unknown.
 | Request timeout or S3 error               | `request_failures` incremented and logged; pull ends; next poll starts again. Never propagated to other plugins. |
 | Peer status query fails or times out      | That peer is treated as not having the blocks.                                                                   |
 | Verification fails for a pulled block     | `verification_failures` incremented; retried once from another node folder; then the pull ends.                  |
-| Persisted notification slow to arrive     | Logged; the plugin keeps waiting on the same submission and never resends.                                       |
+| No persisted notification in time         | `persist_timeouts` incremented and logged; pull ends; next poll starts again from the last stored block.         |
 | `RuntimeException` in the poll task       | Caught and logged at WARNING so the scheduled task keeps running.                                                |
 
 The plugin is fault-isolated: nothing it does can stop the publisher, backfill or the server.
@@ -475,8 +487,10 @@ The plugin is fault-isolated: nothing it does can stop the publisher, backfill o
     verification failure for it is counted as already stored, not as a verification failure.
 14. **Verification failure:** the block is retried once from another node; a second failure
     ends the pull.
-15. **No resend on timeout:** a slow persisted notification does not cause a second submission.
-16. **Metrics:** each metric moves as described in scenarios 5 to 14, and a stubbed request
+15. **Persist timeout:** a persisted notification later than `persistWaitTimeoutMs` ends the pull
+    without a second submission and increments `cloud_download_persist_timeouts`; when the
+    notification arrives before the next poll, that poll skips the block as already stored.
+16. **Metrics:** each metric moves as described in scenarios 5 to 15, and a stubbed request
     timeout or S3 error increments `cloud_download_request_failures` while a 404 does not.
 17. **Verification source:** a `CLOUD_STORAGE` backfilled notification yields verification and
     persisted notifications carrying `CLOUD_STORAGE`; the backfill plugin ignores them; the
@@ -550,7 +564,9 @@ a block node's own `cloud-storage-expanded` output, in the `<prefix>/<node-id>/<
 33. **Downstream unchanged:** after recovery, a Tier 2 block node and the Mirror Node receive
     the recovered blocks from Tier 1 through the normal stream, without accessing the bucket.
 34. **Roster change and key rotation** during the outage: pulled blocks still verify.
-35. **Latency:** recovery meets the 30 s SLO, also with an injected storage stall.
+35. **Latency:** the probe block of each pull is persisted within 30 s of its consensus
+    timestamp, also with an injected storage stall shorter than `requestTimeoutMs`. The pull's
+    end log line and the block's consensus timestamp give the measurement.
 
 ## Open Questions
 
@@ -564,4 +580,11 @@ These are to be settled in the design review.
    interval (proposed 5 s) and the download window. The two are tied: a probe can find the node
    behind up to one poll interval after it crossed the threshold, and that delay comes out of the
    margin left before the CN buffer fills. The poll interval must therefore stay below
-   `(CN buffer limit - threshold) x block time`.
+   `(CN buffer limit - threshold) x block time`. The poll interval, the peer check and the
+   persist round trip of every block in the pull range also come out of the 30 s latency budget,
+   so the threshold bounds the pull's duration as well as the CN buffer margin.
+3. **Latency clock:** where the 30 s SLO clock starts. Proposal: the consensus timestamp of the
+   probe block, read from its block header, so no extra request is needed. Measured from the
+   first missing block the SLO cannot be met: the probe fires only once the node is
+   `aheadThresholdBlocks` behind, which at about 2 s per block exceeds 30 s for any threshold
+   above roughly 15 blocks.
