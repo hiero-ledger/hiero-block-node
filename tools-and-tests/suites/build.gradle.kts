@@ -6,6 +6,10 @@ plugins {
 
 description = "Hiero Block Node E2E Suites"
 
+// The state plugin's swirlds deps require com.hedera.node.hapi, which splits packages with our
+// protobuf-pbj. Exclude it, as block-node/state-management-hashgraph/build.gradle.kts does.
+configurations.all { exclude(group = "com.hedera.hashgraph", module = "hapi") }
+
 application {
     mainModule = "org.hiero.block.suites"
     mainClass = "org.hiero.block.suites.BaseSuite"
@@ -23,6 +27,7 @@ mainModuleInfo {
     runtimeOnly("org.hiero.block.node.health")
     runtimeOnly("org.hiero.block.node.messaging")
     runtimeOnly("org.hiero.block.node.server.status")
+    runtimeOnly("org.hiero.block.node.state.management")
     runtimeOnly("org.hiero.block.node.stream.publisher")
     runtimeOnly("org.hiero.block.node.stream.subscriber")
     runtimeOnly("org.hiero.block.node.tss.boostrap")

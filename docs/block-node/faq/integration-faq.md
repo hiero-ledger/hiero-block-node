@@ -154,12 +154,10 @@ then query a BN that covers the needed range.
 
 ### Is `StateService` implemented?
 
-**No.** `state_service.proto` defines `getKV`/`getSingleton`/`getQueue`
-for the live Hashgraph state plugin, but there is no gRPC service implementation yet —
-only the lifecycle and apply-pipeline slice of the plugin exists so far. Neither the
-Mirror Node nor the Consensus Node has any client code that calls these RPCs.
-
-Document any dependency on `StateService` as a future requirement.
+**Yes, as beta.** The `state-management-hashgraph` plugin implements `getKV`/`getSingleton`/`getQueue`
+from `state_service.proto`, serving only the latest network-attested state. The plugin is beta and
+is not in the default chart deployment. Neither the Mirror Node nor the Consensus Node has any
+client code that calls these RPCs. See `docs/design/state/live-state.md` §8 for the query rules.
 
 ---
 

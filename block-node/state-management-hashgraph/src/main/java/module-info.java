@@ -12,6 +12,7 @@ module org.hiero.block.node.state.management {
     requires transitive com.swirlds.config.api;
     requires transitive com.swirlds.state.impl;
     requires transitive org.hiero.block.node.spi;
+    requires transitive org.hiero.block.protobuf.pbj;
     requires com.hedera.pbj.runtime;
     requires com.swirlds.base;
     requires com.swirlds.merkledb;
@@ -20,7 +21,7 @@ module org.hiero.block.node.state.management {
     requires com.swirlds.virtualmap;
     requires org.hiero.base.crypto;
     requires org.hiero.base.utility;
-    requires org.hiero.block.protobuf.pbj;
+    requires org.hiero.block.node.base;
     requires org.hiero.consensus.metrics;
     requires org.hiero.metrics;
     requires com.github.spotbugs.annotations;
