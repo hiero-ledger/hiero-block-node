@@ -2,7 +2,7 @@
 import org.gradlex.javamodule.moduleinfo.ExtraJavaModuleInfoPluginExtension
 
 plugins {
-    id("org.hiero.gradle.build") version "0.7.12"
+    id("org.hiero.gradle.build") version "0.7.13"
     id("com.hedera.pbj.pbj-compiler") version "0.16.4" apply false
 }
 
