@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.cloud.storage.archive;
 
+import static org.hiero.block.node.base.ParseHelper.standardParse;
+
+import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.hapi.node.base.Timestamp;
+import com.hedera.pbj.runtime.ParseException;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -42,7 +47,9 @@ final class TarEntries {
     private TarEntries() {}
 
     /// Converts the given block into a tar entry byte array consisting of the 512-byte tar header,
-    /// the serialized block content, and zero-padding to the next 512-byte boundary.
+    /// the serialized block content, and zero-padding to the next 512-byte boundary. The entry's
+    /// modification time is the block's consensus time (see [#consensusTimeSeconds]), so the same
+    /// block always produces the same bytes.
     ///
     /// @param block the block to convert
     /// @param blockNumber the block number, used to derive the file name inside the tar
@@ -57,7 +64,8 @@ final class TarEntries {
                 zstdOut.write(rawBytes);
             }
             final byte[] currentBlockBytes = baos.toByteArray();
-            final byte[] header = createTarHeader(currentBlockName, currentBlockBytes.length);
+            final byte[] header =
+                    createTarHeader(currentBlockName, currentBlockBytes.length, consensusTimeSeconds(block));
             final int paddingBytesRemaining = (512 - (currentBlockBytes.length % 512)) % 512;
             final byte[] entry = new byte[512 + currentBlockBytes.length + paddingBytesRemaining];
 
@@ -102,12 +110,40 @@ final class TarEntries {
         return last;
     }
 
+    /// Returns the block's consensus time in whole seconds, used as the tar entry modification time so
+    /// that an entry's bytes depend only on the block, never on when it was written.
+    ///
+    /// Blocks reach the archive only after verification, so a block without a parsable, timestamped
+    /// header is corrupt and must not be archived.
+    ///
+    /// @param block the block to read the consensus time from
+    /// @return the block header's timestamp seconds
+    /// @throws IOException if the first item is not a parsable block header with a timestamp
+    static long consensusTimeSeconds(@NonNull final BlockUnparsed block) throws IOException {
+        if (block.blockItems().isEmpty() || !block.blockItems().getFirst().hasBlockHeader()) {
+            throw new IOException("Block does not start with a block header");
+        }
+        final BlockHeader header;
+        try {
+            header = standardParse(
+                    BlockHeader.PROTOBUF, block.blockItems().getFirst().blockHeader());
+        } catch (final ParseException e) {
+            throw new IOException("Unable to parse block header", e);
+        }
+        final Timestamp blockTimestamp = header.blockTimestamp();
+        if (blockTimestamp == null) {
+            throw new IOException("Block header has no timestamp");
+        }
+        return blockTimestamp.seconds();
+    }
+
     /// Creates a tar header for the given file.
     ///
     /// @param fileName the name of the file
     /// @param contentLength the length of the file content in bytes
+    /// @param modificationTimeSeconds the modification time to record, in seconds since the epoch
     /// @return the tar header as a byte array
-    private static byte[] createTarHeader(String fileName, long contentLength) {
+    private static byte[] createTarHeader(String fileName, long contentLength, long modificationTimeSeconds) {
         byte[] header = new byte[512]; // Initialize with zeros
 
         // File name (100 bytes)
@@ -125,7 +161,7 @@ final class TarEntries {
         writeOctalBytes(header, 124, 12, contentLength);
 
         // Last modification time (12 bytes)
-        writeOctalBytes(header, 136, 12, System.currentTimeMillis() / 1000);
+        writeOctalBytes(header, 136, 12, modificationTimeSeconds);
 
         // Type flag (1 byte) - '0' for normal file
         header[156] = '0';

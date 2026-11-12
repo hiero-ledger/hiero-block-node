@@ -3,6 +3,7 @@ package org.hiero.block.node.cloud.storage.archive;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.sampleHeaderUnparsed;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.bucky.S3Client;
@@ -100,7 +101,7 @@ class TempArchiveUploadTaskTest {
                 new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
         return new BlockWithSource(
                 BlockUnparsed.newBuilder()
-                        .blockItems(new BlockItemUnparsed[] {item})
+                        .blockItems(new BlockItemUnparsed[] {sampleHeaderUnparsed(0), item})
                         .build(),
                 BlockSource.PUBLISHER);
     }
@@ -356,6 +357,39 @@ class TempArchiveUploadTaskTest {
         assertThat(notifications.getFirst().blockSource()).isEqualTo(BlockSource.PUBLISHER);
         assertThat(asf.addedRanges).hasSize(1);
         assertThat(asf.addedRanges.getFirst()).isEqualTo(BlockRangeSet.of(0, 2));
+    }
+
+    /// Verifies that a block whose header cannot be parsed fails the segment: [call()] rethrows the
+    /// [IOException] and sends one failed [PersistedNotification] for the segment's first block.
+    @Test
+    @DisplayName("Unparsable block header: failed notification sent, exception rethrown")
+    void unparsableHeaderSendsFailedNotificationAndThrows() throws Exception {
+        final String s3Key = TempArchiveKey.formatTar(0, "");
+        final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
+        final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+        final TrackingApplicationStateFacility asf = new TrackingApplicationStateFacility();
+
+        queue.put(makeBlock(100));
+        queue.put(makeBlock(100));
+        // Field 1 with the invalid wire type 7.
+        final Bytes unparsableHeader = Bytes.wrap(new byte[] {(byte) 0x0F});
+        queue.put(new BlockWithSource(
+                BlockUnparsed.newBuilder()
+                        .blockItems(BlockItemUnparsed.newBuilder()
+                                .blockHeader(unparsableHeader)
+                                .build())
+                        .build(),
+                BlockSource.PUBLISHER));
+        queue.put(TempArchiveUploadTask.SEGMENT_END);
+
+        final TempArchiveUploadTask task = buildTask(s3Key, 0, queue, messaging, asf);
+
+        assertThatThrownBy(task::call).isInstanceOf(IOException.class);
+        final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
+        assertThat(notifications).hasSize(1);
+        assertThat(notifications.getFirst().succeeded()).isFalse();
+        assertThat(notifications.getFirst().blockNumber()).isZero();
+        assertThat(asf.addedRanges).isEmpty();
     }
 
     /// Verifies that when [doUploadPart] throws during a mid-loop part flush, [call()] rethrows

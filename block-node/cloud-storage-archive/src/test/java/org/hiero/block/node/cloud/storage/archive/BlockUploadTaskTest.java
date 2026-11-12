@@ -2,6 +2,8 @@
 package org.hiero.block.node.cloud.storage.archive;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.sampleHeaderUnparsed;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.bucky.S3Client;
@@ -172,7 +174,7 @@ class BlockUploadTaskTest {
             final BlockItemUnparsed item = new BlockItemUnparsed(
                     new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
             final BlockUnparsed block = BlockUnparsed.newBuilder()
-                    .blockItems(new BlockItemUnparsed[] {item})
+                    .blockItems(new BlockItemUnparsed[] {sampleHeaderUnparsed(i), item})
                     .build();
             queue.put(new BlockWithSource(block, BlockSource.PUBLISHER));
         }
@@ -220,12 +222,62 @@ class BlockUploadTaskTest {
             final BlockItemUnparsed item = new BlockItemUnparsed(
                     new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
             final BlockUnparsed block = BlockUnparsed.newBuilder()
-                    .blockItems(new BlockItemUnparsed[] {item})
+                    .blockItems(new BlockItemUnparsed[] {sampleHeaderUnparsed(i), item})
                     .build();
             queue.put(new BlockWithSource(block, BlockSource.PUBLISHER));
         }
 
         assertThat(task.call()).isEqualTo(UploadResult.FAILED);
+
+        final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
+        assertThat(notifications).hasSize(1);
+        final PersistedNotification notification = notifications.getFirst();
+        assertThat(notification.succeeded()).isFalse();
+        assertThat(notification.blockNumber()).isZero();
+        assertThat(notification.blockSource()).isEqualTo(BlockSource.PUBLISHER);
+    }
+
+    /// Verifies that a block whose header cannot be parsed fails the upload: the task throws, and a
+    /// failed [PersistedNotification] is sent for the first block still in the buffer, so no
+    /// buffered block is left without a notification.
+    @Test
+    @DisplayName("Unparsable block header fails the upload and sends a false notification for the first buffered block")
+    void testUnparsableHeaderSendsFalseNotificationForFirstBufferedBlock() throws Exception {
+        final int groupSize = (int) Math.pow(10, GROUPING_LEVEL);
+        final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+        final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
+
+        final ConfigurationBuilder builder =
+                ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
+        pluginConfig(GROUPING_LEVEL, PART_SIZE_MB).forEach(builder::withValue);
+        final BlockUploadTask task = new BlockUploadTask(
+                builder.build().getConfigData(CloudStorageArchiveConfig.class),
+                messaging,
+                0,
+                groupSize,
+                queue,
+                createMetricsHolder(),
+                noOpAsf());
+
+        final int validBlocks = 3;
+        for (int i = 0; i < validBlocks; i++) {
+            queue.put(new BlockWithSource(
+                    BlockUnparsed.newBuilder()
+                            .blockItems(new BlockItemUnparsed[] {sampleHeaderUnparsed(i)})
+                            .build(),
+                    BlockSource.PUBLISHER));
+        }
+        // Field 1 with the invalid wire type 7.
+        final Bytes unparsableHeader = Bytes.wrap(new byte[] {(byte) 0x0F});
+        queue.put(new BlockWithSource(
+                BlockUnparsed.newBuilder()
+                        .blockItems(BlockItemUnparsed.newBuilder()
+                                .blockHeader(unparsableHeader)
+                                .build())
+                        .build(),
+                BlockSource.PUBLISHER));
+
+        assertThatThrownBy(task::call).isInstanceOf(IOException.class);
 
         final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
         assertThat(notifications).hasSize(1);
@@ -264,7 +316,7 @@ class BlockUploadTaskTest {
             final BlockItemUnparsed item = new BlockItemUnparsed(
                     new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
             final BlockUnparsed block = BlockUnparsed.newBuilder()
-                    .blockItems(new BlockItemUnparsed[] {item})
+                    .blockItems(new BlockItemUnparsed[] {sampleHeaderUnparsed(i), item})
                     .build();
             queue.put(new BlockWithSource(block, BlockSource.PUBLISHER));
         }
@@ -305,7 +357,7 @@ class BlockUploadTaskTest {
                     new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
             queue.put(new BlockWithSource(
                     BlockUnparsed.newBuilder()
-                            .blockItems(new BlockItemUnparsed[] {item})
+                            .blockItems(new BlockItemUnparsed[] {sampleHeaderUnparsed(i), item})
                             .build(),
                     BlockSource.PUBLISHER));
         }
@@ -349,7 +401,7 @@ class BlockUploadTaskTest {
             final BlockItemUnparsed item = new BlockItemUnparsed(
                     new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
             final BlockUnparsed block = BlockUnparsed.newBuilder()
-                    .blockItems(new BlockItemUnparsed[] {item})
+                    .blockItems(new BlockItemUnparsed[] {sampleHeaderUnparsed(i), item})
                     .build();
             final BlockSource source = (i % 2 == 0) ? BlockSource.PUBLISHER : BlockSource.BACKFILL;
             queue.put(new BlockWithSource(block, source));
@@ -392,7 +444,7 @@ class BlockUploadTaskTest {
             final BlockItemUnparsed item = new BlockItemUnparsed(
                     new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
             final BlockUnparsed block = BlockUnparsed.newBuilder()
-                    .blockItems(new BlockItemUnparsed[] {item})
+                    .blockItems(new BlockItemUnparsed[] {sampleHeaderUnparsed(i), item})
                     .build();
             queue.put(new BlockWithSource(block, null));
         }
@@ -436,7 +488,7 @@ class BlockUploadTaskTest {
                     new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
             queue.put(new BlockWithSource(
                     BlockUnparsed.newBuilder()
-                            .blockItems(new BlockItemUnparsed[] {item})
+                            .blockItems(new BlockItemUnparsed[] {sampleHeaderUnparsed(i), item})
                             .build(),
                     BlockSource.PUBLISHER));
         }
@@ -477,7 +529,7 @@ class BlockUploadTaskTest {
                     new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
             queue.put(new BlockWithSource(
                     BlockUnparsed.newBuilder()
-                            .blockItems(new BlockItemUnparsed[] {item})
+                            .blockItems(new BlockItemUnparsed[] {sampleHeaderUnparsed(i), item})
                             .build(),
                     BlockSource.PUBLISHER));
         }
@@ -520,7 +572,7 @@ class BlockUploadTaskTest {
                     new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
             queue.put(new BlockWithSource(
                     BlockUnparsed.newBuilder()
-                            .blockItems(new BlockItemUnparsed[] {item})
+                            .blockItems(new BlockItemUnparsed[] {sampleHeaderUnparsed(i), item})
                             .build(),
                     BlockSource.PUBLISHER));
         }
@@ -563,7 +615,7 @@ class BlockUploadTaskTest {
                     new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
             queue.put(new BlockWithSource(
                     BlockUnparsed.newBuilder()
-                            .blockItems(new BlockItemUnparsed[] {item})
+                            .blockItems(new BlockItemUnparsed[] {sampleHeaderUnparsed(i), item})
                             .build(),
                     BlockSource.PUBLISHER));
         }
@@ -609,7 +661,7 @@ class BlockUploadTaskTest {
                     new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
             queue.put(new BlockWithSource(
                     BlockUnparsed.newBuilder()
-                            .blockItems(new BlockItemUnparsed[] {item})
+                            .blockItems(new BlockItemUnparsed[] {sampleHeaderUnparsed(i), item})
                             .build(),
                     BlockSource.PUBLISHER));
         }
@@ -650,7 +702,7 @@ class BlockUploadTaskTest {
             final BlockItemUnparsed item = new BlockItemUnparsed(
                     new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
             final BlockUnparsed block = BlockUnparsed.newBuilder()
-                    .blockItems(new BlockItemUnparsed[] {item})
+                    .blockItems(new BlockItemUnparsed[] {sampleHeaderUnparsed(i), item})
                     .build();
             queue.put(new BlockWithSource(block, BlockSource.PUBLISHER));
         }
@@ -700,7 +752,7 @@ class BlockUploadTaskTest {
                     new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
             resumeQueue.put(new BlockWithSource(
                     BlockUnparsed.newBuilder()
-                            .blockItems(new BlockItemUnparsed[] {item})
+                            .blockItems(new BlockItemUnparsed[] {sampleHeaderUnparsed(blockNum), item})
                             .build(),
                     BlockSource.PUBLISHER));
         }
