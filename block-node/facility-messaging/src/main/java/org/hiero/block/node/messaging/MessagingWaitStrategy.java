@@ -32,7 +32,7 @@ public enum MessagingWaitStrategy {
      * @param yieldTimeoutMicros how long a {@link #PHASED_BACKOFF} handler yields before blocking, in microseconds
      * @return a new wait strategy
      */
-    public WaitStrategy create(final long yieldTimeoutMicros) {
+    WaitStrategy create(final long yieldTimeoutMicros) {
         return switch (this) {
             case PHASED_BACKOFF ->
                 new PhasedBackoffWaitStrategy(0, yieldTimeoutMicros, TimeUnit.MICROSECONDS, new BlockingWaitStrategy());
