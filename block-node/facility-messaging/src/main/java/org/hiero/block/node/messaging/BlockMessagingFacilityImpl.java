@@ -421,6 +421,10 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         // One-shot eviction guard: the event processor may deliver a few more buffered events after halt()
         // is called, so we use an AtomicBoolean to ensure unregister and onTooFarBehindError fire exactly once.
         final AtomicBoolean evicted = new AtomicBoolean(false);
+        // The handler starts at the ring cursor, which is usually mid-block. Drop batches until the first block start
+        // so the handler only ever sees whole blocks. Each registration (including re-registration after eviction)
+        // gets a fresh flag. Only the single event processor thread touches it.
+        final AtomicBoolean blockStartSeen = new AtomicBoolean(false);
         final InformedEventHandler<BlockItemBatchRingEvent> informedEventHandler =
                 (event, sequence, endOfBatch, percentageBehindRingHead) -> {
                     if (evicted.get()) {
@@ -434,7 +438,14 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                         handler.onTooFarBehindError();
                         return;
                     }
-                    handler.handleBlockItemsReceived(event.get());
+                    final BlockItems batch = event.get();
+                    if (!blockStartSeen.get()) {
+                        if (!batch.isStartOfNewBlock()) {
+                            return;
+                        }
+                        blockStartSeen.set(true);
+                    }
+                    handler.handleBlockItemsReceived(batch);
                 };
         if (blockItemDisruptor.hasStarted()) {
             registerHandler(
