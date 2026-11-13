@@ -1751,7 +1751,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         final Map<Long, AtomicInteger> fetchCountsByBlock = new ConcurrentHashMap<>();
         final CountDownLatch firstFetchLatch = new CountDownLatch(1);
         final CountDownLatch resubmitFetchLatch = new CountDownLatch(1);
-        blockMessaging.registerBlockNotificationHandler(
+        blockMessaging.registerUnvalidatedBlockHandler(
                 new BlockNotificationHandler() {
                     @Override
                     public void handleBackfilled(BackfilledBlockNotification notification) {
@@ -1833,7 +1833,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // The target block fails verification only on its first fetch, mirroring a node whose TSS data
         // is not loaded yet; every other block (and the target's later attempts) verifies and persists.
         final AtomicBoolean targetFailedOnce = new AtomicBoolean();
-        blockMessaging.registerBlockNotificationHandler(
+        blockMessaging.registerUnvalidatedBlockHandler(
                 new BlockNotificationHandler() {
                     @Override
                     public void handleBackfilled(BackfilledBlockNotification notification) {
@@ -1916,7 +1916,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         final AtomicBoolean genesisPersisted = new AtomicBoolean();
         final AtomicBoolean successorFetchedTooEarly = new AtomicBoolean();
         final CountDownLatch successorFetchedLatch = new CountDownLatch(1);
-        blockMessaging.registerBlockNotificationHandler(
+        blockMessaging.registerUnvalidatedBlockHandler(
                 new BlockNotificationHandler() {
                     @Override
                     public void handleBackfilled(BackfilledBlockNotification notification) {
@@ -2125,7 +2125,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     }
 
     private void registerDefaultTestBackfillHandler() {
-        this.blockMessaging.registerBlockNotificationHandler(
+        this.blockMessaging.registerUnvalidatedBlockHandler(
                 new BlockNotificationHandler() {
                     @Override
                     public void handleBackfilled(BackfilledBlockNotification notification) {
