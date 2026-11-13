@@ -264,12 +264,15 @@ class LiveStreamPublisherManagerRecoveryTest {
                     new TestApplicationStateFacility(),
                     null,
                     threads,
-                    null);
+                    null,
+                    null,
+                    null,
+                    new ArrayList<>(),
+                    new ArrayList<>());
             historicalBlockFacility.init(context, null);
             final LiveStreamPublisherManager realManager = new LiveStreamPublisherManager(
                     context,
-                    MetricsHolder.createMetrics(MetricRegistry.builder().build()),
-                    List.of());
+                    MetricsHolder.createMetrics(MetricRegistry.builder().build()));
             try {
                 realManager.registerQueueForBlock(
                         1L, new ArrayDeque<>(List.of(batchOf(1), batchOf(2), batchOf(3))), 5L);
