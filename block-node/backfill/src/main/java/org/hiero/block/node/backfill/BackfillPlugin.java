@@ -108,6 +108,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     final AtomicLong liveTailHighWaterMark = new AtomicLong(-1);
     // Makes the live-tail dedup check, high-water mark reservation and submission atomic.
     private final Object liveTailLock = new Object();
+    // Logs the "stored ranges past the peers' newest block" warning once per occurrence, not once per scan.
+    private volatile boolean storedPastPeerHeadReported = false;
 
     // Cached stored+available snapshot delivered by the last StoredBlocksNotification. The Application
     // State facility already folds availableBlocks() into storedBlocks whenever either changes, so this
@@ -380,16 +382,19 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         //    seen right as the facility updates. Folding in stored — not just available — prevents
         //    re-backfilling blocks that have been evicted from a volatile tier (e.g. by the recent-tier
         //    retention policy) but were already stored.
+        final BlockRangeSet availableBlocks = context.historicalBlockProvider().availableBlocks();
         ConcurrentBlockRangeSet knownBlocks = new ConcurrentBlockRangeSet();
         knownBlocks.addAll(knownBlockRanges);
-        knownBlocks.addAll(context.historicalBlockProvider().availableBlocks());
-        List<BlockRange> blockRanges = knownBlocks.toList();
+        knownBlocks.addAll(availableBlocks);
 
         // 2. Determine range to scan
         //    - Lower bound: configured startBlock
         //    - Upper bound: greedy → peer max, non-greedy → store max (capped by config)
         long startBound = Math.max(0, backfillConfiguration.startBlock());
-        long endCap = determineEndCap(blockRanges);
+        final long peerMax = findPeerMaxAboveAvailable(knownBlocks.max(), availableBlocks.max());
+        discardStoredBlocksPastPeerHead(knownBlocks, availableBlocks.max(), peerMax);
+        List<BlockRange> blockRanges = knownBlocks.toList();
+        long endCap = determineEndCap(blockRanges, peerMax);
         if (endCap < 0 || startBound > endCap) {
             final String nothingToBackfillMsg = "Nothing to backfill: startBound=[{0}] endCap=[{1}]";
             LOGGER.log(TRACE, nothingToBackfillMsg, startBound, endCap);
@@ -460,16 +465,51 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
      * - Non-greedy: last stored block
      * Both are capped by configured endBlock if set.
      */
-    private long determineEndCap(List<BlockRange> blockRanges) {
+    private long determineEndCap(List<BlockRange> blockRanges, long peerMax) {
         long configEnd = backfillConfiguration.endBlock();
         long storeMax = blockRanges.isEmpty() ? -1 : blockRanges.getLast().rangeEnd();
 
-        if (backfillConfiguration.greedy() && liveTailScheduler != null) {
-            long peerMax = getPeerMaxAvailableBlock(storeMax);
+        if (isGreedyLiveTail()) {
             long upper = peerMax >= 0 ? peerMax : storeMax;
             return configEnd >= 0 ? Math.min(configEnd, upper) : upper;
         } else {
             return configEnd >= 0 ? Math.min(configEnd, storeMax) : storeMax;
+        }
+    }
+
+    private boolean isGreedyLiveTail() {
+        return backfillConfiguration.greedy() && liveTailScheduler != null;
+    }
+
+    /// Greedy mode only: the peers' newest block above what this node can actually serve, or `-1` when no peer is
+    /// ahead. The baseline is the newest available block rather than the newest stored one, so a stored range that
+    /// claims blocks the node does not have cannot hide the peers' head.
+    private long findPeerMaxAboveAvailable(long knownMax, long availableMax) {
+        if (!isGreedyLiveTail()) {
+            return UNKNOWN_BLOCK_NUMBER;
+        }
+        final long baseline = availableMax != UNKNOWN_BLOCK_NUMBER ? availableMax : knownMax;
+        return getPeerMaxAvailableBlock(baseline);
+    }
+
+    /// Drops stored-only blocks above the newest available block when they reach past the peers' newest block.
+    /// A node cannot have stored blocks that no peer has produced yet, so such a range is wrong (for example an
+    /// archive group registered as complete while only partly uploaded). Trusting it would put the live-tail
+    /// boundary past the peers' head, so no live-tail gap would ever be detected and the node would stop advancing.
+    private void discardStoredBlocksPastPeerHead(ConcurrentBlockRangeSet knownBlocks, long availableMax, long peerMax) {
+        final long knownMax = knownBlocks.max();
+        final boolean storedPastPeerHead = peerMax != UNKNOWN_BLOCK_NUMBER && knownMax > peerMax;
+        if (storedPastPeerHead) {
+            if (!storedPastPeerHeadReported) {
+                final String storedPastPeerHeadMsg = "Stored block ranges reach block [{0}], past the peers' newest"
+                        + " block [{1}]; ignoring stored blocks after the newest available block [{2}] for live tail";
+                LOGGER.log(WARNING, storedPastPeerHeadMsg, knownMax, peerMax, availableMax);
+                storedPastPeerHeadReported = true;
+            }
+            final long firstUntrusted = availableMax != UNKNOWN_BLOCK_NUMBER ? availableMax + 1 : peerMax + 1;
+            knownBlocks.remove(firstUntrusted, knownMax);
+        } else {
+            storedPastPeerHeadReported = false;
         }
     }
 

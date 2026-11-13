@@ -2,6 +2,7 @@
 package org.hiero.block.node.cloud.storage.archive;
 
 import static java.lang.System.Logger.Level.DEBUG;
+import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 
@@ -50,6 +51,9 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
     private static final int MAX_LIST_RESULTS = 1000;
 
     private final CloudStorageArchiveConfig config;
+    /// Server-side part copy is not available on every S3-compatible backend (Google Cloud Storage rejects
+    /// `UploadPartCopy` for multipart uploads). Once a copy fails, the remaining parts are re-uploaded instead.
+    private boolean serverSideCopyAvailable = true;
 
     StartupRecoveryTask(@NonNull CloudStorageArchiveConfig config) {
         this.config = config;
@@ -166,9 +170,9 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
                         -1, null, null, 0, null, List.of(), List.of(), -1, new ConcurrentBlockRangeSet());
             } else {
                 LOGGER.log(
-                        TRACE,
-                        "Last completed tar group starts at {0}, resuming from {1}",
-                        maxGroupStart,
+                        INFO,
+                        "Recovered completed archive groups {0}; resuming uploads from block {1}",
+                        completedRanges,
                         maxGroupStart + groupSize);
                 recoveryResult = new RecoveryResult(
                         maxGroupStart + groupSize, null, null, 0, null, List.of(), List.of(), -1, completedRanges);
@@ -259,7 +263,7 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
                 final PartScanResult scanResult = rebuildUpload(s3, key, newUploadId, newEtags, parts, groupStart);
                 if (scanResult.found()) {
                     LOGGER.log(
-                            TRACE,
+                            INFO,
                             "Recovery prepared upload {0} for key {1}; resuming from block {2}",
                             newUploadId,
                             key,
@@ -331,13 +335,13 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
                     // The filename starts at offset 0 in the tar header, so markerOffset points directly to it.
                     final long partBlockNumber = Long.parseLong(
                             new String(partBytes, markerOffset, TarEntries.BLOCK_NUMBER_WIDTH, StandardCharsets.UTF_8));
-                    // Server-side copy every clean part that precedes the boundary part.
+                    // Carry over every clean part that precedes the boundary part.
                     for (int j = 0; j < i; j++) {
-                        newEtags.add(s3.uploadPartCopy(
+                        newEtags.add(carryOverPart(
+                                s3,
                                 key,
                                 startOffsets[j],
                                 startOffsets[j] + parts.get(j).size() - 1,
-                                key,
                                 newUploadId,
                                 newEtags.size() + 1));
                     }
@@ -355,6 +359,35 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
 
         // No block start found in any part.
         return new PartScanResult(blockNumber, trailingBytes, found);
+    }
+
+    /// Copies bytes `[firstByte, lastByte]` of `key` into part `partNumber` of `newUploadId` and returns the
+    /// part's ETag. Uses a server-side copy when the backend supports it, otherwise downloads the range and
+    /// uploads it as a regular part.
+    private String carryOverPart(
+            S3Client s3, String key, long firstByte, long lastByte, String newUploadId, int partNumber)
+            throws S3ResponseException, IOException {
+        if (serverSideCopyAvailable) {
+            try {
+                return copyPart(s3, key, firstByte, lastByte, newUploadId, partNumber);
+            } catch (final S3ResponseException e) {
+                LOGGER.log(
+                        INFO,
+                        "Server-side part copy is not available for key %s (status %d); re-uploading parts instead"
+                                .formatted(key, e.getResponseStatusCode()),
+                        e);
+                serverSideCopyAvailable = false;
+            }
+        }
+        final byte[] partBytes = s3.downloadObjectRange(key, firstByte, lastByte);
+        return s3.multipartUploadPart(key, newUploadId, partNumber, partBytes);
+    }
+
+    /// Server-side copies bytes `[firstByte, lastByte]` of `key` into part `partNumber` of `newUploadId`.
+    /// Extracted for test overriding.
+    String copyPart(S3Client s3, String key, long firstByte, long lastByte, String newUploadId, int partNumber)
+            throws S3ResponseException, IOException {
+        return s3.uploadPartCopy(key, firstByte, lastByte, key, newUploadId, partNumber);
     }
 
     /// Carries the result of a backwards parts scan: the recovered block number, the trailing

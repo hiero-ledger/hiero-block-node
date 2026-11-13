@@ -1600,6 +1600,46 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     }
 
     @Test
+    @DisplayName("Greedy live tail still backfills when stored ranges claim blocks past the peers' newest block")
+    void greedyLiveTailIgnoresStoredRangesPastPeerHead() throws InterruptedException {
+        // Peer serves 0..400.
+        final HistoricalBlockFacility serverFacility = getHistoricalBlockFacility(0, 400);
+        final TestBlockNodeServer server = new TestBlockNodeServer(0, serverFacility);
+        testBlockNodeServers.add(server);
+        final String backfillSourcePath = testTempDir + "/backfill-source-stored-past-peer-head.json";
+        createTestBlockNodeSourcesFile(
+                BlockNodeSource.newBuilder()
+                        .nodes(BlockNodeSourceConfig.newBuilder()
+                                .address("localhost")
+                                .port(server.port())
+                                .priority(1)
+                                .build())
+                        .build(),
+                backfillSourcePath);
+        final Map<String, String> config = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(backfillSourcePath)
+                .greedy(true)
+                .fetchBatchSize(100)
+                .initialDelay(500)
+                .build();
+
+        // The node only has 0..200, but a bad stored range claims 0..999: beyond anything the network produced.
+        final HistoricalBlockFacility pluginStore = getHistoricalBlockFacility(0, 200);
+        doInit(new BackfillPlugin(), pluginStore, null, config, Map.of());
+        updateStoredBlocks(BlockRangeSet.of(0, 999));
+        doStart();
+
+        final int expectedBlocksToBackfill = 200; // 201..400
+        final CountDownLatch countDownLatch = new CountDownLatch(expectedBlocksToBackfill);
+        registerDefaultTestBackfillHandler();
+        registerDefaultTestVerificationHandler(countDownLatch);
+
+        countDownLatch.await(1, TimeUnit.MINUTES);
+
+        assertEquals(0, countDownLatch.getCount(), "Live tail should fetch 201..400 despite the stored range");
+    }
+
+    @Test
     @DisplayName("Backfill exponentially backs off a gap that keeps reappearing after eviction")
     void testBackfillBacksOffReappearingGap() throws InterruptedException {
         // Peer serves the full history 0..100.
