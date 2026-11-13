@@ -91,7 +91,7 @@ public final class BlockSessionHandler {
     public void processBlockItems(final BlockItems blockItems, final BlockSource blockSource) {
         switch (blockSource) {
             case PUBLISHER -> processPublisherLiveItems(blockItems);
-            case BACKFILL -> processBackfilledItems(blockItems);
+            case BACKFILL, CLOUD_STORAGE -> processBackfilledItems(blockItems, blockSource);
             case null, default ->
                 LOGGER.log(INFO, "Received block items from unknown or unsupported source: {0}", blockSource);
         }
@@ -135,13 +135,14 @@ public final class BlockSessionHandler {
         }
     }
 
-    /// Process the reception of backfilled blocks. Backfilled blocks always come complete in a single batch of
-    /// [BlockItems]. The session for the block is marked complete before it is admitted, so an eviction
-    /// reports a cancelled complete block.
+    /// Process the reception of complete blocks from outside the live stream (backfill or cloud storage).
+    /// Such blocks always come complete in a single batch of [BlockItems]. The session for the block is
+    /// marked complete before it is admitted, so an eviction reports a cancelled complete block.
     ///
     /// @param blockItems to process
-    private void processBackfilledItems(final BlockItems blockItems) {
-        final BlockVerificationSession session = startNewSession(blockItems, BlockSource.BACKFILL);
+    /// @param blockSource the source the block was received from
+    private void processBackfilledItems(final BlockItems blockItems, final BlockSource blockSource) {
+        final BlockVerificationSession session = startNewSession(blockItems, blockSource);
         session.markEndOfBlockReceived();
         activeSessions.admit(session);
         session.getBlockItemsDeque().offer(blockItems);

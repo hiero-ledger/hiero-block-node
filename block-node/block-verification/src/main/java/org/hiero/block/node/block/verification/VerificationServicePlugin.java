@@ -258,7 +258,8 @@ public final class VerificationServicePlugin
 
     /// {@inheritDoc}
     /// ---
-    /// This is where we receive blocks from backfill.
+    /// This is where we receive blocks from backfill and from cloud storage.
+    /// Notifications with any other source are rejected.
     /// We will always receive a complete block, one per notification.
     /// We can safely wrap the block as [BlockItems] which is both the start
     /// and the end of the block. We then propagate the block to the session
@@ -268,23 +269,31 @@ public final class VerificationServicePlugin
     ///     event.
     @Override
     public void handleBackfilled(final BackfilledBlockNotification notification) {
-        final BlockSource source = BlockSource.BACKFILL;
-        try {
-            if (notification != null
-                    && notification.blockNumber() >= 0L
-                    && notification.block() != null
-                    && notification.block().blockItems() != null
-                    && !notification.block().blockItems().isEmpty()) {
+        if (notification != null
+                && notification.source() != BlockSource.BACKFILL
+                && notification.source() != BlockSource.CLOUD_STORAGE) {
+            // only a defect in the sending plugin can produce another source
+            LOGGER.log(
+                    WARNING,
+                    "Rejected backfilled block {0} with unsupported source {1}",
+                    notification.blockNumber(),
+                    notification.source());
+        } else if (notification != null
+                && notification.blockNumber() >= 0L
+                && notification.block() != null
+                && notification.block().blockItems() != null
+                && !notification.block().blockItems().isEmpty()) {
+            final BlockSource source = notification.source();
+            try {
                 final BlockItems blockItems =
                         new BlockItems(notification.block().blockItems(), notification.blockNumber(), true, true);
                 validateAndProcess(blockItems, source);
-            } else {
-                LOGGER.log(INFO, "Received invalid backfill notification: {0}", notification);
+            } catch (final RuntimeException e) {
+                LOGGER.log(INFO, "Failed to handle backfill notification in verification ", e);
+                safeSendNotification(notification.blockNumber(), source, SessionFailureType.UNKNOWN_ERROR);
             }
-        } catch (final RuntimeException e) {
-            LOGGER.log(INFO, "Failed to handle backfill notification in verification ", e);
-            final long blockNumber = notification != null ? notification.blockNumber() : -1L;
-            safeSendNotification(blockNumber, source, SessionFailureType.UNKNOWN_ERROR);
+        } else {
+            LOGGER.log(INFO, "Received invalid backfill notification: {0}", notification);
         }
     }
 
