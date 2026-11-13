@@ -24,9 +24,9 @@ import org.hiero.block.node.base.Loggable;
  *     should be no reason to have a big queue. The queue size must be a power
  *     of two.
  * @param waitStrategy How ring handlers wait for the next message once they
- *     have caught up. {@code PHASED_BACKOFF} yields briefly and then blocks,
- *     so idle handlers cost no CPU. {@code SLEEPING} is the old behavior and
- *     only meant for rollback.
+ *     have caught up. {@code BLOCKING} (the default) blocks on a lock, so idle
+ *     handlers cost no CPU. {@code PHASED_BACKOFF} yields briefly first.
+ *     {@code SLEEPING} is the old behavior and only meant for rollback.
  * @param waitStrategyYieldTimeoutMicros How long a {@code PHASED_BACKOFF}
  *     handler keeps yielding after its last message before it blocks, in
  *     microseconds. Must not be negative.
@@ -36,8 +36,7 @@ public record MessagingConfig(
         @Loggable @ConfigProperty(defaultValue = "512") int blockItemQueueSize,
         @Loggable @ConfigProperty(defaultValue = "32") int blockNotificationQueueSize,
 
-        @Loggable @ConfigProperty(defaultValue = "PHASED_BACKOFF")
-        MessagingWaitStrategy waitStrategy,
+        @Loggable @ConfigProperty(defaultValue = "BLOCKING") MessagingWaitStrategy waitStrategy,
 
         @Loggable @ConfigProperty(defaultValue = "1000") long waitStrategyYieldTimeoutMicros) {
     /**

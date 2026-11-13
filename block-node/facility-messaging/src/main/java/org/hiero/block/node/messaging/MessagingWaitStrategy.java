@@ -17,7 +17,7 @@ public enum MessagingWaitStrategy {
      * virtual thread would hold a carrier thread.
      */
     PHASED_BACKOFF,
-    /** Always block on a lock and wait for the publisher to signal. Lowest CPU, one wake-up per batch. */
+    /** Always block on a lock and wait for the publisher to signal. The default: lowest CPU, one wake-up per batch. */
     BLOCKING,
     /**
      * Spin, yield, then sleep 100 ns in a loop, never blocking. Idle handlers keep the virtual thread carriers busy, so

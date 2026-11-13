@@ -30,9 +30,9 @@ import org.junit.jupiter.params.provider.EnumSource;
 class MessagingWaitStrategyConfigTest {
 
     @Test
-    void defaultWaitStrategyIsPhasedBackoff() {
+    void defaultWaitStrategyIsBlocking() {
         final MessagingConfig config = TestConfig.getConfig().getConfigData(MessagingConfig.class);
-        assertEquals(MessagingWaitStrategy.PHASED_BACKOFF, config.waitStrategy());
+        assertEquals(MessagingWaitStrategy.BLOCKING, config.waitStrategy());
     }
 
     @Test
@@ -50,9 +50,9 @@ class MessagingWaitStrategyConfigTest {
 
     @Test
     void waitStrategyIsReadFromConfiguration() {
-        final Configuration configuration = TestConfig.getConfig(Map.of("messaging.waitStrategy", "BLOCKING"));
+        final Configuration configuration = TestConfig.getConfig(Map.of("messaging.waitStrategy", "PHASED_BACKOFF"));
         final MessagingConfig config = configuration.getConfigData(MessagingConfig.class);
-        assertEquals(MessagingWaitStrategy.BLOCKING, config.waitStrategy());
+        assertEquals(MessagingWaitStrategy.PHASED_BACKOFF, config.waitStrategy());
     }
 
     /**
