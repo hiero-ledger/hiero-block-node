@@ -570,17 +570,17 @@ Resource names are based on the Helm release name (default: `block-node-server`)
 
 The Block Node public API protos live in `protobuf-sources/src/main/proto/block-node/api/`:
 
-|               Proto file               |                                           Services / messages defined                                           |
-|----------------------------------------|-----------------------------------------------------------------------------------------------------------------|
-| `block_stream_publish_service.proto`   | `BlockStreamPublishService.publishBlockStream` - CN → BN ingestion                                              |
-| `block_stream_subscribe_service.proto` | `BlockStreamSubscribeService.subscribeBlockStream` - MN / Tier 2 consumption                                    |
-| `block_access_service.proto`           | `BlockAccessService.getBlock` - random-access single-block retrieval                                            |
-| `node_service.proto`                   | `BlockNodeService.serverStatus` / `serverStatusDetail` - metadata and health                                    |
-| `state_service.proto`                  | `StateService.getKV`/`getSingleton`/`getQueue` - *(defined; not yet implemented)*                               |
-| `proof_service.proto`                  | `ProofService` - block content and state proofs *(not yet implemented)*                                         |
-| `reconnect_service.proto`              | `ReconnectService.reconnect()` - provides state + block data to lagging Consensus Nodes *(not yet implemented)* |
-| `network-data.proto`                   | Shared network endpoint message types: `NetworkData`, `NetworkConnection`                                       |
-| `shared_message_types.proto`           | Shared message types: `BlockItemSet`, `BlockProof`, `EndOfStream`, etc.                                         |
+|               Proto file               |                                                 Services / messages defined                                                 |
+|----------------------------------------|-----------------------------------------------------------------------------------------------------------------------------|
+| `block_stream_publish_service.proto`   | `BlockStreamPublishService.publishBlockStream` - CN → BN ingestion                                                          |
+| `block_stream_subscribe_service.proto` | `BlockStreamSubscribeService.subscribeBlockStream` - MN / Tier 2 consumption                                                |
+| `block_access_service.proto`           | `BlockAccessService.getBlock` - random-access single-block retrieval                                                        |
+| `node_service.proto`                   | `BlockNodeService.serverStatus` / `serverStatusDetail` / `getAddressBook` / `getTssData` - metadata, health and roster data |
+| `state_service.proto`                  | `StateService.getKV`/`getSingleton`/`getQueue` - *(defined; not yet implemented)*                                           |
+| `proof_service.proto`                  | `ProofService` - block content and state proofs *(not yet implemented)*                                                     |
+| `reconnect_service.proto`              | `ReconnectService.reconnect()` - provides state + block data to lagging Consensus Nodes *(not yet implemented)*             |
+| `network-data.proto`                   | Shared network endpoint message types: `NetworkData`, `NetworkConnection`                                                   |
+| `shared_message_types.proto`           | Shared message types: `BlockItemSet`, `BlockProof`, `EndOfStream`, etc.                                                     |
 
 The BN API protos are defined locally in `protobuf-sources/src/main/proto/block-node/api/`
 within this repository. The Consensus Node protos (pulled for combined artifact generation)
@@ -606,23 +606,23 @@ The `tools-and-tests/` directory contains:
 
 Each plugin is identified by its `plugins.names` key (used in Helm configuration):
 
-|       Plugin name        |                                        Feature provided                                        |             Tier required             |
-|--------------------------|------------------------------------------------------------------------------------------------|---------------------------------------|
-| `stream-publisher`       | Accepts block streams from Consensus Nodes (`publishBlockStream` RPC)                          | Tier 1 only - **remove for Tier 2**   |
-| `stream-subscriber`      | Serves block streams to Mirror Nodes and downstream Block Nodes (`subscribeBlockStream` RPC)   | Tier 1 and Tier 2                     |
-| `block-access-service`   | Single-block random-access retrieval (`getBlock` RPC)                                          | Tier 1 and Tier 2                     |
-| `server-status`          | `serverStatus` and `serverStatusDetail` RPCs - block range, version, plugin list               | All deployments                       |
-| `health`                 | Kubernetes liveness (`/healthz/livez`) and readiness (`/healthz/readyz`) probes                | All deployments                       |
-| `block-verification`     | Verifies block proofs before persistence (TSS and RSA/WRB)                                     | All deployments                       |
-| `blocks-file-recent`     | Short-term block persistence on local NVMe with configurable retention policy                  | LFH and RFH profiles                  |
-| `blocks-file-historic`   | Long-term block persistence on local HDD (archive tier)                                        | LFH profile                           |
-| `cloud-storage-archive`  | Archives blocks to S3-compatible cloud storage (group files)                                   | RFH and cloud-backup profiles         |
-| `cloud-storage-expanded` | Uploads each verified block individually to S3-compatible storage                              | Optional                              |
-| `backfill`               | Fetches missing historical blocks from peer Block Nodes                                        | All production deployments            |
-| `roster-bootstrap-rsa`   | Loads the RSA node address book at startup for WRB block proof verification                    | Required for WRB cutover              |
-| `roster-bootstrap-tss`   | Loads TSS roster data for post-cutover block proof verification                                | Required post-cutover                 |
-| `facility-app-state`     | Owns and persists TSS data, address book history and block ranges; notifies plugins of changes | All deployments (core infrastructure) |
-| `facility-messaging`     | Internal LMAX Disruptor event bus - distributes block items to all plugins                     | All deployments (core infrastructure) |
+|       Plugin name        |                                                       Feature provided                                                        |             Tier required             |
+|--------------------------|-------------------------------------------------------------------------------------------------------------------------------|---------------------------------------|
+| `stream-publisher`       | Accepts block streams from Consensus Nodes (`publishBlockStream` RPC)                                                         | Tier 1 only - **remove for Tier 2**   |
+| `stream-subscriber`      | Serves block streams to Mirror Nodes and downstream Block Nodes (`subscribeBlockStream` RPC)                                  | Tier 1 and Tier 2                     |
+| `block-access-service`   | Single-block random-access retrieval (`getBlock` RPC)                                                                         | Tier 1 and Tier 2                     |
+| `server-status`          | `serverStatus`, `serverStatusDetail`, `getAddressBook` and `getTssData` RPCs - block range, version, plugin list, roster data | All deployments                       |
+| `health`                 | Kubernetes liveness (`/healthz/livez`) and readiness (`/healthz/readyz`) probes                                               | All deployments                       |
+| `block-verification`     | Verifies block proofs before persistence (TSS and RSA/WRB)                                                                    | All deployments                       |
+| `blocks-file-recent`     | Short-term block persistence on local NVMe with configurable retention policy                                                 | LFH and RFH profiles                  |
+| `blocks-file-historic`   | Long-term block persistence on local HDD (archive tier)                                                                       | LFH profile                           |
+| `cloud-storage-archive`  | Archives blocks to S3-compatible cloud storage (group files)                                                                  | RFH and cloud-backup profiles         |
+| `cloud-storage-expanded` | Uploads each verified block individually to S3-compatible storage                                                             | Optional                              |
+| `backfill`               | Fetches missing historical blocks from peer Block Nodes                                                                       | All production deployments            |
+| `roster-bootstrap-rsa`   | Loads the RSA node address book at startup for WRB block proof verification                                                   | Required for WRB cutover              |
+| `roster-bootstrap-tss`   | Loads TSS roster data for post-cutover block proof verification                                                               | Required post-cutover                 |
+| `facility-app-state`     | Owns and persists TSS data, address book history and block ranges; notifies plugins of changes                                | All deployments (core infrastructure) |
+| `facility-messaging`     | Internal LMAX Disruptor event bus - distributes block items to all plugins                                                    | All deployments (core infrastructure) |
 
 > Both `roster-bootstrap-rsa` and `roster-bootstrap-tss` are included in the default plugin list. If
 > no bootstrap file or source URL is configured, each plugin logs a message and exits without

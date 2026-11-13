@@ -303,7 +303,7 @@ This only concerns environments that run with TSS enabled (Solo, CI and other te
 
 If the Block Node queries peers for TSS data (`roster.bootstrap.tss.blockNodeSourcesPath`), reset those peers first: a peer that still holds the old TSS data hands it straight back.
 
-After the reset, `serverStatusDetail` returns an empty `tssData` until the new TSS data arrives, then the new ledger ID; the verification plugin logs `Updated TSS data, valid from block <N>, roster entries <M>` at INFO when it installs it.
+After the reset, `getTssData` (or `serverStatusDetail` on a node without that call) returns an empty `tssData` until the new TSS data arrives, then the new ledger ID; the verification plugin logs `Updated TSS data, valid from block <N>, roster entries <M>` at INFO when it installs it.
 
 ## Full uninstall (when reset is not enough)
 

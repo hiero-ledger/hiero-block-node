@@ -71,20 +71,17 @@ Returns the version information, the available ranges and the stored ranges. Whi
 also returns the TSS data, the latest address book and the address book history.
 
 1. The request is a `ServerStatusDetailRequest` with flags. A flag set to `true` leaves that part out:
-   `exclude_versions`, `exclude_available_ranges`, `exclude_stored_ranges`, `exclude_address_book` and
-   `exclude_tss_data`.
+   `exclude_versions`, `exclude_available_ranges` and `exclude_stored_ranges`.
 2. The roster fields (`tss_data`, `node_address_book`, `ranged_address_book_history`) are marked deprecated and are still
    returned until the remove step of [Compatibility and Rollout](#compatibility-and-rollout).
 3. After the remove step, the response contains only `version_information`, `available_ranges` and `stored_ranges`, and
    the removed field numbers are marked `reserved` so they are never reused.
 4. An empty request returns every part of the response, so a client that sends nothing keeps working.
 
-While the roster fields are deprecated but still returned, `exclude_address_book` and `exclude_tss_data` let a client
-leave them out. The address book and its history are the large part of the response. The two flags have no effect once
-the fields are removed.
+The roster fields are not selectable: while they are deprecated every response carries them, and after the remove step
+none does. A client that needs roster data uses `getAddressBook` and `getTssData`.
 
-Backfill reads only the available ranges, so it can set the other four flags (versions, stored ranges, address book and
-TSS data) and avoid that payload.
+Backfill reads only the available ranges, so it sets `exclude_versions` and `exclude_stored_ranges`.
 
 ### getAddressBook
 
@@ -147,12 +144,6 @@ message ServerStatusDetailRequest {
     bool exclude_available_ranges = 2;
     // If true, the response leaves out stored_ranges.
     bool exclude_stored_ranges = 3;
-    // If true, the response leaves out node_address_book and ranged_address_book_history
-    // (deprecated; still returned by default until they are removed).
-    bool exclude_address_book = 4;
-    // If true, the response leaves out tss_data
-    // (deprecated; still returned by default until it is removed).
-    bool exclude_tss_data = 5;
 }
 
 message ServerStatusDetailResponse {
@@ -210,9 +201,9 @@ different versions at the same time.
 
 Sequence:
 
-1. **Add.** Release the new RPCs and the request flags. The flags let a client that does not need the address book or
-   the TSS data leave them out, and `getAddressBook` lets another Block Node query the address book directly. Keep
-   populating the roster fields in `serverStatusDetail` until release 0.49, marked deprecated in the proto comments.
+1. **Add.** Release the new RPCs and the request flags. `getAddressBook` and `getTssData` let another Block Node query
+   the roster data directly. Keep populating the roster fields in `serverStatusDetail` until release 0.49, marked
+   deprecated in the proto comments.
 2. **Migrate.** Move the roster bootstrap fetchers to the new RPCs. A client falls back to `serverStatusDetail` when a
    peer answers `UNIMPLEMENTED`, so a new node can still bootstrap from an old peer.
 3. **Remove.** From release 0.49, stop populating the roster fields and mark the field numbers `reserved`.
@@ -258,8 +249,7 @@ by throttling use the behavior described in [API Throttling](./api-throttling.md
 
 1. `serverStatusDetail` with an empty request returns every part of the response: versions, available ranges, stored
    ranges and the deprecated roster fields.
-2. Each exclude flag removes exactly its own part and no other part. `exclude_address_book` removes both the address
-   book and its history.
+2. Each exclude flag removes exactly its own part and no other part.
 3. `getAddressBook` with `exclude_history = true` returns only the latest address book.
 4. `getAddressBook` with `exclude_history = false` also returns the history in block order.
 5. `getTssData` behaves the same way for TSS data and its history.
@@ -277,6 +267,7 @@ by throttling use the behavior described in [API Throttling](./api-throttling.md
    `RangedTssDataHistory` is defined so the response can carry it later.
 3. **Flag defaults.** All flags default to `false`. Inverted defaults would make the empty request that an older backfill
    peer sends come back without `available_ranges`.
-4. **Excluding roster data.** Deprecated means scheduled for removal, and the fields are still returned by default. The
-   `exclude_address_book` and `exclude_tss_data` flags let a client leave them out in the meantime, so the large address
-   book payload is optional immediately.
+4. **No flags for roster data.** Deprecated means scheduled for removal, so the roster fields are either returned or, after
+   release 0.49, gone. Request flags to leave them out were considered and rejected: they would add permanent request
+   fields for a benefit that lasts until the fields are removed, and the address book is smaller since the duplicate
+   eras are merged. Callers that want roster data without the rest use `getAddressBook` and `getTssData`.
