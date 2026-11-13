@@ -8,14 +8,20 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
+import com.hedera.pbj.runtime.grpc.GrpcException;
+import com.hedera.pbj.runtime.grpc.GrpcStatus;
 import java.util.List;
+import org.hiero.block.api.AddressBookResponse;
 import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
+import org.hiero.block.api.ServerStatusDetailRequest;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.internal.BlockNodeSource;
 import org.hiero.block.internal.BlockNodeSourceConfig;
@@ -25,6 +31,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 /// Unit tests for {@link AddressBookFetcher}.
 class AddressBookFetcherTest {
@@ -97,8 +104,8 @@ class AddressBookFetcherTest {
     private BlockNodeClient mockClientReturning(RangedAddressBookHistory history) {
         BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
                 mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
-        when(serviceClient.serverStatusDetail(any()))
-                .thenReturn(ServerStatusDetailResponse.newBuilder()
+        when(serviceClient.getAddressBook(any()))
+                .thenReturn(AddressBookResponse.newBuilder()
                         .rangedAddressBookHistory(history)
                         .build());
         BlockNodeClient client = mock(BlockNodeClient.class);
@@ -185,7 +192,7 @@ class AddressBookFetcherTest {
             BlockNodeSourceConfig peer = peer("localhost", 8080);
             BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
                     mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
-            when(serviceClient.serverStatusDetail(any())).thenThrow(new RuntimeException("connection refused"));
+            when(serviceClient.getAddressBook(any())).thenThrow(new RuntimeException("connection refused"));
             BlockNodeClient client = mock(BlockNodeClient.class);
             when(client.isNodeReachable()).thenReturn(true);
             when(client.getBlockNodeServiceClient()).thenReturn(serviceClient);
@@ -215,7 +222,7 @@ class AddressBookFetcherTest {
 
             BlockNodeServiceInterface.BlockNodeServiceClient failingService =
                     mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
-            when(failingService.serverStatusDetail(any())).thenThrow(new RuntimeException("timeout"));
+            when(failingService.getAddressBook(any())).thenThrow(new RuntimeException("timeout"));
             BlockNodeClient failingClient = mock(BlockNodeClient.class);
             when(failingClient.isNodeReachable()).thenReturn(true);
             when(failingClient.getBlockNodeServiceClient()).thenReturn(failingService);
@@ -256,8 +263,8 @@ class AddressBookFetcherTest {
             BlockNodeSourceConfig peer = peer("localhost", 8080);
             BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
                     mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
-            when(serviceClient.serverStatusDetail(any()))
-                    .thenReturn(ServerStatusDetailResponse.newBuilder()
+            when(serviceClient.getAddressBook(any()))
+                    .thenReturn(AddressBookResponse.newBuilder()
                             .rangedAddressBookHistory(historyWith("aabbcc"))
                             .build());
             when(serviceClient.fullName()).thenReturn("localhost:8080");
@@ -306,6 +313,87 @@ class AddressBookFetcherTest {
         @DisplayName("history with any blank key is invalid")
         void anyBlankKeyIsInvalid() {
             assertFalse(AddressBookFetcher.isValid(historyWith("", "")));
+        }
+    }
+
+    @Nested
+    @DisplayName("Fallback to serverStatusDetail")
+    class FallbackToServerStatusDetail {
+
+        private BlockNodeClient clientWith(final BlockNodeServiceInterface.BlockNodeServiceClient serviceClient) {
+            BlockNodeClient client = mock(BlockNodeClient.class);
+            when(client.isNodeReachable()).thenReturn(true);
+            when(client.getBlockNodeServiceClient()).thenReturn(serviceClient);
+            return client;
+        }
+
+        @Test
+        @DisplayName("Reads the history from serverStatusDetail when the peer answers UNIMPLEMENTED")
+        void fallsBackWhenUnimplemented() {
+            BlockNodeSourceConfig peer = peer("old-peer", 8080);
+            RangedAddressBookHistory expected = historyWith("aabbcc");
+            BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
+                    mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
+            when(serviceClient.getAddressBook(any()))
+                    .thenThrow(new GrpcException(GrpcStatus.UNIMPLEMENTED, "getAddressBook is not implemented"));
+            when(serviceClient.serverStatusDetail(any()))
+                    .thenReturn(ServerStatusDetailResponse.newBuilder()
+                            .rangedAddressBookHistory(expected)
+                            .build());
+
+            AddressBookFetcher fetcher = fetcherWithClient(peer, clientWith(serviceClient));
+
+            assertEquals(expected, fetcher.getRangedNodeAddressBookHistory());
+        }
+
+        @Test
+        @DisplayName("The fallback asks for none of the other parts of serverStatusDetail")
+        void fallbackRequestsOnlyTheRosterData() {
+            BlockNodeSourceConfig peer = peer("old-peer", 8080);
+            BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
+                    mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
+            when(serviceClient.getAddressBook(any())).thenThrow(new GrpcException(GrpcStatus.UNIMPLEMENTED, "no"));
+            when(serviceClient.serverStatusDetail(any()))
+                    .thenReturn(ServerStatusDetailResponse.newBuilder()
+                            .rangedAddressBookHistory(historyWith("aabbcc"))
+                            .build());
+
+            fetcherWithClient(peer, clientWith(serviceClient)).getRangedNodeAddressBookHistory();
+
+            ArgumentCaptor<ServerStatusDetailRequest> request =
+                    ArgumentCaptor.forClass(ServerStatusDetailRequest.class);
+            verify(serviceClient).serverStatusDetail(request.capture());
+            assertTrue(request.getValue().excludeVersions());
+            assertTrue(request.getValue().excludeAvailableRanges());
+            assertTrue(request.getValue().excludeStoredRanges());
+        }
+
+        @Test
+        @DisplayName("Does not call serverStatusDetail when getAddressBook succeeds")
+        void noFallbackOnSuccess() {
+            BlockNodeSourceConfig peer = peer("new-peer", 8080);
+            BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
+                    mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
+            when(serviceClient.getAddressBook(any()))
+                    .thenReturn(AddressBookResponse.newBuilder()
+                            .rangedAddressBookHistory(historyWith("aabbcc"))
+                            .build());
+
+            fetcherWithClient(peer, clientWith(serviceClient)).getRangedNodeAddressBookHistory();
+
+            verify(serviceClient, never()).serverStatusDetail(any());
+        }
+
+        @Test
+        @DisplayName("Does not fall back for a failure other than UNIMPLEMENTED")
+        void noFallbackForOtherFailures() {
+            BlockNodeSourceConfig peer = peer("flaky-peer", 8080);
+            BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
+                    mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
+            when(serviceClient.getAddressBook(any())).thenThrow(new GrpcException(GrpcStatus.UNAVAILABLE, "down"));
+
+            assertNull(fetcherWithClient(peer, clientWith(serviceClient)).getRangedNodeAddressBookHistory());
+            verify(serviceClient, never()).serverStatusDetail(any());
         }
     }
 }

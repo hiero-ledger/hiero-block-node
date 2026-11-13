@@ -5,16 +5,23 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.hedera.pbj.runtime.grpc.GrpcException;
+import com.hedera.pbj.runtime.grpc.GrpcStatus;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.RosterEntry;
+import org.hiero.block.api.ServerStatusDetailRequest;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.TssData;
+import org.hiero.block.api.TssDataRequest;
+import org.hiero.block.api.TssDataResponse;
 import org.hiero.block.api.TssRoster;
 import org.hiero.block.internal.BlockNodeSource;
 import org.hiero.block.internal.BlockNodeSourceConfig;
@@ -24,6 +31,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.mockito.ArgumentCaptor;
 
 /// Unit tests for [TssDataFetcher].
 @Timeout(value = 5, unit = TimeUnit.SECONDS)
@@ -94,8 +102,8 @@ class TssDataFetcherTest {
             BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
                     mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
 
-            when(serviceClient.serverStatusDetail(any()))
-                    .thenReturn(ServerStatusDetailResponse.newBuilder()
+            when(serviceClient.getTssData(any()))
+                    .thenReturn(TssDataResponse.newBuilder()
                             .tssData(buildTssData(
                                     Bytes.fromHex("010203"),
                                     Bytes.fromHex("040506"),
@@ -161,5 +169,105 @@ class TssDataFetcherTest {
                 .currentRoster(tssRoster)
                 .validFromBlock(validFromBlock)
                 .build();
+    }
+
+    @Nested
+    @DisplayName("Fallback to serverStatusDetail")
+    class FallbackToServerStatusDetail {
+
+        /// A metrics holder of its own, so counts do not mix with other tests in this class.
+        private RosterBootstrapTssPlugin.MetricsHolder freshMetrics() {
+            return RosterBootstrapTssPlugin.MetricsHolder.createMetrics(
+                    MetricRegistry.builder().build(), new AtomicLong());
+        }
+
+        private BlockNodeClient clientWith(final BlockNodeServiceInterface.BlockNodeServiceClient serviceClient) {
+            BlockNodeClient client = mock(BlockNodeClient.class);
+            when(client.isNodeReachable()).thenReturn(true);
+            when(client.getBlockNodeServiceClient()).thenReturn(serviceClient);
+            return client;
+        }
+
+        private TssData sampleData() {
+            return buildTssData(
+                    Bytes.fromHex("010203"), Bytes.fromHex("040506"), 1, 2, Bytes.fromHex("070809"), 50, 100);
+        }
+
+        @Test
+        @DisplayName("Reads the TSS data from serverStatusDetail when the peer answers UNIMPLEMENTED")
+        void fallsBackWhenUnimplemented() {
+            final BlockNodeSourceConfig nodeConfig = node("old-peer", 1, 1);
+            BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
+                    mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
+            when(serviceClient.getTssData(any()))
+                    .thenThrow(new GrpcException(GrpcStatus.UNIMPLEMENTED, "getTssData is not implemented"));
+            when(serviceClient.serverStatusDetail(any()))
+                    .thenReturn(ServerStatusDetailResponse.newBuilder()
+                            .tssData(sampleData())
+                            .build());
+            final RosterBootstrapTssPlugin.MetricsHolder metrics = freshMetrics();
+
+            TssDataFetcher fetcher = createFetcherWithClient(nodeConfig, metrics, clientWith(serviceClient));
+
+            assertEquals(List.of(sampleData()), fetcher.getTssData());
+        }
+
+        @Test
+        @DisplayName("The fallback asks for none of the other parts of serverStatusDetail")
+        void fallbackRequestsOnlyTheTssData() {
+            final BlockNodeSourceConfig nodeConfig = node("old-peer", 1, 1);
+            BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
+                    mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
+            when(serviceClient.getTssData(any())).thenThrow(new GrpcException(GrpcStatus.UNIMPLEMENTED, "no"));
+            when(serviceClient.serverStatusDetail(any()))
+                    .thenReturn(ServerStatusDetailResponse.newBuilder()
+                            .tssData(sampleData())
+                            .build());
+
+            createFetcherWithClient(nodeConfig, freshMetrics(), clientWith(serviceClient))
+                    .getTssData();
+
+            ArgumentCaptor<ServerStatusDetailRequest> request =
+                    ArgumentCaptor.forClass(ServerStatusDetailRequest.class);
+            verify(serviceClient).serverStatusDetail(request.capture());
+            assertTrue(request.getValue().excludeVersions());
+            assertTrue(request.getValue().excludeAvailableRanges());
+            assertTrue(request.getValue().excludeStoredRanges());
+        }
+
+        @Test
+        @DisplayName("Asks getTssData for the latest data only, without the history")
+        void requestsLatestOnly() {
+            final BlockNodeSourceConfig nodeConfig = node("new-peer", 1, 1);
+            BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
+                    mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
+            when(serviceClient.getTssData(any()))
+                    .thenReturn(
+                            TssDataResponse.newBuilder().tssData(sampleData()).build());
+
+            createFetcherWithClient(nodeConfig, freshMetrics(), clientWith(serviceClient))
+                    .getTssData();
+
+            ArgumentCaptor<TssDataRequest> request = ArgumentCaptor.forClass(TssDataRequest.class);
+            verify(serviceClient).getTssData(request.capture());
+            assertTrue(request.getValue().excludeHistory());
+            verify(serviceClient, never()).serverStatusDetail(any());
+        }
+
+        @Test
+        @DisplayName("Does not fall back for a failure other than UNIMPLEMENTED")
+        void noFallbackForOtherFailures() {
+            final BlockNodeSourceConfig nodeConfig = node("flaky-peer", 1, 1);
+            BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
+                    mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
+            when(serviceClient.getTssData(any())).thenThrow(new GrpcException(GrpcStatus.UNAVAILABLE, "down"));
+            final RosterBootstrapTssPlugin.MetricsHolder metrics = freshMetrics();
+
+            TssDataFetcher fetcher = createFetcherWithClient(nodeConfig, metrics, clientWith(serviceClient));
+
+            assertTrue(fetcher.getTssData().isEmpty());
+            verify(serviceClient, never()).serverStatusDetail(any());
+            assertEquals(1, metrics.tssDataErrors().get());
+        }
     }
 }

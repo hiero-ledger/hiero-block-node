@@ -11,12 +11,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
+import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.ServerStatusDetailRequest;
-import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.TssData;
+import org.hiero.block.api.TssDataRequest;
 import org.hiero.block.internal.BlockNodeSource;
 import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.node.base.client.BlockNodeClient;
+import org.hiero.block.node.base.client.UnimplementedFallback;
 import org.hiero.block.node.roster.bootstrap.tss.RosterBootstrapTssPlugin.MetricsHolder;
 
 /// Client for fetching TssData from block nodes using gRPC.
@@ -108,10 +110,7 @@ public class TssDataFetcher implements AutoCloseable {
             }
 
             try {
-                final ServerStatusDetailResponse detailResponse = currentNodeClient
-                        .getBlockNodeServiceClient()
-                        .serverStatusDetail(ServerStatusDetailRequest.DEFAULT);
-                TssData tssData = detailResponse.tssData();
+                TssData tssData = requestTssData(currentNodeClient);
                 if (tssData != null) tssDataList.add(tssData);
                 metrics.tssDataRequests().increment();
             } catch (RuntimeException e) {
@@ -152,5 +151,31 @@ public class TssDataFetcher implements AutoCloseable {
         for (Entry<BlockNodeSourceConfig, BlockNodeClient> entry : nodeClientMap.entrySet()) {
             closeQuietly(entry.getKey(), entry.getValue());
         }
+    }
+
+    /// Asks the peer for its latest TSS data with `getTssData`, without the history. A peer on an older version does
+    /// not
+    /// have that call and answers `UNIMPLEMENTED`; for that case the data is read from the deprecated field of
+    /// `serverStatusDetail`, asking for none of the other parts.
+    ///
+    /// @param client the peer's client
+    /// @return the TSS data the peer reports, or null if it has none
+    private static TssData requestTssData(final BlockNodeClient client) {
+        final BlockNodeServiceInterface.BlockNodeServiceClient service = client.getBlockNodeServiceClient();
+        return UnimplementedFallback.callOrFallback(
+                () -> service.getTssData(
+                                TssDataRequest.newBuilder().excludeHistory(true).build())
+                        .tssData(),
+                () -> requestTssDataFromDetail(service));
+    }
+
+    @SuppressWarnings("deprecation")
+    private static TssData requestTssDataFromDetail(final BlockNodeServiceInterface.BlockNodeServiceClient service) {
+        return service.serverStatusDetail(ServerStatusDetailRequest.newBuilder()
+                        .excludeVersions(true)
+                        .excludeAvailableRanges(true)
+                        .excludeStoredRanges(true)
+                        .build())
+                .tssData();
     }
 }
