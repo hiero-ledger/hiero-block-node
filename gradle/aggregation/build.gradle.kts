@@ -9,6 +9,7 @@ dependencies {
     published(project(":blocks-file-historic"))
     published(project(":blocks-file-recent"))
     published(project(":cloud-storage-archive"))
+    published(project(":cloud-storage-download"))
     published(project(":cloud-storage-expanded"))
     published(project(":health"))
     published(project(":facility-app-state"))

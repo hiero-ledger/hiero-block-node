@@ -116,6 +116,45 @@ class VerificationServicePluginTest {
                     .returns(genesis.rootHash(), VerificationNotification::blockHash);
         }
 
+        /// This test aims to assert that a valid block handed to verification
+        /// with source [BlockSource#CLOUD_STORAGE] is verified successfully and
+        /// the resulting notification keeps that source.
+        @Test
+        @DisplayName("Successful WRAPS Verification - Cloud Storage")
+        void testSuccessfulWRAPSVerificationCloudStorage() throws NoSuchAlgorithmException {
+            final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed genesis =
+                    harnessChainBuilder().genesisWithPublication();
+            plugin.handleBackfilled(new BackfilledBlockNotification(
+                    genesis.block().number(), genesis.block().blockUnparsed(), BlockSource.CLOUD_STORAGE));
+            final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
+            assertThat(notifications)
+                    .hasSize(1)
+                    .first()
+                    .returns(true, VerificationNotification::success)
+                    .returns(null, VerificationNotification::failureInfo)
+                    .returns(genesis.block().number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.CLOUD_STORAGE, VerificationNotification::source)
+                    .returns(genesis.block().blockUnparsed(), VerificationNotification::block)
+                    .returns(genesis.rootHash(), VerificationNotification::blockHash);
+        }
+
+        /// This test aims to assert that a complete block notification whose
+        /// source is neither backfill nor cloud storage is rejected without
+        /// starting verification.
+        @ParameterizedTest
+        @EnumSource(
+                value = BlockSource.class,
+                names = {"UNKNOWN", "PUBLISHER", "HISTORY"})
+        @DisplayName("Complete block notification with unsupported source is rejected")
+        void testBackfilledNotificationWithUnsupportedSourceRejected(final BlockSource source)
+                throws NoSuchAlgorithmException {
+            final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed genesis =
+                    harnessChainBuilder().genesisWithPublication();
+            plugin.handleBackfilled(new BackfilledBlockNotification(
+                    genesis.block().number(), genesis.block().blockUnparsed(), source));
+            assertThat(blockMessaging.getSentVerificationNotifications()).isEmpty();
+        }
+
         /// This test aims to assert that when the next in line WRAPS block is
         /// received, is valid, and we have valid TSS parameters initialized,
         /// the block will pass verification successfully. Uses Live RB.
@@ -1207,11 +1246,13 @@ class VerificationServicePluginTest {
             plugin.handleBackfilled(block1.asBackfilledNotification());
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(16);
             assertThat(notifications).hasSize(16);
-            assertThat(notifications).filteredOn("success", false).hasSize(2).allSatisfy(notification -> assertThat(
-                            notification)
-                    .returns(FailureInfo.standard(FailureType.CANCELLED), VerificationNotification::failureInfo)
-                    .returns(block5.number(), VerificationNotification::blockNumber)
-                    .returns(BlockSource.BACKFILL, VerificationNotification::source));
+            assertThat(notifications)
+                    .filteredOn("success", false)
+                    .hasSize(2)
+                    .allSatisfy(notification -> assertThat(notification)
+                            .returns(FailureInfo.standard(FailureType.CANCELLED), VerificationNotification::failureInfo)
+                            .returns(block5.number(), VerificationNotification::blockNumber)
+                            .returns(BlockSource.BACKFILL, VerificationNotification::source));
             assertThat(notifications)
                     .filteredOn(VerificationNotification::success)
                     .extracting(VerificationNotification::blockNumber)
@@ -1919,9 +1960,11 @@ class VerificationServicePluginTest {
         // Assert that proof is appended
         assertThat(result)
                 .returns(true, multiProof -> multiProof.blockSize() == base.blockSize() + 1)
-                .returns(true, multiProof -> proofToAppend
-                        .blockProof()
-                        .equals(multiProof.proofs().getLast()));
+                .returns(
+                        true,
+                        multiProof -> proofToAppend
+                                .blockProof()
+                                .equals(multiProof.proofs().getLast()));
     }
     /// Longest time to wait for the verification of one TSS signed block: verifying its signature costs
     /// a noticeable amount of CPU time, and a loaded CI runner verifies much slower than a laptop.

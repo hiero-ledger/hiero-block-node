@@ -1588,6 +1588,50 @@ class LiveStreamPublisherManagerTest {
                 assertThat(toTest.endOfBlock(1L)).returns(BlockAction.ACCEPT, ActionForBlock::action);
             }
 
+            /// This test aims to assert that a failed verification of a block downloaded from
+            /// cloud storage ends no publisher stream and schedules no resend, and that the
+            /// later persistence of that block from cloud storage is acknowledged normally.
+            @Test
+            @DisplayName("Cloud storage failed verification ends no stream, its persistence is acknowledged")
+            void testCloudStorageFailedVerificationIgnoredAndPersistenceAcknowledged() {
+                // Establish lastPersisted=0 and advance nextUnstreamed past block 1, so a
+                // publisher failure for block 1 would be handled.
+                assertThat(toTest.getActionForBlock(0L, null, publisherHandlerId))
+                        .isEqualTo(BlockAction.ACCEPT);
+                toTest.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.PUBLISHER));
+                assertThat(toTest.getActionForBlock(1L, null, publisherHandlerId))
+                        .isEqualTo(BlockAction.ACCEPT);
+                responsePipeline.clear();
+                responsePipeline2.clear();
+                // A cloud storage copy of block 1 fails with a failure type that would end
+                // the supplying stream for a publisher copy.
+                toTest.handleVerification(new VerificationNotification(
+                        false,
+                        FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                        1L,
+                        null,
+                        null,
+                        BlockSource.CLOUD_STORAGE));
+                assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline2.getClientEndStreamCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+                assertThat(responsePipeline2.getOnNextCalls()).isEmpty();
+                // Block 1 is then persisted from cloud storage. No resend is pending, so the
+                // acknowledgement is not clamped.
+                toTest.handlePersisted(new PersistedNotification(1L, true, 0, BlockSource.CLOUD_STORAGE));
+                assertThat(toTest.getLatestBlockNumber()).isEqualTo(1L);
+                assertThat(responsePipeline.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                        .returns(1L, acknowledgementBlockNumberExtractor);
+                assertThat(responsePipeline2.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                        .returns(1L, acknowledgementBlockNumberExtractor);
+            }
+
             /// A failed publisher copy of a block can arrive after another copy was already
             /// persisted (for example by backfill). The manager must not schedule a resend
             /// for a block it already holds, as that entry would clamp every acknowledgement

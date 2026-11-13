@@ -443,3 +443,44 @@ Object keys follow the format `{prefix}/AAAA/BBBB/CCCC/DDDD/EEE.blk.zstd`, where
 | 1            | `blocks/0000/0000/0000/0000/001.blk.zstd` |
 | 1 234 567    | `blocks/0000/0000/0000/1234/567.blk.zstd` |
 | 108 273 182  | `blocks/0000/0000/0010/8273/182.blk.zstd` |
+
+### Cloud Storage Download Plugin Configuration
+
+Recovers missing blocks from the bucket the Consensus Nodes upload blocks to, when this
+[Tier 1](./glossary.md#tier-1-block-node) Block Node falls behind. Every poll interval the plugin
+checks whether the bucket holds the block `aheadThresholdBlocks` after the last stored block. If it
+does, the plugin downloads the missing blocks and submits them, in order, to the same verification and
+persistence path backfill uses. It only reads from the bucket, so read-only credentials are enough.
+
+The plugin is loaded only when `cloud-storage-download` appears in `plugins.names`, and it does nothing
+unless `CLOUD_STORAGE_DOWNLOAD_ENABLED` is `true`. Once enabled, it needs the five required settings
+below and a positive `CLOUD_STORAGE_DOWNLOAD_AHEAD_THRESHOLD_BLOCKS` and
+`CLOUD_STORAGE_DOWNLOAD_DOWNLOAD_WINDOW`. A blank or invalid one leaves it inactive, logging a WARNING
+at startup that names the setting (never its value), and it makes no bucket requests.
+
+| ENV Variable                                   | Description                                                                                                                                          | Default |
+|:-----------------------------------------------|:-----------------------------------------------------------------------------------------------------------------------------------------------------|--------:|
+| CLOUD_STORAGE_DOWNLOAD_ENABLED                 | Turns the plugin on.                                                                                                                                 |   false |
+| CLOUD_STORAGE_DOWNLOAD_ENDPOINT_URL            | S3-compatible endpoint URL. Required when enabled.                                                                                                   |      "" |
+| CLOUD_STORAGE_DOWNLOAD_REGION_NAME             | AWS / S3-compatible region name. Required when enabled.                                                                                              |      "" |
+| CLOUD_STORAGE_DOWNLOAD_BUCKET_NAME             | Name of the bucket the Consensus Nodes upload blocks to. Required when enabled.                                                                      |      "" |
+| CLOUD_STORAGE_DOWNLOAD_ACCESS_KEY              | Read-only access key (an HMAC key for GCS; not logged). Required when enabled.                                                                       |      "" |
+| CLOUD_STORAGE_DOWNLOAD_SECRET_KEY              | Read-only secret key (not logged). Required when enabled.                                                                                            |      "" |
+| CLOUD_STORAGE_DOWNLOAD_OBJECT_KEY_PREFIX       | Prefix in front of every object key (e.g. `blocks`). Set to `""` for no prefix.                                                                      |      "" |
+| CLOUD_STORAGE_DOWNLOAD_POLL_INTERVAL_MS        | Time between two checks of the bucket, in milliseconds.                                                                                              |    5000 |
+| CLOUD_STORAGE_DOWNLOAD_AHEAD_THRESHOLD_BLOCKS  | How many blocks the bucket must be ahead of the last stored block before the plugin pulls. Must be positive; set a little below the CN buffer limit. |       0 |
+| CLOUD_STORAGE_DOWNLOAD_DOWNLOAD_WINDOW         | Number of blocks downloaded in parallel before being submitted in order. Must be positive.                                                           |      10 |
+| CLOUD_STORAGE_DOWNLOAD_PERSIST_WAIT_TIMEOUT_MS | How long to wait for one submitted block to be persisted before ending the pull, in milliseconds.                                                    |   90000 |
+| CLOUD_STORAGE_DOWNLOAD_REQUEST_TIMEOUT_MS      | Timeout for the response of one bucket request, in milliseconds.                                                                                     |   10000 |
+
+> **Note:** `CLOUD_STORAGE_DOWNLOAD_AHEAD_THRESHOLD_BLOCKS` has no usable default: an operator who
+> enables the plugin must set it for their network.
+
+Each Consensus Node uploads to its own folder, named after its node ID, and the plugin reads the node
+IDs from the current roster. A block file is complete once its `.sig` marker file exists next to it,
+so the plugin looks for the marker, not the block file. Object keys follow the expanded layout under
+the node folder, `{prefix}/{nodeId}/AAAA/BBBB/CCCC/DDDD/EEE.blk.zstd`:
+
+| Node | Block number | Block file                                  | Marker file                            |
+|:-----|:-------------|:--------------------------------------------|:---------------------------------------|
+| 3    | 108 273 182  | `blocks/3/0000/0000/0010/8273/182.blk.zstd` | `blocks/3/0000/0000/0010/8273/182.sig` |

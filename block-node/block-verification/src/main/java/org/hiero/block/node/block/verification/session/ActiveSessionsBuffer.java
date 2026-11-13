@@ -105,14 +105,13 @@ public final class ActiveSessionsBuffer {
             if (isFull()) {
                 makeRoom();
             }
-            final SessionLane lane =
-                    switch (session.blockSource()) {
-                        case PUBLISHER -> {
-                            latestPublisherSession.set(session);
-                            yield SessionLane.HIGH_PRIORITY;
-                        }
-                        case BACKFILL, HISTORY, UNKNOWN -> SessionLane.LOW_PRIORITY;
-                    };
+            final SessionLane lane = switch (session.blockSource()) {
+                case PUBLISHER -> {
+                    latestPublisherSession.set(session);
+                    yield SessionLane.HIGH_PRIORITY;
+                }
+                case BACKFILL, CLOUD_STORAGE, HISTORY, UNKNOWN -> SessionLane.LOW_PRIORITY;
+            };
             laneOf(lane).put(session.sessionKey(), session);
             sessionHandlerMetrics.verificationActiveSessions().set(size());
         } finally {
