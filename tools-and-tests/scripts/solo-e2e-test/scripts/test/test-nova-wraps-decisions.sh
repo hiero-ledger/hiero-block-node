@@ -31,7 +31,7 @@ source "${LIB}"
 # tracks the implementation. The script runs main when executed, so it is not sourced.
 constants=$(sed -n -E '/^readonly (NOVA_WRAPS_MN_MIN_VERSION|COMPAT_CN_MINS|COMPAT_MN_MINS|COMPAT_BN_MINS|NOVA_WRAPS_BN_MIN_VERSION)=/p' "${RESOLVE_SCRIPT}")
 eval "${constants}"
-for fn in log_line enforce_minimum_version enforce_nova_wraps_cn_floor resolve_compatibility_mins; do
+for fn in log_line enforce_minimum_version enforce_nova_wraps_cn_floor cn_build_published resolve_published_nova_cn list_cn_prerelease_tags resolve_compatibility_mins; do
     pattern="/^function ${fn} [{]/,/^[}]/p"
     definition=$(sed -n "${pattern}" "${RESOLVE_SCRIPT}")
     eval "${definition}"
@@ -108,6 +108,26 @@ expect_equal "BN 0.45.0, CN 0.80.0-alpha.3 (kept, with a warning)" "0.80.0-alpha
 expect_equal "BN 0.45.0-rc2, CN 0.78.1" "0.78.1" "$(enforce_nova_wraps_cn_floor 0.78.1 0.45.0-rc2 2>/dev/null)"
 expect_equal "BN 0.44.2, CN 0.78.1" "0.78.1" "$(enforce_nova_wraps_cn_floor 0.78.1 0.44.2 2>/dev/null)"
 expect_equal "BN 0.45.0-SNAPSHOT, CN 0.78.1" "0.78.1" "$(enforce_nova_wraps_cn_floor 0.78.1 0.45.0-SNAPSHOT 2>/dev/null)"
+
+echo "[7] resolve_published_nova_cn swaps an unpublished floor for a published pre-release, or fails fast"
+CN_REPO="hiero-ledger/hiero-consensus-node"
+# stubs for the network lookups
+function cn_build_published { [[ " ${PUBLISHED:-} " == *" ${1#v} "* ]]; }
+function list_cn_prerelease_tags { printf "%s\n" ${TAGS:-}; }
+# expect_fail_fast <label> <cn> <bn>: resolve_published_nova_cn must exit non-zero (its fail helper exits)
+function expect_fail_fast {
+    if ( function fail { exit 1; }; resolve_published_nova_cn "$2" "$3" >/dev/null 2>&1 ); then
+        fail "$1 (expected a non-zero exit)"
+    else
+        pass "$1"
+    fi
+}
+expect_equal "floor published" "0.79.0" "$(PUBLISHED="0.79.0" resolve_published_nova_cn 0.79.0 0.45.0 2>/dev/null)"
+expect_equal "floor unpublished, newer pre-release published" "0.79.0-rc.1" "$(PUBLISHED="0.79.0-rc.1 0.79.0-alpha.2" TAGS="v0.79.0-alpha.2 v0.79.0-rc.1 v0.79.0-rc.2" resolve_published_nova_cn 0.79.0 0.45.0 2>/dev/null)"
+PUBLISHED="" TAGS="v0.79.0-alpha.2" expect_fail_fast "fails fast when the pre-release has no build" 0.79.0 0.45.0
+TAGS="" PUBLISHED="" expect_fail_fast "fails fast when no pre-release of the floor version exists" 0.79.0 0.45.0
+expect_equal "CN above the floor is left alone" "0.80.0" "$(PUBLISHED="" resolve_published_nova_cn 0.80.0 0.45.0 2>/dev/null)"
+expect_equal "old BN is left alone" "0.78.1" "$(PUBLISHED="" resolve_published_nova_cn 0.78.1 0.44.2 2>/dev/null)"
 
 echo ""
 echo "${passed} passed, ${failed} failed"

@@ -48,6 +48,28 @@ run_shared_node_tests() {
 }
 
 #
+# k6 exits 0 when a fail() is thrown inside an async default function (it surfaces only as
+# "Uncaught (in promise)"), and several tests return OK on a Block Node with no blocks. Neither
+# reaches the exit code, so look for them in the log: an unhandled rejection, or the UNKNOWN
+# block number (-1 as unsigned) that a Block Node with no blocks reports.
+#
+# $1 - k6 output log file
+# Returns 0 when the log shows such a failure
+#
+log_shows_hidden_failure() {
+    local out_file=$1
+    if grep -q -e "Uncaught (in promise)" -e "GoError" "${out_file}"; then
+        echo "  found an unhandled k6 error in ${out_file}"
+        return 0
+    fi
+    if grep -q -e "First Available Block: 18446744073709551615" -e "No blocks to fetch" -e "No blocks to stream" "${out_file}"; then
+        echo "  Block Node reported no blocks in ${out_file}"
+        return 0
+    fi
+    return 1
+}
+
+#
 # A generic test runner that accepts parameters for the test to run
 #
 # $1 - test name
@@ -61,10 +83,14 @@ run_test() {
     echo "Running ${test_name} ..."
     local out_file=${k6_out_dir}/"${log_file}".log
     k6 run "${test_script}" >> "${out_file}" 2>&1
-    if [[ $? -ne 0 ]]; then
+    local k6_rc=$?
+    if [[ ${k6_rc} -ne 0 ]]; then
         echo "${test_name} FAILED."
         return 1
         # Optional: exit the script with a specific error code
+    elif log_shows_hidden_failure "${out_file}"; then
+        echo "${test_name} FAILED (k6 exited 0, but its log shows a failure or an empty Block Node)."
+        return 1
     else
         echo "${test_name} PASSED."
         return 0
@@ -100,7 +126,7 @@ start_solo() {
     (
     pushd "../scripts/solo-e2e-test" || return
     echo "TOPOLOGY=minimal" > .env
-    echo "CN_VERSION=latest" > .env
+    echo "CN_VERSION=latest" >> .env
     task up
     if [[ $? -ne 0 ]]; then
         echo "FAILED TO START SOLO"
