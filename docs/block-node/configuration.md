@@ -466,7 +466,7 @@ at startup that names the setting (never its value), and it makes no bucket requ
 | CLOUD_STORAGE_DOWNLOAD_BUCKET_NAME             | Name of the bucket the Consensus Nodes upload blocks to. Required when enabled.                                                                      |      "" |
 | CLOUD_STORAGE_DOWNLOAD_ACCESS_KEY              | Read-only access key (an HMAC key for GCS; not logged). Required when enabled.                                                                       |      "" |
 | CLOUD_STORAGE_DOWNLOAD_SECRET_KEY              | Read-only secret key (not logged). Required when enabled.                                                                                            |      "" |
-| CLOUD_STORAGE_DOWNLOAD_OBJECT_KEY_PREFIX       | Prefix in front of every object key (e.g. `blocks`). Set to `""` for no prefix.                                                                      |      "" |
+| CLOUD_STORAGE_DOWNLOAD_OBJECT_KEY_PREFIX       | Network folder of the bucket, e.g. `mainnet` or `testnet-202611011200` (network name and last reset time). Update it after every network reset.      |      "" |
 | CLOUD_STORAGE_DOWNLOAD_POLL_INTERVAL_MS        | Time between two checks of the bucket, in milliseconds.                                                                                              |    5000 |
 | CLOUD_STORAGE_DOWNLOAD_AHEAD_THRESHOLD_BLOCKS  | How many blocks the bucket must be ahead of the last stored block before the plugin pulls. Must be positive; set a little below the CN buffer limit. |       0 |
 | CLOUD_STORAGE_DOWNLOAD_DOWNLOAD_WINDOW         | Number of blocks downloaded in parallel before being submitted in order. Must be positive.                                                           |      10 |
@@ -477,10 +477,11 @@ at startup that names the setting (never its value), and it makes no bucket requ
 > enables the plugin must set it for their network.
 
 Each Consensus Node uploads to its own folder, named after its node ID, and the plugin reads the node
-IDs from the current roster. A block file is complete once its `.sig` marker file exists next to it,
-so the plugin looks for the marker, not the block file. Object keys follow the expanded layout under
-the node folder, `{prefix}/{nodeId}/AAAA/BBBB/CCCC/DDDD/EEE.blk.zstd`:
+IDs from the current roster. Each block file is uploaded with a single PUT, so a block file found in
+the bucket is complete. Object keys follow the expanded layout under the `block` folder of the node
+folder, `{prefix}/{nodeId}/block/AAAA/BBBB/CCCC/DDDD/EEE.blk.zstd`:
 
-| Node | Block number | Block file                                  | Marker file                            |
-|:-----|:-------------|:--------------------------------------------|:---------------------------------------|
-| 3    | 108 273 182  | `blocks/3/0000/0000/0010/8273/182.blk.zstd` | `blocks/3/0000/0000/0010/8273/182.sig` |
+| Prefix                 | Node | Block number | Block file                                                      |
+|:-----------------------|:-----|:-------------|:----------------------------------------------------------------|
+| `testnet-202611011200` | 3    | 108 273 182  | `testnet-202611011200/3/block/0000/0000/0010/8273/182.blk.zstd` |
+| `mainnet`              | 3    | 1            | `mainnet/3/block/0000/0000/0000/0000/001.blk.zstd`              |

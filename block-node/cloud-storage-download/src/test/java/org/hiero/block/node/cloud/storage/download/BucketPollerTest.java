@@ -2,6 +2,8 @@
 package org.hiero.block.node.cloud.storage.download;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.matches;
 import static org.mockito.Mockito.mock;
@@ -60,7 +62,10 @@ class BucketPollerTest {
     private RecordingPoller recordingPoller;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
+        // no block is in the bucket unless a test lists it
+        when(s3Client.listObjectsPage(anyString(), any(), any(), anyInt()))
+                .thenReturn(new S3Client.ListPage(List.of(), null));
         messaging.registerBlockNotificationHandler(awaiter, false, "awaiter");
         messaging.registerBlockNotificationHandler(persistence, false, "persistence");
         recordingPoller = new RecordingPoller(config(10, 90_000L), s3Client, messaging, awaiter, downloader, metrics);
@@ -95,9 +100,14 @@ class BucketPollerTest {
         return poller;
     }
 
-    private void markerPresent(final long nodeId, final long block) throws Exception {
-        when(s3Client.openObjectStream(BlockKeys.markerKey(PREFIX, nodeId, block)))
-                .thenReturn(new ByteArrayInputStream(new byte[0]));
+    /// Makes the probe of a block in a node folder find it.
+    private void probeFinds(final long nodeId, final long block) throws Exception {
+        final String key = BlockKeys.blockKey(PREFIX, nodeId, block);
+        when(s3Client.listObjectsPage(key, null, null, 1)).thenReturn(new S3Client.ListPage(List.of(key), null));
+    }
+
+    private void verifyProbed(final long nodeId, final long block) throws Exception {
+        verify(s3Client).listObjectsPage(BlockKeys.blockKey(PREFIX, nodeId, block), null, null, 1);
     }
 
     private void blocksPresent(final long nodeId, final long first, final long last) throws Exception {
@@ -162,11 +172,11 @@ class BucketPollerTest {
     }
 
     @Test
-    @DisplayName("With nothing stored the probe looks for the marker of the threshold minus one")
+    @DisplayName("With nothing stored the probe looks for the block of the threshold minus one")
     void probeWithNothingStored() throws Exception {
         recordingPoller.handleTssDataUpdate(roster(3L));
         recordingPoller.poll();
-        verify(s3Client).openObjectStream(BlockKeys.markerKey(PREFIX, 3L, THRESHOLD - 1));
+        verifyProbed(3L, THRESHOLD - 1);
     }
 
     @Test
@@ -176,7 +186,7 @@ class BucketPollerTest {
         recordingPoller.handleStoredBlocksUpdate(stored(range(0, 49), range(60, 99)));
         assertThat(recordingPoller.lastStored()).isEqualTo(99L);
         recordingPoller.poll();
-        verify(s3Client).openObjectStream(BlockKeys.markerKey(PREFIX, 3L, 99L + THRESHOLD));
+        verifyProbed(3L, 99L + THRESHOLD);
     }
 
     @Test
@@ -188,19 +198,20 @@ class BucketPollerTest {
     }
 
     @Test
-    @DisplayName("Marker absent in two folders: no pull and exactly two marker requests")
-    void markerAbsentInTwoFolders() throws Exception {
+    @DisplayName("Probe block absent in two folders: no pull and exactly two probe requests")
+    void probeBlockAbsentInTwoFolders() throws Exception {
         recordingPoller.handleTssDataUpdate(roster(3L, 4L, 5L));
         recordingPoller.poll();
-        verify(s3Client, times(2)).openObjectStream(anyString());
+        verify(s3Client, times(2)).listObjectsPage(anyString(), any(), any(), anyInt());
+        verify(s3Client, never()).openObjectStream(anyString());
         assertThat(recordingPoller.pulls).isEmpty();
     }
 
     @Test
-    @DisplayName("Marker only in the second folder probed: pull from that node")
-    void markerInSecondFolder() throws Exception {
+    @DisplayName("Probe block only in the second folder probed: pull from that node")
+    void probeBlockInSecondFolder() throws Exception {
         recordingPoller.handleTssDataUpdate(roster(3L, 4L));
-        markerPresent(4L, THRESHOLD - 1);
+        probeFinds(4L, THRESHOLD - 1);
         recordingPoller.poll();
         assertThat(recordingPoller.pulls).containsExactly(new Pull(-1L, THRESHOLD - 1, 4L));
     }
@@ -211,14 +222,14 @@ class BucketPollerTest {
         final BucketPoller poller = pullingPoller(3, 90_000L);
         poller.handleTssDataUpdate(roster(3L, 4L));
         poller.handleStoredBlocksUpdate(stored(range(0, 4)));
-        markerPresent(4L, 4 + THRESHOLD);
+        probeFinds(4L, 4 + THRESHOLD);
         blocksPresent(4L, 5, 4 + THRESHOLD);
         poller.poll();
         assertThat(persistence.submitted).containsExactlyElementsOf(blocks(5, 4 + THRESHOLD));
         assertCounts(THRESHOLD, 0);
         verify(s3Client, never()).openObjectStream(matches("blocks/3/.*\\.blk\\.zstd"));
         // the completed pull probes again at once, from the end of the range
-        verify(s3Client).openObjectStream(BlockKeys.markerKey(PREFIX, 4L, 4 + 2 * THRESHOLD));
+        verifyProbed(4L, 4 + 2 * THRESHOLD);
     }
 
     @Test
@@ -227,8 +238,8 @@ class BucketPollerTest {
     void completedPullProbesAgainWithoutRepeating() throws Exception {
         final BucketPoller poller = pullingPoller(10, 90_000L);
         poller.handleTssDataUpdate(roster(3L));
-        markerPresent(3L, THRESHOLD - 1);
-        markerPresent(3L, 2 * THRESHOLD - 1);
+        probeFinds(3L, THRESHOLD - 1);
+        probeFinds(3L, 2 * THRESHOLD - 1);
         blocksPresent(3L, 0, 2 * THRESHOLD - 1);
         poller.poll();
         assertThat(persistence.submitted).containsExactlyElementsOf(blocks(0, 2 * THRESHOLD - 1));
@@ -241,7 +252,7 @@ class BucketPollerTest {
         final BucketPoller poller = pullingPoller(2, 90_000L);
         poller.handleTssDataUpdate(roster(3L));
         poller.handleStoredBlocksUpdate(stored(range(0, 4)));
-        markerPresent(3L, 4 + THRESHOLD);
+        probeFinds(3L, 4 + THRESHOLD);
         blocksPresent(3L, 5, 4 + THRESHOLD);
         persistence.storeOnSubmit.put(5L, stored(range(0, 5), range(7, 7)));
         poller.poll();
@@ -256,7 +267,7 @@ class BucketPollerTest {
         final BucketPoller poller = pullingPoller(10, 90_000L);
         poller.handleTssDataUpdate(roster(3L));
         poller.handleStoredBlocksUpdate(stored(range(0, 4)));
-        markerPresent(3L, 4 + THRESHOLD);
+        probeFinds(3L, 4 + THRESHOLD);
         blocksPresent(3L, 5, 4 + THRESHOLD);
         persistence.storeOnSubmit.put(5L, stored(range(0, 6)));
         poller.poll();
@@ -270,7 +281,7 @@ class BucketPollerTest {
         final BucketPoller poller = pullingPoller(10, 90_000L);
         poller.handleTssDataUpdate(roster(3L));
         poller.handleStoredBlocksUpdate(stored(range(0, 4)));
-        markerPresent(3L, 4 + THRESHOLD);
+        probeFinds(3L, 4 + THRESHOLD);
         blocksPresent(3L, 5, 4 + THRESHOLD);
         persistence.answers.put(5L, Answer.PERSIST_BY_PUBLISHER);
         poller.poll();
@@ -284,7 +295,7 @@ class BucketPollerTest {
         final BucketPoller poller = pullingPoller(10, 90_000L);
         poller.handleTssDataUpdate(roster(3L));
         poller.handleStoredBlocksUpdate(stored(range(0, 4)));
-        markerPresent(3L, 4 + THRESHOLD);
+        probeFinds(3L, 4 + THRESHOLD);
         blocksPresent(3L, 5, 4 + THRESHOLD);
         persistence.answers.put(6L, Answer.PUBLISHER_FAILS_THEN_PERSIST);
         poller.poll();
@@ -299,7 +310,7 @@ class BucketPollerTest {
         final BucketPoller poller = pullingPoller(10, 90_000L);
         poller.handleTssDataUpdate(roster(3L));
         poller.handleStoredBlocksUpdate(stored(range(0, 4)));
-        markerPresent(3L, 4 + THRESHOLD);
+        probeFinds(3L, 4 + THRESHOLD);
         blocksPresent(3L, 5, 4 + THRESHOLD);
         persistence.storeOnSubmit.put(6L, stored(range(0, 6)));
         persistence.answers.put(6L, Answer.FAIL_VERIFICATION);
@@ -314,7 +325,7 @@ class BucketPollerTest {
         final BucketPoller poller = pullingPoller(10, 90_000L);
         poller.handleTssDataUpdate(roster(3L));
         poller.handleStoredBlocksUpdate(stored(range(0, 4)));
-        markerPresent(3L, 4 + THRESHOLD);
+        probeFinds(3L, 4 + THRESHOLD);
         blocksPresent(3L, 5, 4 + THRESHOLD);
         persistence.answers.put(6L, Answer.FAIL_VERIFICATION);
         poller.poll();
@@ -328,7 +339,7 @@ class BucketPollerTest {
         final BucketPoller poller = pullingPoller(10, 50L);
         poller.handleTssDataUpdate(roster(3L));
         poller.handleStoredBlocksUpdate(stored(range(0, 4)));
-        markerPresent(3L, 4 + THRESHOLD);
+        probeFinds(3L, 4 + THRESHOLD);
         blocksPresent(3L, 5, 4 + THRESHOLD);
         persistence.answers.put(6L, Answer.NONE);
         poller.poll();
@@ -342,7 +353,7 @@ class BucketPollerTest {
         final BucketPoller poller = pullingPoller(10, 90_000L);
         poller.handleTssDataUpdate(roster(3L));
         poller.handleStoredBlocksUpdate(stored(range(0, 4)));
-        markerPresent(3L, 4 + THRESHOLD);
+        probeFinds(3L, 4 + THRESHOLD);
         blocksPresent(3L, 5, 6);
         blocksPresent(3L, 8, 4 + THRESHOLD);
         poller.poll();
@@ -356,7 +367,7 @@ class BucketPollerTest {
         final BucketPoller poller = pullingPoller(10, 90_000L);
         poller.handleTssDataUpdate(roster(3L));
         poller.handleStoredBlocksUpdate(stored(range(0, 4)));
-        markerPresent(3L, 4 + THRESHOLD);
+        probeFinds(3L, 4 + THRESHOLD);
         blocksPresent(3L, 5, 4 + THRESHOLD);
         blockPresent(3L, 7L, 8L);
         poller.poll();

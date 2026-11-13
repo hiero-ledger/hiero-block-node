@@ -15,7 +15,9 @@ import org.hiero.block.node.base.Loggable;
 /// @param bucketName           name of the bucket to read blocks from. Required when enabled.
 /// @param accessKey            S3 access key; not logged. Required when enabled.
 /// @param secretKey            S3 secret key; not logged. Required when enabled.
-/// @param objectKeyPrefix      prefix in front of every object key. Empty for no prefix.
+/// @param objectKeyPrefix      prefix in front of every object key, the network folder of the
+///                             bucket, such as `mainnet` or `testnet-202611011200`. Changes at
+///                             every network reset. Empty for no prefix.
 /// @param pollIntervalMs       time between two probes of the bucket, in milliseconds.
 /// @param aheadThresholdBlocks how many blocks the bucket must be ahead of the last stored
 ///                             block before the plugin pulls. Must be positive when enabled.

@@ -157,13 +157,6 @@ class CloudStorageDownloadIntegrationTest
         }
     }
 
-    /// Uploads the marker of a block to the folder of every node.
-    private void seedMarker(final String prefix, final long blockNumber) throws Exception {
-        for (final long nodeId : NODES) {
-            upload(BlockKeys.markerKey(prefix, nodeId, blockNumber), new byte[] {1});
-        }
-    }
-
     private void upload(final String key, final byte[] bytes) throws Exception {
         seeder.uploadFile(key, "STANDARD", List.of(bytes).iterator(), "application/octet-stream");
     }
@@ -212,7 +205,6 @@ class CloudStorageDownloadIntegrationTest
     void bucketNotFarEnoughAhead() throws Exception {
         newBucket();
         seedBlocks("blocks", 5, 4 + THRESHOLD - 1);
-        seedMarker("blocks", 4 + THRESHOLD - 1);
         startPlugin("blocks", 4);
         for (int i = 0; i < 3; i++) {
             plugin.poller().poll();
@@ -226,7 +218,6 @@ class CloudStorageDownloadIntegrationTest
     void rangeFromOneFolderInOrder() throws Exception {
         newBucket();
         seedBlocks("blocks", 5, 4 + THRESHOLD);
-        seedMarker("blocks", 4 + THRESHOLD);
         startPlugin("blocks", 4);
         plugin.poller().poll();
         assertThat(persistence.submitted).containsExactlyElementsOf(blocks(5, 4 + THRESHOLD));
@@ -240,17 +231,29 @@ class CloudStorageDownloadIntegrationTest
     void emptyPrefix() throws Exception {
         newBucket();
         seedBlocks("", 0, THRESHOLD - 1);
-        seedMarker("", THRESHOLD - 1);
         startPlugin("", -1);
         plugin.poller().poll();
         assertThat(persistence.submitted).containsExactlyElementsOf(blocks(0, THRESHOLD - 1));
     }
 
     @Test
-    @DisplayName("A probe block without its marker is absent although its block file exists")
-    void blockWithoutMarkerIsAbsent() throws Exception {
+    @DisplayName("Blocks under another network prefix are not found")
+    void otherNetworkPrefixIsIgnored() throws Exception {
         newBucket();
-        seedBlocks("blocks", 5, 4 + THRESHOLD);
+        seedBlocks("testnet-202601010000", 0, THRESHOLD - 1);
+        startPlugin("testnet-202611011200", -1);
+        plugin.poller().poll();
+        assertThat(persistence.submitted).isEmpty();
+    }
+
+    @Test
+    @DisplayName("An object whose key only starts with the probe block's key is not the probe block")
+    void probeNeedsExactKey() throws Exception {
+        newBucket();
+        seedBlocks("blocks", 5, 4 + THRESHOLD - 1);
+        for (final long nodeId : NODES) {
+            upload(BlockKeys.blockKey("blocks", nodeId, 4 + THRESHOLD) + ".tmp", new byte[] {1});
+        }
         startPlugin("blocks", 4);
         plugin.poller().poll();
         assertThat(persistence.submitted).isEmpty();
