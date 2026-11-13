@@ -10,13 +10,15 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
+import org.hiero.block.api.AddressBookRequest;
+import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.api.ServerStatusDetailRequest;
-import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.internal.BlockNodeSource;
 import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.node.base.client.BlockNodeClient;
+import org.hiero.block.node.base.client.UnimplementedFallback;
 import org.hiero.block.node.roster.bootstrap.rsa.RsaRosterBootstrapPlugin.MetricsHolder;
 
 /// Fetches a `NodeAddressBook` from one or more configured peer block nodes via gRPC.
@@ -79,9 +81,7 @@ public class AddressBookFetcher implements AutoCloseable {
             }
 
             try {
-                final ServerStatusDetailResponse response =
-                        client.getBlockNodeServiceClient().serverStatusDetail(ServerStatusDetailRequest.DEFAULT);
-                final RangedAddressBookHistory book = response.rangedAddressBookHistory();
+                final RangedAddressBookHistory book = requestAddressBookHistory(client);
                 metrics.peerRequests().increment();
 
                 if (isValid(book)) {
@@ -173,5 +173,29 @@ public class AddressBookFetcher implements AutoCloseable {
                 maxIncomingBufferSize,
                 RSA_DATA_MAX_PROTOBUF_MESSAGE_SIZE_BYTES,
                 n.grpcWebclientTuning());
+    }
+
+    /// Asks the peer for its address book history with `getAddressBook`. A peer on an older version does not have that
+    /// call and answers `UNIMPLEMENTED`; for that case the history is read from the deprecated field of
+    /// `serverStatusDetail`, asking for none of the other parts.
+    ///
+    /// @param client the peer's client
+    /// @return the address book history the peer reports
+    private static RangedAddressBookHistory requestAddressBookHistory(final BlockNodeClient client) {
+        final BlockNodeServiceInterface.BlockNodeServiceClient service = client.getBlockNodeServiceClient();
+        return UnimplementedFallback.callOrFallback(
+                () -> service.getAddressBook(AddressBookRequest.DEFAULT).rangedAddressBookHistory(),
+                () -> requestHistoryFromDetail(service));
+    }
+
+    @SuppressWarnings("deprecation")
+    private static RangedAddressBookHistory requestHistoryFromDetail(
+            final BlockNodeServiceInterface.BlockNodeServiceClient service) {
+        return service.serverStatusDetail(ServerStatusDetailRequest.newBuilder()
+                        .excludeVersions(true)
+                        .excludeAvailableRanges(true)
+                        .excludeStoredRanges(true)
+                        .build())
+                .rangedAddressBookHistory();
     }
 }

@@ -253,13 +253,24 @@ public class TestBlockNodeServer {
         @Override
         @NonNull
         public AddressBookResponse getAddressBook(@NonNull final AddressBookRequest request) {
-            return AddressBookResponse.DEFAULT;
+            final AddressBookResponse.Builder response =
+                    AddressBookResponse.newBuilder().nodeAddressBook(buildAddressBook(4));
+            if (!request.excludeHistory()) {
+                response.rangedAddressBookHistory(buildRangedHistory(5, 1000, 4));
+            }
+            return response.build();
         }
 
         @Override
         @NonNull
         public TssDataResponse getTssData(@NonNull final TssDataRequest request) {
-            return TssDataResponse.DEFAULT;
+            return TssDataResponse.newBuilder()
+                    .tssData(buildTssData(
+                            Bytes.fromHex("01010101"),
+                            Bytes.fromHex("02020202"),
+                            List.of(buildRosterEntry(11, 22, Bytes.fromHex("03030303"))),
+                            250))
+                    .build();
         }
 
         /// build a `TssData` object from individual fields from the `TssBootstrapConfig`
