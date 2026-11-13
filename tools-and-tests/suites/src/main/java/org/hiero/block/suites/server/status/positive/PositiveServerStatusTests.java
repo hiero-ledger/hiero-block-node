@@ -7,11 +7,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import java.util.concurrent.Future;
 import org.hiero.block.api.protoc.ServerStatusResponse;
 import org.hiero.block.simulator.BlockStreamSimulatorApp;
@@ -57,7 +55,8 @@ public class PositiveServerStatusTests extends BaseSuite {
         simulatorAppsRef.add(publisherSimulator);
 
         // ===== Start publisher and make sure it's streaming =======================================
-        final Future<?> publisherSimulatorThread = startSimulatorInstance(publisherSimulator);
+        final Future<?> publisherSimulatorThread =
+                startPublisherAndAwaitFirstResponse(publisherSimulator, WAIT_TIMEOUT);
         simulators.add(publisherSimulatorThread);
 
         // ===== Get Server Status after and assert =================================================
@@ -65,31 +64,5 @@ public class PositiveServerStatusTests extends BaseSuite {
 
         assertNotNull(serverStatusAfter);
         assertTrue(serverStatusAfter.getLastAvailableBlock() > serverStatusBefore.getLastAvailableBlock());
-    }
-
-    /**
-     * Starts a simulator in a thread and make sure that it's running and trying to publish blocks
-     *
-     * @param simulator instance with configuration depending on the test
-     * @return a {@link Future} representing the asynchronous execution of the block stream simulator
-     */
-    private Future<?> startSimulatorInstance(@NonNull final BlockStreamSimulatorApp simulator) {
-        Objects.requireNonNull(simulator);
-        final int statusesRequired = 5; // we wait for at least 5 statuses, to avoid flakiness
-
-        final Future<?> simulatorThread = startSimulatorInThread(simulator);
-        simulators.add(simulatorThread);
-        String simulatorStatus = null;
-        while (simulator.getStreamStatus().lastKnownPublisherClientStatuses().size() < statusesRequired) {
-            if (!simulator.getStreamStatus().lastKnownPublisherClientStatuses().isEmpty()) {
-                simulatorStatus = simulator
-                        .getStreamStatus()
-                        .lastKnownPublisherClientStatuses()
-                        .getLast();
-            }
-        }
-        assertNotNull(simulatorStatus);
-        assertTrue(simulator.isRunning());
-        return simulatorThread;
     }
 }
