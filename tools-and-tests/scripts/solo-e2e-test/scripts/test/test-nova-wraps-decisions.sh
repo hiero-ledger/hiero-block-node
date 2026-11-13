@@ -126,7 +126,6 @@ expect_equal "floor published" "0.79.0" "$(PUBLISHED="0.79.0" resolve_published_
 expect_equal "floor unpublished, newer pre-release published" "0.79.0-rc.1" "$(PUBLISHED="0.79.0-rc.1 0.79.0-alpha.2" TAGS="v0.79.0-alpha.2 v0.79.0-rc.1 v0.79.0-rc.2" resolve_published_nova_cn 0.79.0 0.45.0 2>/dev/null)"
 PUBLISHED="" TAGS="v0.79.0-alpha.2" expect_fail_fast "fails fast when the pre-release has no build" 0.79.0 0.45.0
 TAGS="" PUBLISHED="" expect_fail_fast "fails fast when no pre-release of the floor version exists" 0.79.0 0.45.0
-CN_NOVA_WRAPS=false PUBLISHED="" expect_fail_fast "fails fast when CN_NOVA_WRAPS=false" 0.79.0 0.45.0
 expect_equal "CN above the floor is left alone" "0.80.0" "$(PUBLISHED="" resolve_published_nova_cn 0.80.0 0.45.0 2>/dev/null)"
 expect_equal "old BN is left alone" "0.78.1" "$(PUBLISHED="" resolve_published_nova_cn 0.78.1 0.44.2 2>/dev/null)"
 

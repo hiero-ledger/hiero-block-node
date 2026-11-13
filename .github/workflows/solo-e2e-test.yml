@@ -369,10 +369,6 @@ jobs:
               echo "CN_NOVA_WRAPS=${CN_NOVA_WRAPS_INPUT}" >> "${GITHUB_ENV}"
               ;;
             auto|"")
-              # resolve-versions.sh swapped an unpublished CN floor for a Nova WRAPS pre-release
-              if echo "$OUTPUT" | grep -q "^cn_nova_wraps=true"; then
-                echo "CN_NOVA_WRAPS=true" >> "${GITHUB_ENV}"
-              fi
               ;;
             *)
               echo "::error::consensus-node-nova-wraps must be 'auto', 'true' or 'false', got '${CN_NOVA_WRAPS_INPUT}'"
