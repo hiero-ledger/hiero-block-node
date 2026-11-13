@@ -223,6 +223,12 @@ tasks:
         # Export resolved RELAY_VERSION so Solo CLI reads the correct semver (not 'latest')
         export RELAY_VERSION="$RELAY_RESOLVED"
 
+        # resolve-versions.sh swaps an unpublished CN floor for a Nova WRAPS pre-release and
+        # says so here; a pre-release is otherwise decided to be on the earlier TSS library
+        if echo "$VERSIONS" | grep -q "^cn_nova_wraps=true"; then
+          export CN_NOVA_WRAPS=true
+        fi
+
         "{{.SCRIPTS_DIR}}/solo-deploy-network.sh" \
           --deployment "{{.DEPLOYMENT}}" \
           --namespace "{{.NAMESPACE}}" \
