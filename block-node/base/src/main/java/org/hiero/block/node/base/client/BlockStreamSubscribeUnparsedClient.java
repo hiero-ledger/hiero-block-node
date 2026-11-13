@@ -2,7 +2,6 @@
 package org.hiero.block.node.base.client;
 
 import static java.lang.System.Logger.Level.DEBUG;
-import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 import static org.hiero.block.api.BlockStreamSubscribeServiceInterface.FULL_NAME;
 import static org.hiero.block.node.base.ParseHelper.standardParse;
@@ -48,16 +47,21 @@ public class BlockStreamSubscribeUnparsedClient {
 
     // From constructor
     private final GrpcClient grpcClient;
-    private final long awaitTimeoutMs;
+    private final long overallTimeoutMs;
+    private final long inactivityTimeoutMs;
 
     /**
      * Constructs a new client for subscribing to block streams.
      *
      * @param grpcClient the gRPC client to use for communication
+     * @param overallTimeoutMs longest time in milliseconds a request may take in total
+     * @param inactivityTimeoutMs longest time in milliseconds a request may go without receiving a response message
      */
-    public BlockStreamSubscribeUnparsedClient(@NonNull final GrpcClient grpcClient, long awaitTimeoutMs) {
+    public BlockStreamSubscribeUnparsedClient(
+            @NonNull final GrpcClient grpcClient, final long overallTimeoutMs, final long inactivityTimeoutMs) {
         this.grpcClient = requireNonNull(grpcClient);
-        this.awaitTimeoutMs = awaitTimeoutMs;
+        this.overallTimeoutMs = overallTimeoutMs;
+        this.inactivityTimeoutMs = inactivityTimeoutMs;
     }
 
     /**
@@ -115,7 +119,7 @@ public class BlockStreamSubscribeUnparsedClient {
         }
 
         // Wait for completion or error and return the blocks
-        return ctx.await(awaitTimeoutMs);
+        return ctx.await(overallTimeoutMs, inactivityTimeoutMs);
     }
 
     /**
@@ -138,9 +142,15 @@ public class BlockStreamSubscribeUnparsedClient {
         final CountDownLatch done = new CountDownLatch(1);
         final long startBlock;
         final long endBlock;
-        long expectedBlockNumber;
+        /// Written by the callback thread and read by the waiter when it logs a timeout.
+        volatile long expectedBlockNumber;
         List<BlockItemUnparsed> currentBlockItems = new ArrayList<>();
         boolean blockStarted;
+        /// When the request started, by [System#nanoTime()].
+        final long startNanos = System.nanoTime();
+        /// When the request started or last received a response message, by [System#nanoTime()]. Written by
+        /// the callback thread and read by the waiter.
+        volatile long lastActivityNanos = startNanos;
         /// The complete blocks, in the order received. Only the callback thread adds to it, so it always holds
         /// a contiguous run from the start block, and the waiter can copy it at any time.
         private final ConcurrentLinkedQueue<BlockUnparsed> blocks = new ConcurrentLinkedQueue<>();
@@ -177,19 +187,36 @@ public class BlockStreamSubscribeUnparsedClient {
             }
         }
 
-        BatchResult await(long timeoutMs) {
+        /// Waits until the request ends, or ends it when it goes too long without a response message or
+        /// takes too long in total.
+        ///
+        /// @param overallTimeoutMs longest time in milliseconds for the whole request
+        /// @param inactivityTimeoutMs longest time in milliseconds without receiving a response message
+        /// @return the blocks received and the error that ended the request early, if any
+        BatchResult await(long overallTimeoutMs, long inactivityTimeoutMs) {
+            final long inactivityNanos = TimeUnit.MILLISECONDS.toNanos(inactivityTimeoutMs);
+            final long overallNanos = TimeUnit.MILLISECONDS.toNanos(overallTimeoutMs);
             try {
-                if (timeoutMs > 0) {
-                    if (!done.await(timeoutMs, TimeUnit.MILLISECONDS)) {
-                        final String msg =
-                                "BACKFILL_GRPC_OVERALL_TIMEOUT=%d, exceeded for Block range starting with block %d"
-                                        .formatted(timeoutMs, expectedBlockNumber);
-                        // Warn that the BACKFILL_GRPC_OVERALL_TIMEOUT was exceeded
-                        LOGGER.log(WARNING, msg);
-                        fail(new RuntimeException("Timed out waiting for block stream response"));
+                boolean ended = false;
+                while (!ended) {
+                    final long now = System.nanoTime();
+                    final long inactivityLeft = inactivityNanos - (now - lastActivityNanos);
+                    final long overallLeft = overallNanos - (now - startNanos);
+                    if (inactivityLeft <= 0) {
+                        timeOut(
+                                "BACKFILL_GRPC_INACTIVITY_TIMEOUT",
+                                inactivityTimeoutMs,
+                                "No block stream response received within the inactivity timeout");
+                        ended = true;
+                    } else if (overallLeft <= 0) {
+                        timeOut(
+                                "BACKFILL_GRPC_OVERALL_TIMEOUT",
+                                overallTimeoutMs,
+                                "Timed out waiting for block stream response");
+                        ended = true;
+                    } else {
+                        ended = done.await(Math.min(inactivityLeft, overallLeft), TimeUnit.NANOSECONDS);
                     }
-                } else {
-                    done.await();
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -199,6 +226,17 @@ public class BlockStreamSubscribeUnparsedClient {
             // when the request ended is returned if it lands before this copy; later blocks are not returned.
             final Throwable error = outcome.get() instanceof Throwable failure ? failure : null;
             return new BatchResult(List.copyOf(blocks), error);
+        }
+
+        /// Ends the request because the limit set by `setting` was exceeded.
+        private void timeOut(String setting, long limitMs, String reason) {
+            LOGGER.log(
+                    DEBUG,
+                    "{0}={1,number,#}, exceeded for Block range starting with block {2,number,#}",
+                    setting,
+                    limitMs,
+                    expectedBlockNumber);
+            fail(new RuntimeException("%s (%s=%d ms)".formatted(reason, setting, limitMs)));
         }
     }
 
@@ -233,6 +271,7 @@ public class BlockStreamSubscribeUnparsedClient {
                 ctx.currentBlockItems.clear();
                 return;
             }
+            ctx.lastActivityNanos = System.nanoTime();
             try {
                 if (resp.hasBlockItems()) {
                     final List<BlockItemUnparsed> frame = resp.blockItems().blockItems();
@@ -291,8 +330,9 @@ public class BlockStreamSubscribeUnparsedClient {
 
         @Override
         public void onError(Throwable throwable) {
-            // After the request ended this is expected, typically the connection of an abandoned stream closing.
-            LOGGER.log(ctx.isFinished() ? DEBUG : WARNING, "received onError", throwable);
+            // DEBUG only: an error that ends the request reaches the caller in the result. After the request
+            // ended it is expected, typically the connection of an abandoned stream closing.
+            LOGGER.log(DEBUG, "received onError", throwable);
             ctx.fail(throwable);
         }
 

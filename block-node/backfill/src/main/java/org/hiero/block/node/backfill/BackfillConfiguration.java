@@ -27,7 +27,9 @@ import org.hiero.block.node.base.Loggable;
  * @param initialDelay Initial delay in milliseconds before starting the backfill process, to give time for the system to stabilize
  * @param perBlockProcessingTimeout Timeout in milliseconds for processing each block, to avoid blocking the backfill
  *                                  process indefinitely in case something unexpected happens, this would allow for self-recovery
- * @param grpcOverallTimeout single timeout configuration for gRPC Client construction, connectTimeout, readTimeout and pollWaitTime
+ * @param grpcOverallTimeout longest time in milliseconds one batch request may take in total, however steadily blocks arrive
+ * @param grpcInactivityTimeout longest time in milliseconds a batch request may go without receiving a response message
+ *                              before it ends early
  * @param maxIncomingBufferSize maximum incoming buffer size in bytes for the gRPC client, must be larger than max block size to account for protobuf metadata and streaming
  * @param maxProtobufMessageSizeBytes the maximum protobuf message size, in bytes, accepted while parsing a block fetched over the wire during backfill
  * @param enableTLS if enabled will assume block-node client supports tls connection.
@@ -45,7 +47,8 @@ public record BackfillConfiguration(
         @Loggable @ConfigProperty(defaultValue = "1000") @Min(100) int delayBetweenBatches,
         @Loggable @ConfigProperty(defaultValue = "15000") @Min(5) int initialDelay,
         @Loggable @ConfigProperty(defaultValue = "1000") @Min(500) int perBlockProcessingTimeout,
-        @Loggable @ConfigProperty(defaultValue = "60000") @Min(10000) int grpcOverallTimeout,
+        @Loggable @ConfigProperty(defaultValue = "900000") @Min(10000) int grpcOverallTimeout,
+        @Loggable @ConfigProperty(defaultValue = "60000") @Min(1000) int grpcInactivityTimeout,
         @Loggable @ConfigProperty(defaultValue = "104857600") @Min(10_485_760) @Max(314_572_800) int maxIncomingBufferSize,
         // defaultValue must match DEFAULT_MAX_PROTOBUF_MESSAGE_SIZE_BYTES (annotation requires a String literal)
         @Loggable @ConfigProperty(defaultValue = "131_072_000") @Min(1_048_576) @Max(1_610_612_736) int maxProtobufMessageSizeBytes,

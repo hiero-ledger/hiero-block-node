@@ -117,16 +117,18 @@ public class BlockNodeClient implements AutoCloseable {
     final WebClient statusWebClient;
 
     private final int globalTimeoutMs;
+    private final int inactivityTimeoutMs;
     private BlockStreamSubscribeUnparsedClient blockStreamSubscribeUnparsedClient;
     private BlockNodeServiceInterface.BlockNodeServiceClient blockNodeServiceClient;
     private PbjGrpcClient subscribeGrpcClient;
     private boolean nodeReachable;
 
     /**
-     * Constructs a BlockNodeClient using the provided configuration.
+     * Constructs a BlockNodeClient whose batch requests end only when they exceed {@code globalTimeoutMs}
+     * in total, however long they go without receiving a response message.
      *
      * @param blockNodeConfig the configuration for the block node, including address and port
-     * @param globalTimeoutMs the global gRPC timeout in ms (fallback when tuning values are 0), also used for latch await
+     * @param globalTimeoutMs the longest time in ms one batch request may take in total
      * @param enableTls whether to enable TLS for connections
      * @param maxIncomingBufferSize the maximum incoming buffer size in bytes for gRPC message reception
      * @param maxProtobufMessageSizeBytes the maximum protobuf message size in bytes accepted while parsing a fetched block
@@ -139,8 +141,38 @@ public class BlockNodeClient implements AutoCloseable {
             int maxIncomingBufferSize,
             int maxProtobufMessageSizeBytes,
             @Nullable GrpcWebClientTuning tuning) {
+        this(
+                blockNodeConfig,
+                globalTimeoutMs,
+                globalTimeoutMs,
+                enableTls,
+                maxIncomingBufferSize,
+                maxProtobufMessageSizeBytes,
+                tuning);
+    }
+
+    /**
+     * Constructs a BlockNodeClient using the provided configuration.
+     *
+     * @param blockNodeConfig the configuration for the block node, including address and port
+     * @param globalTimeoutMs the longest time in ms one batch request may take in total
+     * @param inactivityTimeoutMs the longest time in ms one batch request may go without receiving a response message
+     * @param enableTls whether to enable TLS for connections
+     * @param maxIncomingBufferSize the maximum incoming buffer size in bytes for gRPC message reception
+     * @param maxProtobufMessageSizeBytes the maximum protobuf message size in bytes accepted while parsing a fetched block
+     * @param tuning optional tuning for timeouts and HTTP/2 settings
+     */
+    public BlockNodeClient(
+            @NonNull BlockNodeSourceConfig blockNodeConfig,
+            int globalTimeoutMs,
+            int inactivityTimeoutMs,
+            boolean enableTls,
+            int maxIncomingBufferSize,
+            int maxProtobufMessageSizeBytes,
+            @Nullable GrpcWebClientTuning tuning) {
 
         this.globalTimeoutMs = globalTimeoutMs;
+        this.inactivityTimeoutMs = inactivityTimeoutMs;
         int connectTimeoutMs = CONNECT_TIMEOUT.getValidOrDefault(tuning);
         int readTimeoutMs = READ_TIMEOUT.getValidOrDefault(tuning);
         int pollWaitMs = POLL_WAIT_TIME.getValidOrDefault(tuning);
@@ -230,7 +262,7 @@ public class BlockNodeClient implements AutoCloseable {
             PbjGrpcClient statusGrpcClient = new PbjGrpcClient(statusWebClient, grpcConfig);
             blockNodeServiceClient = new BlockNodeServiceInterface.BlockNodeServiceClient(statusGrpcClient, OPTIONS);
             blockStreamSubscribeUnparsedClient =
-                    new BlockStreamSubscribeUnparsedClient(subscribeGrpcClient, globalTimeoutMs);
+                    new BlockStreamSubscribeUnparsedClient(subscribeGrpcClient, globalTimeoutMs, inactivityTimeoutMs);
             nodeReachable = true;
         } catch (IllegalArgumentException | IllegalStateException | UncheckedIOException ex) {
             LOGGER.log(Level.WARNING, "Failed to initialize gRPC client: %s".formatted(ex.getMessage()), ex);

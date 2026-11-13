@@ -54,8 +54,10 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
      * This is used for exponential backoff in case of failures.
      */
     private final int initialRetryDelayMs;
-    /** Global timeout in milliseconds for gRPC calls to block nodes (used as fallback). */
+    /** Longest time in milliseconds one batch request may take in total. */
     private final int globalGrpcTimeoutMs;
+    /** Longest time in milliseconds one batch request may go without receiving a response message. */
+    private final int grpcInactivityTimeoutMs;
     /** Enable TLS for secure connections to block nodes. */
     private final boolean enableTls;
     /** Maximum incoming buffer size in bytes for the gRPC client. */
@@ -96,6 +98,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
         this.initialRetryDelayMs = config.initialRetryDelay();
         this.backfillRetries = metrics.backfillRetries();
         this.globalGrpcTimeoutMs = config.grpcOverallTimeout();
+        this.grpcInactivityTimeoutMs = config.grpcInactivityTimeout();
         this.enableTls = config.enableTLS();
         this.maxIncomingBufferSize = config.maxIncomingBufferSize();
         this.maxProtobufMessageSizeBytes = config.maxProtobufMessageSizeBytes();
@@ -198,8 +201,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
      * Otherwise, it creates a new client and stores it in the map.
      * <p>
      * Per-node gRPC tuning (timeouts, HTTP/2 settings, buffer sizes) is passed
-     * to the client. When tuning values are 0 or not specified, the global
-     * timeout from BackfillConfiguration is used as fallback.
+     * to the client, together with the batch request timeouts from BackfillConfiguration.
      *
      * @param node the BlockNodeSourceConfig to get the client for
      * @return a BlockNodeClient for the specified node
@@ -219,6 +221,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
             return new BlockNodeClient(
                     key,
                     globalGrpcTimeoutMs,
+                    grpcInactivityTimeoutMs,
                     enableTls,
                     maxIncomingBufferSize,
                     maxProtobufMessageSizeBytes,
