@@ -15,6 +15,7 @@ import static org.mockito.Mockito.mock;
 import com.hedera.pbj.runtime.grpc.GrpcCall;
 import com.hedera.pbj.runtime.grpc.GrpcClient;
 import com.hedera.pbj.runtime.grpc.Pipeline;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -94,16 +95,23 @@ class BlockStreamSubscribeUnparsedClientTest {
 
     /// Sends blocks `first` to `last` from a background thread, one every `intervalMs`, then runs `atEnd`.
     /// The thread stops early, without running `atEnd`, once `stop` is set.
+    /// The blocks are built up front, before the request starts, so the time to build them does not add to
+    /// the gaps the request's timeouts measure.
     private static Consumer<Pipeline<SubscribeStreamResponseUnparsed>> slowPeer(
             final long first,
             final long last,
             final long intervalMs,
             final AtomicBoolean stop,
             final Consumer<Pipeline<SubscribeStreamResponseUnparsed>> atEnd) {
+        final List<BlockUnparsed> blocks = new ArrayList<>();
+        for (long number = first; number <= last; number++) {
+            blocks.add(generateBlockWithNumber(number).blockUnparsed());
+        }
         return pipeline -> Thread.ofPlatform().daemon().start(() -> {
-            for (long number = first; number <= last && !stop.get(); number++) {
+            for (int i = 0; i < blocks.size() && !stop.get(); i++) {
                 LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(intervalMs));
-                sendFullBlock(pipeline, number);
+                pipeline.onNext(items(blocks.get(i).blockItems()));
+                pipeline.onNext(endOfBlock(first + i));
             }
             if (!stop.get()) {
                 atEnd.accept(pipeline);
@@ -376,7 +384,7 @@ class BlockStreamSubscribeUnparsedClientTest {
                     .when(grpcClient)
                     .createCall(any(), any(), any(), any(), anyMap());
             final BlockStreamSubscribeUnparsedClient client =
-                    new BlockStreamSubscribeUnparsedClient(grpcClient, 50L, 50L);
+                    new BlockStreamSubscribeUnparsedClient(grpcClient, 50L, 5_000L);
 
             final BatchResult result = client.getBatchOfBlocks(3, 6);
 
@@ -439,7 +447,7 @@ class BlockStreamSubscribeUnparsedClientTest {
                     .when(grpcClient)
                     .createCall(any(), any(), any(), any(), anyMap());
             final BlockStreamSubscribeUnparsedClient client =
-                    new BlockStreamSubscribeUnparsedClient(grpcClient, 50L, 50L);
+                    new BlockStreamSubscribeUnparsedClient(grpcClient, 50L, 5_000L);
 
             final BatchResult result = client.getBatchOfBlocks(3, 5);
             // The abandoned stream keeps delivering, including the rest of the range and a late error.
@@ -494,9 +502,10 @@ class BlockStreamSubscribeUnparsedClientTest {
         @Timeout(10)
         @DisplayName("A stream that keeps sending completes even when it takes longer than the inactivity timeout")
         void steadyStreamOutlivesInactivityTimeout() {
-            // 6 blocks, 100 ms apart, take about 600 ms in total: twice the inactivity timeout.
+            // 20 blocks, 20 ms apart, take about 400 ms in total: longer than the 300 ms inactivity timeout,
+            // while each gap stays far below it.
             final BlockStreamSubscribeUnparsedClient client = clientWithPeer(
-                    slowPeer(3, 8, 100, new AtomicBoolean(), pipeline -> {
+                    slowPeer(3, 22, 20, new AtomicBoolean(), pipeline -> {
                         pipeline.onNext(SubscribeStreamResponseUnparsed.newBuilder()
                                 .status(SubscribeStreamResponse.Code.SUCCESS)
                                 .build());
@@ -505,10 +514,10 @@ class BlockStreamSubscribeUnparsedClientTest {
                     5_000L,
                     300L);
 
-            final BatchResult result = client.getBatchOfBlocks(3, 8);
+            final BatchResult result = client.getBatchOfBlocks(3, 22);
 
             assertThat(result.error()).isNull();
-            assertThat(result.blocks()).hasSize(6);
+            assertThat(result.blocks()).hasSize(20);
         }
 
         @Test
