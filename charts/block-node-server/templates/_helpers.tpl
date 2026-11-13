@@ -80,6 +80,27 @@ Usage: {{ include "hiero-block-node.app.version" . }}
 {{- end -}}
 
 {{/*
+Validated plugins.source: "maven" (default) or "image".
+*/}}
+{{- define "hiero-block-node.pluginsSource" -}}
+{{- $source := default "maven" .Values.plugins.source -}}
+{{- if not (has $source (list "maven" "image")) -}}
+{{- fail (printf "plugins.source must be \"maven\" or \"image\", got %q" $source) -}}
+{{- end -}}
+{{- if eq $source "image" -}}
+{{- range splitList "," (default "" .Values.plugins.names) -}}
+{{- if contains ":" . -}}
+{{- fail (printf "plugins.names entry %q pins a version, which plugins.source=image does not support; use plugins.source=maven" (trim .)) -}}
+{{- end -}}
+{{- end -}}
+{{- if .Values.plugins.thirdParty -}}
+{{- fail "plugins.thirdParty requires plugins.source=maven; with plugins.source=image mount third-party jars via blockNode.persistence.plugins.existingClaim" -}}
+{{- end -}}
+{{- end -}}
+{{- $source -}}
+{{- end -}}
+
+{{/*
 Build JAVA_TOOL_OPTIONS combining logging config and metrics system properties.
 */}}
 {{- define "hiero-block-node.javaToolOptions" -}}
@@ -195,6 +216,57 @@ The service name to connect to Loki. Defaults to the same logic as "loki.fullnam
 {{- .Release.Name | trunc 63 | trimSuffix "-" -}}
 {{- else -}}
 {{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Persistence volume helpers. All take (dict "root" $ "key" <volume>) where volume is one of
+archive, live, logging, applicationState, plugins. A volume is chart-managed when pv.path is set.
+*/}}
+{{- define "hiero-block-node.persistence.volumeName" -}}
+{{- $defaults := dict "archive" "archive-storage" "live" "live-storage" "logging" "logging-storage" "applicationState" "application-state-storage" "plugins" "plugins-storage" -}}
+{{- default (index $defaults .key) (index .root.Values.blockNode.persistence .key).volumeName -}}
+{{- end -}}
+
+{{- define "hiero-block-node.persistence.managed" -}}
+{{- if dig "pv" "path" "" (index .root.Values.blockNode.persistence .key) -}}true{{- end -}}
+{{- end -}}
+
+{{- define "hiero-block-node.persistence.pvcName" -}}
+{{- $default := printf "%s-%s" (include "hiero-block-node.fullname" .root) (include "hiero-block-node.persistence.volumeName" .) -}}
+{{- dig "pv" "claimName" $default (index .root.Values.blockNode.persistence .key) | default $default -}}
+{{- end -}}
+
+{{/*
+Chart-managed or existing PVC name; empty when the StatefulSet should use a volumeClaimTemplate.
+*/}}
+{{- define "hiero-block-node.persistence.claimName" -}}
+{{- if include "hiero-block-node.persistence.managed" . -}}
+{{- include "hiero-block-node.persistence.pvcName" . -}}
+{{- else -}}
+{{- default "" (index .root.Values.blockNode.persistence .key).existingClaim -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "hiero-block-node.persistence.validate" -}}
+{{- if include "hiero-block-node.persistence.managed" . -}}
+{{- $cfg := index .root.Values.blockNode.persistence .key -}}
+{{- $path := printf "blockNode.persistence.%s" .key -}}
+{{- $type := default "hostPath" $cfg.pv.type -}}
+{{- if $cfg.existingClaim -}}
+{{- fail (printf "%s.pv.path and %s.existingClaim are mutually exclusive" $path $path) -}}
+{{- end -}}
+{{- if not (has $type (list "hostPath" "local")) -}}
+{{- fail (printf "%s.pv.type must be one of hostPath, local, got %q" $path $type) -}}
+{{- end -}}
+{{- if and (eq $type "local") (not $cfg.pv.nodeAffinity) -}}
+{{- fail (printf "%s.pv.nodeAffinity is required when pv.type is local" $path) -}}
+{{- end -}}
+{{- $modes := default (list "ReadWriteOnce") $cfg.pv.accessModes -}}
+{{- $replicas := int (default 1 .root.Values.replicaCount) -}}
+{{- if and (gt $replicas 1) (or (has "ReadWriteOnce" $modes) (has "ReadWriteOncePod" $modes)) -}}
+{{- fail (printf "%s.pv.accessModes %v cannot be shared by %d replicas" $path $modes $replicas) -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

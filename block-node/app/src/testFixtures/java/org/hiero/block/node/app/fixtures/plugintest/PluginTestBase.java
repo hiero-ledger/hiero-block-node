@@ -23,9 +23,8 @@ import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.api.TssData;
-import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
-import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
+import org.hiero.block.node.base.ranges.ConcurrentBlockRangeSet;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -39,8 +38,8 @@ import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.block.node.spi.module.SemanticVersionUtility;
+import org.hiero.metrics.core.Metric;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.AfterEach;
@@ -71,8 +70,6 @@ public abstract class PluginTestBase<
     protected final TestThreadPoolManager<E, S> testThreadPoolManager;
     /** The metrics provider for the test. */
     private MetricRegistry metricsRegistry;
-    /** The metrics exporter for the test, used to read metric values. */
-    private final TestMetricsExporter testMetricsExporter = new TestMetricsExporter();
     /** The block node context, for access to core facilities. */
     protected BlockNodeContext blockNodeContext;
     /** The test block messaging facility, for mocking out the messaging service. */
@@ -82,11 +79,12 @@ public abstract class PluginTestBase<
     /** The historical block facility used by the current test, retained for doStart(). */
     private HistoricalBlockFacility activeHistoricalBlockFacility;
     /** The stored-block set backing {@link #addStoredBlockRange} and {@link #updateStoredBlocks}. */
-    protected final ConcurrentLongRangeSet appStoredBlocks = new ConcurrentLongRangeSet();
+    protected final ConcurrentBlockRangeSet appStoredBlocks = new ConcurrentBlockRangeSet();
 
     protected List<BlockRange> storedBlocks = List.of();
     protected List<BlockRange> availableBlocks = List.of();
     protected volatile long nextExpectedBlock = -1L;
+    protected volatile long nextExpectedPublisherBlock = -1L;
     /** Current address book history, updated via {@link #updateAddressBookHistory}. */
     protected volatile RangedAddressBookHistory currentAddressBookHistory;
 
@@ -209,8 +207,7 @@ public abstract class PluginTestBase<
         }
         final Configuration configuration = configurationBuilder.build();
         // create metrics
-        metricsRegistry =
-                MetricRegistry.builder().setMetricsExporter(testMetricsExporter).build();
+        metricsRegistry = MetricRegistry.builder().build();
         // mock health facility
         final HealthFacility healthFacility = new TestHealthFacility();
 
@@ -269,28 +266,15 @@ public abstract class PluginTestBase<
     }
 
     /**
-     * Returns the current value of a metric by its fully-qualified name.
+     * Get a metric from the metrics registry.
      *
-     * <p>The name must match the form used at registration, i.e.
-     * {@code METRICS_CATEGORY + ":" + metricShortName} when {@link MetricKey#addCategory} is used.
-     *
-     * @param metricName the fully-qualified metric name
-     * @return the current long value of the metric
-     * @throws IllegalArgumentException if no metric with the given name exists in the registry
+     * @param metricKey the key of the metric to get
+     * @param <M> the type of the metric
+     * @return the metric
      */
-    protected long getMetricValue(@NonNull final String metricName) {
-        return testMetricsExporter.getMetricValue(metricName);
-    }
-
-    /**
-     * Returns the current value of a metric by its MetricKey.
-     *
-     * @param metricKey the MetricKey identifying the metric
-     * @return the current long value of the metric
-     * @throws IllegalArgumentException if no metric with the given name exists in the registry
-     */
-    protected long getMetricValue(@NonNull final MetricKey<?> metricKey) {
-        return testMetricsExporter.getMetricValue(metricKey.name());
+    @NonNull
+    protected <M extends Metric> M getMetric(MetricKey<M> metricKey) {
+        return metricsRegistry.getMetric(metricKey);
     }
 
     /**
@@ -377,13 +361,18 @@ public abstract class PluginTestBase<
     }
 
     @Override
-    public void addStoredBlockRange(final LongRange blockRange) {
+    public void addStoredBlockRange(final BlockRange blockRange) {
         appStoredBlocks.add(blockRange);
     }
 
     @Override
     public long nextExpectedBlock() {
         return nextExpectedBlock;
+    }
+
+    @Override
+    public long nextExpectedPublisherBlock() {
+        return nextExpectedPublisherBlock;
     }
 
     @Override
@@ -409,7 +398,7 @@ public abstract class PluginTestBase<
      *
      * @param blockRange the contiguous range of block numbers being reported as stored
      */
-    public void updateStoredBlocks(LongRange blockRange) {
+    public void updateStoredBlocks(BlockRange blockRange) {
         appStoredBlocks.add(blockRange);
         refreshContext();
     }
@@ -423,17 +412,12 @@ public abstract class PluginTestBase<
      * observes the change without waiting for a real notification.
      */
     protected void refreshContext() {
-        final ConcurrentLongRangeSet merged = new ConcurrentLongRangeSet();
+        final ConcurrentBlockRangeSet merged = new ConcurrentBlockRangeSet();
         merged.addAll(appStoredBlocks);
         merged.addAll(activeHistoricalBlockFacility.availableBlocks());
-        final List<BlockRange> mergedRanges = merged.streamRanges()
-                .map(r -> new BlockRange(r.start(), r.end()))
-                .toList();
-        final List<BlockRange> available = activeHistoricalBlockFacility
-                .availableBlocks()
-                .streamRanges()
-                .map(r -> new BlockRange(r.start(), r.end()))
-                .toList();
+        final List<BlockRange> mergedRanges = merged.streamRanges().toList();
+        final List<BlockRange> available =
+                activeHistoricalBlockFacility.availableBlocks().streamRanges().toList();
         storedBlocks = mergedRanges;
         blockMessaging.sendStoredBlocksUpdate(new StoredBlocksNotification(mergedRanges));
         blockMessaging.sendAvailableBlocksUpdate(new AvailableBlocksNotification(available));

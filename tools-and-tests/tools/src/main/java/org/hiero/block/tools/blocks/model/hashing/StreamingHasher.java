@@ -6,6 +6,7 @@ import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashIntern
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashLeaf;
 import static org.hiero.block.tools.utils.Sha256.SHA_256_HASH_SIZE;
 import static org.hiero.block.tools.utils.Sha256.sha256Digest;
+import static org.hiero.block.tools.utils.Sha384.SHA_384_HASH_SIZE;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.BufferedInputStream;
@@ -39,7 +40,7 @@ import java.util.List;
  *
  * <h2>Memory Efficiency</h2>
  * <p>For a tree with n leaves, only O(log n) intermediate hashes are stored. Specifically,
- * the number of pending subtree roots equals {@code Integer.bitCount(leafCount)}.
+ * the number of pending subtree roots equals {@code Long.bitCount(leafCount)}.
  *
  * <h2>Example: Building a 5-leaf tree</h2>
  * <pre>
@@ -73,7 +74,7 @@ public class StreamingHasher implements Hasher {
      * List of pending subtree root hashes (the "working list" from the design doc).
      *
      * <p>These represent complete subtrees waiting to be paired with siblings.
-     * The size of this list equals {@code Integer.bitCount(leafCount)}.
+     * The size of this list equals {@code Long.bitCount(leafCount)}.
      */
     private final LinkedList<byte[]> hashList = new LinkedList<>();
 
@@ -137,17 +138,24 @@ public class StreamingHasher implements Hasher {
         final LinkedList<byte[]> newHashList = new LinkedList<>();
         try (DataInputStream din = new DataInputStream(new BufferedInputStream(Files.newInputStream(filePath), 8192))) {
             newLeafCount = din.readLong();
-            int hashCount = din.readInt();
-            // A legacy SHA-384 file (48-byte hashes) is larger than a 32-byte layout needs for its hash count, even
-            // when its tail is truncated
-            final long expectedSize = Long.BYTES + Integer.BYTES + (long) hashCount * SHA_256_HASH_SIZE;
+            final int hashCount = din.readInt();
             final long actualSize = Files.size(filePath);
-            if (hashCount > 0 && actualSize > expectedSize) {
+            final long expectedSize = Long.BYTES + Integer.BYTES + (long) hashCount * SHA_256_HASH_SIZE;
+            // Both SHA-256 and legacy SHA-384 files keep one pending subtree root per set bit of the leaf count, so a
+            // header that breaks this is corrupt whatever the file size
+            if (newLeafCount < 0 || hashCount != Long.bitCount(newLeafCount)) {
+                throw new IOException(filePath + " has a leaf count of " + newLeafCount + " but a hash count of "
+                        + hashCount + ". The file is corrupt.");
+            }
+            // A legacy SHA-384 file (48-byte hashes) is larger than the 32-byte layout needs, but never larger than the
+            // 48-byte layout needs, even when its tail is truncated
+            final long legacySize = Long.BYTES + Integer.BYTES + (long) hashCount * SHA_384_HASH_SIZE;
+            if (hashCount > 0 && actualSize > expectedSize && actualSize <= legacySize) {
                 throw new LegacyHashFormatException(filePath + " is " + actualSize + " bytes but a hash count of "
                         + hashCount + " needs " + expectedSize + ". It is probably SHA-384 output from an older CLI"
                         + " version, possibly truncated.");
             }
-            if (hashCount < 0 || actualSize != expectedSize) {
+            if (actualSize != expectedSize) {
                 throw new IOException(filePath + " is " + actualSize + " bytes but a hash count of " + hashCount
                         + " needs " + expectedSize + ". The file is corrupt.");
             }

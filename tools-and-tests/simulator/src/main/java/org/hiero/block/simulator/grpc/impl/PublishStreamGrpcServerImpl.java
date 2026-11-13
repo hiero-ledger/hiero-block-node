@@ -3,7 +3,7 @@ package org.hiero.block.simulator.grpc.impl;
 
 import static java.lang.System.Logger.Level.ERROR;
 import static java.util.Objects.requireNonNull;
-import static org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter.LiveBlocksProcessed;
+import static org.hiero.block.simulator.metrics.SimulatorMetricsProvider.LIVE_BLOCKS_PROCESSED_KEY;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.grpc.Server;
@@ -100,7 +100,7 @@ public class PublishStreamGrpcServerImpl implements PublishStreamGrpcServer {
      */
     @Override
     public long getProcessedBlocks() {
-        return metricsService.getValue(LiveBlocksProcessed);
+        return metricsService.getCounterNoLabelsValue(LIVE_BLOCKS_PROCESSED_KEY);
     }
 
     /**

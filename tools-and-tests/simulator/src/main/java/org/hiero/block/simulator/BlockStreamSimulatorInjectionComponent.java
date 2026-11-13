@@ -9,6 +9,7 @@ import org.hiero.block.simulator.config.ConfigInjectionModule;
 import org.hiero.block.simulator.generator.GeneratorInjectionModule;
 import org.hiero.block.simulator.grpc.GrpcInjectionModule;
 import org.hiero.block.simulator.metrics.MetricsInjectionModule;
+import org.hiero.block.simulator.metrics.MetricsService;
 import org.hiero.block.simulator.mode.SimulatorModeInjectionModule;
 import org.hiero.block.simulator.startup.StartupDataInjectionModule;
 
@@ -31,6 +32,13 @@ public interface BlockStreamSimulatorInjectionComponent {
      * @return the block stream simulator
      */
     BlockStreamSimulatorApp getBlockStreamSimulatorApp();
+
+    /**
+     * Gets the metrics service shared by all simulator components.
+     *
+     * @return the metrics service
+     */
+    MetricsService getMetricsService();
 
     /** The factory used to create the block stream simulator injection component. */
     @Component.Factory

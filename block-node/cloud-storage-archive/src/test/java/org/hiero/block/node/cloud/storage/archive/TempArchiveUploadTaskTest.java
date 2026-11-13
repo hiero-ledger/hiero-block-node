@@ -3,6 +3,7 @@ package org.hiero.block.node.cloud.storage.archive;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.sampleHeaderUnparsed;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.bucky.S3Client;
@@ -33,12 +34,11 @@ import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
-import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -101,7 +101,7 @@ class TempArchiveUploadTaskTest {
                 new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
         return new BlockWithSource(
                 BlockUnparsed.newBuilder()
-                        .blockItems(new BlockItemUnparsed[] {item})
+                        .blockItems(new BlockItemUnparsed[] {sampleHeaderUnparsed(0), item})
                         .build(),
                 BlockSource.PUBLISHER);
     }
@@ -153,9 +153,8 @@ class TempArchiveUploadTaskTest {
     }
 
     private CloudStorageArchivePlugin.MetricsHolder createMetricsHolder() {
-        return CloudStorageArchivePlugin.MetricsHolder.createMetrics(MetricRegistry.builder()
-                .setMetricsExporter(new TestMetricsExporter())
-                .build());
+        return CloudStorageArchivePlugin.MetricsHolder.createMetrics(
+                MetricRegistry.builder().build());
     }
 
     private TempArchiveUploadTask buildTask(
@@ -202,7 +201,7 @@ class TempArchiveUploadTaskTest {
         assertThat(notifications.getFirst().succeeded()).isTrue();
         assertThat(notifications.getFirst().blockSource()).isEqualTo(BlockSource.PUBLISHER);
         assertThat(asf.addedRanges).hasSize(1);
-        assertThat(asf.addedRanges.getFirst()).isEqualTo(new LongRange(0, 2));
+        assertThat(asf.addedRanges.getFirst()).isEqualTo(BlockRangeSet.of(0, 2));
     }
 
     /// Verifies that when [doCompleteMultipartUpload] throws, [call()] rethrows the exception,
@@ -269,7 +268,7 @@ class TempArchiveUploadTaskTest {
             assertThat(s3.listObjects(metaKey, 1)).doesNotContain(metaKey);
         }
         assertThat(asf.addedRanges).hasSize(1);
-        assertThat(asf.addedRanges.getFirst()).isEqualTo(new LongRange(0, 0));
+        assertThat(asf.addedRanges.getFirst()).isEqualTo(BlockRangeSet.of(0, 0));
         final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
         assertThat(notifications).hasSize(1);
         assertThat(notifications.getFirst().succeeded()).isTrue();
@@ -357,7 +356,40 @@ class TempArchiveUploadTaskTest {
         assertThat(notifications.getFirst().succeeded()).isTrue();
         assertThat(notifications.getFirst().blockSource()).isEqualTo(BlockSource.PUBLISHER);
         assertThat(asf.addedRanges).hasSize(1);
-        assertThat(asf.addedRanges.getFirst()).isEqualTo(new LongRange(0, 2));
+        assertThat(asf.addedRanges.getFirst()).isEqualTo(BlockRangeSet.of(0, 2));
+    }
+
+    /// Verifies that a block whose header cannot be parsed fails the segment: [call()] rethrows the
+    /// [IOException] and sends one failed [PersistedNotification] for the segment's first block.
+    @Test
+    @DisplayName("Unparsable block header: failed notification sent, exception rethrown")
+    void unparsableHeaderSendsFailedNotificationAndThrows() throws Exception {
+        final String s3Key = TempArchiveKey.formatTar(0, "");
+        final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
+        final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+        final TrackingApplicationStateFacility asf = new TrackingApplicationStateFacility();
+
+        queue.put(makeBlock(100));
+        queue.put(makeBlock(100));
+        // Field 1 with the invalid wire type 7.
+        final Bytes unparsableHeader = Bytes.wrap(new byte[] {(byte) 0x0F});
+        queue.put(new BlockWithSource(
+                BlockUnparsed.newBuilder()
+                        .blockItems(BlockItemUnparsed.newBuilder()
+                                .blockHeader(unparsableHeader)
+                                .build())
+                        .build(),
+                BlockSource.PUBLISHER));
+        queue.put(TempArchiveUploadTask.SEGMENT_END);
+
+        final TempArchiveUploadTask task = buildTask(s3Key, 0, queue, messaging, asf);
+
+        assertThatThrownBy(task::call).isInstanceOf(IOException.class);
+        final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
+        assertThat(notifications).hasSize(1);
+        assertThat(notifications.getFirst().succeeded()).isFalse();
+        assertThat(notifications.getFirst().blockNumber()).isZero();
+        assertThat(asf.addedRanges).isEmpty();
     }
 
     /// Verifies that when [doUploadPart] throws during a mid-loop part flush, [call()] rethrows
@@ -452,7 +484,7 @@ class TempArchiveUploadTaskTest {
         assertThat(entry.firstBlock()).isZero();
         assertThat(entry.lastBlock()).isEqualTo(numBlocks - 1L);
         assertThat(asf.addedRanges).hasSize(1);
-        assertThat(asf.addedRanges.getFirst()).isEqualTo(new LongRange(0, numBlocks - 1L));
+        assertThat(asf.addedRanges.getFirst()).isEqualTo(BlockRangeSet.of(0, numBlocks - 1L));
         final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
         assertThat(notifications).hasSize(1);
         assertThat(notifications.getFirst().blockNumber()).isEqualTo(numBlocks - 1L);
@@ -659,13 +691,18 @@ class TempArchiveUploadTaskTest {
     }
 
     private static final class TrackingApplicationStateFacility implements ApplicationStateFacility {
-        final List<LongRange> addedRanges = new ArrayList<>();
+        final List<BlockRange> addedRanges = new ArrayList<>();
 
         private volatile long nextExpectedBlock = -1L;
 
         @Override
         public long nextExpectedBlock() {
             return nextExpectedBlock;
+        }
+
+        @Override
+        public long nextExpectedPublisherBlock() {
+            return -1L;
         }
 
         @Override
@@ -682,7 +719,7 @@ class TempArchiveUploadTaskTest {
         }
 
         @Override
-        public void addStoredBlockRange(LongRange blockRange) {
+        public void addStoredBlockRange(BlockRange blockRange) {
             addedRanges.add(blockRange);
         }
 

@@ -16,7 +16,7 @@ jobs:
     runs-on: hl-bn-lin-md
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -31,16 +31,19 @@ jobs:
           version: v3.14.4
 
       - name: Setup Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.11" # we need 3.11 as latest since ct is not compatible with > 3.12 yet
           check-latest: false
 
+      - name: Install envsubst
+        run: sudo apt-get update -qq && sudo apt-get install -y gettext-base
+
       - name: Set up chart-testing
-        uses: helm/chart-testing-action@6ec842c01de15ebb84c8627d2744a0c2f2755c9f # v2.8.0
+        uses: helm/chart-testing-action@720270857a28afd41e2426521a7801db09e9b510 # v2.9.0
 
       - name: Set up Java
-        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
           distribution: temurin
           java-version: 25
@@ -61,7 +64,7 @@ jobs:
         id: install-needed
         run: |
           changed_files=$(git diff --name-only origin/${{ github.event.repository.default_branch }}...HEAD)
-          if echo "$changed_files" | grep -qE "^(block-node/app/(docker/|build\.gradle\.kts)|charts/|tools-and-tests/scripts/(chart-tests|lib)/|tools-and-tests/simulator/(docker/|build\.gradle\.kts))"; then
+          if echo "$changed_files" | grep -qE "^(block-node/app/(docker/|start-script/|build\.gradle\.kts)|charts/|tools-and-tests/scripts/(chart-tests|lib)/|tools-and-tests/simulator/(docker/|start-script/|build\.gradle\.kts))"; then
             echo "needed=true" >> "$GITHUB_OUTPUT"
             echo "Image/chart/build files changed - will build and test"
           else
@@ -71,7 +74,7 @@ jobs:
 
       - name: Create kind cluster
         if: steps.install-needed.outputs.needed == 'true'
-        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+        uses: helm/kind-action@ea822c7bf1874f08e5a491df991c228edffc3376 # v1.15.2
 
       - name: Build Docker images
         if: steps.install-needed.outputs.needed == 'true'
@@ -107,7 +110,7 @@ jobs:
     runs-on: hl-bn-lin-md
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -173,13 +176,61 @@ jobs:
             exit 1
           fi
 
+      - name: Verify chart-managed PV/PVC render
+        if: steps.render-needed.outputs.needed == 'true'
+        run: |
+          helm template pv-render-test charts/block-node-server --namespace bn \
+            --values charts/block-node-server/ci/pv-hostpath/values.yaml \
+            --show-only templates/persistence.yaml --show-only templates/statefulset.yaml > rendered-pv.yaml
+          for expected in \
+            "name: bn-pv-render-test-block-node-server-live-storage" \
+            "volumeName: bn-pv-render-test-block-node-server-live-storage" \
+            "claimName: pv-render-test-block-node-server-live-storage" \
+            "claimName: pv-render-test-block-node-server-archive-storage" \
+            "path: /mnt/block-node/live" \
+            "type: DirectoryOrCreate" \
+            "path: /mnt/block-node/archive" \
+            "storageClassName: \"local-storage\"" \
+            "- bn-node-1"; do
+            if ! grep -qF -- "$expected" rendered-pv.yaml; then
+              echo "::error::rendered PV/PVC output is missing: $expected"
+              exit 1
+            fi
+          done
+          if sed -n '/volumeClaimTemplates:/,$p' rendered-pv.yaml | grep -qE "name: (live|archive)-storage$"; then
+            echo "::error::chart-managed volumes must not render a volumeClaimTemplate"
+            exit 1
+          fi
+
+      - name: Verify chart-managed PV/PVC validation
+        if: steps.render-needed.outputs.needed == 'true'
+        run: |
+          expect_fail() {
+            local expected=$1
+            shift
+            local out
+            if out=$(helm template pv-render-test charts/block-node-server \
+                --values charts/block-node-server/ci/pv-hostpath/values.yaml "$@" 2>&1); then
+              echo "::error::render succeeded, expected failure: $expected"
+              exit 1
+            fi
+            if ! grep -qF -- "$expected" <<<"$out"; then
+              echo "::error::expected '$expected', got: $out"
+              exit 1
+            fi
+          }
+          expect_fail "pv.nodeAffinity is required when pv.type is local" --set blockNode.persistence.archive.pv.nodeAffinity=null
+          expect_fail "pv.path and blockNode.persistence.live.existingClaim are mutually exclusive" --set blockNode.persistence.live.existingClaim=my-pvc
+          expect_fail "cannot be shared by 2 replicas" --set replicaCount=2
+          expect_fail 'pv.type must be one of hostPath, local, got "nfs"' --set blockNode.persistence.live.pv.type=nfs
+
   multi-port-install-test:
-    timeout-minutes: 20
+    timeout-minutes: 30
     name: Multi-Port Plugin Install Test
     runs-on: hl-bn-lin-md
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -192,7 +243,7 @@ jobs:
         id: install-needed
         run: |
           changed_files=$(git diff --name-only origin/${{ github.event.repository.default_branch }}...HEAD)
-          if echo "$changed_files" | grep -qE "^(block-node/app/(docker/|build\.gradle\.kts)|charts/|tools-and-tests/scripts/(chart-tests|lib)/|tools-and-tests/simulator/(docker/|build\.gradle\.kts))"; then
+          if echo "$changed_files" | grep -qE "^(block-node/app/(docker/|start-script/|build\.gradle\.kts)|charts/|tools-and-tests/scripts/(chart-tests|lib)/|tools-and-tests/simulator/(docker/|start-script/|build\.gradle\.kts))"; then
             echo "needed=true" >> "$GITHUB_OUTPUT"
             echo "Image/chart/build files changed - will run multi-port test"
           else
@@ -208,14 +259,14 @@ jobs:
 
       - name: Set up Java
         if: steps.install-needed.outputs.needed == 'true'
-        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
           distribution: temurin
           java-version: 25
 
       - name: Create kind cluster
         if: steps.install-needed.outputs.needed == 'true'
-        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+        uses: helm/kind-action@ea822c7bf1874f08e5a491df991c228edffc3376 # v1.15.2
 
       - name: Build Docker images
         if: steps.install-needed.outputs.needed == 'true'
@@ -322,13 +373,25 @@ jobs:
           kill ${PF_PID} 2>/dev/null || true
           exit ${failed}
 
+      - name: Load full image into kind
+        if: steps.install-needed.outputs.needed == 'true'
+        run: |
+          helm uninstall bn-multi-port-test --namespace default --wait
+          APP_VERSION=$(cat version.txt)
+          docker tag "block-node-server-full:${APP_VERSION}" "ghcr.io/hiero-ledger/hiero-block-node-full:${APP_VERSION}"
+          kind load docker-image "ghcr.io/hiero-ledger/hiero-block-node-full:${APP_VERSION}" --name chart-testing
+
+      - name: Install full image and switch plugin profiles without egress
+        if: steps.install-needed.outputs.needed == 'true'
+        run: charts/block-node-server/ci/full-image/full-image-test.sh
+
   lb-multi-port-install-test:
     timeout-minutes: 20
     name: LoadBalancer Multi-Port Install Test
     runs-on: hl-bn-lin-md
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -341,7 +404,7 @@ jobs:
         id: install-needed
         run: |
           changed_files=$(git diff --name-only origin/${{ github.event.repository.default_branch }}...HEAD)
-          if echo "$changed_files" | grep -qE "^(block-node/app/(docker/|build\.gradle\.kts)|charts/|tools-and-tests/scripts/(chart-tests|lib)/|tools-and-tests/simulator/(docker/|build\.gradle\.kts))"; then
+          if echo "$changed_files" | grep -qE "^(block-node/app/(docker/|start-script/|build\.gradle\.kts)|charts/|tools-and-tests/scripts/(chart-tests|lib)/|tools-and-tests/simulator/(docker/|start-script/|build\.gradle\.kts))"; then
             echo "needed=true" >> "$GITHUB_OUTPUT"
             echo "Image/chart/build files changed - will run LB multi-port test"
           else
@@ -357,14 +420,14 @@ jobs:
 
       - name: Set up Java
         if: steps.install-needed.outputs.needed == 'true'
-        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
           distribution: temurin
           java-version: 25
 
       - name: Create kind cluster
         if: steps.install-needed.outputs.needed == 'true'
-        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+        uses: helm/kind-action@ea822c7bf1874f08e5a491df991c228edffc3376 # v1.15.2
 
       - name: Build Docker images
         if: steps.install-needed.outputs.needed == 'true'

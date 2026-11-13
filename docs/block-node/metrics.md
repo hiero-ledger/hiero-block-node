@@ -78,27 +78,43 @@ Observes the block access service that serves requests for blocks.
 
 ---
 
+### Read Bulkhead
+
+**Plugin:** shared SPI (`spi-plugins`), used by `block-access [block-access-service]` and `subscriber [stream-subscriber]`
+Observes the shared bulkhead that caps concurrent block-storage reads. See [Block Read Bulkhead Configuration](configuration.md#block-read-bulkhead-configuration) for sizing.
+
+|  Type   |           Name           |                                                 Labels                                                 |                                                                 Description                                                                 |
+|---------|--------------------------|--------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
+| Gauge   | `bulkhead_read_in_use`   | `resource` (`block`)                                                                                   | Permits currently held                                                                                                                      |
+| Counter | `bulkhead_read_requests` | `resource` (`block`), `method` (`get_block`, `subscriber_catch_up`), `status` (`acquired`, `rejected`) | Acquire attempts. A `rejected` `get_block` is returned to the client as `RESOURCE_EXHAUSTED`; a `rejected` `subscriber_catch_up` is retried |
+
+Saturation is `bulkhead_read_in_use` divided by the configured permits.
+
+---
+
 ### Block Messaging
 
 **Plugin:** `messaging [facility-messaging]`
 Observes the messaging system that connects the publisher with subscribers and the rest of the system.
 
-|  Type   |                          Name                           |                      Description                       |
-|---------|---------------------------------------------------------|--------------------------------------------------------|
-| Counter | `messaging_block_items_received`                        | Incoming block items seen by the mediator              |
-| Counter | `messaging_block_verification_notifications`            | Notifications issued after verification                |
-| Counter | `messaging_block_persisted_notifications`               | Notifications issued after persistence                 |
-| Gauge   | `messaging_no_of_item_listeners`                        | Active item listeners                                  |
-| Gauge   | `messaging_no_of_notification_listeners`                | Active notification listeners                          |
-| Gauge   | `messaging_item_queue_percent_used`                     | Percent of item queue utilised                         |
-| Gauge   | `messaging_notification_queue_percent_used`             | Percent of notification queue utilised                 |
-| Counter | `messaging_block_backfilled_notifications`              | Notifications issued after backfilling blocks          |
-| Counter | `messaging_newest_block_known_to_network_notifications` | Notifications issued for newest block known to network |
-| Counter | `messaging_publisher_status_update_notifications`       | Notifications issued for publisher status updates      |
-| Counter | `messaging_tss_data_update_notifications`               | TSS data update notifications sent                     |
-| Counter | `messaging_address_book_history_update_notifications`   | Address book history update notifications sent         |
-| Counter | `messaging_stored_blocks_update_notifications`          | Stored blocks update notifications sent                |
-| Counter | `messaging_available_blocks_update_notifications`       | Available blocks update notifications sent             |
+|  Type   |                          Name                           |                              Description                               |
+|---------|---------------------------------------------------------|------------------------------------------------------------------------|
+| Counter | `messaging_block_items_received`                        | Incoming block items seen by the mediator                              |
+| Counter | `messaging_block_verification_notifications`            | Notifications issued after verification                                |
+| Counter | `messaging_block_persisted_notifications`               | Notifications issued after persistence                                 |
+| Gauge   | `messaging_no_of_item_listeners`                        | Active item listeners                                                  |
+| Gauge   | `messaging_no_of_notification_listeners`                | Active notification listeners                                          |
+| Gauge   | `messaging_item_queue_percent_used`                     | Percent of item queue utilised                                         |
+| Gauge   | `messaging_notification_queue_percent_used`             | Percent of notification queue utilised                                 |
+| Counter | `messaging_block_backfilled_notifications`              | Notifications issued after backfilling blocks                          |
+| Counter | `messaging_newest_block_known_to_network_notifications` | Notifications issued for newest block known to network                 |
+| Counter | `messaging_next_expected_publisher_block_notifications` | Notifications issued after a publisher was told this node is behind it |
+| Counter | `messaging_publisher_status_update_notifications`       | Notifications issued for publisher status updates                      |
+| Counter | `messaging_tss_data_update_notifications`               | TSS data update notifications sent                                     |
+| Counter | `messaging_address_book_history_update_notifications`   | Address book history update notifications sent                         |
+| Counter | `messaging_stored_blocks_update_notifications`          | Stored blocks update notifications sent                                |
+| Counter | `messaging_available_blocks_update_notifications`       | Available blocks update notifications sent                             |
+| Counter | `messaging_handler_failures`                            | Messages skipped after a message handler failed                        |
 
 ---
 
@@ -142,10 +158,11 @@ Observes inbound streams from publishers.
 **Plugin:** `stream-subscriber [block-node-stream-subscriber]`
 Observes outbound streams served to subscribers.
 
-|  Type   |             Name              |              Description              |
-|---------|-------------------------------|---------------------------------------|
-| Gauge   | `subscriber_open_connections` | Connected subscribers                 |
-| Counter | `subscriber_errors`           | Errors while streaming to subscribers |
+|  Type   |               Name                |                           Description                           |
+|---------|-----------------------------------|-----------------------------------------------------------------|
+| Gauge   | `subscriber_open_connections`     | Connected subscribers                                           |
+| Counter | `subscriber_errors`               | Errors while streaming to subscribers                           |
+| Counter | `subscriber_idle_sessions_closed` | Subscriber sessions closed for exceeding the idle session limit |
 
 ---
 
@@ -154,20 +171,39 @@ Observes outbound streams served to subscribers.
 **Plugin:** `verification [block-node-verification]`
 Measures block‑verification throughput and success rate.
 
-|  Type   |               Name                |                                                          Description                                                           |
-|---------|-----------------------------------|--------------------------------------------------------------------------------------------------------------------------------|
-| Counter | `verification_blocks_received`    | Blocks received for verification                                                                                               |
-| Gauge   | `verification_active_sessions`    | Currently active verification sessions (live size of the active sessions buffer)                                               |
-| Counter | `verification_blocks_verified`    | Blocks that passed verification                                                                                                |
-| Counter | `verification_blocks_failed`      | Blocks that failed verification                                                                                                |
-| Counter | `verification_blocks_error`       | Internal errors during verification                                                                                            |
-| Counter | `verification_block_time`         | Verification time per block (ns=nanoseconds)                                                                                   |
-| Counter | `hashing_block_time`              | Hashing time per block (ns=nanoseconds)                                                                                        |
-| Counter | `hashing_future_items_hashed`     | Future block item types hashed via the forward-compatibility numbering rule.                                                   |
-| Counter | `hashing_future_items_not_hashed` | Future block item types present in a block but not hashed (ignored).                                                           |
-| Counter | `hashing_future_items_refused`    | Future block item types that caused a block to be refused.                                                                     |
-| Counter | `verification_proof_total`        | [Block proof](./glossary.md#block-proof) verifications, labels: `proof_type={rsa,state_proof,tss}`, `result={success,failure}` |
-| Counter | `rsa_roster_mismatch_total`       | RSA signatures from node IDs absent from the loaded address book                                                               |
+|  Type   |                Name                |                                                          Description                                                           |
+|---------|------------------------------------|--------------------------------------------------------------------------------------------------------------------------------|
+| Counter | `verification_blocks_received`     | Blocks received for verification                                                                                               |
+| Gauge   | `verification_active_sessions`     | Currently active verification sessions (live size of the active sessions buffer)                                               |
+| Counter | `verification_sessions_evicted`    | Sessions evicted from the active sessions buffer, labels: `lane={high_priority,low_priority}`                                  |
+| Counter | `verification_sessions_superseded` | Publisher sessions cancelled because the publisher started its next block before finishing theirs                              |
+| Counter | `verification_blocks_verified`     | Blocks that passed verification                                                                                                |
+| Counter | `verification_blocks_failed`       | Blocks that failed verification                                                                                                |
+| Counter | `verification_blocks_error`        | Internal errors during verification                                                                                            |
+| Counter | `verification_block_time`          | Verification time per block (ns=nanoseconds)                                                                                   |
+| Counter | `hashing_block_time`               | Hashing time per block (ns=nanoseconds)                                                                                        |
+| Counter | `hashing_future_items_hashed`      | Future block item types hashed via the forward-compatibility numbering rule.                                                   |
+| Counter | `hashing_future_items_not_hashed`  | Future block item types present in a block but not hashed (ignored).                                                           |
+| Counter | `hashing_future_items_refused`     | Future block item types that caused a block to be refused.                                                                     |
+| Counter | `verification_proof_total`         | [Block proof](./glossary.md#block-proof) verifications, labels: `proof_type={rsa,state_proof,tss}`, `result={success,failure}` |
+| Counter | `rsa_roster_mismatch_total`        | RSA signatures from node IDs absent from the loaded address book                                                               |
+
+---
+
+### State Management
+
+**Plugin:** `state-management [block-node-state-management-hashgraph]` (beta)
+Replays verified block-stream `state_changes` onto a live, queryable copy of Hashgraph state.
+
+|  Type   |            Name             |                              Description                              |
+|---------|-----------------------------|-----------------------------------------------------------------------|
+| Gauge   | `state_applied_block`       | Latest committed (reader-visible) block number applied to live state  |
+| Gauge   | `state_size`                | Node count of the latest network-attested state                       |
+| Gauge   | `state_ready`               | `1` once at the latest available block and not halted, else `0`       |
+| Gauge   | `state_apply_halted`        | `1` when block apply has halted (e.g. footer hash mismatch), else `0` |
+| Gauge   | `state_apply_latency_ms`    | Wall-clock duration of the most recent block apply, in milliseconds   |
+| Counter | `state_hash_mismatch_total` | Cumulative footer hash mismatches observed                            |
+| Gauge   | `state_block_lag`           | Blocks between the latest available block and the attested block      |
 
 ---
 
@@ -239,6 +275,22 @@ Observes the server status API that provides information about the node.
 | Counter | `server_status_requests`         | Number of server status requests         |
 | Counter | `server_status_details_requests` | Number of server status details requests |
 
+### Throttle
+
+**Plugin:** `server-status [block-node-server-status]`
+Per-client and node-wide throttling of the `serverStatus` and `serverStatusDetail` methods. See [Throttle Configuration](./configuration.md#throttle-configuration).
+
+|  Type   |               Name                |                                                                                   Description                                                                                    |
+|---------|-----------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Counter | `throttle_calls`                  | Calls to a throttled method, labels: `service`, `method`, `outcome={admitted,rejected_global_concurrency,rejected_client_concurrency,rejected_rate}`                             |
+| Gauge   | `throttle_client_state_count`     | Number of distinct clients currently tracked by the throttle for a method, labels: `service`, `method`                                                                           |
+| Gauge   | `throttle_in_flight`              | Current node-wide count of in-flight calls holding a concurrency permit for a method, labels: `service`, `method`                                                                |
+| Gauge   | `throttle_clients_in_flight`      | Number of distinct clients currently holding at least one in-flight call for a method, labels: `service`, `method`                                                               |
+| Counter | `throttle_permits_reaped`         | Permits force-released by the sweep after exceeding `maxPermitHoldSeconds`, labels: `service`, `method`. A sustained non-zero rate means calls are abandoned without completing. |
+| Counter | `throttle_unknown_remote_address` | Calls whose client address could not be determined and were grouped under a shared fallback key                                                                                  |
+
+> **Note:** The throttle counters are registered without a `_total` suffix; Prometheus appends `_total` at scrape time (for example `throttle_calls_total`).
+
 ### Backfill
 
 **Plugin:** `backfill [block-node-backfill]`
@@ -269,8 +321,8 @@ Tracks the count and byte data size regarding single block uploads
 | Counter | `cloud_expanded_total_upload_bytes`    | Total compressed bytes successfully uploaded.                                                                                                                     |
 | Counter | `cloud_expanded_upload_latency_ns`     | Total time in nanoseconds for upload.                                                                                                                             |
 | Gauge   | `cloud_expanded_pending_retry_blocks`  | Current count of blocks buffered in memory and awaiting a background retry upload.                                                                                |
-| Counter | `cloud_expanded_retry_success_total`   | Blocks recovered by a later background retry after an initial upload failure.                                                                                     |
-| Counter | `cloud_expanded_retry_exhausted_total` | Blocks dropped after exhausting all retry attempts, evicted from the retry buffer to make room for a newer failure, or still buffered when the plugin shuts down. |
+| Counter | `cloud_expanded_retry_success`         | Blocks recovered by a later background retry after an initial upload failure.                                                                                     |
+| Counter | `cloud_expanded_retry_exhausted`       | Blocks dropped after exhausting all retry attempts, evicted from the retry buffer to make room for a newer failure, or still buffered when the plugin shuts down. |
 
 ---
 
@@ -356,6 +408,13 @@ is a block-count cap, not a disk-size cap (see [Host / Volume](#host--volume-ext
 |----------|---------------------------------------------|-----------------------------------------------------------|
 | L        | `messaging_item_queue_percent_used`         | If percentage exceeds 60%, otherwise, configure as needed |
 | L        | `messaging_notification_queue_percent_used` | If percentage exceeds 60%, otherwise, configure as needed |
+| M        | `messaging_handler_failures`                | If value increases, otherwise, configure as needed        |
+
+**Verification**: Alerts for the active sessions buffer of the verification plugin
+
+| Severity |             Metric              |                               Alert Condition                               |
+|----------|---------------------------------|-----------------------------------------------------------------------------|
+| L        | `verification_sessions_evicted` | If it increases continuously for 10 minutes, otherwise, configure as needed |
 
 **Latency**: Alerts for latency metrics in receiving, hashing, verifying, and persisting blocks
 

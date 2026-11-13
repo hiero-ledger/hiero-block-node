@@ -6,7 +6,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.util.concurrent.LinkedBlockingQueue;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
-import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
@@ -24,7 +23,6 @@ import org.junit.jupiter.api.Timeout;
 @DisplayName("PublisherHandler Flow Control Tests")
 class PublisherHandlerFlowControlTest {
 
-    private TestMetricsExporter metricsExporter;
     private MetricsHolder metrics;
     private TestResponsePipeline<PublishStreamResponse> replies;
     private TestStreamPublisherManager manager;
@@ -32,9 +30,7 @@ class PublisherHandlerFlowControlTest {
 
     @BeforeEach
     void setup() {
-        metricsExporter = new TestMetricsExporter();
-        metrics = MetricsHolder.createMetrics(
-                MetricRegistry.builder().setMetricsExporter(metricsExporter).build());
+        metrics = MetricsHolder.createMetrics(MetricRegistry.builder().build());
         replies = new TestResponsePipeline<>();
         manager = new TestStreamPublisherManager(
                 new TestBlockMessagingFacility(), new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
@@ -138,8 +134,6 @@ class PublisherHandlerFlowControlTest {
         thread.join(2_000L);
         assertThat(thread.isAlive()).isFalse();
 
-        assertThat(metricsExporter.getMetricValue(
-                        StreamPublisherPlugin.METRIC_PUBLISHER_FLOW_CONTROL_INDIVIDUAL_PAUSES.name()))
-                .isEqualTo(1L);
+        assertThat(metrics.flowControlIndividualPauses().get()).isEqualTo(1L);
     }
 }

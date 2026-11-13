@@ -38,6 +38,7 @@ import org.hiero.block.tools.blocks.model.BlockZipsUtilities;
 import org.hiero.block.tools.blocks.model.BlockZipsUtilities.BlockSource;
 import org.hiero.block.tools.blocks.model.BlockZipsUtilities.PreValidatedBlock;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
+import org.hiero.block.tools.blocks.model.hashing.LegacyHashFormatException;
 import org.hiero.block.tools.blocks.validation.AddressBookUpdateValidation;
 import org.hiero.block.tools.blocks.validation.BalanceCheckpointValidation;
 import org.hiero.block.tools.blocks.validation.BlockChainValidation;
@@ -50,6 +51,7 @@ import org.hiero.block.tools.blocks.validation.JumpstartValidation;
 import org.hiero.block.tools.blocks.validation.NodeStakeUpdateValidation;
 import org.hiero.block.tools.blocks.validation.ParallelBlockPreprocessor;
 import org.hiero.block.tools.blocks.validation.ParallelBlockPreprocessor.PreprocessedData;
+import org.hiero.block.tools.blocks.validation.ProtobufDuplicateFieldValidator;
 import org.hiero.block.tools.blocks.validation.RequiredItemsValidation;
 import org.hiero.block.tools.blocks.validation.SidecarIntegrityValidation;
 import org.hiero.block.tools.blocks.validation.SignatureBlockStats;
@@ -157,6 +159,12 @@ public class ValidateBlocksCommand implements Callable<Integer> {
             names = {"--skip-sidecar-integrity"},
             description = "Skip sidecar-hash integrity validation")
     private boolean skipSidecarIntegrity = false;
+
+    @Option(
+            names = {"--skip-duplicate-fields"},
+            description =
+                    "Skip the check for non-repeated protobuf message fields set more than once and oneofs with more than one member")
+    private boolean skipDuplicateFields = false;
 
     @Option(
             names = {"--validate-balances"},
@@ -438,6 +446,10 @@ public class ValidateBlocksCommand implements Callable<Integer> {
             System.out.println(
                     Ansi.AUTO.string("@|yellow Skipping:|@ Sidecar integrity validation (--skip-sidecar-integrity)"));
         }
+        if (skipDuplicateFields) {
+            System.out.println(Ansi.AUTO.string(
+                    "@|yellow Skipping:|@ Duplicate protobuf fields validation (--skip-duplicate-fields)"));
+        }
         final SignatureValidation signatureValidation = sigVal;
         if (skipSupply) {
             System.out.println(Ansi.AUTO.string("@|yellow Skipping:|@ HBAR supply validation (--skip-supply)"));
@@ -528,6 +540,7 @@ public class ValidateBlocksCommand implements Callable<Integer> {
             } catch (IOException ignored) {
             }
             List<BlockValidation> failedLoads = new ArrayList<>();
+            List<BlockValidation> legacyLoads = new ArrayList<>();
             for (BlockValidation v : validations) {
                 try {
                     v.load(checkpointDir);
@@ -536,6 +549,10 @@ public class ValidateBlocksCommand implements Callable<Integer> {
                             "@|yellow Warning:|@ could not load " + v.name() + " state: " + e.getMessage()));
                     if (v.requiresGenesisStart()) {
                         failedLoads.add(v);
+                        if (e instanceof LegacyHashFormatException
+                                || e.getCause() instanceof LegacyHashFormatException) {
+                            legacyLoads.add(v);
+                        }
                     }
                 }
             }
@@ -547,10 +564,20 @@ public class ValidateBlocksCommand implements Callable<Integer> {
             // silently skipping it would undermine the completeness guarantee of the validation.
             if (!failedLoads.isEmpty()) {
                 for (BlockValidation failed : failedLoads) {
-                    System.err.println(Ansi.AUTO.string("@|red Error:|@ " + failed.name()
-                            + " checkpoint state is corrupt or missing and cannot be rebuilt without "
-                            + "starting from block 0. Delete the checkpoint directory and re-run "
-                            + "validation from the beginning, or use --no-resume to ignore the checkpoint."));
+                    if (legacyLoads.contains(failed)) {
+                        final String blocksDir =
+                                checkpointDir.getParent() != null ? " in " + checkpointDir.getParent() : "";
+                        System.err.println(Ansi.AUTO.string("@|red Error:|@ " + failed.name()
+                                + " checkpoint state was written by a CLI version before SHA-256. If the blocks"
+                                + blocksDir + " are from that version too, re-wrap them with this CLI version into"
+                                + " a fresh output directory and validate that; if they were already re-wrapped,"
+                                + " re-run with --no-resume."));
+                    } else {
+                        System.err.println(Ansi.AUTO.string("@|red Error:|@ " + failed.name()
+                                + " checkpoint state is corrupt or missing and cannot be rebuilt without "
+                                + "starting from block 0. Delete the checkpoint directory and re-run "
+                                + "validation from the beginning, or use --no-resume to ignore the checkpoint."));
+                    }
                 }
                 return 1;
             }
@@ -664,6 +691,7 @@ public class ValidateBlocksCommand implements Callable<Integer> {
         BlockingQueue<Future<PreValidatedBlock>> blockQueue = new ArrayBlockingQueue<>(prefetch);
         final long effectiveResumeFrom = resumeFrom;
         final List<BlockSource> effectivePendingSources = pendingSources;
+        final boolean checkDuplicateFields = !skipDuplicateFields;
 
         // I/O thread — streams zips sequentially, enqueues decompression futures
         Thread readerThread = new Thread(
@@ -679,6 +707,7 @@ public class ValidateBlocksCommand implements Callable<Integer> {
                                             first.filePath(),
                                             effectiveResumeFrom,
                                             parallelValidations,
+                                            checkDuplicateFields,
                                             blockQueue,
                                             decompPool);
                                 } catch (IOException e) {
@@ -696,9 +725,8 @@ public class ValidateBlocksCommand implements Callable<Integer> {
                                 final long bNum = first.blockNumber();
                                 blockQueue.put(decompPool.submit(() -> {
                                     byte[] raw = Files.readAllBytes(path);
-                                    BlockUnparsed block =
-                                            BlockZipsUtilities.decompressAndPartialParse(raw, isZstd, isGz);
-                                    return buildPreValidatedBlock(block, bNum, parallelValidations);
+                                    return decodeAndPreValidate(
+                                            raw, isZstd, isGz, bNum, parallelValidations, checkDuplicateFields);
                                 }));
                                 i++;
                             } else {
@@ -720,7 +748,13 @@ public class ValidateBlocksCommand implements Callable<Integer> {
                                 }
 
                                 try {
-                                    readZipEntries(zipPath, wanted, parallelValidations, blockQueue, decompPool);
+                                    readZipEntries(
+                                            zipPath,
+                                            wanted,
+                                            parallelValidations,
+                                            checkDuplicateFields,
+                                            blockQueue,
+                                            decompPool);
                                 } catch (IOException e) {
                                     corruptZipCount.incrementAndGet();
                                     System.out.println(Ansi.AUTO.string(
@@ -1135,15 +1169,17 @@ public class ValidateBlocksCommand implements Callable<Integer> {
             Path zipPath,
             Set<String> wanted,
             List<BlockValidation> parallelValidations,
+            boolean checkDuplicateFields,
             BlockingQueue<Future<PreValidatedBlock>> blockQueue,
             ExecutorService decompPool)
             throws IOException, InterruptedException {
         try {
-            readZipEntriesViaStream(zipPath, wanted, parallelValidations, blockQueue, decompPool);
+            readZipEntriesViaStream(zipPath, wanted, parallelValidations, checkDuplicateFields, blockQueue, decompPool);
         } catch (IOException streamErr) {
             // ZipInputStream rejects STORED entries with data descriptors (General Purpose Bit 3).
             // Fall back to ZipFile which uses the Central Directory and handles any valid zip.
-            readZipEntriesViaRandomAccess(zipPath, wanted, parallelValidations, blockQueue, decompPool);
+            readZipEntriesViaRandomAccess(
+                    zipPath, wanted, parallelValidations, checkDuplicateFields, blockQueue, decompPool);
         }
     }
 
@@ -1155,6 +1191,7 @@ public class ValidateBlocksCommand implements Callable<Integer> {
             Path zipPath,
             long skipBlocksUpTo,
             List<BlockValidation> parallelValidations,
+            boolean checkDuplicateFields,
             BlockingQueue<Future<PreValidatedBlock>> blockQueue,
             ExecutorService decompPool)
             throws IOException, InterruptedException {
@@ -1178,8 +1215,7 @@ public class ValidateBlocksCommand implements Callable<Integer> {
                 final boolean isGz = flags[1];
                 final byte[] raw = zis.readAllBytes();
                 blockQueue.put(decompPool.submit(() -> {
-                    BlockUnparsed block = BlockZipsUtilities.decompressAndPartialParse(raw, isZstd, isGz);
-                    return buildPreValidatedBlock(block, bNum, parallelValidations);
+                    return decodeAndPreValidate(raw, isZstd, isGz, bNum, parallelValidations, checkDuplicateFields);
                 }));
             }
         } catch (IOException streamErr) {
@@ -1202,8 +1238,7 @@ public class ValidateBlocksCommand implements Callable<Integer> {
                         raw = entryStream.readAllBytes();
                     }
                     blockQueue.put(decompPool.submit(() -> {
-                        BlockUnparsed block = BlockZipsUtilities.decompressAndPartialParse(raw, isZstd, isGz);
-                        return buildPreValidatedBlock(block, bNum, parallelValidations);
+                        return decodeAndPreValidate(raw, isZstd, isGz, bNum, parallelValidations, checkDuplicateFields);
                     }));
                 }
             }
@@ -1215,6 +1250,7 @@ public class ValidateBlocksCommand implements Callable<Integer> {
             Path zipPath,
             Set<String> wanted,
             List<BlockValidation> parallelValidations,
+            boolean checkDuplicateFields,
             BlockingQueue<Future<PreValidatedBlock>> blockQueue,
             ExecutorService decompPool)
             throws IOException, InterruptedException {
@@ -1234,8 +1270,7 @@ public class ValidateBlocksCommand implements Callable<Integer> {
                 final String fileName = entryName.substring(entryName.lastIndexOf('/') + 1);
                 final long bNum = BlockZipsUtilities.extractBlockNumber(fileName);
                 blockQueue.put(decompPool.submit(() -> {
-                    BlockUnparsed block = BlockZipsUtilities.decompressAndPartialParse(raw, isZstd, isGz);
-                    return buildPreValidatedBlock(block, bNum, parallelValidations);
+                    return decodeAndPreValidate(raw, isZstd, isGz, bNum, parallelValidations, checkDuplicateFields);
                 }));
             }
         }
@@ -1246,6 +1281,7 @@ public class ValidateBlocksCommand implements Callable<Integer> {
             Path zipPath,
             Set<String> wanted,
             List<BlockValidation> parallelValidations,
+            boolean checkDuplicateFields,
             BlockingQueue<Future<PreValidatedBlock>> blockQueue,
             ExecutorService decompPool)
             throws IOException, InterruptedException {
@@ -1263,8 +1299,7 @@ public class ValidateBlocksCommand implements Callable<Integer> {
                 final String fileName = entryName.substring(entryName.lastIndexOf('/') + 1);
                 final long bNum = BlockZipsUtilities.extractBlockNumber(fileName);
                 blockQueue.put(decompPool.submit(() -> {
-                    BlockUnparsed block = BlockZipsUtilities.decompressAndPartialParse(raw, isZstd, isGz);
-                    return buildPreValidatedBlock(block, bNum, parallelValidations);
+                    return decodeAndPreValidate(raw, isZstd, isGz, bNum, parallelValidations, checkDuplicateFields);
                 }));
             }
         }
@@ -1291,11 +1326,47 @@ public class ValidateBlocksCommand implements Callable<Integer> {
     }
 
     /**
-     * Runs parallel validations and preprocessing, then wraps the results into a {@link PreValidatedBlock}.
+     * Decompresses and shallow-parses a block, then runs the parallel validations and preprocessing on it.
+     */
+    private static PreValidatedBlock decodeAndPreValidate(
+            final byte[] raw,
+            final boolean isZstd,
+            final boolean isGz,
+            final long blockNumber,
+            final List<BlockValidation> parallelValidations,
+            final boolean checkDuplicateFields)
+            throws Exception {
+        final byte[] blockBytes = BlockZipsUtilities.decompress(raw, isZstd, isGz);
+        final BlockUnparsed block = BlockZipsUtilities.partialParse(blockBytes);
+        return buildPreValidatedBlock(block, blockBytes, blockNumber, parallelValidations, checkDuplicateFields);
+    }
+
+    /**
+     * Runs parallel validations and preprocessing, then wraps the results into a {@link PreValidatedBlock}. The
+     * duplicate-field check runs first, on the raw bytes, because the shallow parse has already dropped duplicates.
      */
     private static PreValidatedBlock buildPreValidatedBlock(
-            final BlockUnparsed block, final long blockNumber, final List<BlockValidation> parallelValidations) {
-        Object[] err = runParallelValidations(parallelValidations, block, blockNumber);
+            final BlockUnparsed block,
+            final byte[] blockBytes,
+            final long blockNumber,
+            final List<BlockValidation> parallelValidations,
+            final boolean checkDuplicateFields) {
+        Object[] err = null;
+        if (checkDuplicateFields) {
+            try {
+                ProtobufDuplicateFieldValidator.validate(blockBytes, blockNumber);
+            } catch (final ValidationException e) {
+                err = new Object[] {ProtobufDuplicateFieldValidator.NAME, e};
+            } catch (final IOException e) {
+                err = new Object[] {
+                    ProtobufDuplicateFieldValidator.MALFORMED_NAME,
+                    new ValidationException("Block: " + blockNumber + " - Malformed protobuf: " + e.getMessage())
+                };
+            }
+        }
+        if (err == null) {
+            err = runParallelValidations(parallelValidations, block, blockNumber);
+        }
         PreprocessedData ppd = ParallelBlockPreprocessor.preprocess(block);
         return new PreValidatedBlock(
                 block,

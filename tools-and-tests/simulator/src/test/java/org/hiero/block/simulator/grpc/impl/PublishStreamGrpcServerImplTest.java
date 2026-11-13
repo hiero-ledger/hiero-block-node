@@ -71,7 +71,7 @@ class PublishStreamGrpcServerImplTest {
     }
 
     @AfterEach
-    void tearDown() throws InterruptedException {
+    void tearDown() throws InterruptedException, IOException {
         if (channel != null) {
             channel.shutdown();
             channel.awaitTermination(5, TimeUnit.SECONDS);
@@ -79,6 +79,7 @@ class PublishStreamGrpcServerImplTest {
         if (publishStreamGrpcServer != null) {
             publishStreamGrpcServer.shutdown();
         }
+        metricsService.close();
     }
 
     @Test

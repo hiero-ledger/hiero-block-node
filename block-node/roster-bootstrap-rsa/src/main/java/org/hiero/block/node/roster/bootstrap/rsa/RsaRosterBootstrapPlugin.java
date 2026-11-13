@@ -193,6 +193,18 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
         startMirrorNodeFallback();
     }
 
+    long rosterEntriesLoaded() {
+        return rosterEntriesLoaded;
+    }
+
+    long rosterLoadDurationMs() {
+        return rosterLoadDurationMs;
+    }
+
+    long rosterErasLoaded() {
+        return rosterErasLoaded;
+    }
+
     // -------------------------------------------------------------------------
     // Peer BN query
     // -------------------------------------------------------------------------

@@ -18,15 +18,18 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.UncheckedIOException;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
+import java.util.function.LongSupplier;
 import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse;
@@ -40,6 +43,7 @@ import org.hiero.block.internal.SubscribeStreamResponseUnparsed.ResponseOneOfTyp
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
+import org.hiero.block.node.spi.bulkhead.BlockReadBulkhead;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 
@@ -98,6 +102,16 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     private static final TimeUnit LIVE_POLL_UNITS = TimeUnit.MILLISECONDS;
     /** The "resolution", in ns, to use for a polling delays. */
     private static final long PARK_DELAY_TIME = 100_000;
+    /**
+     * How long a historical catch-up read waits for a shared block-read bulkhead permit before
+     * giving up on this poll and retrying later, rather than disconnecting the session.
+     */
+    private static final Duration HISTORICAL_READ_PERMIT_WAIT = Duration.ofMillis(100);
+    /**
+     * Each session adds a random extra of up to this fraction of the idle session limit, so sessions
+     * idled by the same stall don't all close and reconnect at once.
+     */
+    private static final long IDLE_TIMEOUT_JITTER_DIVISOR = 10;
 
     /** The pipeline to send responses to the client */
     private final Pipeline<? super SubscribeStreamResponseUnparsed> responsePipeline;
@@ -119,6 +133,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     private boolean isClosed() {
         return interruptedStream.get() || Thread.currentThread().isInterrupted();
     }
+
     /** The latest block number seen in the live stream */
     private final AtomicLong latestLiveStreamBlock;
     /** The next block number to send to the client */
@@ -144,6 +159,18 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
      * list it maintains, and log the cause of that failure.
      */
     private Exception sessionFailedCause;
+    /** Source of monotonic time, in nanoseconds, used for the idle session limit. */
+    private final LongSupplier nanoTime;
+    /** The idle session limit in nanoseconds, including this session's jitter, or 0 if disabled. */
+    private final long idleTimeoutNanos;
+    /**
+     * When this session last made progress: sent anything to the client, skipped a live block that
+     * precedes its next block to send, or was denied a block-read bulkhead permit for catch-up.
+     * Only accessed from this session's own thread.
+     */
+    private long lastProgressNanos;
+    /** Whether this session was closed because it exceeded the idle session limit. */
+    private volatile boolean closedForIdle;
 
     /**
      * Constructor for the BlockStreamSubscriberSession class.
@@ -157,6 +184,24 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             @NonNull final Pipeline<? super SubscribeStreamResponseUnparsed> responsePipeline,
             @NonNull final BlockNodeContext context,
             @NonNull final CountDownLatch sessionReadyLatch) {
+        this(sessionContext, responsePipeline, context, sessionReadyLatch, System::nanoTime);
+    }
+
+    /**
+     * Constructor for the BlockStreamSubscriberSession class with an explicit time source.
+     *
+     * @param sessionContext The context for this session
+     * @param responsePipeline The pipeline to send responses to the client
+     * @param context The context for the block node
+     * @param sessionReadyLatch The latch released once this session is ready
+     * @param nanoTime The monotonic time source, in nanoseconds, for the idle session limit
+     */
+    BlockStreamSubscriberSession(
+            @NonNull final SessionContext sessionContext,
+            @NonNull final Pipeline<? super SubscribeStreamResponseUnparsed> responsePipeline,
+            @NonNull final BlockNodeContext context,
+            @NonNull final CountDownLatch sessionReadyLatch,
+            @NonNull final LongSupplier nanoTime) {
         this.responsePipeline = requireNonNull(responsePipeline);
         this.sessionReadyLatch = requireNonNull(sessionReadyLatch);
         this.blockNodeContext = requireNonNull(context);
@@ -166,6 +211,12 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         this.nextBlockToSend = new AtomicLong(INITIAL_STATE_SENTINEL);
         this.liveBlockQueue = new ArrayBlockingQueue<>(sessionContext.subscriberConfig.liveQueueSize());
         this.liveBlockHandler = new LiveBlockHandler(liveBlockQueue, latestLiveStreamBlock, sessionContext.handlerName);
+        this.nanoTime = requireNonNull(nanoTime);
+        final long configuredIdleTimeoutNanos =
+                TimeUnit.SECONDS.toNanos(sessionContext.subscriberConfig.idleSessionTimeoutSeconds());
+        final long maximumJitterNanos = configuredIdleTimeoutNanos / IDLE_TIMEOUT_JITTER_DIVISOR;
+        this.idleTimeoutNanos =
+                configuredIdleTimeoutNanos + ThreadLocalRandom.current().nextLong(maximumJitterNanos + 1);
     }
 
     /**
@@ -178,18 +229,21 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             @NonNull String handlerName,
             long clientId,
             long firstRequestedBlock,
-            long lastRequestedBlock) {
+            long lastRequestedBlock,
+            @NonNull BlockReadBulkhead blockReadBulkhead) {
         SessionContext(
                 @NonNull final SubscriberConfig subscriberConfig,
                 @NonNull final String handlerName,
                 final long clientId,
                 final long firstRequestedBlock,
-                final long lastRequestedBlock) {
+                final long lastRequestedBlock,
+                @NonNull final BlockReadBulkhead blockReadBulkhead) {
             this.subscriberConfig = requireNonNull(subscriberConfig);
             this.handlerName = requireNonNull(handlerName);
             this.clientId = clientId;
             this.firstRequestedBlock = firstRequestedBlock;
             this.lastRequestedBlock = lastRequestedBlock;
+            this.blockReadBulkhead = requireNonNull(blockReadBulkhead);
         }
 
         /**
@@ -199,11 +253,17 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         static SessionContext create(
                 final long clientId,
                 @NonNull final SubscribeStreamRequest request,
-                @NonNull final BlockNodeContext context) {
+                @NonNull final BlockNodeContext context,
+                @NonNull final BlockReadBulkhead blockReadBulkhead) {
             final String handlerName = "Live stream client " + clientId;
             final SubscriberConfig subscriberConfig = context.configuration().getConfigData(SubscriberConfig.class);
             return new SessionContext(
-                    subscriberConfig, handlerName, clientId, request.startBlockNumber(), request.endBlockNumber());
+                    subscriberConfig,
+                    handlerName,
+                    clientId,
+                    request.startBlockNumber(),
+                    request.endBlockNumber(),
+                    blockReadBulkhead);
         }
     }
 
@@ -221,6 +281,8 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                 if (canFulfillRequest()) {
                     // the request can be fulfilled, so we can start sending blocks
                     sessionReadyLatch.countDown();
+                    // Start the idle clock only now, so time spent queued for a worker thread does not count.
+                    lastProgressNanos = nanoTime.getAsLong();
                     // Send blocks forever if requested, otherwise send until we reach the requested end block
                     // or the stream is interrupted.
                     while (!(isClosed() || allRequestedBlocksSent())) {
@@ -465,39 +527,64 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         // Don't send anything from history if this stream is interrupted, has sent
         // every requested block, or we can send the next block from "live".
         while (isHistoryPermitted()) {
-            // We need to send historical blocks.
-            // We will only send one block at a time to keep things "smooth".
-            // Start by getting a block accessor for the next block to send from the historical provider.
-            try (final BlockAccessor nextBlockAccessor =
-                    blockNodeContext.historicalBlockProvider().block(nextBlockToSend.get())) {
-                if (nextBlockAccessor != null) {
-                    // Get raw bytes first - this gives us O(1) size check
-                    final Bytes blockBytes = nextBlockAccessor.blockBytes(BlockAccessor.Format.PROTOBUF);
-                    if (blockBytes == null) {
-                        final String message = "Unable to retrieve historical block {0} for client {1}.";
-                        throw new IllegalStateException(message);
-                    }
-                    final int blockByteSize = (int) blockBytes.length();
-                    final BlockUnparsed block =
-                            standardParse(BlockUnparsed.PROTOBUF, blockBytes, maxProtobufMessageSizeBytes);
-                    // We have retrieved the block to send, so send it.
-                    sendOneFullBlock(block, blockByteSize);
-                    // Trim the queue if necessary, also increment the next block to send.
-                    trimBlockItemQueue(nextBlockToSend.incrementAndGet());
-                } else {
-                    // Only give up if this is an historical block, otherwise just
-                    // go back up and see if live has the block.
-                    if (!(nextBlockToSend.get() < 0 || nextBlockToSend.get() >= getLatestHistoricalBlock())) {
-                        // We cannot get the block needed, something has failed.
-                        // close the stream with an "unavailable" response.
-                        final String message = "Unable to read historical block, nextBlockToSend={0}.";
-                        LOGGER.log(Level.INFO, message, nextBlockToSend);
-                        close(SubscribeStreamResponse.Code.NOT_AVAILABLE);
+            // Unlike getBlock's immediate rejection, this waits briefly and retries rather than
+            // disconnecting the session.
+            if (!sessionContext.blockReadBulkhead.tryAcquire(
+                    BlockReadBulkhead.Method.SUBSCRIBER_CATCH_UP, HISTORICAL_READ_PERMIT_WAIT)) {
+                // Deliberately the session's shared wait point, not a separate backoff, so a session
+                // starved of permits is handled like any other session that is not sending.
+                lastProgressNanos = nanoTime.getAsLong();
+                awaitNewLiveEntries();
+                break;
+            }
+            // The permit guards only the storage read below, not the send or queue trim that follow,
+            // since holding it through a slow send would tie up this shared, node-wide-capped
+            // resource on network time instead of storage-read time.
+            final Bytes blockBytes;
+            final boolean blockAvailable;
+            try {
+                // We need to send historical blocks.
+                // We will only send one block at a time to keep things "smooth".
+                // Start by getting a block accessor for the next block to send from the historical provider.
+                try (final BlockAccessor nextBlockAccessor =
+                        blockNodeContext.historicalBlockProvider().block(nextBlockToSend.get())) {
+                    if (nextBlockAccessor != null) {
+                        blockAvailable = true;
+                        // Get raw bytes first - this gives us O(1) size check
+                        blockBytes = nextBlockAccessor.blockBytes(BlockAccessor.Format.PROTOBUF);
+                        if (blockBytes == null) {
+                            final String message = "Unable to retrieve historical block {0} for client {1}.";
+                            throw new IllegalStateException(message);
+                        }
                     } else {
-                        awaitNewLiveEntries();
+                        blockAvailable = false;
+                        blockBytes = null;
                     }
-                    break;
                 }
+            } finally {
+                sessionContext.blockReadBulkhead.release();
+            }
+            if (blockAvailable) {
+                final int blockByteSize = (int) blockBytes.length();
+                final BlockUnparsed block =
+                        standardParse(BlockUnparsed.PROTOBUF, blockBytes, maxProtobufMessageSizeBytes);
+                // We have retrieved the block to send, so send it.
+                sendOneFullBlock(block, blockByteSize);
+                // Trim the queue if necessary, also increment the next block to send.
+                trimBlockItemQueue(nextBlockToSend.incrementAndGet());
+            } else {
+                // Only give up if this is an historical block, otherwise just
+                // go back up and see if live has the block.
+                if (!(nextBlockToSend.get() < 0 || nextBlockToSend.get() >= getLatestHistoricalBlock())) {
+                    // We cannot get the block needed, something has failed.
+                    // close the stream with an "unavailable" response.
+                    final String message = "Unable to read historical block, nextBlockToSend={0}.";
+                    LOGGER.log(Level.INFO, message, nextBlockToSend);
+                    close(SubscribeStreamResponse.Code.NOT_AVAILABLE);
+                } else {
+                    awaitNewLiveEntries();
+                }
+                break;
             }
         }
     }
@@ -537,11 +624,46 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     }
 
     private void awaitNewLiveEntries() {
+        if (closeIfIdle()) {
+            return;
+        }
         final long maximumDelay = (LIVE_POLL_UNITS.toNanos(MAX_LIVE_POLL_DELAY) / PARK_DELAY_TIME);
         for (long i = 0; i < maximumDelay && liveBlockQueue.isEmpty(); i++) {
             // Sleep for a bit to avoid excessive spin overhead.
             parkNanos(PARK_DELAY_TIME);
         }
+    }
+
+    /**
+     * Close this session with {@code SUCCESS} if it has made no progress for longer than
+     * {@link SubscriberConfig#idleSessionTimeoutSeconds()} plus this session's jitter of up to 10%. A client
+     * that disconnects while the session waits for blocks is never detected, because only a failed send
+     * reveals it, so this limit is what releases such sessions. Skipping live blocks before a future start
+     * block counts as progress, since the session will send once the live stream reaches that start block,
+     * and that send detects a disconnected client. Being denied a block-read bulkhead permit for catch-up
+     * also counts as progress, since the session will send once it gets a permit, and closing it would not
+     * shed load because the client reconnects and waits for a permit again. Only called from this
+     * session's own worker thread.
+     * <p>
+     * Side effect: if the client reset this stream and has since opened a newer stream on the same
+     * connection, the client answers this close with RST_STREAM. Helidon then treats that as a
+     * connection error and sends GOAWAY, failing every other stream on the connection
+     * (helidon-io/helidon#12771). Any write to such a stream does the same, so no close avoids it.
+     *
+     * @return true if the session is closed, whether by this call or earlier
+     */
+    private boolean closeIfIdle() {
+        if (isClosed()) {
+            return true;
+        }
+        final long now = nanoTime.getAsLong();
+        if (idleTimeoutNanos > 0 && now - lastProgressNanos >= idleTimeoutNanos) {
+            LOGGER.log(DEBUG, "Closing idle session for client {0}", sessionContext.clientId);
+            closedForIdle = true;
+            close(Code.SUCCESS);
+            return true;
+        }
+        return false;
     }
 
     private boolean allRequestedBlocksSent() {
@@ -559,8 +681,9 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         // we'll spin in the caller thread in an extreme form of spin wait.
         if (liveBlockQueue.isEmpty()) {
             // Re-register the messaging handler if necessary.
-            // Use a CAS check to determine if we reregister
-            if (liveBlockHandler.canReregister()) {
+            // Use a CAS check to determine if we reregister. Never after close, which unregistered
+            // the handler; re-registering then would leave it running with no session to drain it.
+            if (!isClosed() && liveBlockHandler.canReregister()) {
                 blockNodeContext
                         .blockMessaging()
                         .registerNoBackpressureBlockItemHandler(liveBlockHandler, false, sessionContext.handlerName);
@@ -574,7 +697,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         // then we'll also break out of the loop and return to the caller.
         // Stop if the session was closed (e.g. a send failed), as every further
         // send to a failed stream blocks for the full flow control timeout.
-        while (!isClosed() && !liveBlockQueue.isEmpty()) {
+        while (!isClosed() && !allRequestedBlocksSent() && !liveBlockQueue.isEmpty()) {
             // Peek at the block item from the queue and _possibly_ process it
             BlockItems blockItems = liveBlockQueue.peek();
             // Live _might_ be ahead or behind the next expected block (particularly if
@@ -584,6 +707,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             if (blockItems.isStartOfNewBlock() && blockItems.blockNumber() < nextBlockToSend.get()) {
                 LOGGER.log(Level.TRACE, "Skipping block {0} for client {1}", blockItems.blockNumber(), clientId);
                 skipCurrentBlockInQueue(blockItems);
+                lastProgressNanos = nanoTime.getAsLong();
             } else if (blockItems.blockNumber()
                     == nextBlockToSend.get()) { // todo if block number from block items cannot be -1, we are good here
                 blockItems = liveBlockQueue.poll();
@@ -727,6 +851,16 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         return sessionContext.handlerName;
     }
 
+    /**
+     * Whether this session was closed because it exceeded the idle session limit.
+     * This is package scope so that the plugin can read it.
+     *
+     * @return true if this session was closed for being idle
+     */
+    boolean closedForIdle() {
+        return closedForIdle;
+    }
+
     // Visible for testing.
     long getNextBlockToSend() {
         return nextBlockToSend.longValue();
@@ -859,6 +993,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         final OneOf<ResponseOneOfType> responseOneOf = new OneOf<>(ResponseOneOfType.BLOCK_ITEMS, dataToSend);
         try {
             responsePipeline.onNext(new SubscribeStreamResponseUnparsed(responseOneOf));
+            lastProgressNanos = nanoTime.getAsLong();
             if (blockComplete) {
                 sendEndOfBlock(nextBlockToSend.get());
             }

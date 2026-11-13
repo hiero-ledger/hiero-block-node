@@ -5,8 +5,8 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.internal.BlockNodeSourceConfig;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 /**
  * Strategy interface for selecting the optimal node for fetching a block range.
@@ -23,7 +23,7 @@ public interface NodeSelectionStrategy {
      * @return Optional containing the selection, or empty if no suitable node
      */
     Optional<NodeSelection> select(
-            long startBlock, long gapEnd, @NonNull Map<BlockNodeSourceConfig, List<LongRange>> availability);
+            long startBlock, long gapEnd, @NonNull Map<BlockNodeSourceConfig, List<BlockRange>> availability);
 
     /**
      * Result of node selection containing the chosen node and start block.

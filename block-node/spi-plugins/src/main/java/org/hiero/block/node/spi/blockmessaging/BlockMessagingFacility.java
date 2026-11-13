@@ -90,6 +90,15 @@ public interface BlockMessagingFacility extends BlockNodePlugin {
     void sendNewestBlockKnownToNetwork(final NewestBlockKnownToNetworkNotification notification);
 
     /**
+     * Use this method to notify the system about the next block expected from publishers.
+     * This is sent after a publisher was told this node is behind it, so the value is known
+     * before any block header has been accepted.
+     *
+     * @param notification the notification containing the next expected block number.
+     */
+    void sendNextExpectedPublisherBlock(final NextExpectedPublisherBlockNotification notification);
+
+    /**
      * Use this method to send a publisher status update to all registered handlers.
      *
      * @param notification the publisher status update notification to send

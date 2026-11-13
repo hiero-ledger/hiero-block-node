@@ -290,7 +290,7 @@ class HasherStateFilesTest {
             saved.addNodeByHash(fakeHash(7));
             Path primary = tempDir.resolve("hasher.bin");
             saved.save(Path.of(primary + ".bak"));
-            // Header claims 3 hashes but only one 32-byte hash follows: corrupt, not legacy
+            // Header claims 3 hashes for a leaf count of 5, which has only two set bits: corrupt, not legacy
             try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(primary))) {
                 out.writeLong(5);
                 out.writeInt(3);
@@ -303,10 +303,52 @@ class HasherStateFilesTest {
             assertEquals(1, loaded.leafCount(), "Should fall back to the .bak state");
         }
 
-        /** Writes a state file in the layout an older SHA-384 CLI produced: three 48-byte hashes. */
+        @Test
+        @DisplayName("Oversized SHA-256 primary, good backup: corrupt, falls back to .bak")
+        void oversizedPrimary_goodBackup_loadsFromBackup() throws Exception {
+            StreamingHasher saved = new StreamingHasher();
+            saved.addNodeByHash(fakeHash(7));
+            Path primary = tempDir.resolve("hasher.bin");
+            saved.save(Path.of(primary + ".bak"));
+            // Valid 1-leaf state plus trailing bytes past what even a 48-byte hash would need: corrupt, not legacy
+            saved.save(primary);
+            Files.write(primary, new byte[100], StandardOpenOption.APPEND);
+
+            StreamingHasher loaded = new StreamingHasher();
+            HasherStateFiles.loadWithFallback(primary, loaded::load);
+
+            assertEquals(1, loaded.leafCount(), "Should fall back to the .bak state");
+            assertFalse(Files.exists(primary), "Corrupt primary should be deleted");
+        }
+
+        @Test
+        @DisplayName("Legacy-sized primary with inconsistent header, good backup: corrupt, falls back to .bak")
+        void inconsistentHeaderPrimary_goodBackup_loadsFromBackup() throws Exception {
+            StreamingHasher saved = new StreamingHasher();
+            saved.addNodeByHash(fakeHash(7));
+            Path primary = tempDir.resolve("hasher.bin");
+            saved.save(Path.of(primary + ".bak"));
+            // Size fits two 48-byte hashes, but a leaf count of 4 has only one set bit: corrupt, not legacy
+            try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(primary))) {
+                out.writeLong(4);
+                out.writeInt(2);
+                out.write(new byte[48]);
+                out.write(new byte[48]);
+            }
+
+            StreamingHasher loaded = new StreamingHasher();
+            HasherStateFiles.loadWithFallback(primary, loaded::load);
+
+            assertEquals(1, loaded.leafCount(), "Should fall back to the .bak state");
+        }
+
+        /**
+         * Writes a state file in the layout an older SHA-384 CLI produced: a consistent header (leaf count 7, three
+         * set bits) and three 48-byte hashes.
+         */
         private static void writeLegacyState(Path path) throws Exception {
             try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(path))) {
-                out.writeLong(5);
+                out.writeLong(7);
                 out.writeInt(3);
                 for (int i = 0; i < 3; i++) {
                     out.write(new byte[48]);

@@ -31,6 +31,8 @@ import java.util.stream.Collectors;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.node.app.config.AutomaticEnvironmentVariableConfigSource;
+import org.hiero.block.node.app.config.BlockReadBulkheadConfig;
+import org.hiero.block.node.app.config.GlobalThrottleConfig;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.app.config.WebServerHttp2Config;
 import org.hiero.block.node.app.logging.CleanColorfulFormatter;
@@ -42,7 +44,7 @@ import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.health.HealthFacility;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.module.SemanticVersionUtility;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.hiero.metrics.LongGauge;
@@ -51,13 +53,6 @@ import org.hiero.metrics.ObservableGauge;
 import org.hiero.metrics.core.Label;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
-
-// @todo(3321) This class uses runtime exceptions (such as
-//     illegal state exception) as flow control in many methods. We need to
-//     rework the logic flow to remove all of those cases and move exception
-//     handling up to where it can be resolved rather than just logging
-//     warnings and continuing as though nothing failed or using the exception
-//     to choose logic branches or replace return values.
 
 /// Main class for the block node server
 public class BlockNodeApp implements HealthFacility {
@@ -238,7 +233,17 @@ public class BlockNodeApp implements HealthFacility {
                 serverConfig.socketReceiveBufferSizeBytes(), serverConfig.socketSendBufferSizeBytes()));
 
         // Create HTTP & GRPC routing builders; null port in plugin registrations resolves to server.port
-        serviceBuilder = new ServiceBuilderImpl(serverConfig, http2Config, socketOptions);
+        final GlobalThrottleConfig globalThrottleConfig = configuration.getConfigData(GlobalThrottleConfig.class);
+        final BlockReadBulkheadConfig blockReadBulkheadConfig =
+                configuration.getConfigData(BlockReadBulkheadConfig.class);
+        serviceBuilder = new ServiceBuilderImpl(
+                serverConfig,
+                http2Config,
+                socketOptions,
+                globalThrottleConfig,
+                blockReadBulkheadConfig,
+                metricRegistry,
+                threadPoolManager);
         // ==== INITIALIZE PLUGINS =====================================================================================
         // Initialize all the facilities & plugins, adding routing for each plugin
         for (BlockNodePlugin plugin : loadedPlugins) {
@@ -315,7 +320,7 @@ public class BlockNodeApp implements HealthFacility {
                 historicalBlockFacility
                         .availableBlocks()
                         .streamRanges()
-                        .map(LongRange::toString)
+                        .map(BlockRangeSet::toString)
                         .collect(Collectors.joining(", ")));
         // Publish a metric with the full version in a label,
         // and the major version as the value.

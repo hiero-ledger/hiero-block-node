@@ -117,8 +117,10 @@ is sized to the retention window rather than the full block history.
 | OS                | Linux host OS (Ubuntu 24.04 LTS or Debian 13.x LTS recommended)                   |
 
 > **Note:** The Fast NVMe Disk is at least partially optional for Rolling-History Tier 2 nodes. Its
-> necessity depends on whether the node manages live state and serves downstream subscribers. Consult
-> your Hashgraph PoC for the current recommended configuration if you are not managing live state.
+> necessity depends on whether the node manages live state and serves downstream subscribers. If you
+> are not managing live state, open an issue in the
+> [hiero-block-node repository](https://github.com/hiero-ledger/hiero-block-node) for guidance on
+> the current recommended configuration.
 
 **Bulk storage by retention window (at 10K TPS mainnet, 20% headroom):**
 

@@ -8,17 +8,25 @@ import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
+import com.swirlds.config.api.Configuration;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import org.hiero.block.api.AddressBookRequest;
+import org.hiero.block.api.AddressBookResponse;
 import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.RangedAddressBookHistory;
+import org.hiero.block.api.ServerStatusDetailRequest;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
 import org.hiero.block.api.TssData;
+import org.hiero.block.api.TssDataRequest;
+import org.hiero.block.api.TssDataResponse;
+import org.hiero.block.node.app.config.GlobalThrottleConfig;
 import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -31,6 +39,8 @@ import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
+import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
+import org.hiero.block.node.spi.throttle.ThrottleSpec;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
@@ -39,7 +49,7 @@ import org.hiero.metrics.core.MetricRegistry;
  * Plugin that implements the BlockNodeService and provides the 'serverStatus' RPC.
  */
 public class ServerStatusServicePlugin
-        implements BlockNodePlugin, BlockNodeServiceInterface, ApplicationStateNotificationHandler {
+        implements BlockNodePlugin, BlockNodeServiceInterface, ApplicationStateNotificationHandler, ThrottleSpec {
     /** Metric key for the number of server status requests */
     public static final MetricKey<LongCounter> METRIC_SERVER_STATUS_REQUESTS =
             MetricKey.of("server_status_requests", LongCounter.class).addCategory(METRICS_CATEGORY);
@@ -66,6 +76,13 @@ public class ServerStatusServicePlugin
     private volatile List<BlockRange> availableBlocks = List.of();
     private volatile TssData tssData = null;
     private volatile RangedAddressBookHistory rangedAddressBookHistory = null;
+    /**
+     * This service's per-client throttle settings, computed once in {@link #init}; see {@link ThrottleSpec}.
+     * {@code serverStatus} and {@code serverStatusDetail} each have their own settings and client-state table.
+     */
+    private volatile Map<String, PerClientThrottleSettings> throttleSettings;
+    /** This service's node-wide concurrency ceilings per method, computed once in {@link #init}; see {@link ThrottleSpec}. */
+    private volatile Map<String, Integer> globalConcurrencyCeilings;
 
     /**
      * Handle a request for server status
@@ -84,10 +101,8 @@ public class ServerStatusServicePlugin
         final BlockRangeSet availableBlocks = blockProvider.availableBlocks();
         final long firstAvailableBlock = availableBlocks.min();
         final long highestAvailableBlock = availableBlocks.max();
-        long nextExpectedBlock = stateFacility.nextExpectedBlock();
-        if (nextExpectedBlock < earliestManagedBlock) {
-            nextExpectedBlock = UNKNOWN_BLOCK_NUMBER;
-        }
+        final long nextExpectedBlock = resolveNextExpectedBlock(
+                stateFacility.nextExpectedBlock(), stateFacility.nextExpectedPublisherBlock(), earliestManagedBlock);
 
         // TODO(#579) Should get from state config or status, which would be provided by
         //     calls to the responsible plugin.
@@ -114,12 +129,14 @@ public class ServerStatusServicePlugin
     /**
      * Handle a request for server status details
      *
-     * @param request the request containing the available blocks, state snapshot status and software version
-     * @return the response containing the block or an error status
+     * @param request the request, whose flags leave out the version information, the available ranges, the stored
+     *     ranges, the address book or the TSS data
+     * @return the response with the parts that were not excluded
      */
     @Override
     @NonNull
-    public ServerStatusDetailResponse serverStatusDetail(@NonNull final ServerStatusRequest request) {
+    @SuppressWarnings("deprecation")
+    public ServerStatusDetailResponse serverStatusDetail(@NonNull final ServerStatusDetailRequest request) {
         requestDetailCounter.increment();
 
         // Capture volatile snapshots for a consistent read within this call.
@@ -128,20 +145,69 @@ public class ServerStatusServicePlugin
         final TssData localTss = tssData;
         final RangedAddressBookHistory localHistory = rangedAddressBookHistory;
 
-        // Derive the latest NodeAddressBook from the history: the address book of its last era.
-        final NodeAddressBook nodeAddressBook =
-                localHistory != null && !localHistory.addressBooks().isEmpty()
-                        ? localHistory.addressBooks().getLast().addressBook()
-                        : null;
-
-        return ServerStatusDetailResponse.newBuilder()
-                .versionInformation(blockNodeContext.blockNodeVersions())
-                .availableRanges(localAvailable)
-                .storedRanges(localStored)
+        // The TSS data and the address book are deprecated in favour of dedicated calls. They are still returned by
+        // default for one release so that older clients keep working. The address book is the large part of the
+        // response.
+        final ServerStatusDetailResponse.Builder response = ServerStatusDetailResponse.newBuilder()
                 .tssData(localTss)
-                .nodeAddressBook(nodeAddressBook)
-                .rangedAddressBookHistory(localHistory)
-                .build();
+                .nodeAddressBook(latestAddressBook(localHistory))
+                .rangedAddressBookHistory(localHistory);
+
+        if (!request.excludeVersions()) {
+            response.versionInformation(blockNodeContext.blockNodeVersions());
+        }
+        if (!request.excludeAvailableRanges()) {
+            response.availableRanges(localAvailable);
+        }
+        if (!request.excludeStoredRanges()) {
+            response.storedRanges(localStored);
+        }
+        return response.build();
+    }
+
+    /**
+     * Handle a request for the address book
+     *
+     * @param request the request, whose flag leaves out the address book history
+     * @return the response with the most recent address book, and the history unless it was excluded
+     */
+    @Override
+    @NonNull
+    public AddressBookResponse getAddressBook(@NonNull final AddressBookRequest request) {
+        // Capture a volatile snapshot for a consistent read within this call.
+        final RangedAddressBookHistory localHistory = rangedAddressBookHistory;
+        final AddressBookResponse.Builder response =
+                AddressBookResponse.newBuilder().nodeAddressBook(latestAddressBook(localHistory));
+        if (!request.excludeHistory()) {
+            response.rangedAddressBookHistory(localHistory);
+        }
+        return response.build();
+    }
+
+    /**
+     * Handle a request for the TSS data
+     *
+     * @param request the request, whose flag leaves out the TSS data history
+     * @return the response with the most recent TSS data
+     */
+    @Override
+    @NonNull
+    public TssDataResponse getTssData(@NonNull final TssDataRequest request) {
+        // Only the most recent TSS data is kept today, so the history is never filled in, whatever the request
+        // asks for. Keeping a history is tracked as its own task.
+        return TssDataResponse.newBuilder().tssData(tssData).build();
+    }
+
+    /**
+     * Derive the latest address book from the history: the address book of its last era.
+     *
+     * @param history the address book history, or null if none is known yet
+     * @return the latest address book, or null if there is none
+     */
+    private static NodeAddressBook latestAddressBook(final RangedAddressBookHistory history) {
+        return history != null && !history.addressBooks().isEmpty()
+                ? history.addressBooks().getLast().addressBook()
+                : null;
     }
 
     // ==== BlockNodePlugin Methods ====================================================================================
@@ -172,11 +238,40 @@ public class ServerStatusServicePlugin
                         .setDescription("Number of server status details requests"))
                 .getOrCreateNotLabeled();
 
+        final Configuration configuration = context.configuration();
+        this.throttleSettings = Map.of(
+                BlockNodeServiceInterface.BlockNodeServiceMethod.serverStatus.name(),
+                configuration.getConfigData(ServerStatusThrottleConfig.class).toSettings(),
+                BlockNodeServiceInterface.BlockNodeServiceMethod.serverStatusDetail.name(),
+                configuration
+                        .getConfigData(ServerStatusDetailThrottleConfig.class)
+                        .toSettings());
+        final GlobalThrottleConfig globalThrottleConfig = configuration.getConfigData(GlobalThrottleConfig.class);
+        this.globalConcurrencyCeilings = Map.of(
+                BlockNodeServiceInterface.BlockNodeServiceMethod.serverStatus.name(),
+                globalThrottleConfig.serverStatusMaxConcurrent(),
+                BlockNodeServiceInterface.BlockNodeServiceMethod.serverStatusDetail.name(),
+                globalThrottleConfig.serverStatusDetailMaxConcurrent());
+
         // Register this service; a null port (the default) shares server.port
         final Integer port =
                 context.configuration().getConfigData(ServerStatusConfig.class).port();
         serviceBuilder.registerGrpcService(port, this);
         context.blockMessaging().registerApplicationStateNotificationHandler(this, false, name());
+    }
+
+    /// {@inheritDoc}
+    @NonNull
+    @Override
+    public Map<String, PerClientThrottleSettings> perClientSettings() {
+        return throttleSettings;
+    }
+
+    /// {@inheritDoc}
+    @NonNull
+    @Override
+    public Map<String, Integer> globalConcurrencyCeilings() {
+        return globalConcurrencyCeilings;
     }
 
     @Override
@@ -225,22 +320,41 @@ public class ServerStatusServicePlugin
         }
     }
 
+    /// Resolves the `nextExpectedBlock` reported by `serverStatus`. The publisher manager value wins
+    /// when it is set; until then the value the publisher plugin learned from a `BehindPublisher`
+    /// response is used. A result below `earliestManagedBlock` means this node accepts any block up
+    /// to it, so it is reported as unknown.
+    ///
+    /// @param managerExpectedBlock the next expected block set by the publisher manager, or `-1`
+    /// @param publisherExpectedBlock the next expected block learned from `BehindPublisher`, or `-1`
+    /// @param earliestManagedBlock the earliest block this node manages
+    /// @return the next expected block, or `-1` when unknown
+    static long resolveNextExpectedBlock(
+            final long managerExpectedBlock, final long publisherExpectedBlock, final long earliestManagedBlock) {
+        final long nextExpectedBlock =
+                managerExpectedBlock != UNKNOWN_BLOCK_NUMBER ? managerExpectedBlock : publisherExpectedBlock;
+        return nextExpectedBlock < earliestManagedBlock ? UNKNOWN_BLOCK_NUMBER : nextExpectedBlock;
+    }
+
     /// Emits the single periodic `INFO` status line: the available block range and next expected
-    /// block. This is the one progression signal available to operators at `INFO` without
-    /// enabling `DEBUG`; per-block progress is intentionally left to metrics.
+    /// block, with both of its sources. This is the one progression signal available to operators
+    /// at `INFO` without enabling `DEBUG`; per-block progress is intentionally left to metrics.
     void logStatusHeartbeat() {
         if (!LOGGER.isLoggable(INFO)) {
             return;
         }
         final BlockRangeSet availableBlocks = blockProvider.availableBlocks();
-        final long nextExpectedBlock =
-                blockNodeContext.applicationStateFacility().nextExpectedBlock();
+        final ApplicationStateFacility stateFacility = blockNodeContext.applicationStateFacility();
+        final long managerExpectedBlock = stateFacility.nextExpectedBlock();
+        final long publisherExpectedBlock = stateFacility.nextExpectedPublisherBlock();
         LOGGER.log(
                 INFO,
-                "Status heartbeat: oldestBlock={0} newestBlock={1} nextExpected={2}",
+                "Status heartbeat: oldestBlock={0} newestBlock={1} nextExpected={2} managerNextExpected={3} publisherNextExpected={4}",
                 availableBlocks.min(),
                 availableBlocks.max(),
-                nextExpectedBlock);
+                resolveNextExpectedBlock(managerExpectedBlock, publisherExpectedBlock, earliestManagedBlock),
+                managerExpectedBlock,
+                publisherExpectedBlock);
     }
 
     /// Logs an uncaught exception escaping the heartbeat thread at `WARNING`: the heartbeat is a

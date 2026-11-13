@@ -61,6 +61,12 @@ grants less than configured. On high-latency links, raise the `tcp_rmem` / `tcp_
 | SERVER_HTTP2_MAX_RAPID_RESETS         | Max rapid resets (stream RST sent by client before any data sent by server). |        50 |
 | SERVER_HTTP2_RAPID_RESET_CHECK_PERIOD | Period for counting rapid resets (ms).                                       |    10,000 |
 
+### Block Read Bulkhead Configuration
+
+| ENV Variable                | Description                                                                                                                                                                                       | Default |
+|:----------------------------|:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------:|
+| BLOCK_READ_BULKHEAD_PERMITS | Max concurrent block-storage reads shared by `getBlock` and subscriber historical catch-up (1 to 1,000). `getBlock` gets `RESOURCE_EXHAUSTED` when exhausted; subscribers wait briefly and retry. |      50 |
+
 ### Application State Configuration
 
 | ENV Variable                                 | Description                                                                                                                                                                                                                                                                                                                            |                                Default                                |
@@ -163,19 +169,40 @@ A more robust pattern for fully operator-managed plugins is to mount a pre-popul
 
 ### Cloud Storage Archive Plugin Configuration
 
-| ENV Variable                                       | Description                                                                                                                                                                                              |    Default |
-|:---------------------------------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------:|
-| CLOUD_STORAGE_ARCHIVE_GROUPING_LEVEL               | Files per archive in powers of ten (1=10, 2=100, …, 6=1,000,000).                                                                                                                                        |          5 |
-| CLOUD_STORAGE_ARCHIVE_PART_SIZE_MB                 | The size of each multi-part upload part in megabytes. Minimum value is 5, maximum value is 2047                                                                                                          |         10 |
-| CLOUD_STORAGE_ARCHIVE_ENDPOINT_URL                 | Endpoint URL for the cloud archive service (e.g., `https://s3.amazonaws.com/`).                                                                                                                          |         "" |
-| CLOUD_STORAGE_ARCHIVE_BUCKET_NAME                  | Bucket name where cloud archive files are stored.                                                                                                                                                        |         "" |
-| CLOUD_STORAGE_ARCHIVE_OBJECT_KEY_PREFIX            | Optional prefix prepended to every S3 object key (e.g. `blocks`). When set, the full key format is `{prefix}/AAAA/BBBB/CCCC/DDDD/EEE.tar`. Leave empty for no prefix.                                    |         "" |
-| CLOUD_STORAGE_ARCHIVE_STORAGE_CLASS                | Storage class (e.g., STANDARD, INTELLIGENT_TIERING, GLACIER, DEEP_ARCHIVE). Values available at [AWS S3 storage classes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html) | "STANDARD" |
-| CLOUD_STORAGE_ARCHIVE_REGION_NAME                  | Region for the cloud archive service (e.g., `us-east-1`).                                                                                                                                                |         "" |
-| CLOUD_STORAGE_ARCHIVE_ACCESS_KEY                   | Access key for the archive service.                                                                                                                                                                      |         "" |
-| CLOUD_STORAGE_ARCHIVE_SECRET_KEY                   | Secret key for the archive service.                                                                                                                                                                      |         "" |
-| CLOUD_STORAGE_ARCHIVE_MAX_CONCURRENT_TEMP_ARCHIVES | Maximum number of temporary archive uploads that may run in parallel. Must be between 1 and 16.                                                                                                          |          4 |
-| CLOUD_STORAGE_ARCHIVE_GAP_BUFFER_SIZE              | Number of blocks to buffer when a gap is detected before triggering recovery. Must be between 1 and 10.                                                                                                  |          5 |
+`CLOUD_STORAGE_ARCHIVE_ENDPOINT_URL`, `_REGION_NAME`, `_ACCESS_KEY`, `_SECRET_KEY`, and
+`_BUCKET_NAME` are all required. If any one of them is blank, the plugin logs a WARNING at
+startup naming the empty settings and stays inactive: it registers no notification handler and
+archives nothing.
+
+| ENV Variable                                       | Description                                                                                                                                                                                                                                                                                                                           |    Default |
+|:---------------------------------------------------|:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------:|
+| CLOUD_STORAGE_ARCHIVE_GROUPING_LEVEL               | Files per archive in powers of ten (1=10, 2=100, …, 6=1,000,000).                                                                                                                                                                                                                                                                     |          5 |
+| CLOUD_STORAGE_ARCHIVE_PART_SIZE_MB                 | The size of each multi-part upload part in megabytes. Minimum value is 5, maximum value is 2047                                                                                                                                                                                                                                       |         10 |
+| CLOUD_STORAGE_ARCHIVE_ENDPOINT_URL                 | Endpoint URL for the cloud archive service (e.g., `https://s3.amazonaws.com/`).                                                                                                                                                                                                                                                       |         "" |
+| CLOUD_STORAGE_ARCHIVE_BUCKET_NAME                  | Bucket name where cloud archive files are stored.                                                                                                                                                                                                                                                                                     |         "" |
+| CLOUD_STORAGE_ARCHIVE_OBJECT_KEY_PREFIX            | Optional prefix prepended to every S3 object key (e.g. `blocks`). Leave empty for no prefix. See the key format note below.                                                                                                                                                                                                           |         "" |
+| CLOUD_STORAGE_ARCHIVE_STORAGE_CLASS                | Storage class (e.g., STANDARD, INTELLIGENT_TIERING, GLACIER, DEEP_ARCHIVE, ARCHIVE). Values available at [AWS S3 storage classes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html). `ARCHIVE` is not an AWS class: it is the native Google Cloud Storage class, reached through the S3-compatible API. | "STANDARD" |
+| CLOUD_STORAGE_ARCHIVE_REGION_NAME                  | Region for the cloud archive service (e.g., `us-east-1`).                                                                                                                                                                                                                                                                             |         "" |
+| CLOUD_STORAGE_ARCHIVE_ACCESS_KEY                   | Access key for the archive service.                                                                                                                                                                                                                                                                                                   |         "" |
+| CLOUD_STORAGE_ARCHIVE_SECRET_KEY                   | Secret key for the archive service.                                                                                                                                                                                                                                                                                                   |         "" |
+| CLOUD_STORAGE_ARCHIVE_MAX_CONCURRENT_TEMP_ARCHIVES | Maximum number of temporary archive uploads that may run in parallel. Must be between 1 and 16.                                                                                                                                                                                                                                       |          4 |
+| CLOUD_STORAGE_ARCHIVE_GAP_BUFFER_SIZE              | Number of blocks to buffer when a gap is detected before triggering recovery. Must be between 1 and 10.                                                                                                                                                                                                                               |          5 |
+
+**Object key format.** An archive key is derived from the first block number of the group, not
+from a single block, so it does *not* use the expanded plugin's fixed
+`{prefix}/AAAA/BBBB/CCCC/DDDD/EEE` shape. The 19-digit zero-padded group start has its
+`CLOUD_STORAGE_ARCHIVE_GROUPING_LEVEL` trailing digits dropped (they are always zero) and the
+remainder is split into 4-character segments, so the number of segments varies with the grouping
+level:
+
+| Grouping level | Group start | Object key                           |
+|:---------------|:------------|:-------------------------------------|
+| 2              | 1 200       | `{prefix}/0000/0000/0000/0001/2.tar` |
+| 5 (default)    | 1 200 000   | `{prefix}/0000/0000/0000/12.tar`     |
+
+**Temporary objects.** The plugin writes in-progress archives under `{prefix}/tmp/` as
+`{firstBlock:019d}.tmp` plus a `.meta` companion, and reads them back at startup to resume an
+interrupted group. Bucket lifecycle rules over the prefix must not delete objects under `tmp/`.
 
 ### Backfill Plugin Configuration
 
@@ -195,7 +222,7 @@ A more robust pattern for fully operator-managed plugins is to mount a pre-popul
 | BACKFILL_MAX_INCOMING_BUFFER_SIZE        | Max gRPC incoming buffer size in bytes (min 10 MB, max 300 MB).                                                        | 104857600 |
 | BACKFILL_ENABLE_TLS                      | Enable TLS if supported by block-node client.                                                                          |     false |
 | BACKFILL_MAX_PROTOBUF_MESSAGE_SIZE_BYTES | Max protobuf message size (bytes) accepted when parsing a block fetched over the wire during backfill.                 | 131072000 |
-| BACKFILL_GREEDY                          | When true, searches and retrieves blocks beyond latestAcknowledged to prevent the BN from falling too far behind live. |     false |
+| BACKFILL_GREEDY                          | When true, searches and retrieves blocks beyond latestAcknowledged to prevent the BN from falling too far behind live. |      true |
 | BACKFILL_HISTORICAL_QUEUE_CAPACITY       | Bounded queue capacity for historical block fetch tasks (min 1, max 1000).                                             |        20 |
 | BACKFILL_LIVE_TAIL_QUEUE_CAPACITY        | Bounded queue capacity for live-tail block fetch tasks (min 1, max 100).                                               |        10 |
 | BACKFILL_HEALTH_PENALTY_PER_FAILURE      | Health score penalty applied per failed fetch attempt to a peer node.                                                  |    1000.0 |
@@ -255,24 +282,45 @@ for the JSON schema.
 | MESSAGING_BLOCK_ITEM_QUEUE_SIZE         | Max messages in block item queue. Each batch ~100 items. Must be power of 2.              |     512 |
 | MESSAGING_BLOCK_NOTIFICATION_QUEUE_SIZE | Max block notifications queued. Each may hold a full block in memory. Must be power of 2. |      32 |
 
-### Archive Plugin Configuration (S3 Archive)
-
-| ENV Variable            | Description                                                                 |            Default |
-|:------------------------|:----------------------------------------------------------------------------|-------------------:|
-| ARCHIVE_BLOCKS_PER_FILE | Number of blocks per archive file. Must be a positive power of 10.          |             100000 |
-| ARCHIVE_ENDPOINT_URL    | Endpoint URL for the archive service (e.g., `https://s3.amazonaws.com/`).   |                 "" |
-| ARCHIVE_BUCKET_NAME     | Bucket name where archive files are stored.                                 | block-node-archive |
-| ARCHIVE_BASE_PATH       | Base path inside the bucket for archive files.                              |             blocks |
-| ARCHIVE_STORAGE_CLASS   | Storage class (e.g., STANDARD, INTELLIGENT_TIERING, GLACIER, DEEP_ARCHIVE). |           STANDARD |
-| ARCHIVE_REGION_NAME     | Region for the archive service (e.g., `us-east-1`).                         |          us-east-1 |
-| ARCHIVE_ACCESS_KEY      | Access key for the archive service.                                         |                 "" |
-| ARCHIVE_SECRET_KEY      | Secret key for the archive service.                                         |                 "" |
-
 ### Server Status Plugin Configuration
 
 | ENV Variable       | Description                                                                                      | Default |
 |:-------------------|:-------------------------------------------------------------------------------------------------|--------:|
 | SERVER_STATUS_PORT | Dedicated port for the server-status gRPC service. When unset, the service shares `SERVER_PORT`. | (unset) |
+
+### Throttle Configuration
+
+The `serverStatus` and `serverStatusDetail` gRPC methods are throttled per client and node-wide. All keys have defaults.
+
+#### Global limits (prefix `throttle.global.`)
+
+| Config Key                      | Description                                                                                                           | Default |
+|:--------------------------------|:----------------------------------------------------------------------------------------------------------------------|--------:|
+| serverStatusMaxConcurrent       | Node-wide ceiling on concurrent in-flight `serverStatus` calls across all clients.                                    |   1,000 |
+| serverStatusDetailMaxConcurrent | Node-wide ceiling on concurrent in-flight `serverStatusDetail` calls across all clients.                              |   1,000 |
+| clientStateTtlMinutes           | How long a throttled method keeps a client's rate and concurrency state after its last call before it can be evicted. |      30 |
+| clientStateSweepIntervalMinutes | How often the sweep that evicts stale client state runs.                                                              |       5 |
+
+#### Per-method limits (prefixes `throttle.serverStatus.` and `throttle.serverStatusDetail.`)
+
+The same four keys apply under each prefix.
+
+| Config Key             | Description                                                                                                                                                                                                                                                                                                          |                                        Default |
+|:-----------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------:|
+| ratePerSecond          | Sustained requests per second allowed per client.                                                                                                                                                                                                                                                                    |                                             50 |
+| burstTolerance         | How many pacing intervals early a request may arrive and still be admitted.                                                                                                                                                                                                                                          |                                             20 |
+| maxConcurrentPerClient | Concurrent in-flight calls allowed per client.                                                                                                                                                                                                                                                                       |                                              5 |
+| maxPermitHoldSeconds   | Age after which a concurrency permit that is still held is force-released by a background sweep. This only corrects the throttle's accounting for calls whose connection dropped before completing. It never terminates a call. The sweep runs about every half of the smallest configured value (minimum 1 second). | 10 (`serverStatus`), 60 (`serverStatusDetail`) |
+
+#### When a client is rejected
+
+The client receives gRPC status `RESOURCE_EXHAUSTED` with a reason string: rate limit exceeded, per-client concurrency limit reached, or node-wide concurrency limit reached. The matching `outcome` label on the `throttle_calls` metric increments. See [metrics](./metrics.md).
+
+#### Operator note: client identity
+
+Client identity is the remote IP address. Behind a Kubernetes LoadBalancer Service with the default `externalTrafficPolicy: Cluster`, source IPs are SNATed, so all external clients share one key and therefore one per-client budget. Set `externalTrafficPolicy: Local` or raise the per-client limits. The helm chart has no setting for this today.
+
+The opposite holds for IPv6: one client usually controls a whole /64, so it can rotate addresses to get fresh per-client budgets, and the client-state table has no size cap. Subnet-level limits are tracked in [#3573](https://github.com/hiero-ledger/hiero-block-node/issues/3573).
 
 ### Publisher Plugin Configuration
 
@@ -304,14 +352,15 @@ for the JSON schema.
 
 ### Subscriber Plugin Configuration
 
-| ENV Variable                                       | Description                                                                                            |   Default |
-|:---------------------------------------------------|:-------------------------------------------------------------------------------------------------------|----------:|
-| SUBSCRIBER_LIVE_QUEUE_SIZE                         | Queue size (in batches) for transferring live data between messaging and client threads. Must be ≥100. |      4000 |
-| SUBSCRIBER_MAXIMUM_FUTURE_REQUEST                  | Max blocks ahead of latest "live" block a request can start from. Must be ≥10.                         |      4000 |
-| SUBSCRIBER_MINIMUM_LIVE_QUEUE_CAPACITY             | Minimum free capacity in the live queue before dropping oldest blocks. Typically ~10% of queue size.   |       400 |
-| SUBSCRIBER_MAX_PROTOBUF_MESSAGE_SIZE_BYTES         | Max protobuf message size (bytes) accepted when parsing a block to stream to a subscriber.             | 131072000 |
-| SUBSCRIBER_PORT                                    | Dedicated port for the subscriber gRPC service. When unset, the service shares `SERVER_PORT`.          |   (unset) |
-| SUBSCRIBER_COMPLETED_SESSION_REAP_INTERVAL_SECONDS | How often the background reaper drains completed subscriber sessions, independent of new traffic.      |         5 |
+| ENV Variable                                       | Description                                                                                                                                                                                                                           |   Default |
+|:---------------------------------------------------|:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------:|
+| SUBSCRIBER_LIVE_QUEUE_SIZE                         | Queue size (in batches) for transferring live data between messaging and client threads. Must be ≥100.                                                                                                                                |      4000 |
+| SUBSCRIBER_MAXIMUM_FUTURE_REQUEST                  | Max blocks ahead of latest "live" block a request can start from. Must be ≥10.                                                                                                                                                        |      4000 |
+| SUBSCRIBER_MINIMUM_LIVE_QUEUE_CAPACITY             | Minimum free capacity in the live queue before dropping oldest blocks. Typically ~10% of queue size.                                                                                                                                  |       400 |
+| SUBSCRIBER_MAX_PROTOBUF_MESSAGE_SIZE_BYTES         | Max protobuf message size (bytes) accepted when parsing a block to stream to a subscriber.                                                                                                                                            | 131072000 |
+| SUBSCRIBER_PORT                                    | Dedicated port for the subscriber gRPC service. When unset, the service shares `SERVER_PORT`.                                                                                                                                         |   (unset) |
+| SUBSCRIBER_COMPLETED_SESSION_REAP_INTERVAL_SECONDS | How often the background reaper drains completed subscriber sessions, independent of new traffic.                                                                                                                                     |         5 |
+| SUBSCRIBER_IDLE_SESSION_TIMEOUT_SECONDS            | Seconds a session may send nothing before it ends with `SUCCESS`, releasing dead clients. Also ends healthy sessions while no blocks arrive (e.g. quiescence); they reconnect. Each session adds up to 10% random jitter. 0 disables. |      1800 |
 
 ### TSS Bootstrap Plugin Configuration
 
@@ -325,15 +374,15 @@ for the JSON schema.
 
 ### Verification Plugin Configuration
 
-| ENV Variable                                      | Description                                                                                                                     |                                  Default |
-|:--------------------------------------------------|:--------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------:|
-| VERIFICATION_RECENTLY_VERIFIED_BLOCKS_BUFFER_SIZE | Size of recently verified blocks buffer. Affects informational failures.                                                        |                                      100 |
-| VERIFICATION_ACTIVE_SESSIONS_BUFFER_SIZE          | Size of active active sessions allowed simultaneously.                                                                          |                                      100 |
-| VERIFICATION_FIRST_ORDERED_BLOCK                  | The first block number that requires the strict ordering guarantee. All blocks below this number will report immediate success. |                                        0 |
-| VERIFICATION_ALL_SOURCES_REQUIRE_ORDERING         | Flag, indicating if all sources require the strict ordering guarantee on the last verified block high watermark.                |                                     true |
-| VERIFICATION_DUMP_ENABLED                         | Flag, indicating if the bad block dumper is enabled. (Write blocks that failed verification to disk)                            |                                    false |
-| VERIFICATION_DUMP_DIRECTORY_PATH                  | Root path to be used by the bad block dumper.                                                                                   | /opt/hiero/block-node/verification/dumps |
-| VERIFICATION_DUMP_RETENTION_DAYS                  | How many days dumped blocks will be retained for.                                                                               |                                        7 |
+| ENV Variable                                      | Description                                                                                                                                                                                                                                 |                                  Default |
+|:--------------------------------------------------|:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------:|
+| VERIFICATION_RECENTLY_VERIFIED_BLOCKS_BUFFER_SIZE | Size of recently verified blocks buffer. Affects informational failures.                                                                                                                                                                    |                                      100 |
+| VERIFICATION_ACTIVE_SESSIONS_BUFFER_SIZE          | Limit of active verification sessions, all sources combined. A block admitted at the limit first evicts one session, stuck ones first, so the count never exceeds it. At least 13; a prime is recommended, a Mersenne number is acceptable. |                                      101 |
+| VERIFICATION_FIRST_ORDERED_BLOCK                  | The first block number that requires the strict ordering guarantee. All blocks below this number will report immediate success.                                                                                                             |                                        0 |
+| VERIFICATION_ALL_SOURCES_REQUIRE_ORDERING         | Flag, indicating if all sources require the strict ordering guarantee on the last verified block high watermark.                                                                                                                            |                                     true |
+| VERIFICATION_DUMP_ENABLED                         | Flag, indicating if the bad block dumper is enabled. (Write blocks that failed verification to disk)                                                                                                                                        |                                    false |
+| VERIFICATION_DUMP_DIRECTORY_PATH                  | Root path to be used by the bad block dumper.                                                                                                                                                                                               | /opt/hiero/block-node/verification/dumps |
+| VERIFICATION_DUMP_RETENTION_DAYS                  | How many days dumped blocks will be retained for.                                                                                                                                                                                           |                                        7 |
 
 > _NOTE_ the `VERIFICATION_ALL_SOURCES_REQUIRE_ORDERING` value should remain `true` in all "Tier 1" Block Nodes.
 >
@@ -366,23 +415,25 @@ for the JSON schema.
 ### Cloud Storage Expanded Plugin Configuration
 
 Uploads each [verified block](./glossary.md#verified-block) as a single ZSTD-compressed `.blk.zstd` object to any
-S3-compatible store (AWS S3, GCS S3-interop, MinIO, etc.). The plugin is **disabled by
-default** — setting `CLOUD_EXPANDED_ENDPOINT_URL` to a non-empty value activates it.
+S3-compatible store (AWS S3, GCS S3-interop, MinIO, etc.). The plugin is loaded only when
+`cloud-storage-expanded` appears in `plugins.names`; an endpoint URL alone does not activate it.
+Once loaded, it needs all five required settings below; a blank one leaves it loaded but
+inactive, logging a WARNING at startup and uploading nothing.
 
-| ENV Variable                                    | Description                                                                                                       |  Default |
-|:------------------------------------------------|:------------------------------------------------------------------------------------------------------------------|---------:|
-| CLOUD_STORAGE_EXPANDED_ENDPOINT_URL             | S3-compatible endpoint URL. **Blank disables the plugin.**                                                        |       "" |
-| CLOUD_STORAGE_EXPANDED_BUCKET_NAME              | Name of the S3 bucket where blocks are stored. Required; must not be blank.                                       |       "" |
-| CLOUD_STORAGE_EXPANDED_OBJECT_KEY_PREFIX        | Prefix prepended to every object key (e.g. `blocks`). Set to `""` for no prefix.                                  |       "" |
-| CLOUD_STORAGE_EXPANDED_STORAGE_CLASS            | S3 storage class for uploaded objects. Must be `STANDARD` for the current bucky-client version.                   | STANDARD |
-| CLOUD_STORAGE_EXPANDED_REGION_NAME              | AWS / S3-compatible region name. Required; must not be blank.                                                     |       "" |
-| CLOUD_STORAGE_EXPANDED_ACCESS_KEY               | S3 access key (not logged).                                                                                       |       "" |
-| CLOUD_STORAGE_EXPANDED_SECRET_KEY               | S3 secret key (not logged).                                                                                       |       "" |
-| CLOUD_STORAGE_EXPANDED_UPLOAD_TIMEOUT_SECONDS   | Max seconds per block upload before treating the upload as failed.                                                |       60 |
-| CLOUD_STORAGE_EXPANDED_RETRY_ENABLED            | Hold failed uploads in memory and retry them in the background instead of failing immediately. Never disk-backed. |     true |
-| CLOUD_STORAGE_EXPANDED_RETRY_INTERVAL_SECONDS   | Fixed interval at which the background retry tick re-attempts every buffered block.                               |       10 |
-| CLOUD_STORAGE_EXPANDED_RETRY_MAX_AGE_SECONDS    | Maximum time a block may remain buffered for retry before it is dropped as a terminal failure.                    |       60 |
-| CLOUD_STORAGE_EXPANDED_RETRY_MAX_PENDING_BLOCKS | Maximum number of blocks held in the in-memory retry buffer at once.                                              |       30 |
+| ENV Variable                                    | Description                                                                                                                                                                |  Default |
+|:------------------------------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------:|
+| CLOUD_STORAGE_EXPANDED_ENDPOINT_URL             | S3-compatible endpoint URL. Required; must not be blank.                                                                                                                   |       "" |
+| CLOUD_STORAGE_EXPANDED_BUCKET_NAME              | Name of the S3 bucket where blocks are stored. Required; must not be blank.                                                                                                |       "" |
+| CLOUD_STORAGE_EXPANDED_OBJECT_KEY_PREFIX        | Prefix prepended to every object key (e.g. `blocks`). Set to `""` for no prefix.                                                                                           |       "" |
+| CLOUD_STORAGE_EXPANDED_STORAGE_CLASS            | S3 storage class for uploaded objects. Must be `STANDARD` for the current bucky-client version.                                                                            | STANDARD |
+| CLOUD_STORAGE_EXPANDED_REGION_NAME              | AWS / S3-compatible region name. Required; must not be blank.                                                                                                              |       "" |
+| CLOUD_STORAGE_EXPANDED_ACCESS_KEY               | S3 access key (not logged). Required; must not be blank.                                                                                                                   |       "" |
+| CLOUD_STORAGE_EXPANDED_SECRET_KEY               | S3 secret key (not logged). Required; must not be blank.                                                                                                                   |       "" |
+| CLOUD_STORAGE_EXPANDED_UPLOAD_TIMEOUT_SECONDS   | Max seconds `stop()` waits for in-flight uploads to drain. There is no per-upload timeout.                                                                                 |       60 |
+| CLOUD_STORAGE_EXPANDED_RETRY_ENABLED            | Hold failed uploads in memory and retry them in the background instead of failing immediately. Never disk-backed.                                                          |     true |
+| CLOUD_STORAGE_EXPANDED_RETRY_INTERVAL_SECONDS   | Period of the background retry tick, and the per-block backoff after a failed attempt. Each tick re-attempts only the blocks whose backoff has elapsed.                    |       10 |
+| CLOUD_STORAGE_EXPANDED_RETRY_MAX_AGE_SECONDS    | Maximum time a block may remain buffered for retry before it is dropped as a terminal failure.                                                                             |       60 |
+| CLOUD_STORAGE_EXPANDED_RETRY_MAX_PENDING_BLOCKS | Maximum number of blocks held in the in-memory retry buffer at once. At capacity a new failure evicts the longest-buffered block, which is reported as a terminal failure. |       30 |
 
 Object keys follow the format `{prefix}/AAAA/BBBB/CCCC/DDDD/EEE.blk.zstd`, where the
 19-digit zero-padded block number is split into a 4/4/4/4/3 folder hierarchy:

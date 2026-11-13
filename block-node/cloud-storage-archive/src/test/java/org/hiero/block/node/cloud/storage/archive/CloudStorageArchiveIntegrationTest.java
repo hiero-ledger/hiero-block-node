@@ -2,6 +2,7 @@
 package org.hiero.block.node.cloud.storage.archive;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.sampleHeaderUnparsed;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
@@ -341,7 +342,7 @@ class CloudStorageArchiveIntegrationTest {
         final BlockItemUnparsed item = new BlockItemUnparsed(
                 new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
         final BlockUnparsed block = BlockUnparsed.newBuilder()
-                .blockItems(new BlockItemUnparsed[] {item})
+                .blockItems(new BlockItemUnparsed[] {sampleHeaderUnparsed(blockNumber), item})
                 .build();
         return new TestBlock(blockNumber, block);
     }

@@ -22,13 +22,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
-import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.TestApplicationStateFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -229,9 +228,9 @@ class StartupRecoveryTaskTest {
         assertThat(result.uploadId()).isNull();
         assertThat(result.trailingBytes()).isNull();
         assertThat(result.lastHandedOffBlock()).isEqualTo(groupSize * groupCount - 1);
-        // The eleven groups are contiguous, so ConcurrentLongRangeSet merges them into one range.
+        // The eleven groups are contiguous, so ConcurrentBlockRangeSet merges them into one range.
         assertThat(result.completedRanges().streamRanges())
-                .containsExactly(new LongRange(0, groupSize * groupCount - 1));
+                .containsExactly(BlockRangeSet.of(0, groupSize * groupCount - 1));
     }
 
     /// Verifies that when completed tars live in two different 4th-level S3 "folders"
@@ -990,9 +989,8 @@ class StartupRecoveryTaskTest {
         final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
         final TestApplicationStateFacility asf = new TestApplicationStateFacility();
         final CloudStorageArchivePlugin.MetricsHolder metricsHolder =
-                CloudStorageArchivePlugin.MetricsHolder.createMetrics(MetricRegistry.builder()
-                        .setMetricsExporter(new TestMetricsExporter())
-                        .build());
+                CloudStorageArchivePlugin.MetricsHolder.createMetrics(
+                        MetricRegistry.builder().build());
         final TempArchiveUploadTask task =
                 new TempArchiveUploadTask(config, messaging, asf, metricsHolder, s3Key, 0, queue);
 
@@ -1034,7 +1032,7 @@ class StartupRecoveryTaskTest {
     /// [RecoveryResult#completedRanges()] covering exactly the completed blocks.
     ///
     /// Two distinct completed tar archives are planted (groups 0 and 1).  Since the two groups
-    /// are contiguous, [ConcurrentLongRangeSet] merges them into a single range spanning both.
+    /// are contiguous, [ConcurrentBlockRangeSet] merges them into a single range spanning both.
     @Test
     @DisplayName("Multiple completed archives: completedRanges covers both archives")
     void multipleCompletedArchivesReturnCompletedRanges() throws Exception {
@@ -1055,7 +1053,7 @@ class StartupRecoveryTaskTest {
         final RecoveryResult result = new StartupRecoveryTask(config).call();
 
         assertThat(result.completedRanges()).isNotNull();
-        assertThat(result.completedRanges().streamRanges()).containsExactly(new LongRange(0, groupSize * 2 - 1));
+        assertThat(result.completedRanges().streamRanges()).containsExactly(BlockRangeSet.of(0, groupSize * 2 - 1));
     }
 
     /// Verifies that a single hanging multipart upload (Case 2) returns [RecoveryResult#completedRanges()]
@@ -1109,7 +1107,7 @@ class StartupRecoveryTaskTest {
         assertThat(result.currentGroupStart()).isEqualTo(groupSize);
         assertThat(result.uploadId()).isNull();
         assertThat(result.completedRanges()).isNotNull();
-        assertThat(result.completedRanges().streamRanges()).containsExactly(new LongRange(0, groupSize - 1));
+        assertThat(result.completedRanges().streamRanges()).containsExactly(BlockRangeSet.of(0, groupSize - 1));
     }
 
     /// Verifies that a bucket containing only foreign objects (no valid archive keys) yields a

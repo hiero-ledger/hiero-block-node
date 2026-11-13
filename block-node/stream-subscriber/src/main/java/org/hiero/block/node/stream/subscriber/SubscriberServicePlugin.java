@@ -33,6 +33,7 @@ import org.hiero.block.internal.SubscribeStreamResponseUnparsed.Builder;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.bulkhead.BlockReadBulkhead;
 import org.hiero.block.node.stream.subscriber.BlockStreamSubscriberSession.SessionContext;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.LongGauge;
@@ -53,11 +54,16 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
     /** Metric key for the number of subscriber errors */
     public static final MetricKey<LongCounter> METRIC_SUBSCRIBER_ERRORS =
             MetricKey.of("subscriber_errors", LongCounter.class).addCategory(METRICS_CATEGORY);
+    /** Metric key for the number of subscriber sessions closed for exceeding the idle session limit */
+    public static final MetricKey<LongCounter> METRIC_SUBSCRIBER_IDLE_SESSIONS_CLOSED =
+            MetricKey.of("subscriber_idle_sessions_closed", LongCounter.class).addCategory(METRICS_CATEGORY);
 
     /** The logger for this class. */
     private final Logger LOGGER = System.getLogger(getClass().getName());
     /** The block node context, used to provide access to facilities */
     private BlockNodeContext context;
+    /** The shared block-storage read bulkhead; protects storage independent of client identity */
+    private BlockReadBulkhead blockReadBulkhead;
     /** A handler for client requests */
     private SubscribeBlockStreamHandler clientHandler;
 
@@ -69,6 +75,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
     @Override
     public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
         this.context = requireNonNull(context);
+        this.blockReadBulkhead = serviceBuilder.blockReadBulkhead();
         // register us as a service; a null port (the default) shares server.port
         final Integer port =
                 context.configuration().getConfigData(SubscriberConfig.class).port();
@@ -78,7 +85,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
     @Override
     public void start() {
         // Create the client handler and wait for it to start and reach a ready state.
-        clientHandler = new SubscribeBlockStreamHandler(context);
+        clientHandler = new SubscribeBlockStreamHandler(context, blockReadBulkhead);
     }
 
     @Override
@@ -139,11 +146,15 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
         private final AtomicLong nextClientId = new AtomicLong(0);
         /** A context that applies to the pipeline this handler supports. */
         private final BlockNodeContext context;
+        /** The shared block-storage read bulkhead; protects storage independent of client identity */
+        private final BlockReadBulkhead blockReadBulkhead;
         /** Set of open client sessions */
         private volatile Map<Long, BlockStreamSubscriberSession> openSessions;
         // Metrics
         /** Counter for errors while streaming to subscribers */
         private final LongCounter.Measurement subscriberErrorsCounter;
+        /** Counter for sessions closed for exceeding the idle session limit */
+        private final LongCounter.Measurement idleSessionsClosedCounter;
         /** Gauge for number of subscribers */
         private final LongGauge.Measurement numberOfSubscribers;
 
@@ -152,8 +163,10 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
         /** Dedicated executor for the periodic session reaper, separate from {@link #virtualThreadExecutor}. */
         private final ScheduledExecutorService reaperExecutor;
 
-        private SubscribeBlockStreamHandler(@NonNull final BlockNodeContext context) {
+        private SubscribeBlockStreamHandler(
+                @NonNull final BlockNodeContext context, @NonNull final BlockReadBulkhead blockReadBulkhead) {
             this.context = requireNonNull(context);
+            this.blockReadBulkhead = requireNonNull(blockReadBulkhead);
             openSessions = new ConcurrentSkipListMap<>();
             virtualThreadExecutor = context.threadPoolManager().getVirtualThreadExecutor();
             streamSessions = new ExecutorCompletionService<>(virtualThreadExecutor);
@@ -166,6 +179,10 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
             subscriberErrorsCounter = metricRegistry
                     .register(LongCounter.builder(METRIC_SUBSCRIBER_ERRORS)
                             .setDescription("Errors while streaming to subscribers"))
+                    .getOrCreateNotLabeled();
+            idleSessionsClosedCounter = metricRegistry
+                    .register(LongCounter.builder(METRIC_SUBSCRIBER_IDLE_SESSIONS_CLOSED)
+                            .setDescription("Subscriber sessions closed for exceeding the idle session limit"))
                     .getOrCreateNotLabeled();
             reaperExecutor = context.threadPoolManager()
                     .createVirtualThreadScheduledExecutor(
@@ -251,7 +268,8 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
             final CompletionService<BlockStreamSubscriberSession> streams = streamSessions;
             final Map<Long, BlockStreamSubscriberSession> sessions = openSessions;
             if (streams != null && sessions != null) {
-                final SessionContext sessionContext = SessionContext.create(clientId, request, context);
+                final SessionContext sessionContext =
+                        SessionContext.create(clientId, request, context, blockReadBulkhead);
                 final BlockStreamSubscriberSession blockStreamSession =
                         new BlockStreamSubscriberSession(sessionContext, responsePipeline, context, sessionReadyLatch);
                 // Register before submitting, so the reaper can never reap it before it's tracked.
@@ -300,6 +318,8 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
                     final String message = "Subscriber session %(,d failed due to {0}.".formatted(clientId);
                     LOGGER.log(Level.INFO, message, failureCause);
                     subscriberErrorsCounter.increment();
+                } else if (completedSession.closedForIdle()) {
+                    idleSessionsClosedCounter.increment();
                 } else {
                     // Otherwise, log that the session completed successfully.
                     LOGGER.log(Level.TRACE, "Subscriber session %(,d completed successfully.".formatted(clientId));

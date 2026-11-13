@@ -7,7 +7,6 @@ import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.TssData;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 /**
  * Interface for the Application and block node plugins to exchange state information. The `ApplicationStateFacility`
@@ -46,7 +45,7 @@ public interface ApplicationStateFacility extends BlockNodePlugin {
      *
      * @param blockRange the contiguous range of block numbers being reported
      */
-    void addStoredBlockRange(LongRange blockRange);
+    void addStoredBlockRange(BlockRange blockRange);
 
     /**
      * Returns the {@link NodeAddressBook} for the supplied {@code blickNum }
@@ -126,6 +125,15 @@ public interface ApplicationStateFacility extends BlockNodePlugin {
      * @return the current value of the next expected block
      */
     long nextExpectedBlock();
+
+    /**
+     * The next block expected from publishers, as last reported by the publisher plugin after it
+     * told a publisher this node is behind it. This value is held in memory only, it only moves
+     * forward, and it <b>must</b> be {@code -1} at startup, before any publisher has been answered.
+     *
+     * @return the next expected publisher block, or {@code -1} if no publisher has been answered yet
+     */
+    long nextExpectedPublisherBlock();
 
     /**
      * Registers (or replaces) the set of backfill source connections. Called by the backfill plugin

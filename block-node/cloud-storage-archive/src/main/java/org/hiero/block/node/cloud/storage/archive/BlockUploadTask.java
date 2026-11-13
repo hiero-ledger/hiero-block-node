@@ -22,7 +22,7 @@ import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 
 /// Archives a single contiguous batch of verified blocks into one `tar` file on S3-compatible
 /// cloud storage via a multipart upload.
@@ -183,7 +183,14 @@ public class BlockUploadTask implements Callable<UploadResult> {
                     LOGGER.log(TRACE, "Block upload task interrupted", e);
                     throw e;
                 } catch (IOException e) {
-                    LOGGER.log(TRACE, "Failed to accumulate block %d".formatted(blockNum), e);
+                    // The block could not be encoded, for example a corrupt block header. Fail the
+                    // first block that is not yet durable, as a failed part upload does.
+                    final long firstFailedBlock = sendFailedPersisted(blockNum, BlockSource.UNKNOWN, blocksInBuffer);
+                    LOGGER.log(
+                            INFO,
+                            "Failed to accumulate block %d, blocks from %d are not persisted"
+                                    .formatted(blockNum, firstFailedBlock),
+                            e);
                     throw e;
                 }
             }
@@ -274,7 +281,7 @@ public class BlockUploadTask implements Callable<UploadResult> {
                         CloudStorageArchivePlugin.CLOUD_ARCHIVE_PERSISTENCE_NOTIFICATION_PRIORITY,
                         last.getValue()));
                 final long rangeStart = blocksInBuffer.isEmpty() ? blockNum : blocksInBuffer.firstKey();
-                applicationStateFacility.addStoredBlockRange(new LongRange(rangeStart, last.getKey()));
+                applicationStateFacility.addStoredBlockRange(BlockRangeSet.of(rangeStart, last.getKey()));
                 metricsHolder.blocksWritten().increment(blocksInBuffer.size());
                 metricsHolder.storedBytes().increment(partSizeBytes);
                 // Reset the map so the caller starts fresh for the next part's worth of blocks.
@@ -283,20 +290,33 @@ public class BlockUploadTask implements Callable<UploadResult> {
 
             return remainder;
         } catch (S3ResponseException | IOException e) {
-            final long firstBlockNum = blocksInBuffer.isEmpty()
-                    ? blockNum
-                    : blocksInBuffer.firstEntry().getKey();
-            final BlockSource firstBlockSource = blocksInBuffer.isEmpty()
-                    ? blockSource
-                    : blocksInBuffer.firstEntry().getValue();
-            blockMessaging.sendBlockPersisted(new PersistedNotification(
-                    firstBlockNum,
-                    false,
-                    CloudStorageArchivePlugin.CLOUD_ARCHIVE_PERSISTENCE_NOTIFICATION_PRIORITY,
-                    firstBlockSource));
+            final long firstBlockNum = sendFailedPersisted(blockNum, blockSource, blocksInBuffer);
             LOGGER.log(INFO, "Failed to upload part containing blocks %d to %d".formatted(firstBlockNum, blockNum), e);
             return null;
         }
+    }
+
+    /// Sends a failed [PersistedNotification] for the first block that is not yet durable: the
+    /// first block still in `blocksInBuffer`, or `blockNum` when the buffer holds no tracked blocks.
+    ///
+    /// @param blockNum       the block being processed when the failure happened
+    /// @param blockSource    the source of `blockNum`
+    /// @param blocksInBuffer map of block number → source for blocks whose bytes are in the buffer
+    /// @return the block number the failed notification was sent for
+    private long sendFailedPersisted(
+            final long blockNum, final BlockSource blockSource, final SortedMap<Long, BlockSource> blocksInBuffer) {
+        final long firstBlockNum = blocksInBuffer.isEmpty()
+                ? blockNum
+                : blocksInBuffer.firstEntry().getKey();
+        final BlockSource firstBlockSource = blocksInBuffer.isEmpty()
+                ? blockSource
+                : blocksInBuffer.firstEntry().getValue();
+        blockMessaging.sendBlockPersisted(new PersistedNotification(
+                firstBlockNum,
+                false,
+                CloudStorageArchivePlugin.CLOUD_ARCHIVE_PERSISTENCE_NOTIFICATION_PRIORITY,
+                firstBlockSource));
+        return firstBlockNum;
     }
 
     /// Uploads `buffer` as the final multipart part and sends a [PersistedNotification] for the
@@ -339,7 +359,7 @@ public class BlockUploadTask implements Callable<UploadResult> {
                     true,
                     CloudStorageArchivePlugin.CLOUD_ARCHIVE_PERSISTENCE_NOTIFICATION_PRIORITY,
                     last.getValue()));
-            applicationStateFacility.addStoredBlockRange(new LongRange(blocksInBuffer.firstKey(), last.getKey()));
+            applicationStateFacility.addStoredBlockRange(BlockRangeSet.of(blocksInBuffer.firstKey(), last.getKey()));
             metricsHolder.blocksWritten().increment(blocksInBuffer.size());
             metricsHolder.storedBytes().increment(buffer.length);
         }

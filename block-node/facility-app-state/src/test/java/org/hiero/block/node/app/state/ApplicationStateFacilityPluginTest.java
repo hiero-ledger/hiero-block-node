@@ -4,6 +4,7 @@ package org.hiero.block.node.app.state;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
@@ -42,23 +43,23 @@ import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.api.RosterEntry;
 import org.hiero.block.api.TssData;
 import org.hiero.block.api.TssRoster;
-import org.hiero.block.node.app.fixtures.TestMetricsExporter;
+import org.hiero.block.internal.BlockRangesState;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
-import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
+import org.hiero.block.node.base.ranges.ConcurrentBlockRangeSet;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.AddressBookHistoryNotification;
 import org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.AvailableBlocksNotification;
+import org.hiero.block.node.spi.blockmessaging.NextExpectedPublisherBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -72,7 +73,7 @@ import org.mockito.MockedStatic;
 class ApplicationStateFacilityPluginTest {
     /// A [HistoricalBlockFacility] whose available blocks the test controls directly.
     private static final class TestHistoricalBlockFacility implements HistoricalBlockFacility {
-        private final ConcurrentLongRangeSet available = new ConcurrentLongRangeSet();
+        private final ConcurrentBlockRangeSet available = new ConcurrentBlockRangeSet();
 
         @Override
         public BlockAccessor block(final long blockNumber) {
@@ -137,7 +138,6 @@ class ApplicationStateFacilityPluginTest {
         final ApplicationStateFacilityPlugin plugin = new ApplicationStateFacilityPlugin();
         final TestBlockMessagingFacility messaging;
         final TestHistoricalBlockFacility historical = new TestHistoricalBlockFacility();
-        final TestMetricsExporter metricsExporter = new TestMetricsExporter();
         final TestThreadPoolManager<?, ?> threadPoolManager = new TestThreadPoolManager<>(
                 Executors.newSingleThreadExecutor(), Executors.newSingleThreadScheduledExecutor());
         final Configuration configuration;
@@ -174,7 +174,7 @@ class ApplicationStateFacilityPluginTest {
             config = configuration.getConfigData(ApplicationStateConfig.class);
             context = new BlockNodeContext(
                     configuration,
-                    MetricRegistry.builder().setMetricsExporter(metricsExporter).build(),
+                    MetricRegistry.builder().build(),
                     new TestHealthFacility(),
                     messaging,
                     historical,
@@ -279,6 +279,20 @@ class ApplicationStateFacilityPluginTest {
                 .build();
     }
 
+    /// [#buildTwoEraHistory] with each era split in two, as in a Mirror Node derived history where a
+    /// node entry changed without any RSA key changing.
+    private static RangedAddressBookHistory buildTwoEraHistoryWithDuplicateEras() {
+        final RangedNodeAddressBook first = buildTwoEraHistory().addressBooks().getFirst();
+        final RangedNodeAddressBook second = buildTwoEraHistory().addressBooks().getLast();
+        return RangedAddressBookHistory.newBuilder()
+                .addressBooks(List.of(
+                        first.copyBuilder().endBlock(499L).build(),
+                        first.copyBuilder().startBlock(500L).build(),
+                        second.copyBuilder().endBlock(1999L).build(),
+                        second.copyBuilder().startBlock(2000L).build()))
+                .build();
+    }
+
     private static void writeSingleBookRsaFile(final Path rsaPath) throws NoSuchAlgorithmException, IOException {
         final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
         kpg.initialize(2048);
@@ -324,17 +338,12 @@ class ApplicationStateFacilityPluginTest {
         f.historical.available.add(5, 9);
         f.init();
 
-        assertThat(f.metricsExporter.getMetricValue(
-                        ApplicationStateFacilityPlugin.METRIC_APP_HISTORICAL_OLDEST_BLOCK.name()))
-                .isEqualTo(5);
-        assertThat(f.metricsExporter.getMetricValue(
-                        ApplicationStateFacilityPlugin.METRIC_APP_HISTORICAL_NEWEST_BLOCK.name()))
-                .isEqualTo(9);
+        assertThat(f.context.historicalBlockProvider().availableBlocks().min()).isEqualTo(5);
+        assertThat(f.context.historicalBlockProvider().availableBlocks().max()).isEqualTo(9);
 
         f.historical.available.add(10, 20);
-        assertThat(f.metricsExporter.getMetricValue(
-                        ApplicationStateFacilityPlugin.METRIC_APP_HISTORICAL_NEWEST_BLOCK.name()))
-                .isEqualTo(20);
+
+        assertThat(f.context.historicalBlockProvider().availableBlocks().max()).isEqualTo(20);
     }
 
     @Test
@@ -390,6 +399,61 @@ class ApplicationStateFacilityPluginTest {
                         connection.remote().address())
                 .isEqualTo("node1.example.com"));
         f.plugin.stop();
+    }
+
+    // ---- next expected publisher block -------------------------------------------------------
+
+    @Test
+    @DisplayName("Next expected publisher block is -1 at startup")
+    void nextExpectedPublisherBlockStartsUnknown() {
+        final Fixture f = newFixture();
+        f.initAndStart();
+        assertThat(f.plugin.nextExpectedPublisherBlock()).isEqualTo(-1L);
+        f.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("Next expected publisher block takes the notified value")
+    void nextExpectedPublisherBlockTakesNotifiedValue() {
+        final Fixture f = newFixture();
+        f.initAndStart();
+        f.messaging.sendNextExpectedPublisherBlock(new NextExpectedPublisherBlockNotification(11L, 15L));
+        assertThat(f.plugin.nextExpectedPublisherBlock()).isEqualTo(11L);
+        f.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("A lower notified value does not move the next expected publisher block backwards")
+    void nextExpectedPublisherBlockDoesNotRegress() {
+        final Fixture f = newFixture();
+        f.initAndStart();
+        f.messaging.sendNextExpectedPublisherBlock(new NextExpectedPublisherBlockNotification(11L, 15L));
+        f.messaging.sendNextExpectedPublisherBlock(new NextExpectedPublisherBlockNotification(7L, 9L));
+        assertThat(f.plugin.nextExpectedPublisherBlock()).isEqualTo(11L);
+        f.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("Next expected publisher block is not persisted across a restart")
+    void nextExpectedPublisherBlockIsNotPersisted() {
+        final Fixture first = newFixture();
+        first.initAndStart();
+        first.messaging.sendNextExpectedPublisherBlock(new NextExpectedPublisherBlockNotification(11L, 15L));
+        first.plugin.stop();
+
+        final Fixture second = newFixture();
+        second.initAndStart();
+        assertThat(second.plugin.nextExpectedPublisherBlock()).isEqualTo(-1L);
+        second.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("Stopping the facility unregisters its block notification handler")
+    void stopUnregistersBlockNotificationHandler() {
+        final Fixture f = newFixture();
+        f.initAndStart();
+        f.plugin.stop();
+        assertThat(f.messaging.getBlockNotificationHandlerCount()).isZero();
     }
 
     // ---- TSS data ----------------------------------------------------------------------------
@@ -484,7 +548,8 @@ class ApplicationStateFacilityPluginTest {
 
         final TssData tssData = buildTssData(100, "040506");
         assertThatCode(() -> f.plugin.updateTssData(tssData)).doesNotThrowAnyException();
-        assertThatCode(() -> f.plugin.addStoredBlockRange(new LongRange(0, 9))).doesNotThrowAnyException();
+        assertThatCode(() -> f.plugin.addStoredBlockRange(BlockRangeSet.of(0, 9)))
+                .doesNotThrowAnyException();
 
         assertThat(f.plugin.tssData()).isEqualTo(tssData);
         assertThat(handler.tssDataNotifications).isEmpty();
@@ -841,6 +906,62 @@ class ApplicationStateFacilityPluginTest {
     }
 
     @Test
+    @DisplayName("a history file with duplicate eras is loaded merged and rewritten merged")
+    void historyFileWithDuplicateErasIsMerged() throws Exception {
+        final Fixture f = newFixture();
+        Files.write(
+                f.config.rsaBootstrapFilePath(),
+                RangedAddressBookHistory.JSON
+                        .toBytes(buildTwoEraHistoryWithDuplicateEras())
+                        .toByteArray());
+
+        f.initAndStart();
+
+        assertThat(f.plugin.rangedAddressBookHistory()).isEqualTo(buildTwoEraHistory());
+        assertThat(f.plugin.getAddressBookForBlock(499)).isEqualTo(f.plugin.getAddressBookForBlock(500));
+        assertThat(f.plugin.getAddressBookForBlock(1999)).isEqualTo(f.plugin.getAddressBookForBlock(2000));
+        f.plugin.stop();
+
+        assertThat(RangedAddressBookHistory.JSON.parse(Bytes.wrap(Files.readAllBytes(f.config.rsaBootstrapFilePath()))))
+                .isEqualTo(buildTwoEraHistory());
+    }
+
+    @Test
+    @DisplayName("an unmerged copy of the stored history is not installed again, but a new era still is")
+    void updateAddressBookHistoryComparesMergedHistories() throws InterruptedException {
+        final Fixture f = newFixture();
+        final RecordingHandler handler = new RecordingHandler();
+        f.register(handler);
+        f.initAndStart();
+        handler.expect(1);
+        assertThat(f.plugin.updateAddressBookHistory(buildTwoEraHistoryWithDuplicateEras()))
+                .isTrue();
+        handler.await();
+
+        // Unmerged, this copy has a later last era start and more eras than the stored history.
+        assertThat(f.plugin.updateAddressBookHistory(buildTwoEraHistoryWithDuplicateEras()))
+                .isFalse();
+        assertThat(f.plugin.updateAddressBookHistory(buildTwoEraHistory())).isFalse();
+
+        final List<RangedNodeAddressBook> withNewEra =
+                new ArrayList<>(buildTwoEraHistoryWithDuplicateEras().addressBooks());
+        withNewEra.set(3, withNewEra.get(3).copyBuilder().endBlock(2999L).build());
+        withNewEra.add(singleEraHistory(3000, 3, "cccc").addressBooks().getFirst());
+        handler.expect(1);
+        assertThat(f.plugin.updateAddressBookHistory(RangedAddressBookHistory.newBuilder()
+                        .addressBooks(withNewEra)
+                        .build()))
+                .isTrue();
+        handler.await();
+        f.plugin.stop();
+
+        assertThat(handler.historyNotifications).hasSize(2);
+        assertThat(handler.lastAddressBookHistory.addressBooks())
+                .extracting(RangedNodeAddressBook::startBlock, RangedNodeAddressBook::endBlock)
+                .containsExactly(tuple(0L, 999L), tuple(1000L, 2999L), tuple(3000L, -1L));
+    }
+
+    @Test
     @DisplayName("concurrent address book history updates leave the newest history everywhere")
     void updateAddressBookHistoryConcurrentUpdates() throws Exception {
         final int highestStartBlock = 200;
@@ -895,8 +1016,8 @@ class ApplicationStateFacilityPluginTest {
         f.register(handler);
         f.initAndStart();
 
-        f.plugin.addStoredBlockRange(new LongRange(0, 9));
-        f.plugin.addStoredBlockRange(new LongRange(10, 19));
+        f.plugin.addStoredBlockRange(BlockRangeSet.of(0, 9));
+        f.plugin.addStoredBlockRange(BlockRangeSet.of(10, 19));
         f.plugin.stop();
 
         assertThat(f.plugin.storedBlocks.contains(0, 19)).isTrue();
@@ -938,11 +1059,11 @@ class ApplicationStateFacilityPluginTest {
         };
         f.messaging.registerApplicationStateNotificationHandler(probe, false, "race-probe");
 
-        final Thread threadA = new Thread(() -> f.plugin.addStoredBlockRange(new LongRange(100, 109)));
+        final Thread threadA = new Thread(() -> f.plugin.addStoredBlockRange(BlockRangeSet.of(100, 109)));
         threadA.start();
         assertThat(firstDispatchEntered.await(5, TimeUnit.SECONDS)).isTrue();
 
-        f.plugin.addStoredBlockRange(new LongRange(200, 209));
+        f.plugin.addStoredBlockRange(BlockRangeSet.of(200, 209));
         secondUpdateComplete.countDown();
         threadA.join(TimeUnit.SECONDS.toMillis(5));
         assertThat(bothDelivered.await(5, TimeUnit.SECONDS)).isTrue();
@@ -991,11 +1112,7 @@ class ApplicationStateFacilityPluginTest {
         // flushes the dispatcher
         f.plugin.stop();
 
-        final List<BlockRange> live = f.historical
-                .available
-                .streamRanges()
-                .map(r -> new BlockRange(r.start(), r.end()))
-                .toList();
+        final List<BlockRange> live = f.historical.available.streamRanges().toList();
         assertThat(live).hasSize(threads * perThread);
         assertThat(f.plugin.blockRanges.get().available()).isEqualTo(live);
         assertThat(f.plugin.blockRanges.get().stored()).isEqualTo(live);
@@ -1060,9 +1177,9 @@ class ApplicationStateFacilityPluginTest {
     void blockRangesPersistenceRoundTrip() throws IOException {
         final Fixture first = newFixture();
         first.initAndStart();
-        first.plugin.addStoredBlockRange(new LongRange(0, 999));
-        first.plugin.addStoredBlockRange(new LongRange(1000, 1049));
-        first.plugin.addStoredBlockRange(new LongRange(1050, 1099));
+        first.plugin.addStoredBlockRange(BlockRangeSet.of(0, 999));
+        first.plugin.addStoredBlockRange(BlockRangeSet.of(1000, 1049));
+        first.plugin.addStoredBlockRange(BlockRangeSet.of(1050, 1099));
         first.plugin.stop();
 
         assertThat(first.config.blockRangesFilePath()).exists();
@@ -1073,8 +1190,90 @@ class ApplicationStateFacilityPluginTest {
         final Fixture second = newFixture();
         second.initAndStart();
 
-        assertThat(second.plugin.storedBlocks.streamRanges().toList()).containsExactly(new LongRange(0, 1099));
+        assertThat(second.plugin.storedBlocks.streamRanges().toList()).containsExactly(BlockRangeSet.of(0, 1099));
         second.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("a block ranges file with an invalid range is ignored as a whole")
+    void blockRangesFileWithInvalidRangeIsIgnored() throws IOException {
+        final Fixture f = newFixture();
+        final BlockRangesState state =
+                new BlockRangesState(List.of(new BlockRange(0, 9), new BlockRange(20, 10)), List.of());
+        Files.write(
+                f.config.blockRangesFilePath(),
+                BlockRangesState.JSON.toBytes(state).toByteArray());
+
+        f.initAndStart();
+
+        assertThat(f.plugin.storedBlocks.streamRanges().toList()).isEmpty();
+        f.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("a corrupt block ranges file does not fail startup")
+    void corruptBlockRangesFileIsIgnored() throws IOException {
+        final Fixture f = newFixture();
+        Files.write(f.config.blockRangesFilePath(), new byte[] {(byte) 0xFF, (byte) 0xFE, 0x00});
+
+        f.initAndStart();
+
+        assertThat(f.plugin.storedBlocks.streamRanges().toList()).isEmpty();
+        f.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("start creates the directory for absent state files")
+    void startCreatesMissingStateDirectory() {
+        final Path dir = tempDir.resolve("does-not-exist-yet");
+        final Fixture f = new Fixture(dir);
+        fixtures.add(f);
+
+        f.initAndStart();
+
+        assertThat(dir).isDirectory();
+        f.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("a failure to create the state directory does not fail startup")
+    void failureToCreateStateDirectoryDoesNotFailStartup() throws IOException {
+        // a regular file where the state directory should be makes createDirectories fail
+        final Path blocker = Files.createFile(tempDir.resolve("blocker"));
+        final Fixture f = new Fixture(blocker);
+        fixtures.add(f);
+
+        f.init();
+
+        assertThatCode(f.plugin::start).doesNotThrowAnyException();
+        assertThat(f.plugin.tssData()).isNull();
+        assertThat(f.plugin.rangedAddressBookHistory()).isNull();
+        assertThatCode(f.plugin::stop).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("a single-book RSA file with an invalid address book fails startup")
+    void invalidSingleBookFileThrows() throws IOException {
+        final Fixture f = newFixture();
+        Files.writeString(f.config.rsaBootstrapFilePath(), "{}");
+        f.init();
+
+        assertThatThrownBy(f.plugin::start).isInstanceOf(IllegalStateException.class);
+        f.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("an unreadable RSA file fails startup")
+    void unreadableRsaFileThrows() throws IOException {
+        final Fixture f = newFixture();
+        // a directory in place of the file exists but cannot be read as bytes
+        Files.createDirectory(f.config.rsaBootstrapFilePath());
+        f.init();
+
+        assertThatThrownBy(f.plugin::start)
+                .isInstanceOf(IllegalStateException.class)
+                .hasCauseInstanceOf(IOException.class);
+        f.plugin.stop();
     }
 
     @Test
@@ -1082,7 +1281,7 @@ class ApplicationStateFacilityPluginTest {
     void blockRangesPersistedWhenBoundaryCrossed() throws Exception {
         final Fixture f = newFixture();
         f.initAndStart();
-        f.plugin.addStoredBlockRange(new LongRange(0, 1999));
+        f.plugin.addStoredBlockRange(BlockRangeSet.of(0, 1999));
 
         // the periodic check runs on the dispatcher; drive it directly rather than wait for the scan interval
         final Method persistIfDue = ApplicationStateFacilityPlugin.class.getDeclaredMethod("persistBlockRangesIfDue");
@@ -1098,7 +1297,7 @@ class ApplicationStateFacilityPluginTest {
     void persistBlockRangesFallsBackWhenAtomicMoveUnsupported() throws IOException {
         final Fixture first = newFixture();
         first.initAndStart();
-        first.plugin.addStoredBlockRange(new LongRange(0, 9));
+        first.plugin.addStoredBlockRange(BlockRangeSet.of(0, 9));
 
         try (MockedStatic<Files> filesMock = mockStatic(Files.class, CALLS_REAL_METHODS)) {
             filesMock
@@ -1118,7 +1317,7 @@ class ApplicationStateFacilityPluginTest {
         assertThat(hasTmpFile(first.config.blockRangesFilePath())).isFalse();
         final Fixture second = newFixture();
         second.initAndStart();
-        assertThat(second.plugin.storedBlocks.streamRanges().toList()).containsExactly(new LongRange(0, 9));
+        assertThat(second.plugin.storedBlocks.streamRanges().toList()).containsExactly(BlockRangeSet.of(0, 9));
         second.plugin.stop();
     }
 

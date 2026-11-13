@@ -127,7 +127,7 @@ jobs:
       matrix-detail: ${{ steps.resolved.outputs.matrix_detail }}
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -234,9 +234,9 @@ jobs:
             CN_VERSION="${CN_VERSION:-main}"
             MN_VERSION="${{ inputs.mirror-node-version }}"
             # Mirror Node publishes no 'main' snapshots, so this cannot default to main.
-            # Pinned to the first release carrying the reworked block-root hashing, which is
-            # what a 'main' Consensus Node produces.
-            MN_VERSION="${MN_VERSION:-v0.162.0-rc1}"
+            # Follow the latest GA, as tag and RC runs do: a fixed pin goes stale as the
+            # 'main' Consensus Node moves on (v0.162.0-rc1 ended up rejecting its blocks).
+            MN_VERSION="${MN_VERSION:-latest}"
           else
             # Scheduled runs (daily/weekend) and manual dispatches that named no Block Node
             # version. Honour any explicitly supplied version — this branch used to hardcode
@@ -247,7 +247,7 @@ jobs:
             CN_VERSION="${{ inputs.consensus-node-version }}"
             CN_VERSION="${CN_VERSION:-main}"
             MN_VERSION="${{ inputs.mirror-node-version }}"
-            MN_VERSION="${MN_VERSION:-v0.162.0-rc1}"
+            MN_VERSION="${MN_VERSION:-latest}"
           fi
 
           # Consensus Node source ref and Nova WRAPS TSS library override: scheduled runs carry no
@@ -426,7 +426,7 @@ jobs:
     runs-on: hl-bn-lin-md
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -501,7 +501,7 @@ jobs:
     runs-on: hl-bn-lin-md
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 

@@ -9,10 +9,16 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.pbj.runtime.ParseException;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.logging.Formatter;
+import java.util.logging.Handler;
+import java.util.logging.LogRecord;
 import java.util.logging.Logger;
+import java.util.logging.SimpleFormatter;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
@@ -22,6 +28,7 @@ import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.logging.TestLogHandler;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -118,6 +125,57 @@ public class ServerStatusServicePluginTest
         assertEquals(0, response.firstAvailableBlock());
         assertEquals(blocks - 1, response.lastAvailableBlock());
         assertEquals(blocks, response.nextExpectedBlock());
+    }
+
+    /// Regression for #3910: after a restart the publisher manager has not set a next expected
+    /// block yet, so the value the publisher plugin learned from `BehindPublisher` is reported.
+    ///
+    /// @throws ParseException if there is an error parsing the response
+    @Test
+    @DisplayName("Should report the next expected publisher block when the manager value is unknown")
+    void shouldReportNextExpectedPublisherBlockWhenManagerValueUnknown() throws ParseException {
+        sendBlocks(5);
+        nextExpectedPublisherBlock = 5L;
+
+        final ServerStatusResponse response = requestServerStatus();
+
+        assertEquals(5L, response.nextExpectedBlock());
+    }
+
+    /// The publisher manager value is authoritative once set; the `BehindPublisher` value is only
+    /// a fallback for the time before any header is accepted.
+    ///
+    /// @throws ParseException if there is an error parsing the response
+    @Test
+    @DisplayName("Should report the manager next expected block over the publisher value")
+    void shouldPreferManagerNextExpectedBlockOverPublisherValue() throws ParseException {
+        sendBlocks(5);
+        nextExpectedPublisherBlock = 5L;
+        updateExpectedBlock(7L);
+
+        final ServerStatusResponse response = requestServerStatus();
+
+        assertEquals(7L, response.nextExpectedBlock());
+    }
+
+    /// The `earliestManagedBlock` clamp applies to the publisher value too.
+    ///
+    /// @throws ParseException if there is an error parsing the response
+    @Test
+    @DisplayName("Should report nextExpectedBlock = -1 when the publisher value is below earliestManagedBlock")
+    void shouldReportUnknownWhenPublisherValueBelowEarliestManagedBlock() throws ParseException {
+        final ServerStatusServicePlugin localPlugin = new ServerStatusServicePlugin();
+        start(
+                localPlugin,
+                localPlugin.methods().getFirst(),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of("block.node.earliestManagedBlock", "100"));
+        sendBlocks(5);
+        nextExpectedPublisherBlock = 50L;
+
+        final ServerStatusResponse response = requestServerStatus();
+
+        assertEquals(UNKNOWN_BLOCK_NUMBER, response.nextExpectedBlock());
     }
 
     /// Tests that a next expected block below the configured `earliestManagedBlock` is reported as
@@ -268,6 +326,39 @@ public class ServerStatusServicePluginTest
         assertEquals(1, logHandler.countContaining("Status heartbeat"));
     }
 
+    /// The heartbeat reports the resolved next expected block and both of its sources, so operators
+    /// can tell which one `serverStatus` is using.
+    @Test
+    @DisplayName("Status heartbeat logs the manager and publisher next expected blocks")
+    void shouldLogBothNextExpectedBlockSources() {
+        nextExpectedPublisherBlock = 5L;
+        updateExpectedBlock(7L);
+        final List<String> formattedMessages = new CopyOnWriteArrayList<>();
+        final Handler formattingHandler = new Handler() {
+            private final Formatter formatter = new SimpleFormatter();
+
+            @Override
+            public void publish(final LogRecord record) {
+                formattedMessages.add(formatter.formatMessage(record));
+            }
+
+            @Override
+            public void flush() {}
+
+            @Override
+            public void close() {}
+        };
+        final Logger julLogger = Logger.getLogger(ServerStatusServicePlugin.class.getName());
+        julLogger.addHandler(formattingHandler);
+        try {
+            plugin.logStatusHeartbeat();
+        } finally {
+            julLogger.removeHandler(formattingHandler);
+        }
+        assertTrue(formattedMessages.stream()
+                .anyMatch(message -> message.contains("nextExpected=7 managerNextExpected=7 publisherNextExpected=5")));
+    }
+
     /// Tests that the heartbeat task scheduled by `start()` runs and emits its line when the
     /// executor fires it, exercising the `start()` scheduling path and `runHeartbeat()`.
     @Test
@@ -284,6 +375,12 @@ public class ServerStatusServicePluginTest
             julLogger.removeHandler(logHandler);
         }
         assertTrue(logHandler.countContaining("Status heartbeat") >= 1);
+    }
+
+    private ServerStatusResponse requestServerStatus() throws ParseException {
+        toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(
+                ServerStatusRequest.newBuilder().build()));
+        return standardParse(ServerStatusResponse.PROTOBUF, fromPluginBytes.getLast());
     }
 
     /// Tests that `stop()` shuts down the heartbeat scheduler.
@@ -314,6 +411,45 @@ public class ServerStatusServicePluginTest
             julLogger.removeHandler(logHandler);
         }
         assertEquals(1, logHandler.countContaining("Server status heartbeat disabled"));
+    }
+
+    @Test
+    @DisplayName("ThrottleSpec reports each method's own per-client settings and global ceiling")
+    void perClientSettingsAndGlobalCeilingsReflectConfigPerMethod() {
+        final ServerStatusServicePlugin localPlugin = new ServerStatusServicePlugin();
+        start(
+                localPlugin,
+                localPlugin.methods().getFirst(),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "throttle.serverStatus.ratePerSecond", "42",
+                        "throttle.serverStatus.burstTolerance", "7",
+                        "throttle.serverStatus.maxConcurrentPerClient", "3",
+                        "throttle.serverStatus.maxPermitHoldSeconds", "11",
+                        "throttle.serverStatusDetail.ratePerSecond", "20",
+                        "throttle.serverStatusDetail.maxPermitHoldSeconds", "61",
+                        "throttle.global.serverStatusMaxConcurrent", "99",
+                        "throttle.global.serverStatusDetailMaxConcurrent", "55"));
+
+        assertEquals(
+                Map.of(
+                        "serverStatus", new PerClientThrottleSettings(42, 7, 3, 11),
+                        "serverStatusDetail", new PerClientThrottleSettings(20, 20, 5, 61)),
+                localPlugin.perClientSettings(),
+                "each method gets its own settings; unset keys fall back to that method's defaults");
+        assertEquals(Map.of("serverStatus", 99, "serverStatusDetail", 55), localPlugin.globalConcurrencyCeilings());
+    }
+
+    @Test
+    @DisplayName("Default throttle settings give serverStatus a 10 s and serverStatusDetail a 60 s permit hold limit")
+    void defaultPermitHoldLimitsDifferPerMethod() {
+        final ServerStatusServicePlugin localPlugin = new ServerStatusServicePlugin();
+        start(localPlugin, localPlugin.methods().getFirst(), new SimpleInMemoryHistoricalBlockFacility(), Map.of());
+
+        assertEquals(10, localPlugin.perClientSettings().get("serverStatus").maxPermitHoldSeconds());
+        assertEquals(
+                60, localPlugin.perClientSettings().get("serverStatusDetail").maxPermitHoldSeconds());
+        assertEquals(Map.of("serverStatus", 1000, "serverStatusDetail", 1000), localPlugin.globalConcurrencyCeilings());
     }
 
     /**

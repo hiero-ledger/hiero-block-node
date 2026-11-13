@@ -7,9 +7,9 @@ import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.app.state.ApplicationStateUtility.filterToUniqueConnections;
 import static org.hiero.block.node.app.state.ApplicationStateUtility.isNewerHistory;
 import static org.hiero.block.node.app.state.ApplicationStateUtility.loadNetworkData;
+import static org.hiero.block.node.app.state.ApplicationStateUtility.mergeDuplicateEras;
 import static org.hiero.block.node.app.state.ApplicationStateUtility.mergeRanges;
 import static org.hiero.block.node.app.state.ApplicationStateUtility.publisherConnectionsFrom;
-import static org.hiero.block.node.app.state.ApplicationStateUtility.toBlockRange;
 import static org.hiero.block.node.app.state.ApplicationStateUtility.validateAddressBook;
 import static org.hiero.block.node.base.ParseHelper.standardParse;
 
@@ -30,6 +30,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.NetworkConnection;
@@ -38,17 +39,18 @@ import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockRangesState;
-import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
+import org.hiero.block.node.base.ranges.ConcurrentBlockRangeSet;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.AddressBookHistoryNotification;
 import org.hiero.block.node.spi.blockmessaging.AvailableBlocksNotification;
+import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
+import org.hiero.block.node.spi.blockmessaging.NextExpectedPublisherBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.metrics.ObservableGauge;
 import org.hiero.metrics.core.MetricKey;
 
@@ -75,7 +77,7 @@ import org.hiero.metrics.core.MetricKey;
 ///
 /// Exceptions from loading the persisted state in `start()` are the exception: they propagate to the
 /// application, so a corrupt bootstrap file aborts startup.
-public class ApplicationStateFacilityPlugin implements ApplicationStateFacility {
+public class ApplicationStateFacilityPlugin implements ApplicationStateFacility, BlockNotificationHandler {
     /// An address book history paired with the lookup index built from it, so both can be
     /// installed with one compare-and-set.
     ///
@@ -92,9 +94,9 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
     ///
     /// @param available the available block ranges, in ascending order
     /// @param stored the stored block ranges, in ascending order
-    record BlockRanges(List<BlockRange> available, List<BlockRange> stored) {
+    record BlockRangesSnapshot(List<BlockRange> available, List<BlockRange> stored) {
         /// The state before any blocks have been reported.
-        static final BlockRanges EMPTY = new BlockRanges(List.of(), List.of());
+        static final BlockRangesSnapshot EMPTY = new BlockRangesSnapshot(List.of(), List.of());
     }
 
     /// The logger for this class.
@@ -122,9 +124,9 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
     /// The current available and stored block lists, installed together so they always come from the same
     /// moment. Provider threads update it concurrently, so it is updated with `getAndUpdate` in
     /// `refreshBlockRanges` rather than plainly assigned.
-    final AtomicReference<BlockRanges> blockRanges = new AtomicReference<>(BlockRanges.EMPTY);
+    final AtomicReference<BlockRangesSnapshot> blockRanges = new AtomicReference<>(BlockRangesSnapshot.EMPTY);
     /// Blocks reported as stored by plugins that do not serve them for retrieval
-    final ConcurrentLongRangeSet storedBlocks = new ConcurrentLongRangeSet();
+    final ConcurrentBlockRangeSet storedBlocks = new ConcurrentBlockRangeSet();
     /// Known inbound publishers loaded from configuration on startup; exposed for /statusz/inbound.
     private final AtomicReference<NetworkData> knownPublishers = new AtomicReference<>(NetworkData.DEFAULT);
     /// Designated inbound partners loaded from configuration on startup; exposed for /statusz/inbound.
@@ -143,6 +145,10 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
     /// The next expected block for publishers, used by Server Status plugins
     /// and set by Publisher plugins
     private volatile long nextExpectedBlock = -1L;
+    /// The next expected block for publishers as learned by the publisher plugin from a
+    /// `BehindPublisher` response. Held in memory only, so it is `-1` at startup, and it only moves
+    /// forward.
+    private final AtomicLong nextExpectedPublisherBlock = new AtomicLong(-1L);
 
     /// {@inheritDoc}
     ///
@@ -163,6 +169,7 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
                 .register(ObservableGauge.builder(METRIC_APP_HISTORICAL_NEWEST_BLOCK)
                         .setDescription("The newest block the BN has")
                         .observe(() -> historicalBlocks.availableBlocks().max()));
+        context.blockMessaging().registerBlockNotificationHandler(this, false, name());
     }
 
     /// {@inheritDoc}
@@ -178,7 +185,7 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
         // Anything dispatched during plugin init() was published before the messaging facility attached
         // any handler, so it was lost. Clear the snapshots so the startup available and stored blocks
         // (including the stored ranges just loaded) are dispatched now, whatever init() already recorded.
-        blockRanges.set(BlockRanges.EMPTY);
+        blockRanges.set(BlockRangesSnapshot.EMPTY);
         updateAvailableBlocks();
 
         // Periodically hand the persist-interval check to the dispatcher, so it never runs concurrently
@@ -200,6 +207,10 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
     /// messaging facility must still be running, and is stopped by the application after this plugin.
     @Override
     public void stop() {
+        final BlockNodeContext currentContext = context;
+        if (currentContext != null) {
+            currentContext.blockMessaging().unregisterBlockNotificationHandler(this);
+        }
         final ScheduledExecutorService timer = persistTimer;
         if (timer != null) {
             timer.shutdownNow();
@@ -310,7 +321,7 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
     }
 
     @Override
-    public void addStoredBlockRange(LongRange blockRange) {
+    public void addStoredBlockRange(BlockRange blockRange) {
         storedBlocks.add(blockRange);
         refreshBlockRanges();
     }
@@ -341,6 +352,19 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
     }
 
     @Override
+    public long nextExpectedPublisherBlock() {
+        return nextExpectedPublisherBlock.get();
+    }
+
+    /// {@inheritDoc}
+    ///
+    /// Keeps the highest value reported, so a late notification never moves the value backwards.
+    @Override
+    public void handleNextExpectedPublisherBlock(final NextExpectedPublisherBlockNotification notification) {
+        nextExpectedPublisherBlock.accumulateAndGet(notification.blockNumber(), Math::max);
+    }
+
+    @Override
     public TssData tssData() {
         return currentTssData.get();
     }
@@ -367,15 +391,30 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
 
     /// {@inheritDoc}
     ///
-    /// Installs the history and its index immediately if the supplied history is newer than the
-    /// currently stored value; persisting it, deriving the known publishers and dispatching the
-    /// notification happen on the ApplicationStateDispatcher thread.
+    /// Adjacent eras with the same address book are first merged into one (see
+    /// [ApplicationStateUtility#mergeDuplicateEras]), keeping the stored, persisted and dispatched
+    /// history small. Installs the history and its index immediately if the merged history is newer
+    /// than the currently stored value; persisting it, deriving the known publishers and dispatching
+    /// the notification happen on the ApplicationStateDispatcher thread.
     ///
-    /// @param history the history to store; must not be {@code null}
+    /// @param incoming the history to store; must not be {@code null}
     /// @return {@code true} if accepted, {@code false} if rejected
     @Override
-    public boolean updateAddressBookHistory(RangedAddressBookHistory history) {
-        if (history == null || !shouldInstall(history, addressBookState.get().history())) {
+    public boolean updateAddressBookHistory(final RangedAddressBookHistory incoming) {
+        if (incoming == null) {
+            return false;
+        }
+        // Merge before the newer check: the stored history is already merged, so an unmerged copy of
+        // it would otherwise look newer (later last era start, or more eras) and be installed again.
+        final RangedAddressBookHistory history = mergeDuplicateEras(incoming);
+        if (history != incoming) {
+            LOGGER.log(
+                    DEBUG,
+                    "Merged duplicate address book eras: {0} -> {1}",
+                    incoming.addressBooks().size(),
+                    history.addressBooks().size());
+        }
+        if (!shouldInstall(history, addressBookState.get().history())) {
             return false;
         }
         final AddressBookState candidate = new AddressBookState(history, AddressBookHistoryLookup.buildIndex(history));
@@ -430,15 +469,15 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
     /// both lists in one reference means they always come from the same moment, preserving the invariant
     /// stored >= available. The function returns the very same pair when nothing changed.
     private void refreshBlockRanges() {
-        final BlockRanges previous = blockRanges.getAndUpdate(current -> {
-            final BlockRangeSet liveAvailable = historicalBlockFacility().availableBlocks();
-            final List<BlockRange> available = toBlockRange(liveAvailable);
-            final List<BlockRange> stored = mergeRanges(storedBlocks, liveAvailable);
+        final BlockRangesSnapshot previous = blockRanges.getAndUpdate(current -> {
+            final List<BlockRange> available =
+                    historicalBlockFacility().availableBlocks().toList();
+            final List<BlockRange> stored = mergeRanges(storedBlocks, available);
             return available.equals(current.available()) && stored.equals(current.stored())
                     ? current
-                    : new BlockRanges(available, stored);
+                    : new BlockRangesSnapshot(available, stored);
         });
-        final BlockRanges installed = blockRanges.get();
+        final BlockRangesSnapshot installed = blockRanges.get();
         if (!installed.available().equals(previous.available())) {
             dispatch(this::syncAvailableBlocks);
         }
@@ -568,24 +607,14 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
     }
 
     private BlockRangesState toBlockRangesState() {
-        final List<BlockRange> stored = storedBlocks
-                .streamRanges()
-                .map(r -> new BlockRange(r.start(), r.end()))
-                .toList();
-        final List<BlockRange> available = historicalBlockFacility()
-                .availableBlocks()
-                .streamRanges()
-                .map(r -> new BlockRange(r.start(), r.end()))
-                .toList();
+        final List<BlockRange> stored = storedBlocks.toList();
+        final List<BlockRange> available =
+                historicalBlockFacility().availableBlocks().toList();
         return new BlockRangesState(stored, available);
     }
 
     /// Loads all ApplicationState from file paths specified in the ApplicationStateConfig class.
     /// Must be called after the BlockNodeContext is available and the messaging facility is started.
-    ///
-    /// Note: This method currently uses _exceptions_ for flow control, with try/catch
-    /// almost every sub block of code and calling methods that throw instead
-    /// of returning errors. This needs to be fixed.
     private void loadApplicationState() {
         // Load the connection-information sets (JSON-serialized NetworkData) used by the /statusz endpoints
         // first. These are read-only configuration; absent or unreadable files yield an empty set. Loading the
@@ -594,8 +623,15 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
         knownPublishers.set(loadNetworkData(appStateConfig.knownPublishersFilePath()));
         inboundPartners.set(loadNetworkData(appStateConfig.inboundPartnersFilePath()));
         outboundPartners.set(loadNetworkData(appStateConfig.outboundPartnersFilePath()));
+        loadTssData();
+        loadAddressBookHistory();
+        loadBlockRanges();
+    }
 
-        // Load TssData (JSON format). Installing it persists and dispatches it on the dispatcher thread.
+    /// Loads the TssData (JSON format) if the file exists, otherwise creates its directory for future writes.
+    /// Installing the data persists and dispatches it on the dispatcher thread. An unreadable file is logged
+    /// and ignored.
+    private void loadTssData() {
         final Path tssDataJsonPath = appStateConfig.tssBootstrapFilePath();
         if (Files.exists(tssDataJsonPath)) {
             try {
@@ -606,106 +642,113 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility 
                     updateTssData(tssData);
                 }
             } catch (ParseException | IOException e) {
-                // @todo(3321) this is using an exception to decide to log, but
-                //      doesn't resolve the problem, so the code still fails
-                //      later in the same method. This catch should be method level,
-                //      or should be in the singular caller.
                 LOGGER.log(WARNING, "Failed to read TssData file: " + tssDataJsonPath, e);
             }
         } else {
-            // make sure the directory is created for the writes
-            Path parent = tssDataJsonPath.getParent();
-            try {
-                Files.createDirectories(parent);
-            } catch (IOException e) {
-                // @todo(3321) this is using an exception to decide to log, but
-                //      doesn't resolve the problem, so the code still fails
-                //      later in the same method. This catch should be method level,
-                //      or should be in the singular caller.
-                LOGGER.log(WARNING, "Failed to create TssData directory: " + parent, e);
-            }
+            ensureParentDirectory(tssDataJsonPath);
         }
+    }
 
-        // Load RSA address book history (JSON format) — takes precedence over the single-book file.
-        // If parsing fails check for single-book file format, wrap it into a single open-ended era
-        // so the rest of the application sees a consistent RangedAddressBookHistory regardless of
-        // which file is present (backward-compatibility bridge).
+    /// Loads the RSA address book history (JSON format) if the file exists, otherwise creates its directory
+    /// for future writes. An unreadable or corrupt file aborts startup.
+    private void loadAddressBookHistory() {
         final Path historyFilePath = appStateConfig.rsaBootstrapFilePath();
         if (Files.exists(historyFilePath)) {
+            final RangedAddressBookHistory history;
             try {
-                final RangedAddressBookHistory history =
-                        standardParse(RangedAddressBookHistory.JSON, Bytes.wrap(Files.readAllBytes(historyFilePath)));
-                if (history.addressBooks().isEmpty()) {
-                    // Try the old bootstrap file format, standard parse swallows it and returns an empty history
-                    final NodeAddressBook book =
-                            standardParse(NodeAddressBook.JSON, Bytes.wrap(Files.readAllBytes(historyFilePath)));
-                    if (validateAddressBook(book, historyFilePath.toString())) {
-                        final RangedAddressBookHistory wrapped = RangedAddressBookHistory.newBuilder()
-                                .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
-                                        .addressBook(book)
-                                        .startBlock(0L)
-                                        .endBlock(-1L)
-                                        .build()))
-                                .build();
-                        updateAddressBookHistory(wrapped);
-                    } else {
-                        // @todo(3321) This is bad design. This entire method uses
-                        //     exceptions as flow control, and we need to fix that.
-                        throw new IllegalStateException("Address book is not valid");
-                    }
-                } else {
-                    updateAddressBookHistory(history);
-                }
+                history = readAddressBookHistory(historyFilePath);
             } catch (IOException e) {
                 throw new IllegalStateException("Failed to read RSA address book history file: " + historyFilePath, e);
             } catch (ParseException e) {
-                // @todo(3321) This is bad design. This entire method uses
-                //     exceptions as flow control, and we need to fix that.
                 final String message =
                         "Corrupt RSA bootstrap file at %s — delete and restart to re-fetch from Mirror Node"
                                 .formatted(historyFilePath);
                 throw new IllegalStateException(message, e);
             }
+            updateAddressBookHistory(history);
         } else {
-            // History file absent — ensure parent directory exists for future writes.
-            final Path parent = historyFilePath.getParent();
-            try {
-                Files.createDirectories(parent);
-            } catch (IOException e) {
-                // @todo(3321) this is using an exception to decide to log, but
-                //      doesn't resolve the problem, so the code still fails
-                //      later in the same method. This catch should be method level,
-                //      or should be in the singular caller.
-                LOGGER.log(WARNING, "Failed to create RSA address book history directory: " + parent, e);
-            }
+            ensureParentDirectory(historyFilePath);
         }
+    }
 
-        // Load block ranges (JSON format) — restored directly into the in-memory range sets.
+    /// Reads the address book history file. If it holds no history, the old single-book bootstrap format is
+    /// tried and wrapped into a single open-ended era, so the rest of the application sees a consistent
+    /// {@link RangedAddressBookHistory} regardless of which file is present (backward-compatibility bridge).
+    ///
+    /// @param historyFilePath the file to read
+    /// @return the history read from the file
+    /// @throws IOException if the file cannot be read
+    /// @throws ParseException if the file content cannot be parsed
+    /// @throws IllegalStateException if the single address book in the file is not valid
+    private static RangedAddressBookHistory readAddressBookHistory(final Path historyFilePath)
+            throws IOException, ParseException {
+        final Bytes bytes = Bytes.wrap(Files.readAllBytes(historyFilePath));
+        final RangedAddressBookHistory history = standardParse(RangedAddressBookHistory.JSON, bytes);
+        if (!history.addressBooks().isEmpty()) {
+            return history;
+        }
+        // Try the old bootstrap file format, standard parse swallows it and returns an empty history
+        final NodeAddressBook book = standardParse(NodeAddressBook.JSON, bytes);
+        if (!validateAddressBook(book, historyFilePath.toString())) {
+            throw new IllegalStateException("Address book is not valid");
+        }
+        return RangedAddressBookHistory.newBuilder()
+                .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
+                        .addressBook(book)
+                        .startBlock(0L)
+                        .endBlock(-1L)
+                        .build()))
+                .build();
+    }
+
+    /// Loads the block ranges (JSON format) if the file exists, restoring them directly into the in-memory
+    /// range sets, otherwise creates the directory for future writes. An unreadable file, or one holding an
+    /// invalid range, is logged and ignored as a whole, so no part of it is restored.
+    private void loadBlockRanges() {
         final Path blockRangesPath = appStateConfig.blockRangesFilePath();
         if (Files.exists(blockRangesPath)) {
             try {
                 final BlockRangesState rangeSet =
                         standardParse(BlockRangesState.JSON, Bytes.wrap(Files.readAllBytes(blockRangesPath)));
-                rangeSet.storedBlocks().forEach(r -> storedBlocks.add(new LongRange(r.rangeStart(), r.rangeEnd())));
-                LOGGER.log(INFO, "Loaded block ranges from file: {0}", blockRangesPath);
-            } catch (ParseException | IOException | IllegalArgumentException e) {
-                // @todo(3321) this is using an exception to decide to log, but
-                //      doesn't resolve the problem, so the code still fails
-                //      later in the same method. This catch should be method level,
-                //      or should be in the singular caller.
+                restoreStoredBlocks(rangeSet.storedBlocks(), blockRangesPath);
+            } catch (ParseException | IOException e) {
                 LOGGER.log(WARNING, "Failed to read block ranges file: " + blockRangesPath, e);
             }
         } else {
-            Path parent = blockRangesPath.getParent();
-            try {
-                Files.createDirectories(parent);
-            } catch (IOException e) {
-                // @todo(3321) this is using an exception to decide to log, but
-                //      doesn't resolve the problem, so the code still fails
-                //      later in the same method. This catch should be method level,
-                //      or should be in the singular caller.
-                LOGGER.log(WARNING, "Failed to create block ranges directory: " + parent, e);
-            }
+            ensureParentDirectory(blockRangesPath);
+        }
+    }
+
+    /// Adds the stored ranges read from the block ranges file to the in-memory set, but only if every one of
+    /// them is a valid {@link BlockRange}.
+    ///
+    /// @param ranges the stored ranges read from the file
+    /// @param source the file the ranges were read from, for logging
+    private void restoreStoredBlocks(final List<BlockRange> ranges, final Path source) {
+        if (ranges.stream().allMatch(r -> isValidRange(r.rangeStart(), r.rangeEnd()))) {
+            ranges.forEach(r -> storedBlocks.add(BlockRangeSet.of(r.rangeStart(), r.rangeEnd())));
+            LOGGER.log(INFO, "Loaded block ranges from file: {0}", source);
+        } else {
+            LOGGER.log(WARNING, "Ignoring block ranges file with an invalid range: {0}", source);
+        }
+    }
+
+    /// Whether the values form a valid {@link BlockRange}: both within 0 to `Long.MAX_VALUE - 1`, with start
+    /// not after end.
+    private static boolean isValidRange(final long start, final long end) {
+        return start >= 0 && end >= start && end < Long.MAX_VALUE;
+    }
+
+    /// Creates the parent directory of a state file so later writes can succeed. A failure is logged; the
+    /// write that needs the directory reports its own failure.
+    ///
+    /// @param file the state file whose parent directory must exist
+    private static void ensureParentDirectory(final Path file) {
+        final Path parent = file.getParent();
+        try {
+            Files.createDirectories(parent);
+        } catch (IOException e) {
+            LOGGER.log(WARNING, "Failed to create state directory: " + parent, e);
         }
     }
 }

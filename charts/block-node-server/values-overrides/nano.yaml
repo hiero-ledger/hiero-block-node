@@ -4,13 +4,16 @@
 # This is useful for testing and development purposes with limited resources.
 # ie: minikube
 
+# 192Mi fits the TSS library (native code, verification key and verification threads, ~129 MB peak at
+# 1 CPU) with headroom; at 128M the node is OOM-killed while verifying TSS block proofs.
+# MemoryRegressionTests runs the node with these limits.
 resources:
   requests:
     cpu: "500m"
-    memory: "128M"
+    memory: "192Mi"
   limits:
     cpu: "1"
-    memory: "128M"
+    memory: "192Mi"
 
 blockNode:
   config:

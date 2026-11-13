@@ -17,13 +17,14 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
+import org.hiero.block.api.BlockNodeServiceInterface.BlockNodeServiceMethod;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
+import org.hiero.block.api.ServerStatusDetailRequest;
 import org.hiero.block.api.ServerStatusDetailResponse;
-import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.TssData;
 import org.hiero.block.api.TssRoster;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
@@ -62,7 +63,13 @@ public class ServerStatusDetailServicePluginTest
         temporaryAvailableBlocks.add(1_000_000L, 1_000_005L);
 
         historicalBlockFacility.setTemporaryAvailableBlocks(temporaryAvailableBlocks);
-        start(plugin, plugin.methods().getLast(), historicalBlockFacility);
+        start(
+                plugin,
+                plugin.methods().stream()
+                        .filter(method -> method.name().equals(BlockNodeServiceMethod.serverStatusDetail.name()))
+                        .findFirst()
+                        .orElseThrow(),
+                historicalBlockFacility);
     }
 
     /**
@@ -91,8 +98,9 @@ public class ServerStatusDetailServicePluginTest
                 new BlockRange(1_000_000_000_000L, 1_000_000_000_005L));
         blockMessaging.sendAvailableBlocksUpdate(new AvailableBlocksNotification(availableBlocks));
         blockMessaging.sendStoredBlocksUpdate(new StoredBlocksNotification(storedBlocks));
-        final ServerStatusRequest request = ServerStatusRequest.newBuilder().build();
-        toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(request));
+        final ServerStatusDetailRequest request =
+                ServerStatusDetailRequest.newBuilder().build();
+        toPluginPipe.onNext(ServerStatusDetailRequest.PROTOBUF.toBytes(request));
         assertEquals(1, fromPluginBytes.size());
 
         final ServerStatusDetailResponse response =
@@ -163,8 +171,9 @@ public class ServerStatusDetailServicePluginTest
     void shouldReturnValidServerStatusOnContextUpdate() throws ParseException {
         // notify the plugin of an update via notification handler
         blockMessaging.sendTssDataUpdate(new TssDataNotification(buildTssData()));
-        ServerStatusRequest request = ServerStatusRequest.newBuilder().build();
-        toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(request));
+        ServerStatusDetailRequest request =
+                ServerStatusDetailRequest.newBuilder().build();
+        toPluginPipe.onNext(ServerStatusDetailRequest.PROTOBUF.toBytes(request));
         assertEquals(1, fromPluginBytes.size());
 
         ServerStatusDetailResponse response =
@@ -207,8 +216,8 @@ public class ServerStatusDetailServicePluginTest
                 .build();
         blockMessaging.sendAddressBookHistoryUpdate(new AddressBookHistoryNotification(history));
 
-        toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(
-                ServerStatusRequest.newBuilder().build()));
+        toPluginPipe.onNext(ServerStatusDetailRequest.PROTOBUF.toBytes(
+                ServerStatusDetailRequest.newBuilder().build()));
         assertEquals(1, fromPluginBytes.size());
 
         final ServerStatusDetailResponse response =
@@ -231,8 +240,8 @@ public class ServerStatusDetailServicePluginTest
     @DisplayName("Should omit NodeAddressBook from response when context carries null")
     void shouldOmitNodeAddressBookWhenNotLoaded() throws ParseException {
         // Default context started with null nodeAddressBook — verify field absent in wire response
-        toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(
-                ServerStatusRequest.newBuilder().build()));
+        toPluginPipe.onNext(ServerStatusDetailRequest.PROTOBUF.toBytes(
+                ServerStatusDetailRequest.newBuilder().build()));
         assertEquals(1, fromPluginBytes.size());
 
         final ServerStatusDetailResponse response =
@@ -240,6 +249,87 @@ public class ServerStatusDetailServicePluginTest
 
         assertFalse(response.hasNodeAddressBook());
         assertNull(response.nodeAddressBook());
+    }
+
+    /** Sends some state, then calls serverStatusDetail with the given request and returns the parsed response. */
+    private ServerStatusDetailResponse detailWithState(final ServerStatusDetailRequest request) throws ParseException {
+        blockMessaging.sendAvailableBlocksUpdate(new AvailableBlocksNotification(List.of(new BlockRange(0L, 5L))));
+        blockMessaging.sendStoredBlocksUpdate(new StoredBlocksNotification(List.of(new BlockRange(0L, 3L))));
+        blockMessaging.sendTssDataUpdate(new TssDataNotification(buildTssData()));
+        blockMessaging.sendAddressBookHistoryUpdate(
+                new AddressBookHistoryNotification(RangedAddressBookHistory.newBuilder()
+                        .addressBooks(List.of(RangedNodeAddressBook.newBuilder()
+                                .startBlock(0L)
+                                .endBlock(-1L)
+                                .addressBook(buildAddressBook())
+                                .build()))
+                        .build()));
+        toPluginPipe.onNext(ServerStatusDetailRequest.PROTOBUF.toBytes(request));
+        assertEquals(1, fromPluginBytes.size());
+        return standardParse(ServerStatusDetailResponse.PROTOBUF, fromPluginBytes.getFirst());
+    }
+
+    @Test
+    @DisplayName("An empty request returns every part, as before")
+    void emptyRequestReturnsEveryPart() throws ParseException {
+        final ServerStatusDetailResponse response =
+                detailWithState(ServerStatusDetailRequest.newBuilder().build());
+
+        assertTrue(response.hasVersionInformation());
+        assertEquals(1, response.availableRanges().size());
+        assertEquals(1, response.storedRanges().size());
+        assertNotNull(response.tssData());
+        assertTrue(response.hasNodeAddressBook());
+        assertTrue(response.hasRangedAddressBookHistory());
+    }
+
+    @Test
+    @DisplayName("exclude_versions leaves out only the version information")
+    void excludeVersionsLeavesOutOnlyVersions() throws ParseException {
+        final ServerStatusDetailResponse response = detailWithState(
+                ServerStatusDetailRequest.newBuilder().excludeVersions(true).build());
+
+        assertFalse(response.hasVersionInformation());
+        assertEquals(1, response.availableRanges().size());
+        assertEquals(1, response.storedRanges().size());
+        assertTrue(response.hasNodeAddressBook());
+    }
+
+    @Test
+    @DisplayName("exclude_available_ranges leaves out only the available ranges")
+    void excludeAvailableRangesLeavesOutOnlyAvailableRanges() throws ParseException {
+        final ServerStatusDetailResponse response = detailWithState(ServerStatusDetailRequest.newBuilder()
+                .excludeAvailableRanges(true)
+                .build());
+
+        assertTrue(response.hasVersionInformation());
+        assertTrue(response.availableRanges().isEmpty());
+        assertEquals(1, response.storedRanges().size());
+    }
+
+    @Test
+    @DisplayName("exclude_stored_ranges leaves out only the stored ranges")
+    void excludeStoredRangesLeavesOutOnlyStoredRanges() throws ParseException {
+        final ServerStatusDetailResponse response = detailWithState(
+                ServerStatusDetailRequest.newBuilder().excludeStoredRanges(true).build());
+
+        assertTrue(response.hasVersionInformation());
+        assertEquals(1, response.availableRanges().size());
+        assertTrue(response.storedRanges().isEmpty());
+    }
+
+    @Test
+    @DisplayName("All exclude flags together leave an empty response")
+    void allFlagsLeaveEmptyResponse() throws ParseException {
+        final ServerStatusDetailResponse response = detailWithState(ServerStatusDetailRequest.newBuilder()
+                .excludeVersions(true)
+                .excludeAvailableRanges(true)
+                .excludeStoredRanges(true)
+                .build());
+
+        assertFalse(response.hasVersionInformation());
+        assertTrue(response.availableRanges().isEmpty());
+        assertTrue(response.storedRanges().isEmpty());
     }
 
     NodeAddressBook buildAddressBook() {

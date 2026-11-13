@@ -50,7 +50,7 @@ public record BackfillConfiguration(
         // defaultValue must match DEFAULT_MAX_PROTOBUF_MESSAGE_SIZE_BYTES (annotation requires a String literal)
         @Loggable @ConfigProperty(defaultValue = "131_072_000") @Min(1_048_576) @Max(1_610_612_736) int maxProtobufMessageSizeBytes,
         @Loggable @ConfigProperty(defaultValue = "false") boolean enableTLS,
-        @Loggable @ConfigProperty(defaultValue = "false") boolean greedy,
+        @Loggable @ConfigProperty(defaultValue = "true") boolean greedy,
         // Queue capacity settings for bounded queues
         @Loggable @ConfigProperty(defaultValue = "20") @Min(1) @Max(1000) int historicalQueueCapacity,
         @Loggable @ConfigProperty(defaultValue = "10") @Min(1) @Max(100) int liveTailQueueCapacity,

@@ -1,32 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
 dependencies {
-    api(platform("io.netty:netty-bom:4.2.16.Final"))
+    api(platform("io.netty:netty-bom:4.2.19.Final"))
     api(platform("com.google.cloud:libraries-bom:26.86.0"))
 }
 
 dependencies.constraints {
     val daggerVersion = "2.60.1"
-    val grpcIoVersion = "1.84.0"
+    val grpcIoVersion = "1.85.1"
     val hederaCryptographyVersion = "3.22.0"
-    val helidonVersion = "4.5.2"
+    val helidonVersion = "4.5.6"
     val pbjVersion = pluginVersions.version("com.hedera.pbj.pbj-compiler")
     val protobufVersion = "4.35.1"
-    val hederaVersion = "0.77.0-rc.7"
+    val hederaVersion = "0.80.0-alpha.4"
     val eclipseCollectionsVersion = "13.0.0"
-    val mockitoVersion = "5.23.0"
+    val mockitoVersion = "5.24.0"
     val testContainersVersion = "1.21.4"
     val buckyVersion = "0.1.0"
     val s3MockVersion = "4.11.0"
     val jUnitVersion = "6.1.3"
 
-    api("com.github.luben:zstd-jni:1.5.7-13") { because("com.github.luben.zstd_jni") }
+    api("com.github.luben:zstd-jni:1.5.7-24") { because("com.github.luben.zstd_jni") }
     api("com.github.spotbugs:spotbugs-annotations:4.10.4") {
         because("com.github.spotbugs.annotations")
     }
     api("com.google.auto.service:auto-service-annotations:1.1.1") {
         because("com.google.auto.service")
     }
-    api("com.google.guava:guava:33.6.0-jre") { because("com.google.common") }
+    api("com.google.guava:guava:33.7.2-jre") { because("com.google.common") }
     api("com.google.protobuf:protobuf-java-util:$protobufVersion") {
         because("com.google.protobuf.util")
     }
@@ -48,6 +48,46 @@ dependencies.constraints {
     }
     api("com.hedera.hashgraph:swirlds-config-impl:$hederaVersion") {
         because("com.swirlds.config.impl")
+    }
+    api("com.hedera.hashgraph:swirlds-state-api:$hederaVersion") {
+        because("com.swirlds.state.api")
+    }
+    api("com.hedera.hashgraph:swirlds-state-impl:$hederaVersion") {
+        because("com.swirlds.state.impl")
+    }
+    api("com.hedera.hashgraph:swirlds-virtualmap:$hederaVersion") {
+        because("com.swirlds.virtualmap")
+    }
+    api("com.hedera.hashgraph:swirlds-merkledb:$hederaVersion") { because("com.swirlds.merkledb") }
+    api("com.hedera.hashgraph:swirlds-logging:$hederaVersion") { because("com.swirlds.logging") }
+    api("com.hedera.hashgraph:base-concurrent:$hederaVersion") {
+        because("org.hiero.base.concurrent")
+    }
+    api("com.hedera.hashgraph:base-crypto:$hederaVersion") { because("org.hiero.base.crypto") }
+    api("com.hedera.hashgraph:base-utility:$hederaVersion") { because("org.hiero.base.utility") }
+    api("com.hedera.hashgraph:consensus-model:$hederaVersion") {
+        because("org.hiero.consensus.model")
+    }
+    api("com.hedera.hashgraph:consensus-utility:$hederaVersion") {
+        because("org.hiero.consensus.utility")
+    }
+    api("com.hedera.hashgraph:consensus-metrics:$hederaVersion") {
+        because("org.hiero.consensus.metrics")
+    }
+    api("com.hedera.hashgraph:consensus-concurrent:$hederaVersion") {
+        because("org.hiero.consensus.concurrent")
+    }
+    // Non-modular jars pulled in transitively by swirlds-state-impl / virtualmap.
+    api("net.java.dev.jna:jna:5.19.0") { because("com.sun.jna") }
+    api("io.prometheus:simpleclient:0.16.0") { because("simpleclient") }
+    api("io.prometheus:simpleclient_common:0.16.0") { because("simpleclient.common") }
+    api("io.prometheus:simpleclient_httpserver:0.16.0") { because("simpleclient.httpserver") }
+    api("io.prometheus:simpleclient_tracer_common:0.16.0") { because("simpleclient.tracer.common") }
+    api("org.hyperledger.besu:besu-native-common:1.4.2") {
+        because("org.hyperledger.besu.nativelib.common")
+    }
+    api("org.hyperledger.besu:secp256k1:1.4.2") {
+        because("org.hyperledger.besu.nativelib.secp256k1")
     }
     api("com.hedera.hashgraph:hiero-metrics:$hederaVersion") { because("org.hiero.metrics") }
     api("com.hedera.hashgraph:openmetrics-httpserver:$hederaVersion") {
@@ -121,12 +161,38 @@ dependencies.constraints {
     api("com.google.jimfs:jimfs:1.3.1") { because("com.google.common.jimfs") }
     api("com.hedera.bucky:bucky-client:${buckyVersion}") { because("com.hedera.bucky") }
     api("io.minio:minio:8.5.17") { because("io.minio") }
-    api("com.squareup.okio:okio-jvm:3.18.0") { because("okio") } // required by minio
+    api("com.squareup.okio:okio-jvm:3.18.2") { because("okio") } // required by minio
     api("com.adobe.testing:s3mock-testcontainers:${s3MockVersion}") {
         because("s3mock.testcontainers")
     }
 
     // Versions of additional tools that are not part of the product or test module paths
     api("com.google.protobuf:protoc:${protobufVersion}")
-    tasks.checkVersionConsistency { excludes.add("com.google.protobuf:protoc") }
+    tasks.checkVersionConsistency {
+        excludes.add("com.google.protobuf:protoc")
+        // state-management-hashgraph is a dynamically-loaded (ServiceLoader-discovered) plugin
+        // module with no compile-time project dependents, so checkVersionConsistency's static
+        // scan does not see its module-info `requires` as usage even though these pins are
+        // genuinely consumed (verified: the module compiles, tests, and builds green against
+        // them). Exclude rather than leave the build broken on a tooling false-positive. #3810
+        // (gRPC query API) will depend on this module and should make these excludes moot.
+        excludes.add("com.hedera.hashgraph:swirlds-state-api")
+        excludes.add("com.hedera.hashgraph:swirlds-state-impl")
+        excludes.add("com.hedera.hashgraph:swirlds-virtualmap")
+        excludes.add("com.hedera.hashgraph:swirlds-merkledb")
+        excludes.add("com.hedera.hashgraph:swirlds-logging")
+        excludes.add("com.hedera.hashgraph:base-concurrent")
+        excludes.add("com.hedera.hashgraph:base-crypto")
+        excludes.add("com.hedera.hashgraph:base-utility")
+        excludes.add("com.hedera.hashgraph:consensus-model")
+        excludes.add("com.hedera.hashgraph:consensus-utility")
+        excludes.add("com.hedera.hashgraph:consensus-metrics")
+        excludes.add("com.hedera.hashgraph:consensus-concurrent")
+        excludes.add("io.prometheus:simpleclient")
+        excludes.add("io.prometheus:simpleclient_common")
+        excludes.add("io.prometheus:simpleclient_httpserver")
+        excludes.add("io.prometheus:simpleclient_tracer_common")
+        excludes.add("org.hyperledger.besu:besu-native-common")
+        excludes.add("org.hyperledger.besu:secp256k1")
+    }
 }

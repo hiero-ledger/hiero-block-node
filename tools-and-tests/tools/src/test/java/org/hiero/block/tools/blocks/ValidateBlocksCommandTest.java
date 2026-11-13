@@ -8,28 +8,37 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.protobuf.CodedOutputStream;
+import com.google.protobuf.WireFormat;
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 import org.hiero.block.api.TssData;
+import org.hiero.block.node.base.CompressionType;
+import org.hiero.block.tools.blocks.model.BlockWriter;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import picocli.CommandLine;
 
 /**
  * Tests for {@link ValidateBlocksCommand}.
  *
  * <p>Uses {@link TestBlockFactory} to generate synthetic blocks with real RSA signatures.
- * Blocks are written as uncompressed {@code .blk} files (no zstd dependency needed).
+ * Blocks are written as uncompressed {@code .blk} files, except where a test needs zip input.
  */
 @Execution(ExecutionMode.SAME_THREAD)
 class ValidateBlocksCommandTest {
@@ -417,6 +426,40 @@ class ValidateBlocksCommandTest {
         assertTrue(output2.contains("last validated block = 2"), "Should resume from block 2. Output:\n" + output2);
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void legacyCheckpoint_reportsRewrap(final boolean legacyInBak) throws Exception {
+        List<Block> blocks = TestBlockFactory.createValidChain(5);
+        blocks.set(3, TestBlockFactory.withBrokenPreviousHash(blocks.get(3)));
+        writeBlocks(blocks);
+        writeAddressBook();
+
+        Object[] result1 = runValidate("--no-resume");
+        assertEquals(1, (int) result1[0], "First run should fail. Output:\n" + result1[1]);
+
+        // Replace the tree state with a consistent legacy SHA-384 file: 3 leaves, two 48-byte hashes. Either the
+        // primary is legacy with no .bak, or the primary is missing and the .bak is legacy.
+        Path treeState = tempDir.resolve("validateCheckpoint/historicalTreeValidation.bin");
+        Path bak = Path.of(treeState + ".bak");
+        Files.deleteIfExists(treeState);
+        Files.deleteIfExists(bak);
+        try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(legacyInBak ? bak : treeState))) {
+            out.writeLong(3);
+            out.writeInt(2);
+            out.write(new byte[48]);
+            out.write(new byte[48]);
+        }
+
+        Object[] result2 = runValidate();
+        String output2 = (String) result2[1];
+
+        assertEquals(1, (int) result2[0], "Should refuse to resume. Output:\n" + output2);
+        assertTrue(output2.contains("before SHA-256"), "Should name the legacy state. Output:\n" + output2);
+        assertTrue(output2.contains("re-wrap"), "Should offer a re-wrap. Output:\n" + output2);
+        assertTrue(output2.contains("--no-resume"), "Should offer --no-resume. Output:\n" + output2);
+        assertFalse(output2.contains("corrupt or missing"), "Should not call it corrupt. Output:\n" + output2);
+    }
+
     @Test
     void checkpointPreservedOnFullSuccess() throws Exception {
         List<Block> blocks = TestBlockFactory.createValidChain(5);
@@ -592,5 +635,78 @@ class ValidateBlocksCommandTest {
         assertFalse(
                 Files.exists(tempDir.resolve("tss-bootstrap-roster.json")),
                 "tss-bootstrap-roster.json should not be written without a LedgerIdPublication transaction");
+    }
+
+    // ── Duplicate protobuf fields ──
+
+    @Test
+    void duplicateBlockHeaderField_detectedUnlessSkipped() throws Exception {
+        List<Block> blocks = TestBlockFactory.createValidChain(5);
+        writeBlocks(blocks);
+        writeAddressBook();
+
+        Block last = blocks.getLast();
+        long lastNumber = last.items().getFirst().blockHeaderOrThrow().number();
+        Files.write(tempDir.resolve(lastNumber + ".blk"), encodeWithDuplicateBlockHeader(last));
+
+        assertDuplicateDetectedUnlessSkipped();
+    }
+
+    @Test
+    void duplicateBlockHeaderFieldInZip_detectedUnlessSkipped() throws Exception {
+        List<Block> blocks = TestBlockFactory.createValidChain(5);
+        writeAddressBook();
+
+        // Write all blocks as zstd entries of one zip, in BlockWriter's layout, with the last one duplicated, so the
+        // check runs after zip decompression. The zip is written in one pass because BlockWriter.writeBlock appends
+        // through a zip FileSystem, which the command's streaming zip reader does not accept.
+        BlockWriter.BlockPath firstPath = BlockWriter.computeBlockPath(tempDir, 0);
+        Files.createDirectories(firstPath.dirPath());
+        try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(firstPath.zipFilePath()))) {
+            for (Block block : blocks) {
+                long number = block.items().getFirst().blockHeaderOrThrow().number();
+                byte[] bytes = block == blocks.getLast()
+                        ? encodeWithDuplicateBlockHeader(block)
+                        : Block.PROTOBUF.toBytes(block).toByteArray();
+                zip.putNextEntry(new ZipEntry(
+                        BlockWriter.computeBlockPath(tempDir, number).blockFileName()));
+                zip.write(CompressionType.ZSTD.compress(bytes));
+                zip.closeEntry();
+            }
+        }
+
+        assertDuplicateDetectedUnlessSkipped();
+    }
+
+    /**
+     * Re-encodes the block with block_header written twice in its first item. The copies are identical and PBJ keeps
+     * the last one, so every other validation sees the original block.
+     */
+    private static byte[] encodeWithDuplicateBlockHeader(Block block) throws IOException {
+        List<BlockItem> items = block.items();
+        byte[] headerItem = BlockItem.PROTOBUF.toBytes(items.getFirst()).toByteArray();
+        ByteArrayOutputStream encoded = new ByteArrayOutputStream();
+        CodedOutputStream coded = CodedOutputStream.newInstance(encoded);
+        coded.writeTag(1, WireFormat.WIRETYPE_LENGTH_DELIMITED);
+        coded.writeUInt32NoTag(headerItem.length * 2);
+        coded.writeRawBytes(headerItem);
+        coded.writeRawBytes(headerItem);
+        coded.writeRawBytes(Block.PROTOBUF
+                .toBytes(new Block(items.subList(1, items.size())))
+                .toByteArray());
+        coded.flush();
+        return encoded.toByteArray();
+    }
+
+    private void assertDuplicateDetectedUnlessSkipped() {
+        Object[] result = runValidate("--no-resume");
+        String output = (String) result[1];
+        assertTrue((int) result[0] != 0, "Should fail. Output:\n" + output);
+        assertTrue(output.contains("Duplicate Fields"), "Should name the validation. Output:\n" + output);
+        assertTrue(output.contains("block_header"), "Should name the field. Output:\n" + output);
+
+        result = runValidate("--no-resume", "--skip-duplicate-fields");
+        output = (String) result[1];
+        assertEquals(0, (int) result[0], "Should pass when skipped. Output:\n" + output);
     }
 }

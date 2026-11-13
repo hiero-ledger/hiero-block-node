@@ -8,8 +8,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.ThreadLocalRandom;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.internal.BlockNodeSourceConfig;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 /**
  * Default node selection strategy that prioritizes nodes by:
@@ -35,7 +35,7 @@ public final class PriorityHealthBasedStrategy implements NodeSelectionStrategy 
 
     @Override
     public Optional<NodeSelection> select(
-            long startBlock, long gapEnd, @NonNull Map<BlockNodeSourceConfig, List<LongRange>> availability) {
+            long startBlock, long gapEnd, @NonNull Map<BlockNodeSourceConfig, List<BlockRange>> availability) {
 
         if (startBlock > gapEnd) {
             return Optional.empty();
@@ -55,13 +55,13 @@ public final class PriorityHealthBasedStrategy implements NodeSelectionStrategy 
      * Locate the earliest start index across all available ranges that can satisfy the request bounds.
      */
     private OptionalLong findEarliestAvailableStart(
-            long startBlock, long gapEnd, @NonNull Map<BlockNodeSourceConfig, List<LongRange>> availability) {
+            long startBlock, long gapEnd, @NonNull Map<BlockNodeSourceConfig, List<BlockRange>> availability) {
         long earliestAvailableStart = Long.MAX_VALUE;
         // Nested loop needed: each node can have multiple non-contiguous available ranges
-        for (List<LongRange> ranges : availability.values()) {
-            for (LongRange range : ranges) {
-                long candidateStart = Math.max(startBlock, range.start());
-                if (candidateStart <= range.end() && candidateStart <= gapEnd) {
+        for (List<BlockRange> ranges : availability.values()) {
+            for (BlockRange range : ranges) {
+                long candidateStart = Math.max(startBlock, range.rangeStart());
+                if (candidateStart <= range.rangeEnd() && candidateStart <= gapEnd) {
                     earliestAvailableStart = Math.min(earliestAvailableStart, candidateStart);
                 }
             }
@@ -80,16 +80,16 @@ public final class PriorityHealthBasedStrategy implements NodeSelectionStrategy 
             long startBlock,
             long gapEnd,
             long earliestAvailableStart,
-            @NonNull Map<BlockNodeSourceConfig, List<LongRange>> availability) {
+            @NonNull Map<BlockNodeSourceConfig, List<BlockRange>> availability) {
         List<NodeSelection> candidates = new ArrayList<>();
         // Cannot use values() here: we need the node key (entry.getKey()) to build NodeSelection
-        for (Map.Entry<BlockNodeSourceConfig, List<LongRange>> entry : availability.entrySet()) {
-            for (LongRange availableRange : entry.getValue()) {
-                long candidateStart = Math.max(startBlock, availableRange.start());
+        for (Map.Entry<BlockNodeSourceConfig, List<BlockRange>> entry : availability.entrySet()) {
+            for (BlockRange availableRange : entry.getValue()) {
+                long candidateStart = Math.max(startBlock, availableRange.rangeStart());
                 if (candidateStart != earliestAvailableStart) {
                     continue;
                 }
-                if (candidateStart > availableRange.end() || candidateStart > gapEnd) {
+                if (candidateStart > availableRange.rangeEnd() || candidateStart > gapEnd) {
                     continue;
                 }
                 candidates.add(new NodeSelection(entry.getKey(), candidateStart));

@@ -41,7 +41,7 @@ sequenceDiagram
     Client->>Plugin: getBlock(BlockRequest)
     Note over Plugin: Resolve block number or<br/>retrieve_latest sentinel
     Plugin->>Facility: availableBlocks()
-    Facility-->>Plugin: LongRange of stored blocks
+    Facility-->>Plugin: BlockRange of stored blocks
     alt Block not in available range
         Plugin-->>Client: BlockResponse(NOT_AVAILABLE)
     else Block in range
@@ -192,7 +192,7 @@ sequenceDiagram
 
     alt Fetch succeeds
         Peer-->>Fetcher: block stream
-        Fetcher->>Fetcher: markSuccess — reset failures, record latency in healthMap
+        Fetcher->>Fetcher: recordBlocksReceived — reset failures, record latency in healthMap
         Fetcher-->>Runner: List of BlockUnparsed
         loop Each fetched block
             Runner->>Messaging: sendBackfilledBlockNotification

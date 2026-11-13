@@ -12,8 +12,8 @@ import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
+import org.hiero.block.api.ServerStatusDetailRequest;
 import org.hiero.block.api.ServerStatusDetailResponse;
-import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.internal.BlockNodeSource;
 import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.node.base.client.BlockNodeClient;
@@ -80,7 +80,7 @@ public class AddressBookFetcher implements AutoCloseable {
 
             try {
                 final ServerStatusDetailResponse response =
-                        client.getBlockNodeServiceClient().serverStatusDetail(new ServerStatusRequest());
+                        client.getBlockNodeServiceClient().serverStatusDetail(ServerStatusDetailRequest.DEFAULT);
                 final RangedAddressBookHistory book = response.rangedAddressBookHistory();
                 metrics.peerRequests().increment();
 

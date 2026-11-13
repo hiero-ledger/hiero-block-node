@@ -20,6 +20,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
+import org.hiero.block.node.spi.blockmessaging.NextExpectedPublisherBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification;
@@ -68,6 +69,9 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     private final List<PersistedNotification> sentPersistedNotifications = new CopyOnWriteArrayList<>();
     /** List of all sent backfilled block notifications */
     private final List<NewestBlockKnownToNetworkNotification> sentNewestBlockKnownToNetworkNotifications =
+            new CopyOnWriteArrayList<>();
+    /** List of all sent next expected publisher block notifications */
+    private final List<NextExpectedPublisherBlockNotification> sentNextExpectedPublisherBlockNotifications =
             new CopyOnWriteArrayList<>();
     /** List of all sent publisher status update notifications */
     private final List<PublisherStatusUpdateNotification> sentPublisherStatusUpdateNotifications =
@@ -138,6 +142,15 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
      */
     public List<NewestBlockKnownToNetworkNotification> getSentNewestBlockKnownToNetworkNotifications() {
         return sentNewestBlockKnownToNetworkNotifications;
+    }
+
+    /**
+     * Get all next expected publisher block notifications sent to the block messaging facility.
+     *
+     * @return the list of sent next expected publisher block notifications
+     */
+    public List<NextExpectedPublisherBlockNotification> getSentNextExpectedPublisherBlockNotifications() {
+        return sentNextExpectedPublisherBlockNotifications;
     }
 
     /**
@@ -355,6 +368,15 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     }
 
     @Override
+    public void sendNextExpectedPublisherBlock(final NextExpectedPublisherBlockNotification notification) {
+        logNotification(notification);
+        sentNextExpectedPublisherBlockNotifications.add(notification);
+        for (final BlockNotificationHandler handler : blockNotificationHandlers) {
+            handler.handleNextExpectedPublisherBlock(notification);
+        }
+    }
+
+    @Override
     public void sendPublisherStatusUpdate(final PublisherStatusUpdateNotification notification) {
         logNotification(notification);
         sentPublisherStatusUpdateNotifications.add(notification);
@@ -471,6 +493,12 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
                         Level.TRACE,
                         "Sending block notification: NewestBlockKnownToNetworkNotification[blockNumber={0}]",
                         newest.blockNumber());
+            case NextExpectedPublisherBlockNotification nextExpected ->
+                LOGGER.log(
+                        Level.TRACE,
+                        "Sending block notification: NextExpectedPublisherBlockNotification[blockNumber={0}, publisherOfferedBlock={1}]",
+                        nextExpected.blockNumber(),
+                        nextExpected.publisherOfferedBlock());
             case PublisherStatusUpdateNotification publisher ->
                 LOGGER.log(
                         Level.TRACE,

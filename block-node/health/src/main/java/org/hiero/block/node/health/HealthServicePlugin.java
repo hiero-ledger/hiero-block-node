@@ -171,6 +171,14 @@ public class HealthServicePlugin implements BlockNodePlugin {
         }
     }
 
+    /// @param result the outcome of the request
+    /// @return the number of health check requests with the given result
+    long getHealthRequestsCount(String result) {
+        return requestCounter
+                .getOrCreateLabeled(LABEL_ENDPOINT, ENDPOINT_HEALTH, LABEL_RESULT, result)
+                .get();
+    }
+
     /// Increments [#METRIC_HEALTH_REQUESTS] for a health check ([#ENDPOINT_HEALTH]) with the
     /// given result.
     ///

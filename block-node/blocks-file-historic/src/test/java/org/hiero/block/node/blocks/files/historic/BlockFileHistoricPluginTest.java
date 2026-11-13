@@ -30,6 +30,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
@@ -266,6 +267,51 @@ class BlockFileHistoricPluginTest {
             assertThat(subDir1.resolve("1000.zip")).exists();
             assertThat(subDir2.resolve("10000.zip")).exists();
         }
+
+        @Test
+        @DisplayName("should delete a stray accessor link next to a zip archive")
+        void testDeleteStrayAccessorLinksRemovesStrayLink(@TempDir final Path tempDir) throws IOException {
+            final StrayLinkLayout layout = createStrayLinkLayout(tempDir);
+
+            new BlockFileHistoricPlugin().deleteStrayAccessorLinks(tempDir);
+
+            assertThat(layout.strayLink()).doesNotExist();
+        }
+
+        @Test
+        @DisplayName("should keep the zip archive when deleting stray accessor links")
+        void testDeleteStrayAccessorLinksKeepsZip(@TempDir final Path tempDir) throws IOException {
+            final StrayLinkLayout layout = createStrayLinkLayout(tempDir);
+
+            new BlockFileHistoricPlugin().deleteStrayAccessorLinks(tempDir);
+
+            assertThat(layout.zip()).hasContent("zip content");
+        }
+
+        @Test
+        @DisplayName("should keep a file named like a stray link outside a numeric block directory")
+        void testDeleteStrayAccessorLinksKeepsFileOutsideBlockDirectory(@TempDir final Path tempDir)
+                throws IOException {
+            final StrayLinkLayout layout = createStrayLinkLayout(tempDir);
+
+            new BlockFileHistoricPlugin().deleteStrayAccessorLinks(tempDir);
+
+            assertThat(layout.decoy()).exists();
+        }
+
+        /** Creates a zip with a stray hard link next to it, as older versions left behind, plus a decoy. */
+        private StrayLinkLayout createStrayLinkLayout(final Path root) throws IOException {
+            final Path blockDirectory = root.resolve("000").resolve("008");
+            Files.createDirectories(blockDirectory);
+            final Path zip = Files.writeString(blockDirectory.resolve("80000.zip"), "zip content");
+            final Path strayLink = Files.createLink(blockDirectory.resolve("80000.zip.3"), zip);
+            final Path otherDirectory = root.resolve("backup");
+            Files.createDirectories(otherDirectory);
+            final Path decoy = Files.writeString(otherDirectory.resolve("80000.zip.3"), "not a link");
+            return new StrayLinkLayout(zip, strayLink, decoy);
+        }
+
+        private record StrayLinkLayout(Path zip, Path strayLink, Path decoy) {}
     }
 
     /**
@@ -1678,6 +1724,71 @@ class BlockFileHistoricPluginTest {
                     .resolve(corruptedRoot.relativize(corruptedZipLocation.zipFilePath()));
             assertThat(Files.exists(quarantinedZip)).isTrue();
             assertThat(pluginUnderTest.availableBlocks().size()).isZero();
+        }
+
+        /**
+         * Regression test for #3997: on restart the available blocks must keep the gaps
+         * between zip files instead of spanning from the lowest to the highest zip.
+         */
+        @Test
+        @DisplayName("restart keeps gaps between archived zip files in available blocks")
+        void restartKeepsGapsBetweenArchivedZips() throws IOException {
+            final Path gapRoot = dataRoot.resolve("gap-root");
+            testConfig = new FilesHistoricConfig(gapRoot, CompressionType.NONE, 1, 0L, 3, false);
+            final BlockFileHistoricPlugin firstPlugin = new BlockFileHistoricPlugin();
+            start(firstPlugin, regressionHistoricalBlockFacility, buildConfigOverrides(testConfig));
+            sendVerifiedBlocks(0, 9);
+            sendVerifiedBlocks(30, 39);
+            testThreadPoolManager.executor().executeSerially();
+
+            final BlockFileHistoricPlugin restartedPlugin = new BlockFileHistoricPlugin();
+            start(restartedPlugin, regressionHistoricalBlockFacility, buildConfigOverrides(testConfig));
+
+            assertThat(restartedPlugin.availableBlocks().streamRanges().toList())
+                    .containsExactly(new BlockRange(0L, 9L), new BlockRange(30L, 39L));
+        }
+
+        /**
+         * Regression test for #3997: zip files at the edges of the archive may be partly filled, so the
+         * available blocks must start and end at the blocks actually stored, not at the zip boundaries.
+         */
+        @Test
+        @DisplayName("restart reports exact edges for partly filled edge zip files")
+        void restartReportsExactEdgesForPartialEdgeZips() throws IOException {
+            final Path partialEdgeRoot = dataRoot.resolve("partial-edge-root");
+            testConfig = new FilesHistoricConfig(partialEdgeRoot, CompressionType.NONE, 1, 0L, 3, false);
+            writeZipWithBlocks(3, 9);
+            writeZipWithBlocks(30, 34);
+
+            final BlockFileHistoricPlugin pluginUnderTest = new BlockFileHistoricPlugin();
+            start(pluginUnderTest, regressionHistoricalBlockFacility, buildConfigOverrides(testConfig));
+
+            assertThat(pluginUnderTest.availableBlocks().streamRanges().toList())
+                    .containsExactly(new BlockRange(3L, 9L), new BlockRange(30L, 34L));
+        }
+
+        private void writeZipWithBlocks(final long firstBlock, final long lastBlock) throws IOException {
+            final BlockPath zipLocation = BlockPath.computeBlockPath(testConfig, firstBlock);
+            Files.createDirectories(zipLocation.dirPath());
+            try (final ZipOutputStream zipOut = new ZipOutputStream(Files.newOutputStream(zipLocation.zipFilePath()))) {
+                for (long blockNumber = firstBlock; blockNumber <= lastBlock; blockNumber++) {
+                    zipOut.putNextEntry(new ZipEntry(
+                            BlockPath.computeBlockPath(testConfig, blockNumber).blockFileName()));
+                    zipOut.write(TestBlockBuilder.generateBlockWithNumber(blockNumber)
+                            .bytes()
+                            .toByteArray());
+                    zipOut.closeEntry();
+                }
+            }
+        }
+
+        private void sendVerifiedBlocks(final int firstBlock, final int lastBlock) {
+            for (int i = firstBlock; i <= lastBlock; i++) {
+                final BlockUnparsed block =
+                        TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
+                blockMessaging.sendBlockVerification(new VerificationNotification(
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+            }
         }
 
         @Test

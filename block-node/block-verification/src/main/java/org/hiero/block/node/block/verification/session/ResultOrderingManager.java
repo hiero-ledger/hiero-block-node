@@ -9,7 +9,6 @@ import java.util.concurrent.locks.LockSupport;
 import java.util.function.Function;
 import org.hiero.block.node.block.verification.VerificationConfig;
 import org.hiero.block.node.block.verification.verifier.BlockVerificationResult;
-import org.hiero.block.node.spi.blockmessaging.BlockSource;
 
 /// The third stage of a [org.hiero.block.node.block.verification.session.CompletableVerificationSession].
 /// This stage simply awaits the right turn of the successful block verification's result propagation.
@@ -37,17 +36,20 @@ public final class ResultOrderingManager implements Function<BlockVerificationRe
 
     /// Accept a successful [BlockVerificationResult].
     /// Wait until it is our turn to propagate the success.
-    /// We follow the last verified block value. If we are below or equal to that, we do not enforce ordering
-    /// and simply continue to the next stage. If we are higher than the next expected block to verify successfully,
-    /// we have to wait until our turn arrives.
-    /// _NOTE_: strict ordering is always required for [BlockSource#PUBLISHER], but based on the
-    /// [VerificationConfig#allSourcesRequireOrdering()] setting, we can disable ordering for other sources.
+    /// We follow the last verified block value, and wait while the [OrderingRules] say
+    /// the result has to wait for its turn: the same rules the eviction policy applies to
+    /// decide which sessions wait. A result at or below the next expected block, below
+    /// [VerificationConfig#firstOrderedBlock()], or from a source not subject to ordering
+    /// continues to the next stage at once.
     @Override
     public BlockVerificationResult apply(final BlockVerificationResult blockVerificationResult) {
         checkValidNextExpectedBlock(lastVerifiedBlock, blockVerificationResult.blockNumber());
         while (!isCanceled()) {
-            final long nextExpectedBlock = lastVerifiedBlock.get() + 1;
-            if (shouldPark(blockVerificationResult, nextExpectedBlock)) {
+            if (OrderingRules.waitsForOrder(
+                    verificationConfig,
+                    blockVerificationResult.blockNumber(),
+                    blockVerificationResult.source(),
+                    lastVerifiedBlock.get())) {
                 // Shortly park to avoid busy-waiting
                 LockSupport.parkNanos(TimeUnit.MICROSECONDS.toNanos(500));
             } else {
@@ -76,24 +78,6 @@ public final class ResultOrderingManager implements Function<BlockVerificationRe
         if (lastVerified < 0) {
             lastVerifiedBlock.compareAndSet(lastVerified, currentVerifiedBlock);
         }
-    }
-
-    /// Decide whether the result must keep waiting for its turn.
-    /// A result waits when all of the following hold: its block is at or above
-    /// [VerificationConfig#firstOrderedBlock()], it is ahead of the next expected
-    /// block, and its source is subject to ordering (publisher always is; other
-    /// sources only when [VerificationConfig#allSourcesRequireOrdering()] is `true`).
-    ///
-    /// @param verificationResult the successful result awaiting propagation
-    /// @param nextExpectedBlock the next block number expected to verify in order
-    /// @return `true` if the result must keep waiting, `false` when it may proceed
-    private boolean shouldPark(final BlockVerificationResult verificationResult, final long nextExpectedBlock) {
-        // spotless:off
-        final long verifiedBlockNumber = verificationResult.blockNumber();
-        return (verifiedBlockNumber >= verificationConfig.firstOrderedBlock())
-            && (verifiedBlockNumber > nextExpectedBlock)
-            && (verificationResult.source() == BlockSource.PUBLISHER || verificationConfig.allSourcesRequireOrdering());
-        // spotless:on
     }
 
     /// Returns `true` if the owning session has been cancelled or the current thread interrupted.
