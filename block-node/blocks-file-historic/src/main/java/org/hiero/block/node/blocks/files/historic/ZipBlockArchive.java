@@ -4,6 +4,8 @@ package org.hiero.block.node.blocks.files.historic;
 import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
+import static java.nio.file.FileVisitResult.CONTINUE;
+import static java.nio.file.FileVisitResult.SKIP_SUBTREE;
 import static org.hiero.block.node.base.BlockFile.blockNumberFromFile;
 import static org.hiero.block.node.blocks.files.historic.BlockPath.computeExistingBlockPath;
 
@@ -14,10 +16,14 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
@@ -28,6 +34,7 @@ import java.util.zip.Deflater;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipException;
 import java.util.zip.ZipOutputStream;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
@@ -39,6 +46,8 @@ import org.hiero.block.node.spi.historicalblocks.BlockAccessorBatch;
  * It allows for writing new zip files and accessing individual blocks within the zip files.
  */
 class ZipBlockArchive {
+    /** The file extension of block zip files. */
+    private static final String ZIP_FILE_EXTENSION = ".zip";
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The block node context. */
@@ -284,6 +293,68 @@ class ZipBlockArchive {
         }
     }
 
+    /**
+     * Lists the block range of every zip file in the archive, derived from its path alone.
+     * <p>
+     * The start block is the numeric directory names joined with the zip file name, which reverses
+     * {@link BlockPath#computeBlockPath(FilesHistoricConfig, long)}. The zip file name length gives the
+     * number of blocks per zip, so archives written with a different
+     * {@link FilesHistoricConfig#powersOfTenPerZipFileContents()} still map correctly. No zip file is
+     * opened, so the edge zips may hold fewer blocks than their range claims. Zip files outside the
+     * numeric directory tree (links, staging, corrupted) are ignored.
+     *
+     * @return the block range of each zip file, in no particular order
+     * @throws IOException if the archive directory tree cannot be walked
+     */
+    List<BlockRange> storedBlockRanges() throws IOException {
+        final StoredBlockRangeVisitor visitor = new StoredBlockRangeVisitor(config.rootPath());
+        Files.walkFileTree(config.rootPath(), visitor);
+        return visitor.blockRanges;
+    }
+
+    private Optional<BlockRange> zipBlockRange(final Path rootPath, final Path zipFile) {
+        final String fileName = zipFile.getFileName().toString();
+        if (!fileName.endsWith(ZIP_FILE_EXTENSION)) {
+            return Optional.empty();
+        }
+        final String zipFileDigits = fileName.substring(0, fileName.length() - ZIP_FILE_EXTENSION.length());
+        if (!isNumeric(zipFileDigits)) {
+            return Optional.empty();
+        }
+        final StringBuilder startBlockDigits = new StringBuilder();
+        for (final Path directory : rootPath.relativize(zipFile.getParent())) {
+            startBlockDigits.append(directory.toString());
+        }
+        startBlockDigits.append(zipFileDigits);
+        try {
+            final long startBlock = Long.parseLong(startBlockDigits.toString());
+            final long blocksPerZip = powerOfTen(zipFileDigits.length() - 1);
+            return Optional.of(new BlockRange(startBlock, Math.addExact(startBlock, blocksPerZip - 1)));
+        } catch (final NumberFormatException | ArithmeticException e) {
+            LOGGER.log(WARNING, "Ignoring zip file %s, its path does not map to a block range".formatted(zipFile), e);
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Returns 10 raised to the given exponent, using exact integer math.
+     *
+     * @param exponent the power of ten to compute, must not be negative
+     * @return 10 raised to {@code exponent}
+     * @throws ArithmeticException if the result does not fit in a long
+     */
+    static long powerOfTen(final int exponent) {
+        long result = 1;
+        for (int i = 0; i < exponent; i++) {
+            result = Math.multiplyExact(result, 10L);
+        }
+        return result;
+    }
+
+    private static boolean isNumeric(final String name) {
+        return !name.isEmpty() && name.chars().allMatch(Character::isDigit);
+    }
+
     long count() {
         try (Stream<Path> pathStream = Files.walk(config.rootPath())) {
             return pathStream
@@ -336,8 +407,7 @@ class ZipBlockArchive {
         if (!Files.isDirectory(candidate)) {
             return false;
         }
-        final String name = candidate.getFileName().toString();
-        return !name.isEmpty() && name.chars().allMatch(Character::isDigit);
+        return isNumeric(candidate.getFileName().toString());
     }
 
     /**
@@ -369,6 +439,39 @@ class ZipBlockArchive {
         } catch (IOException e) {
             LOGGER.log(ERROR, "Error walking directory structure to calculate total bytes stored", e);
             return 0;
+        }
+    }
+
+    /**
+     * Collects the block range of every zip file in the numeric directory tree. Non-numeric directories
+     * (links, staging, zipwork, corrupted) are skipped without being walked.
+     */
+    private final class StoredBlockRangeVisitor extends SimpleFileVisitor<Path> {
+        private final Path rootPath;
+        private final List<BlockRange> blockRanges = new ArrayList<>();
+
+        private StoredBlockRangeVisitor(final Path rootPath) {
+            this.rootPath = rootPath;
+        }
+
+        @Override
+        public FileVisitResult preVisitDirectory(final Path directory, final BasicFileAttributes attributes) {
+            if (directory.equals(rootPath) || isNumeric(directory.getFileName().toString())) {
+                return CONTINUE;
+            }
+            return SKIP_SUBTREE;
+        }
+
+        @Override
+        public FileVisitResult visitFile(final Path file, final BasicFileAttributes attributes) {
+            // a zip file always sits inside at least one numeric directory, never directly in the root
+            if (attributes.isRegularFile() && !file.getParent().equals(rootPath)) {
+                final Optional<BlockRange> zipRange = zipBlockRange(rootPath, file);
+                if (zipRange.isPresent()) {
+                    blockRanges.add(zipRange.get());
+                }
+            }
+            return CONTINUE;
         }
     }
 }

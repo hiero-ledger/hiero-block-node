@@ -30,6 +30,8 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.regex.Pattern;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.BlockFile;
@@ -148,10 +150,11 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             Files.createDirectories(zipWorkRootPath);
             // register to listen to block notifications
             context.blockMessaging().registerBlockNotificationHandler(this, false, "Blocks Files Historic");
-            numberOfBlocksPerZipFile = intPowerOfTen(config.powersOfTenPerZipFileContents());
+            numberOfBlocksPerZipFile = ZipBlockArchive.powerOfTen(config.powersOfTenPerZipFileContents());
             // create the executor service for moving blocks to zip files
             zipMoveExecutorService = context.threadPoolManager().createSingleThreadExecutor("FilesHistoricZipMove");
             renameOldFormatArchives(config.rootPath());
+            deleteStrayAccessorLinks(config.rootPath());
             zipBlockArchive = new ZipBlockArchive(context, config);
             // get the first and last block numbers from the zipBlockArchive
             final long firstZippedBlock = zipBlockArchive.minStoredBlockNumber();
@@ -178,8 +181,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                     LOGGER.log(WARNING, "Detected change in powersOfTenPerZipFileContents configuration.");
                 }
 
-                // add the blocks to the available blocks only if the range is a valid one (positive)
-                availableBlocks.add(firstZippedBlock, latestZippedBlock);
+                addStoredBlocks(firstZippedBlock, latestZippedBlock);
 
                 // Initialize total bytes stored by querying the zip block archive
                 totalBytesStored.set(zipBlockArchive.calculateTotalStoredBytes());
@@ -193,6 +195,34 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             // ------------------------------------
             // DO NOT shutdown the server, handle this correctly instead.
             context.serverHealth().shutdown(name(), "Could not create root directory");
+        }
+    }
+
+    /**
+     * Adds the blocks of every zip file in the archive to the available blocks, keeping any gaps between
+     * zip files. The ranges are clipped to the first and latest zipped block, as only those edge zips
+     * may hold fewer blocks than their path implies.
+     *
+     * @param firstZippedBlock the lowest block number stored in the archive
+     * @param latestZippedBlock the highest block number stored in the archive
+     */
+    private void addStoredBlocks(final long firstZippedBlock, final long latestZippedBlock) {
+        try {
+            for (final BlockRange zipRange : zipBlockArchive.storedBlockRanges()) {
+                final long start = Math.max(zipRange.rangeStart(), firstZippedBlock);
+                final long end = Math.min(zipRange.rangeEnd(), latestZippedBlock);
+                if (start <= end) {
+                    availableBlocks.add(start, end);
+                }
+            }
+        } catch (final IOException e) {
+            final String message = "Could not list historic zip files, assuming no gaps in [%d, %d]"
+                    .formatted(firstZippedBlock, latestZippedBlock);
+            LOGGER.log(WARNING, message, e);
+            availableBlocks.add(firstZippedBlock, latestZippedBlock);
+        }
+        if (availableBlocks.rangeCount() > 1) {
+            LOGGER.log(INFO, "Historic archive has gaps on startup: {0}", availableBlocks);
         }
     }
 
@@ -219,6 +249,28 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     }
 
     /**
+     * Deletes accessor hard links left next to the zip archives by older versions.
+     *
+     * <p>Older versions created each accessor's temporary hard link beside its zip, named
+     * {@code <zip name>.<n>} (for example {@code 80000.zip.3}), and links left behind on shutdown or
+     * failure were never removed. This must run before any accessor exists. It only matches that
+     * name pattern inside numeric block directories, so it never touches a real archive.
+     */
+    void deleteStrayAccessorLinks(final Path archivesPath) {
+        try {
+            if (Files.isDirectory(archivesPath, LinkOption.NOFOLLOW_LINKS)) {
+                final StrayAccessorLinkDeleteVisitor visitor = new StrayAccessorLinkDeleteVisitor();
+                Files.walkFileTree(archivesPath, visitor);
+                if (visitor.deletedCount > 0) {
+                    LOGGER.log(INFO, "Deleted {0} stray accessor links from {1}", visitor.deletedCount, archivesPath);
+                }
+            }
+        } catch (final IOException e) {
+            LOGGER.log(WARNING, "Failed to delete stray accessor links", e);
+        }
+    }
+
+    /**
      * Checks if the archive path matches the expected path based on current configuration.
      * Returns {@code false} if the configuration has changed since the archive was created.
      *
@@ -230,28 +282,6 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     boolean checkZipBlockArchiveIntegrity(Path path, long firstZippedBlock) {
         final Path computedPath = computeBlockPath(config, firstZippedBlock).zipFilePath();
         return path.equals(computedPath);
-    }
-
-    /**
-     * Simple power of ten function that avoids the inaccuracies possible
-     * with floating point and also ensures the value must fit within
-     * a long.
-     *
-     * @param powerToCreate the exponent to raise 10 to.  This must be
-     *     between 1 and 18, inclusive.
-     * @return 10 raised to (powerToCreate), or -1 if the result would not
-     *     fit within a long primitive.
-     */
-    private long intPowerOfTen(final int powerToCreate) {
-        if (powerToCreate > 18 || powerToCreate < 1) {
-            return -1;
-        } else {
-            long currentTotal = 1;
-            for (int i = 0; i < powerToCreate; i++) {
-                currentTotal *= 10;
-            }
-            return currentTotal;
-        }
     }
 
     /**
@@ -746,6 +776,59 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                 throws IOException {
             if (e == null) {
                 Files.delete(Objects.requireNonNull(dir));
+                return CONTINUE;
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    /**
+     * Deletes regular files named {@code <digits>.zip.<digits>} whose parent directory name is all digits.
+     */
+    private class StrayAccessorLinkDeleteVisitor implements FileVisitor<Path> {
+        private static final Pattern STRAY_LINK_NAME = Pattern.compile("\\d+\\.zip\\.\\d+");
+        private static final Pattern BLOCK_DIRECTORY_NAME = Pattern.compile("\\d+");
+        private int deletedCount;
+
+        @Override
+        public FileVisitResult preVisitDirectory(final Path dir, final BasicFileAttributes attrs) {
+            Objects.requireNonNull(dir);
+            return CONTINUE;
+        }
+
+        @Override
+        @NonNull
+        public FileVisitResult visitFile(@NonNull final Path file, @NonNull final BasicFileAttributes attrs) {
+            Objects.requireNonNull(file);
+            final Path parent = file.getParent();
+            if (attrs.isRegularFile()
+                    && parent != null
+                    && parent.getFileName() != null
+                    && BLOCK_DIRECTORY_NAME
+                            .matcher(parent.getFileName().toString())
+                            .matches()
+                    && STRAY_LINK_NAME.matcher(file.getFileName().toString()).matches()) {
+                try {
+                    Files.delete(file);
+                    deletedCount++;
+                } catch (final IOException e) {
+                    LOGGER.log(INFO, "Failed to delete stray accessor link: %s".formatted(file), e);
+                }
+            }
+            return CONTINUE;
+        }
+
+        @Override
+        public FileVisitResult visitFileFailed(final Path file, final IOException exc) throws IOException {
+            throw Objects.requireNonNull(exc);
+        }
+
+        @Override
+        @NonNull
+        public FileVisitResult postVisitDirectory(@NonNull final Path dir, @Nullable final IOException e)
+                throws IOException {
+            if (e == null) {
                 return CONTINUE;
             } else {
                 throw e;

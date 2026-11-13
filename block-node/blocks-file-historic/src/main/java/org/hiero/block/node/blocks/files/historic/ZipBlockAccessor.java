@@ -17,6 +17,7 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
+import java.util.UUID;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
@@ -59,27 +60,10 @@ final class ZipBlockAccessor implements BlockAccessor {
             final String msg = INVALID_ZIP_FILE_PATH_MESSAGE.formatted(zipFilePath);
             throw new IOException(msg);
         }
-        final Path linkBase = linksRootPath.resolve(blockPath.zipFilePath());
-        zipFileLink = createTempLink(linkBase);
-    }
-
-    @NonNull
-    private Path createTempLink(final Path linkBase) throws IOException {
-        int count = 0;
-        Path candidateLink = linkBase;
-        while (Files.exists(candidateLink) && count < Integer.MAX_VALUE) {
-            candidateLink = getTempFilePath(linkBase, count++);
-        }
-        if (Files.exists(candidateLink)) {
-            final String message = "Unable to create link; more than %d links already created for %s";
-            throw new IOException(message.formatted(count, linkBase));
-        } else {
-            return Files.createLink(candidateLink, absoluteZipFilePath);
-        }
-    }
-
-    private Path getTempFilePath(Path baseFile, int currentCount) {
-        return baseFile.getParent().resolve(baseFile.getFileName() + "." + currentCount);
+        // A unique name under the links root, which is wiped on startup. Named without a ".zip" suffix
+        // so it is never counted as a stored archive.
+        final Path link = linksRootPath.resolve(UUID.randomUUID().toString());
+        zipFileLink = Files.createLink(link, absoluteZipFilePath);
     }
 
     @Override
