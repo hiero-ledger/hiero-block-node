@@ -59,7 +59,8 @@ spec:
         {{- end }}
         {{- end }}
       {{- $pluginsSource := include "hiero-block-node.pluginsSource" . }}
-      {{- $mavenPlugins := and (eq $pluginsSource "maven") .Values.plugins.names }}
+      {{- $pluginNames := include "hiero-block-node.pluginNames" . }}
+      {{- $mavenPlugins := and (eq $pluginsSource "maven") $pluginNames }}
       {{- if or .Values.blockNode.initContainers $mavenPlugins $claims.plugins }}
       initContainers:
         {{- with .Values.blockNode.initContainers }}
@@ -82,7 +83,7 @@ spec:
               {{- $defaultVersion := .Chart.AppVersion }}
 
               # Check if plugins are already resolved for this config
-              DESIRED_HASH=$(echo "{{ $defaultVersion }}:{{ .Values.plugins.names }}:{{ join "," .Values.plugins.thirdParty }}:{{ .Values.plugins.repositories | toJson }}" | sha256sum | cut -d' ' -f1)
+              DESIRED_HASH=$(echo "{{ $defaultVersion }}:{{ $pluginNames }}:{{ join "," .Values.plugins.thirdParty }}:{{ .Values.plugins.repositories | toJson }}" | sha256sum | cut -d' ' -f1)
               if [ -f /plugins/.resolved-hash ] && [ "$(cat /plugins/.resolved-hash)" = "$DESIRED_HASH" ]; then
                 echo "Plugins already resolved (config unchanged). Skipping."
                 exit 0
@@ -117,7 +118,7 @@ spec:
               {{- end }}
                 </repositories>
                 <dependencies>
-              {{- range (splitList "," .Values.plugins.names) }}
+              {{- range (splitList "," $pluginNames) }}
               {{- $entry := . | trim }}
               {{- if $entry }}
               {{- if contains ":" $entry }}
@@ -206,10 +207,10 @@ spec:
             {{- end }}
             protocol: TCP
           {{- include "hiero-block-node.pluginContainerPorts" (dict "Values" .Values "hostPorts" $hostPorts) | nindent 10 }}
-        {{- if and (eq $pluginsSource "image") .Values.plugins.names }}
+        {{- if and (eq $pluginsSource "image") $pluginNames }}
         env:
           - name: BN_PLUGINS
-            value: {{ .Values.plugins.names | quote }}
+            value: {{ $pluginNames | quote }}
         {{- end }}
         envFrom:
           - configMapRef:
@@ -333,7 +334,7 @@ spec:
         storageClassName: {{ .Values.blockNode.persistence.applicationState.storageClass }}
         {{- end }}
     {{- end }}
-    {{- if and .Values.plugins.names (not $claims.plugins) }}
+    {{- if and $pluginNames (not $claims.plugins) }}
     - metadata:
         name: {{ default "plugins-storage" .Values.blockNode.persistence.plugins.volumeName }}
       spec:

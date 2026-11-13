@@ -145,9 +145,50 @@ The Block Node uses a plugin architecture where functionality is loaded dynamica
 | `roster-bootstrap-rsa`   | Loads the RSA address-book history at startup, fetching it from a peer or Mirror Node if absent |
 | `roster-bootstrap-tss`   | Obtains the latest TSS data (ledger ID, WRAPS verification key) and publishes it to the node    |
 
+#### Plugin Profile Selector (`plugins.profile`)
+
+`plugins.profile` lets a deployer request a named plugin set with a single, stable value instead
+of copying the full `plugins.names` list. It is a stable, versioned part of this chart's values
+API: the value set is a public contract, while the underlying plugin lists (in the
+`values-overrides/plugin-profile-<name>.yaml` files) may change from release to release. The chart
+owns the plugin set, so a release that changes a profile is picked up by deployers with no change
+on their side beyond pulling the new chart.
+
+```bash
+# Request the remote-file-history plugin set — no file paths, no copied name list:
+helm install "${RELEASE}" charts/block-node-server --set plugins.profile=rfh
+```
+
+| Profile |                          Plugin set                           |
+|---------|---------------------------------------------------------------|
+| `lfh`   | Local Full History (the chart default set)                    |
+| `rfh`   | Remote Full History — cloud archiving, no local block storage |
+| `all`   | Every plugin                                                  |
+| `""`    | Selector not used (default); `plugins.names` applies          |
+
+**Precedence** (first match wins):
+
+1. an explicit non-empty `plugins.names` is used as-is. An explicit empty (`""`) `plugins.names`
+   also wins and keeps its meaning (plugins baked into the image, no Maven resolution); a profile
+   never overrides an intentional empty.
+2. otherwise a non-empty `plugins.profile` expands to the `plugins.names` from the matching
+   `values-overrides/plugin-profile-<profile>.yaml` file (read at render time via `.Files.Get`);
+3. otherwise the `plugins.names` chart default applies.
+
+An unrecognized `plugins.profile` fails templating with a clear message listing the available
+profiles — it never silently resolves to an empty or partial plugin set.
+
+**Single source of truth.** The `values-overrides/plugin-profile-<name>.yaml` files are the
+canonical definition of each plugin set. A non-empty `plugins.profile` is expanded by reading the
+matching file at render time (via `.Files.Get`), so the selector and the `-f` override files can
+never drift. Adding a new `values-overrides/plugin-profile-<name>.yaml` makes
+`plugins.profile=<name>` selectable automatically, with no edit to `values.yaml` or the templates.
+
 #### Pre-defined Profiles
 
-The chart includes pre-defined value override files in `values-overrides/`:
+The chart includes pre-defined value override files in `values-overrides/`. The
+`plugin-profile-*.yaml` files each define a plugin set (and back the `plugins.profile` selector
+above):
 
 ##### solo-dev.yaml
 
