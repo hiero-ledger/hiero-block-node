@@ -21,6 +21,8 @@
 #     bn_version=<resolved_version>
 #     relay_version=<resolved_version>
 #     tck_version=<resolved_version>
+#     cn_nova_wraps=true   (only when the CN was swapped for a pre-release build, see
+#                           resolve_published_nova_cn; callers must export it as CN_NOVA_WRAPS)
 
 set -o pipefail
 set +e
@@ -166,6 +168,86 @@ function enforce_nova_wraps_cn_floor {
     log_line "WARNING: Block Node ${bn_version} verifies only Nova WRAPS TSS block proofs, and CN ${cn_version} counts as earlier (a pre-release); set CN_NOVA_WRAPS=true if it carries the Nova WRAPS library"
     echo "${cn_version}"
   fi
+}
+
+# Returns 0 unless builds.hedera.com positively reports (HTTP 404) that no Consensus Node build
+# is published for the version. Solo downloads the CN from there, so a missing build only fails
+# late, inside Solo. A network error is not proof of a missing build and counts as published.
+# Arguments:
+#   $1 - CN version, with or without 'v' prefix (for example 0.79.0 or v0.80.0-alpha.5)
+function cn_build_published {
+  local version="${1#v}"
+  local base="${version%%-*}"
+  local major_minor="${base%.*}"
+  local url="https://builds.hedera.com/node/software/v${major_minor}/build-v${version}.sha384"
+  local code
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "${url}" 2>/dev/null)
+  [[ "${code}" != "404" ]]
+}
+
+# Lists the CN tags that are pre-releases of the given release, one per line (for example
+# v0.79.0-alpha.2 for 0.79.0).
+function list_cn_prerelease_tags {
+  local base="${1#v}"
+  curl -s -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${CN_REPO}/tags?per_page=100" \
+    | grep -o '"name": *"[^"]*"' | sed 's/"name": *"\([^"]*\)"/\1/' \
+    | grep -E "^v?${base//./\\.}-" 
+}
+
+# Makes sure the CN version raised to the Nova WRAPS floor has a published build. The floor is a
+# release (0.79.0) that may not exist yet. In that case the newest published pre-release of that
+# same release (0.79.0-X.Y) is used instead (it is taken to carry the Nova WRAPS library, which
+# the caller is told through cn_nova_wraps),
+# or the script fails with a clear message rather than letting Solo fail later on a 404.
+# Only acts when the CN equals the floor, i.e. when the floor was just applied or pinned.
+# Arguments:
+#   $1 - CN version after the Nova WRAPS floor was applied
+#   $2 - Resolved BN version string
+# Returns (via stdout):
+#   The CN version to use; sets nothing. Callers compare the result with their input.
+function resolve_published_nova_cn {
+  local cn_version="${1}"
+  local bn_version="${2}"
+
+  if [[ "${cn_version}" == *-SNAPSHOT || "${bn_version}" == *-SNAPSHOT || "${cn_version}" == *-* ]]; then
+    echo "${cn_version}"
+    return 0
+  fi
+  if [[ "$(compare_semver "${cn_version}" "${CN_NOVA_WRAPS_MIN_VERSION}")" != "0" ]]; then
+    echo "${cn_version}"
+    return 0
+  fi
+  if [[ "$(compare_semver "${bn_version}" "${NOVA_WRAPS_BN_MIN_VERSION}")" == "-1" ]]; then
+    echo "${cn_version}"
+    return 0
+  fi
+  if cn_build_published "${cn_version}"; then
+    echo "${cn_version}"
+    return 0
+  fi
+
+  if [[ "${CN_NOVA_WRAPS:-}" == "false" ]]; then
+    fail "ERROR: Consensus Node ${cn_version} has no published build on builds.hedera.com, and CN_NOVA_WRAPS=false rules out a Nova WRAPS pre-release. Pin an existing CN_VERSION." 1
+  fi
+
+  # Newest published pre-release of the floor version itself (0.79.0 -> 0.79.0-alpha.2, ...)
+  local candidate="" tag
+  while IFS= read -r tag; do
+    [[ -z "${tag}" ]] && continue
+    if [[ -n "${candidate}" && "$(compare_semver "${tag}" "${candidate}")" != "1" ]]; then
+      continue
+    fi
+    if cn_build_published "${tag}"; then
+      candidate="${tag}"
+    fi
+  done < <(list_cn_prerelease_tags "${cn_version}")
+  if [[ -n "${candidate}" ]]; then
+    log_line "WARNING: Consensus Node ${cn_version} has no published build yet; using its newest published pre-release ${candidate} (treated as Nova WRAPS)"
+    echo "${candidate#v}"
+    return 0
+  fi
+
+  fail "ERROR: Consensus Node ${cn_version} (the floor for Block Node ${bn_version}) has no published build on builds.hedera.com, and no published ${cn_version} pre-release was found. Pin CN_VERSION to an existing release, or use an older Block Node." 1
 }
 
 # Resolves the MN and BN minimum versions required for a given CN version.
@@ -382,7 +464,16 @@ function main {
   # Enforce CN minimum floor (lowest compatibility tier) and the floor a Nova WRAPS Block Node
   # needs, then derive MN/BN minimums from CN
   cn_resolved=$(enforce_minimum_version "${cn_resolved}" "${CN_MIN_VERSION}" "Consensus Node")
-  cn_resolved=$(enforce_nova_wraps_cn_floor "${cn_resolved}" "${bn_resolved}")
+  cn_resolved=$(enforce_nova_wraps_cn_floor "${cn_resolved}" "${bn_resolved}") || exit $?
+  local cn_floor_resolved cn_nova_wraps_out=""
+  cn_floor_resolved="${cn_resolved}"
+  cn_resolved=$(resolve_published_nova_cn "${cn_resolved}" "${bn_resolved}") || exit $?
+  if [[ "${cn_resolved}" != "${cn_floor_resolved}" ]]; then
+    # A pre-release counts as earlier unless told otherwise, so say it is Nova WRAPS: for the
+    # checks below and, through the cn_nova_wraps output, for the caller's deploy steps.
+    export CN_NOVA_WRAPS=true
+    cn_nova_wraps_out="true"
+  fi
   local compat_out mn_min bn_min
   compat_out=$(resolve_compatibility_mins "${cn_resolved}")
   mn_min=$(echo "${compat_out}" | grep "^mn_min=" | cut -d= -f2)
@@ -405,6 +496,9 @@ function main {
   echo "bn_version=${bn_resolved}"
   echo "relay_version=${relay_resolved}"
   echo "tck_version=${tck_resolved}"
+  if [[ -n "${cn_nova_wraps_out}" ]]; then
+    echo "cn_nova_wraps=${cn_nova_wraps_out}"
+  fi
 }
 
 main "$@"
