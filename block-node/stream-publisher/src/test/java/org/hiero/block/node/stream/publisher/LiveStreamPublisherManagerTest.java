@@ -468,7 +468,7 @@ class LiveStreamPublisherManagerTest {
                         generateContext(embHistorical, threadPoolManager, messagingFacility, embConfig);
                 embHistorical.init(embContext, null);
                 final LiveStreamPublisherManager embManager =
-                        new LiveStreamPublisherManager(embContext, generateManagerMetrics(), List.of());
+                        new LiveStreamPublisherManager(embContext, generateManagerMetrics());
                 embManager.addHandler(new TestResponsePipeline<>(), sharedHandlerMetrics, null);
                 assertThat(embManager.getActionForBlock(PRE_EMB_BLOCK, null, PRE_EMB_HANDLER_ID))
                         .isEqualTo(BlockAction.ACCEPT);

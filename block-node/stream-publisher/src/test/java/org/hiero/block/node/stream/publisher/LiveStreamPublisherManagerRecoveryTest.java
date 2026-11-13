@@ -122,12 +122,16 @@ class LiveStreamPublisherManagerRecoveryTest {
                 new TestApplicationStateFacility(),
                 null,
                 threadPoolManager,
-                null);
+                null,
+                null,
+                null,
+                new ArrayList<>(),
+                new ArrayList<>());
         historicalBlockFacility.init(context, null);
         final MetricRegistry registry = MetricRegistry.builder().build();
         managerMetrics = MetricsHolder.createMetrics(registry);
         handlerMetrics = PublisherHandler.MetricsHolder.createMetrics(registry);
-        manager = new LiveStreamPublisherManager(context, managerMetrics, List.of());
+        manager = new LiveStreamPublisherManager(context, managerMetrics);
     }
 
     /// Runs the action on `callers` threads that all start at the same moment.
