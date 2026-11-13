@@ -1591,9 +1591,70 @@ class BlockStreamSubscriberSessionTest {
                 executor.shutdownNow();
             }
 
-            // The first batch of every block must be its block header.
+            assertEveryBlockStartsWithHeader(pipeline.getOnNextCalls());
+        }
+
+        /**
+         * This test verifies that when the live queue holds only the tail of the next block to send,
+         * the discarded block is not lost: the session sends it, with its header, from the historical
+         * provider, and then carries on with the following block. Before the fix, the tail was sent in
+         * place of the block and the block was never sent from history.
+         */
+        @Test
+        @DisplayName("should send a block from history after discarding its headerless live tail")
+        void testDiscardedPartialLiveBlockIsSentFromHistory() throws Exception {
+            historicalBlockFacility.handleBlockItemsReceived(
+                    TestBlockBuilder.generateBlockWithNumber(0).asBlockItems(), false);
+            // Block 1 is already available from history, but only its tail is queued live.
+            historicalBlockFacility.handleBlockItemsReceived(
+                    TestBlockBuilder.generateBlockWithNumber(1).asBlockItems(), false);
+            // Released once two blocks have been completed (blocks 0 and 1, both from history).
+            final EndOfBlockLatchPipeline pipeline = new EndOfBlockLatchPipeline(2);
+            final TestBlockMessagingFacility messagingFacility = new TestBlockMessagingFacility();
+            final BlockNodeContext context =
+                    generateContext(blockNodeContext.configuration(), messagingFacility, historicalBlockFacility);
+            final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
+                    .startBlockNumber(0L)
+                    .endBlockNumber(-1L)
+                    .build();
+            final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
+                    SessionContext.create(clientId, request, context, TEST_BLOCK_READ_BULKHEAD),
+                    pipeline,
+                    context,
+                    sessionReadyLatch);
+
+            final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+            try {
+                final Future<BlockStreamSubscriberSession> sessionFuture = executor.submit(session);
+                assertThat(sessionReadyLatch.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                        .isTrue();
+                // Block 0 is sent from history; hold that send while the tail of block 1 arrives live.
+                assertThat(pipeline.firstSendStarted.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                        .isTrue();
+                messagingFacility.sendBlockItems(
+                        new BlockItems(List.of(sampleRoundHeaderUnparsed(1)), 1L, false, false));
+                messagingFacility.sendBlockItems(new BlockItems(List.of(sampleProofUnparsed(1)), 1L, false, true));
+                pipeline.releaseFirstSend.countDown();
+
+                assertThat(pipeline.blocksCompleted.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                        .isTrue();
+                session.close(Code.SUCCESS);
+                sessionFuture.get(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            } finally {
+                executor.shutdownNow();
+            }
+
+            assertEveryBlockStartsWithHeader(pipeline.getOnNextCalls());
+            // Blocks 0 and 1 are each sent whole, so exactly two block-items responses are expected.
+            assertThat(pipeline.getOnNextCalls())
+                    .filteredOn(r -> r.response().kind() == ResponseOneOfType.BLOCK_ITEMS)
+                    .hasSize(2);
+        }
+
+        /** Asserts the first batch of every block in the responses is its block header. */
+        private void assertEveryBlockStartsWithHeader(final List<SubscribeStreamResponseUnparsed> responses) {
             boolean expectHeader = true;
-            for (final SubscribeStreamResponseUnparsed response : pipeline.getOnNextCalls()) {
+            for (final SubscribeStreamResponseUnparsed response : responses) {
                 final ResponseOneOfType kind = response.response().kind();
                 if (kind == ResponseOneOfType.BLOCK_ITEMS) {
                     if (expectHeader) {
