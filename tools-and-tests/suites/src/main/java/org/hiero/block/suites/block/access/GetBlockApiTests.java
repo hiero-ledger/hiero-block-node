@@ -68,6 +68,20 @@ public class GetBlockApiTests extends BaseSuite {
             Thread.sleep(POLL_INTERVAL.toMillis());
         }
         blockStreamSimulatorApp.stop();
+        awaitNodeCaughtUp();
+    }
+
+    /**
+     * The node serves only blocks it has verified and persisted, which can lag the number of blocks the simulator
+     * has sent. The simulator is stopped, so the expected latest block is fixed; poll until the node reaches it so
+     * every test sees all published blocks.
+     */
+    private void awaitNodeCaughtUp() throws InterruptedException {
+        final long expectedLatest = blockStreamSimulatorApp.getStreamStatus().publishedBlocks() - 1;
+        final long deadline = System.nanoTime() + LATEST_BLOCK_TIMEOUT.toNanos();
+        while (!isLatest(getLatestBlock(blockAccessStub), expectedLatest) && System.nanoTime() < deadline) {
+            Thread.sleep(POLL_INTERVAL.toMillis());
+        }
     }
 
     @Test
@@ -106,17 +120,11 @@ public class GetBlockApiTests extends BaseSuite {
 
     @Test
     @DisplayName("Get a Single Block using API - Request Latest Block")
-    void requestLatestBlockUsingBlockAPI() throws InterruptedException {
-        // The node serves the last block it has verified and persisted, which can lag the number of blocks the
-        // simulator has sent. The simulator is stopped, so the expected value is fixed; poll until the node catches up.
+    void requestLatestBlockUsingBlockAPI() {
+        // Request the latest block (the node was already awaited in publishSomeBlocks)
+        final BlockResponse response = getLatestBlock(blockAccessStub);
         final long latestPublishedBlock =
                 blockStreamSimulatorApp.getStreamStatus().publishedBlocks() - 1;
-        final long deadline = System.nanoTime() + LATEST_BLOCK_TIMEOUT.toNanos();
-        BlockResponse response = getLatestBlock(blockAccessStub);
-        while (!isLatest(response, latestPublishedBlock) && System.nanoTime() < deadline) {
-            Thread.sleep(POLL_INTERVAL.toMillis());
-            response = getLatestBlock(blockAccessStub);
-        }
 
         // Verify the response
         assertNotNull(response, "Response should not be null");
