@@ -52,7 +52,7 @@ The BN automatically determines which proof type to verify based on the proof pr
 **In scope:**
 
 - Load the latest reference Consensus Node address book (node IDs + RSA public keys) from disk at BN startup.
-- Query a configured peer block node via gRPC `serverStatusDetail` when no local bootstrap file is present, before
+- Query a configured peer block node via gRPC `getAddressBook` when no local bootstrap file is present, before
   falling back to the Mirror Node. This reduces external dependency at startup time.
 - Fetch the roster from the Hedera Mirror Node `GET /api/v1/network/nodes` API when no local bootstrap file or
   usable peer response is available.
@@ -214,23 +214,25 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
 }
 ```
 
-**Address book in `serverStatusDetail`:** Once the history is loaded it is included in the
-`ServerStatusDetailResponse` returned by `BlockNodeService.serverStatusDetail()` (field 6), together with the latest
-era's `NodeAddressBook` (field 4), allowing peer BNs to bootstrap from it:
+**Address book through `getAddressBook`:** Once the history is loaded it is returned by
+`BlockNodeService.getAddressBook()` as the latest era's `NodeAddressBook` and, unless the request sets
+`exclude_history`, the `RangedAddressBookHistory`, allowing peer BNs to bootstrap from it:
 
 ```protobuf
-message ServerStatusDetailResponse {
-    // ... existing fields ...
-    NodeAddressBook node_address_book = 4;
-    RangedAddressBookHistory ranged_address_book_history = 6;
+message AddressBookResponse {
+    NodeAddressBook node_address_book = 1;
+    RangedAddressBookHistory ranged_address_book_history = 2;
 }
 ```
+
+`ServerStatusDetailResponse` carries the same data in the deprecated fields `node_address_book` (4) and
+`ranged_address_book_history` (6) until release 0.49.
 
 **`ApplicationStateFacility` extension:** The `updateAddressBookHistory(RangedAddressBookHistory)` method:
 - Merges adjacent eras with the same address book into one era. Histories built from Mirror Node data (the cloud bucket
 export behind bootstrap files, or the REST API refresh) start a new era whenever any node entry changes but keep only
 node IDs and RSA keys, so most eras repeat the previous one. Every block keeps the same address book, but the stored,
-persisted and `serverStatusDetail` history shrinks (mainnet: 238 eras, 12 MB to 69 eras, 3 MB).
+persisted and `getAddressBook` history shrinks (mainnet: 238 eras, 12 MB to 69 eras, 3 MB).
 - Ignores a merged history equal to the one already stored (returns `false`).
 - Writes the bootstrap file atomically (`.tmp`-then-rename).
 - Sends an `AddressBookHistoryNotification` through `BlockMessagingFacility` to each registered
@@ -275,8 +277,9 @@ final RangedAddressBookHistory history =
 ### 4.3 Peer Block Node Query
 
 When no bootstrap file is present, the plugin can query one or more configured peer block nodes via the gRPC
-`serverStatusDetail` RPC. This propagation model mirrors the `TssBootstrapPlugin` (issue #2296): each BN bootstraps
-from a peer, then exposes the data for others via its own `serverStatusDetail`.
+`getAddressBook` RPC. This propagation model mirrors the `TssBootstrapPlugin` (issue #2296): each BN bootstraps
+from a peer, then exposes the data for others via its own `getAddressBook`. A peer on an older version answers
+`UNIMPLEMENTED`; the plugin then reads the deprecated fields of `serverStatusDetail`.
 
 **How it works:**
 
@@ -295,8 +298,8 @@ The `AddressBookFetcher` class manages the peer query lifecycle:
    }
    ```
 2. At each scheduled tick `AddressBookFetcher.getRangedNodeAddressBookHistory()` iterates the peer list in order,
-   issuing a gRPC `serverStatusDetail(ServerStatusRequest)` call and extracting the `RangedAddressBookHistory` from
-   field 6 of the response.
+   issuing a gRPC `getAddressBook` call and extracting the `RangedAddressBookHistory` from the response (or, for a
+   peer that answers `UNIMPLEMENTED`, from field 6 of the `serverStatusDetail` response).
 3. Validation: a history is accepted if it contains **at least one era, and every `NodeAddress` entry in every era has
    a non-blank RSA public key**.
 4. The first peer returning a valid history wins; remaining peers are not queried for that tick.
@@ -561,8 +564,8 @@ sequenceDiagram
         par BN query (if blockNodeSourcesPath configured)
             loop every bnInitialQueryIntervalMillis until success
                 Plugin->>Fetcher: getRangedNodeAddressBookHistory()
-                Fetcher->>PeerBN: serverStatusDetail(ServerStatusRequest)
-                PeerBN-->>Fetcher: ServerStatusDetailResponse.rangedAddressBookHistory
+                Fetcher->>PeerBN: getAddressBook(AddressBookRequest)
+                PeerBN-->>Fetcher: AddressBookResponse.rangedAddressBookHistory
                 alt valid history (every NodeAddress has a non-blank RSA key)
                     Fetcher-->>Plugin: RangedAddressBookHistory
                     Plugin->>Facility: updateAddressBookHistory(history)
@@ -691,12 +694,12 @@ All metrics use the BN-standard category `blocknode` and must follow existing na
 
 **Plugin metrics** (`RsaRosterBootstrapPlugin` — category `blocknode`):
 
-|             Metric name              |  Type   | Labels |                                          Description                                           |
-|--------------------------------------|---------|--------|------------------------------------------------------------------------------------------------|
-| `blocknode_roster_entries_loaded`    | Gauge   | —      | Number of `NodeAddress` entries loaded at startup.                                             |
-| `blocknode_roster_load_duration_ms`  | Gauge   | —      | Time to load the RSA roster at startup in milliseconds.                                        |
-| `blocknode_rsa_roster_peer_requests` | Counter | —      | Number of gRPC `serverStatusDetail` requests made to peer block nodes by `AddressBookFetcher`. |
-| `blocknode_rsa_roster_peer_errors`   | Counter | —      | Number of failed gRPC requests to peer block nodes (exception thrown or connection refused).   |
+|             Metric name              |  Type   | Labels |                                         Description                                          |
+|--------------------------------------|---------|--------|----------------------------------------------------------------------------------------------|
+| `blocknode_roster_entries_loaded`    | Gauge   | —      | Number of `NodeAddress` entries loaded at startup.                                           |
+| `blocknode_roster_load_duration_ms`  | Gauge   | —      | Time to load the RSA roster at startup in milliseconds.                                      |
+| `blocknode_rsa_roster_peer_requests` | Counter | —      | Number of gRPC `getAddressBook` requests made to peer block nodes by `AddressBookFetcher`.   |
+| `blocknode_rsa_roster_peer_errors`   | Counter | —      | Number of failed gRPC requests to peer block nodes (exception thrown or connection refused). |
 
 **Verification service metrics** (`BlockVerificationService` — category `blocknode`):
 
