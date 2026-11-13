@@ -21,8 +21,6 @@
 #     bn_version=<resolved_version>
 #     relay_version=<resolved_version>
 #     tck_version=<resolved_version>
-#     cn_nova_wraps=true   (only when the CN was swapped for a pre-release build, see
-#                           resolve_published_nova_cn; callers must export it as CN_NOVA_WRAPS)
 
 set -o pipefail
 set +e
@@ -196,15 +194,16 @@ function list_cn_prerelease_tags {
 
 # Makes sure the CN version raised to the Nova WRAPS floor has a published build. The floor is a
 # release (0.79.0) that may not exist yet. In that case the newest published pre-release of that
-# same release (0.79.0-X.Y) is used instead (it is taken to carry the Nova WRAPS library, which
-# the caller is told through cn_nova_wraps),
-# or the script fails with a clear message rather than letting Solo fail later on a 404.
+# same release (0.79.0-X.Y) is used instead, or the script fails with a clear message rather
+# than letting Solo fail later on a 404. Such a pre-release counts as the earlier TSS library
+# (cn_is_nova_wraps), so the caller must pair it with a Block Node below
+# NOVA_WRAPS_BN_MIN_VERSION (see latest_pre_nova_block_node).
 # Only acts when the CN equals the floor, i.e. when the floor was just applied or pinned.
 # Arguments:
 #   $1 - CN version after the Nova WRAPS floor was applied
 #   $2 - Resolved BN version string
 # Returns (via stdout):
-#   The CN version to use; sets nothing. Callers compare the result with their input.
+#   The CN version to use. Callers compare the result with their input.
 function resolve_published_nova_cn {
   local cn_version="${1}"
   local bn_version="${2}"
@@ -226,10 +225,6 @@ function resolve_published_nova_cn {
     return 0
   fi
 
-  if [[ "${CN_NOVA_WRAPS:-}" == "false" ]]; then
-    fail "ERROR: Consensus Node ${cn_version} has no published build on builds.hedera.com, and CN_NOVA_WRAPS=false rules out a Nova WRAPS pre-release. Pin an existing CN_VERSION." 1
-  fi
-
   # Newest published pre-release of the floor version itself (0.79.0 -> 0.79.0-alpha.2, ...)
   local candidate="" tag
   while IFS= read -r tag; do
@@ -242,12 +237,28 @@ function resolve_published_nova_cn {
     fi
   done < <(list_cn_prerelease_tags "${cn_version}")
   if [[ -n "${candidate}" ]]; then
-    log_line "WARNING: Consensus Node ${cn_version} has no published build yet; using its newest published pre-release ${candidate} (treated as Nova WRAPS)"
+    log_line "WARNING: Consensus Node ${cn_version} has no published build yet; using its newest published pre-release ${candidate} (an earlier TSS library; the Block Node will be held below ${NOVA_WRAPS_BN_MIN_VERSION})"
     echo "${candidate#v}"
     return 0
   fi
 
   fail "ERROR: Consensus Node ${cn_version} (the floor for Block Node ${bn_version}) has no published build on builds.hedera.com, and no published ${cn_version} pre-release was found. Pin CN_VERSION to an existing release, or use an older Block Node." 1
+}
+
+# Newest Block Node GA release below NOVA_WRAPS_BN_MIN_VERSION, the newest one that verifies
+# the TSS block proofs of a CN on the earlier library.
+function latest_pre_nova_block_node {
+  local tag found=""
+  while IFS= read -r tag; do
+    [[ "${tag}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
+    [[ "$(compare_semver "${tag}" "${NOVA_WRAPS_BN_MIN_VERSION}")" == "-1" ]] || continue
+    if [[ -z "${found}" || "$(compare_semver "${tag}" "${found}")" == "1" ]]; then
+      found="${tag}"
+    fi
+  done < <(curl -s -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${BN_REPO}/releases?per_page=100" \
+    | grep -o '"tag_name": *"[^"]*"' | sed 's/"tag_name": *"\([^"]*\)"/\1/')
+  [[ -n "${found}" ]] || return 1
+  echo "${found}"
 }
 
 # Resolves the MN and BN minimum versions required for a given CN version.
@@ -465,14 +476,19 @@ function main {
   # needs, then derive MN/BN minimums from CN
   cn_resolved=$(enforce_minimum_version "${cn_resolved}" "${CN_MIN_VERSION}" "Consensus Node")
   cn_resolved=$(enforce_nova_wraps_cn_floor "${cn_resolved}" "${bn_resolved}") || exit $?
-  local cn_floor_resolved cn_nova_wraps_out=""
+  local cn_floor_resolved
   cn_floor_resolved="${cn_resolved}"
   cn_resolved=$(resolve_published_nova_cn "${cn_resolved}" "${bn_resolved}") || exit $?
-  if [[ "${cn_resolved}" != "${cn_floor_resolved}" ]]; then
-    # A pre-release counts as earlier unless told otherwise, so say it is Nova WRAPS: for the
-    # checks below and, through the cn_nova_wraps output, for the caller's deploy steps.
-    export CN_NOVA_WRAPS=true
-    cn_nova_wraps_out="true"
+  if [[ "${cn_resolved}" != "${cn_floor_resolved}" \
+      && "${bn_resolved}" != *-SNAPSHOT \
+      && "$(compare_semver "${bn_resolved}" "${NOVA_WRAPS_BN_MIN_VERSION}")" != "-1" ]]; then
+    # The CN is a pre-release on the earlier TSS library, which a Nova-only Block Node cannot
+    # verify: hold the Block Node below the Nova WRAPS minimum.
+    local bn_pre_nova
+    bn_pre_nova=$(latest_pre_nova_block_node) \
+      || fail "ERROR: Block Node ${bn_resolved} verifies only Nova WRAPS proofs and CN ${cn_resolved} is not on that library, but no older Block Node release was found. Pin BN_VERSION." 1
+    log_line "WARNING: Block Node ${bn_resolved} cannot verify CN ${cn_resolved}; using Block Node ${bn_pre_nova} instead"
+    bn_resolved="${bn_pre_nova}"
   fi
   local compat_out mn_min bn_min
   compat_out=$(resolve_compatibility_mins "${cn_resolved}")
@@ -496,9 +512,6 @@ function main {
   echo "bn_version=${bn_resolved}"
   echo "relay_version=${relay_resolved}"
   echo "tck_version=${tck_resolved}"
-  if [[ -n "${cn_nova_wraps_out}" ]]; then
-    echo "cn_nova_wraps=${cn_nova_wraps_out}"
-  fi
 }
 
 main "$@"
