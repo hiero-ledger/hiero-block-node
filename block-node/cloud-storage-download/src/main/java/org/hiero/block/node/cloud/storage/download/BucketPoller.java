@@ -182,7 +182,7 @@ class BucketPoller implements Runnable, ApplicationStateNotificationHandler {
             // the bucket is far enough ahead to pull once this block is complete in it
             final long target = last + config.aheadThresholdBlocks();
             try {
-                final long sourceNode = findMarker(nodes, target);
+                final long sourceNode = findBlock(nodes, target);
                 // TODO(#4097) skip the pull when a peer block node has the target block
                 if (sourceNode >= 0 && pull(last, target, sourceNode)) {
                     pulledUpTo = target;
@@ -198,30 +198,30 @@ class BucketPoller implements Runnable, ApplicationStateNotificationHandler {
         return pulledUpTo;
     }
 
-    /// Looks for the marker of a block in the folder of a random roster node, then in the
-    /// folder of one more random node, different from the first when there is more than one.
+    /// Looks for a block in the folder of a random roster node, then in the folder of one more
+    /// random node, different from the first when there is more than one.
     ///
-    /// @return the ID of the node whose folder holds the marker, `-1` when neither does
-    private long findMarker(final List<Long> nodes, final long block) throws IOException, S3ResponseException {
+    /// @return the ID of the node whose folder holds the block, `-1` when neither does
+    private long findBlock(final List<Long> nodes, final long block) throws IOException, S3ResponseException {
         final int size = nodes.size();
         final int first = ThreadLocalRandom.current().nextInt(size);
-        long sourceNode = hasMarker(nodes.get(first), block) ? nodes.get(first) : -1L;
+        long sourceNode = hasBlock(nodes.get(first), block) ? nodes.get(first) : -1L;
         if (sourceNode < 0 && size > 1) {
             final int second = (first + 1 + ThreadLocalRandom.current().nextInt(size - 1)) % size;
-            if (hasMarker(nodes.get(second), block)) {
+            if (hasBlock(nodes.get(second), block)) {
                 sourceNode = nodes.get(second);
             }
         }
         return sourceNode;
     }
 
-    private boolean hasMarker(final long nodeId, final long block) throws IOException, S3ResponseException {
-        final boolean found;
-        try (InputStream marker =
-                s3Client.openObjectStream(BlockKeys.markerKey(config.objectKeyPrefix(), nodeId, block))) {
-            found = marker != null;
-        }
-        return found;
+    /// Whether the block object exists in a node folder. The uploader writes each block with a
+    /// single PUT, so an object at the key is always complete. The check lists the key instead of
+    /// opening the object, so it does not start a download of the whole block.
+    private boolean hasBlock(final long nodeId, final long block) throws IOException, S3ResponseException {
+        final String key = BlockKeys.blockKey(config.objectKeyPrefix(), nodeId, block);
+        // the listing matches by prefix, so only an exact key counts
+        return s3Client.listObjectsPage(key, null, null, 1).keys().contains(key);
     }
 
     /// Pulls the blocks after the last stored block up to the target from the folder of the
