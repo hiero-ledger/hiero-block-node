@@ -21,7 +21,7 @@ tasks.startScripts {
     classpath = files()
     doLast {
         unixScript.writeText(
-            unixScript.readText().replace("MODULE_PATH=\n", selectPluginsSnippet.asFile.readText())
+            unixScript.readText().replace("MODULE_PATH=\n", selectPluginsSnippet.asFile.readText()),
         )
     }
 }
@@ -133,6 +133,7 @@ dependencies {
 
     // Cloud storage
     blockNodePlugins(project(":cloud-storage-archive"))
+    blockNodePlugins(project(":cloud-storage-download"))
     blockNodePlugins(project(":cloud-storage-expanded"))
 
     // Extended functionality
@@ -231,6 +232,7 @@ testModuleInfo {
     runtimeOnly("org.hiero.block.node.blocks.files.historic")
     runtimeOnly("org.hiero.block.node.blocks.files.recent")
     runtimeOnly("org.hiero.block.node.cloud.storage.archive")
+    runtimeOnly("org.hiero.block.node.cloud.storage.download")
     runtimeOnly("org.hiero.block.node.cloud.storage.expanded")
     runtimeOnly("org.hiero.block.node.health")
     runtimeOnly("org.hiero.block.node.messaging")
@@ -250,7 +252,9 @@ val copyRsaTestFixture =
     tasks.register<Copy>("copyRsaTestFixture") {
         description = "Copies the RSA bootstrap test fixture into build/tmp/data/config/"
         from(
-            layout.projectDirectory.file("src/test/resources/data/config/rsa-bootstrap-roster.json")
+            layout.projectDirectory.file(
+                "src/test/resources/data/config/rsa-bootstrap-roster.json",
+            ),
         )
         into(layout.buildDirectory.dir("tmp/data/config"))
     }
@@ -381,10 +385,10 @@ val assemblePluginCatalog =
             }
             File(outputDir, ".manifest")
                 .writeText(
-                    "version=$catalogVersion\nplugins=${pluginClasspaths.keys.sorted().joinToString(",")}\n"
+                    "version=$catalogVersion\nplugins=${pluginClasspaths.keys.sorted().joinToString(",")}\n",
                 )
             logger.lifecycle(
-                "Assembled plugin catalog: ${pluginClasspaths.size} plugins, ${copiedJars.size} unique jars"
+                "Assembled plugin catalog: ${pluginClasspaths.size} plugins, ${copiedJars.size} unique jars",
             )
         }
     }
