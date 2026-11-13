@@ -447,6 +447,9 @@ task reset-upgrade
 
 After a reset, `serverStatus` returns `firstAvailableBlock = lastAvailableBlock = uint64_max`
 (empty node). Configure backfill sources and enable greedy backfill to recover history.
+If the node also receives the live stream from a Consensus Node while it backfills, set
+`VERIFICATION_FIRST_ORDERED_BLOCK` before restarting it, see
+[Empty Block Node stalls while backfilling and receiving the live stream](../troubleshooting.md#empty-block-node-stalls-while-backfilling-and-receiving-the-live-stream).
 
 > See [Resetting and Upgrading the Block Node](../operations/resetting-and-upgrading-the-block-node.md) for full details.
 
