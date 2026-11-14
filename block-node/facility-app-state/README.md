@@ -15,7 +15,7 @@ plugins when it changes:
 | TSS data                      | `tssData()`                                                                       | `app.state.tssBootstrapFilePath` |
 | RSA address book history      | `rangedAddressBookHistory()`, `getAddressBookForBlock`                            | `app.state.rsaBootstrapFilePath` |
 | Stored block ranges           | `storedBlocks()`                                                                  | `app.state.blockRangesFilePath`  |
-| Available block ranges        | derived from `HistoricalBlockFacility`                                            | not persisted                    |
+| Available block ranges        | reported per provider plugin via `addAvailableBlockRange`                         | not persisted                    |
 | Known publishers, partners    | `knownPublishers()`, `inboundPartners()`, `outboundPartners()`                    | read from `app.state.*FilePath`  |
 | Backfill sources              | `backfillSources()`, `updateBackfillSources(...)`                                 | not persisted                    |
 | Next expected block           | `nextExpectedBlock()`, `updateExpectedBlock(...)`                                 | not persisted                    |
@@ -27,7 +27,7 @@ The API is the `org.hiero.block.node.spi.ApplicationStateFacility` interface in 
 extends `BlockNodePlugin`.
 
 - **Updates:** `updateTssData`, `updateAddressBookHistory`, `addStoredBlockRange`,
-  `updateAvailableBlocks`. An update is installed in memory immediately (compare-and-set, so older
+  `addAvailableBlockRange`, `removeAvailableBlockRange`. An update is installed in memory immediately (compare-and-set, so older
   data never replaces newer data), then persisted and dispatched from a single dispatcher thread, so
   a notification never carries older data than one already sent.
 - **Change notifications:** each accepted change is sent through the `BlockMessagingFacility` as a

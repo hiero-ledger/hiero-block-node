@@ -30,6 +30,7 @@ import java.util.logging.LogManager;
 import java.util.stream.Collectors;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.node.app.config.AutomaticEnvironmentVariableConfigSource;
 import org.hiero.block.node.app.config.BlockReadBulkheadConfig;
 import org.hiero.block.node.app.config.GlobalThrottleConfig;
@@ -44,7 +45,6 @@ import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.health.HealthFacility;
-import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.module.SemanticVersionUtility;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.hiero.metrics.LongGauge;
@@ -313,15 +313,15 @@ public class BlockNodeApp implements HealthFacility {
         state.set(State.RUNNING);
         serviceBuilder.startAll();
         // log the server has started
-        LOGGER.log(
-                INFO,
-                "Started BlockNode Server : State={0} HistoricBlockRange={1}",
-                state.get(),
-                historicalBlockFacility
-                        .availableBlocks()
-                        .streamRanges()
-                        .map(BlockRangeSet::toString)
-                        .collect(Collectors.joining(", ")));
+        if (LOGGER.isLoggable(DEBUG)) {
+            LOGGER.log(
+                    DEBUG,
+                    "Started BlockNode Server : State={0} HistoricBlockRange={1}",
+                    state.get(),
+                    applicationStateFacility.availableBlocks().stream()
+                            .map(BlockRange::toString)
+                            .collect(Collectors.joining(", ")));
+        }
         // Publish a metric with the full version in a label,
         // and the major version as the value.
         versionMetricInstance.set(BLOCK_NODE_VERSION.major());

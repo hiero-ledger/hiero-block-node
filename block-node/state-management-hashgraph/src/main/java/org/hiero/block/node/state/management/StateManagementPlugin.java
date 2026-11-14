@@ -25,6 +25,7 @@ import org.hiero.base.crypto.Hash;
 import org.hiero.base.file.FileSystemManager;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -249,17 +250,17 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                 .observe(this::currentBlockLag));
     }
 
-    /// Blocks between the latest block `historicalBlockProvider` has on hand and the currently
-    /// attested block. `0` if there's no historical facility, nothing available, or we're caught
-    /// up; never negative.
+    /// Blocks between the latest available block reported by the `ApplicationStateFacility` and the
+    /// currently attested block. `0` if there's no application state facility, nothing available, or
+    /// we're caught up; never negative.
     ///
     /// @return the current block lag
     private long currentBlockLag() {
-        final HistoricalBlockFacility historic = context == null ? null : context.historicalBlockProvider();
-        if (historic == null) {
+        final ApplicationStateFacility appState = context == null ? null : context.applicationStateFacility();
+        if (appState == null) {
             return 0L;
         }
-        final BlockRangeSet available = historic.availableBlocks();
+        final BlockRangeSet available = appState.availableBlockSet();
         if (available == null || available.size() == 0L) {
             return 0L;
         }
@@ -562,6 +563,14 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         return context == null ? null : context.historicalBlockProvider();
     }
 
+    /// The available blocks as reported to the `ApplicationStateFacility`, or `null` if there is no
+    /// application state facility.
+    @Nullable
+    private BlockRangeSet availableBlocksOrNull() {
+        final ApplicationStateFacility appState = context == null ? null : context.applicationStateFacility();
+        return appState == null ? null : appState.availableBlockSet();
+    }
+
     /// The block number apply expects next. Before the first apply (no snapshot restored) this
     /// is the oldest block history has, or `fallback` if history is empty or starts later.
     ///
@@ -573,7 +582,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             return Math.max(lastAppliedBlock, attested.blockNumber()) + 1L;
         }
         if (historic != null) {
-            final BlockRangeSet available = historic.availableBlocks();
+            final BlockRangeSet available = availableBlocksOrNull();
             if (available != null && available.size() > 0L) {
                 return Math.min(available.min(), fallback);
             }
@@ -645,8 +654,8 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         return lastAppliedBlock >= to;
     }
 
-    /// Latch readiness once the plugin is not halted and has applied through the latest block
-    /// history has on hand (or there is no history to catch up to). Caller holds `applyLock`.
+    /// Latch readiness once the plugin is not halted and has applied through the latest available
+    /// block per the `ApplicationStateFacility` (or there is no history to catch up to). Caller holds `applyLock`.
     ///
     /// @param historic the historical facility, may be `null`
     /// @return `false` only if the plugin is running and history holds blocks it has not applied
@@ -654,7 +663,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         if (applyHalted.get() || stopping.get()) {
             return true;
         }
-        final BlockRangeSet available = historic == null ? null : historic.availableBlocks();
+        final BlockRangeSet available = historic == null ? null : availableBlocksOrNull();
         if (available == null || available.size() == 0L || lastAppliedBlock >= available.max()) {
             stateIsCaughtUp.set(true);
             return true;
@@ -709,9 +718,10 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         }
     }
 
-    /// Apply, block by block, everything `historicalBlockProvider` has from the next expected
-    /// block to its latest, re-reading the latest each round so blocks persisted meanwhile are
-    /// included. Package-private so tests can drive it directly.
+    /// Apply, block by block, everything the `ApplicationStateFacility` reports as available from
+    /// the next expected block to the latest, reading each block from `historicalBlockProvider`
+    /// and re-reading the latest each round so blocks persisted meanwhile are included.
+    /// Package-private so tests can drive it directly.
     ///
     /// @return `true` if the plugin reached the latest available block (or there was nothing to
     ///     catch up to), `false` if it stopped short (hole, failed fetch or halt)
@@ -721,7 +731,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             return true;
         }
         while (!stopping.get() && !applyHalted.get()) {
-            final BlockRangeSet available = historic.availableBlocks();
+            final BlockRangeSet available = availableBlocksOrNull();
             if (available == null || available.size() == 0L) {
                 return true;
             }

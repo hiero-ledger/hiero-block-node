@@ -5,6 +5,7 @@ import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.Deque;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.NetworkConnection;
@@ -14,7 +15,11 @@ import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.api.TssData;
+import org.hiero.block.node.base.ranges.ConcurrentBlockRangeSet;
 import org.hiero.block.node.spi.ApplicationStateFacility;
+import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
+import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 
 /**
  * A configurable {@link ApplicationStateFacility} test fixture. The connection sets
@@ -27,6 +32,7 @@ public class TestApplicationStateFacility implements ApplicationStateFacility {
     private final Deque<NodeAddressBook> nodeAddressBookUpdates;
     private RangedAddressBookHistory addressBookHistory = null;
     private volatile long nextExpectedBlock = -1L;
+    private final ConcurrentBlockRangeSet availableBlocks = new ConcurrentBlockRangeSet();
 
     /** Non-empty sample network data used as the default for every connection set. */
     public static final NetworkData DEFAULT_NETWORK_DATA = NetworkData.newBuilder()
@@ -46,7 +52,21 @@ public class TestApplicationStateFacility implements ApplicationStateFacility {
     private NetworkData outboundPartners = DEFAULT_NETWORK_DATA;
     private NetworkData backfillSources = DEFAULT_NETWORK_DATA;
 
+    /** When set, the available blocks are read live from this facility instead of the reported ranges. */
+    private final HistoricalBlockFacility availableSource;
+
     public TestApplicationStateFacility() {
+        this(null);
+    }
+
+    /**
+     * Creates a facility whose available blocks are read live from the given historical block facility, for tests
+     * that control availability through a {@link HistoricalBlockFacility} fixture.
+     *
+     * @param availableSource the facility to read available blocks from, or null to track reported ranges
+     */
+    public TestApplicationStateFacility(final HistoricalBlockFacility availableSource) {
+        this.availableSource = availableSource;
         this.tssDataUpdates = new ConcurrentLinkedDeque<>();
         this.nodeAddressBookUpdates = new ConcurrentLinkedDeque<>();
     }
@@ -121,7 +141,29 @@ public class TestApplicationStateFacility implements ApplicationStateFacility {
     public void addStoredBlockRange(final BlockRange blockRange) {}
 
     @Override
-    public void updateAvailableBlocks() {}
+    public void addAvailableBlockRange(final BlockProviderPlugin provider, final BlockRange blockRange) {
+        availableBlocks.add(blockRange);
+    }
+
+    @Override
+    public void removeAvailableBlockRange(final BlockProviderPlugin provider, final BlockRange blockRange) {
+        availableBlocks.remove(blockRange);
+    }
+
+    @Override
+    public List<BlockRange> availableBlocks() {
+        return availableBlockSet().streamRanges().toList();
+    }
+
+    @Override
+    public BlockRangeSet availableBlockSet() {
+        return availableSource != null ? availableSource.availableBlocks() : availableBlocks;
+    }
+
+    @Override
+    public Optional<BlockProviderPlugin> blockProvider(final long blockNumber) {
+        return Optional.empty();
+    }
 
     @Override
     public NetworkData knownPublishers() {

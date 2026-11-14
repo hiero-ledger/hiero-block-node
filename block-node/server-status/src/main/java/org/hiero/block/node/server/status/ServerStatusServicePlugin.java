@@ -38,7 +38,6 @@ import org.hiero.block.node.spi.blockmessaging.AvailableBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
-import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
 import org.hiero.block.node.spi.throttle.ThrottleSpec;
 import org.hiero.metrics.LongCounter;
@@ -60,7 +59,7 @@ public class ServerStatusServicePlugin
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The block provider */
-    private HistoricalBlockFacility blockProvider;
+    private ApplicationStateFacility applicationState;
     /** The block node context, used to provide access to facilities */
     private volatile BlockNodeContext blockNodeContext;
     /** The earliest block number this node is configured to manage */
@@ -98,7 +97,7 @@ public class ServerStatusServicePlugin
         final ApplicationStateFacility stateFacility = blockNodeContext.applicationStateFacility();
         final ServerStatusResponse.Builder serverStatusResponseBuilder = ServerStatusResponse.newBuilder();
         // Read min and max from a single reference so both come from a consistent snapshot
-        final BlockRangeSet availableBlocks = blockProvider.availableBlocks();
+        final BlockRangeSet availableBlocks = applicationState.availableBlockSet();
         final long firstAvailableBlock = availableBlocks.min();
         final long highestAvailableBlock = availableBlocks.max();
         final long nextExpectedBlock = resolveNextExpectedBlock(
@@ -220,7 +219,7 @@ public class ServerStatusServicePlugin
     public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
         requireNonNull(serviceBuilder);
         this.blockNodeContext = requireNonNull(context);
-        this.blockProvider = requireNonNull(context.historicalBlockProvider());
+        this.applicationState = requireNonNull(context.applicationStateFacility());
         this.earliestManagedBlock =
                 context.configuration().getConfigData(NodeConfig.class).earliestManagedBlock();
 
@@ -343,7 +342,7 @@ public class ServerStatusServicePlugin
         if (!LOGGER.isLoggable(INFO)) {
             return;
         }
-        final BlockRangeSet availableBlocks = blockProvider.availableBlocks();
+        final BlockRangeSet availableBlocks = applicationState.availableBlockSet();
         final ApplicationStateFacility stateFacility = blockNodeContext.applicationStateFacility();
         final long managerExpectedBlock = stateFacility.nextExpectedBlock();
         final long publisherExpectedBlock = stateFacility.nextExpectedPublisherBlock();

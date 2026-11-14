@@ -81,9 +81,11 @@ grants less than configured. On high-latency links, raise the `tcp_rmem` / `tcp_
 | APP_STATE_UPDATE_SCAN_INTERVAL               | How often (ms) the application state facility checks whether stored block ranges need persisting. Minimum 100.                                                                                                                                                                                                                         | 500                                                                   |
 | APP_STATE_UPDATE_INITIAL_DELAY               | Delay (ms) before the application state facility begins its first scan.                                                                                                                                                                                                                                                                | 0                                                                     |
 
-Stored blocks are all blocks reported as persisted by any plugin. Block availability is derived
-from `HistoricalBlockFacility` at query time and is not persisted separately. The stored block
-range set is loaded at startup and persisted to disk automatically.
+Stored blocks are all blocks reported as persisted by any plugin. Block availability is tracked
+by the application state facility from the ranges each block provider plugin reports, at startup
+and whenever it gains or drops blocks. It is not restored from disk: providers report it again
+on every start. Blocks reported as available are also recorded as stored. The stored block range
+set is loaded at startup and persisted to disk automatically.
 
 #### RSA address book history vs. single-book file
 

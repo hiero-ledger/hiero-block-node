@@ -32,6 +32,7 @@ import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.app.fixtures.plugintest.TestApplicationStateFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -2159,7 +2160,15 @@ class BlockStreamSubscriberSessionTest {
             final TestBlockMessagingFacility messagingFacility,
             final SimpleInMemoryHistoricalBlockFacility historicalBlockFacility) {
         return new BlockNodeContext(
-                configuration, null, null, messagingFacility, historicalBlockFacility, null, null, null, null);
+                configuration,
+                null,
+                null,
+                messagingFacility,
+                historicalBlockFacility,
+                new TestApplicationStateFacility(historicalBlockFacility),
+                null,
+                null,
+                null);
     }
 
     /**

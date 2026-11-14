@@ -23,9 +23,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.NavigableMap;
+import java.util.Optional;
 import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
@@ -39,7 +44,9 @@ import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockRangesState;
+import org.hiero.block.node.base.ranges.CombinedBlockRangeSet;
 import org.hiero.block.node.base.ranges.ConcurrentBlockRangeSet;
+import org.hiero.block.node.base.ranges.ImmutableBlockRangeSet;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -49,8 +56,8 @@ import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.NextExpectedPublisherBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
+import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
-import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.metrics.ObservableGauge;
 import org.hiero.metrics.core.MetricKey;
 
@@ -65,8 +72,8 @@ import org.hiero.metrics.core.MetricKey;
 ///
 /// ## Failure handling
 /// The update methods (`updateTssData`, `updateAddressBookHistory`, `addStoredBlockRange`,
-/// `updateAvailableBlocks`) install the new value in memory and hand the persist and notification work
-/// to a single dispatcher thread. A failure in that work never reaches the calling plugin:
+/// `addAvailableBlockRange`, `removeAvailableBlockRange`) install the new value in memory and hand the persist
+/// and notification work to a single dispatcher thread. A failure in that work never reaches the calling plugin:
 /// - a failed write of a state file is logged at WARNING and the notification is still sent, so the
 ///   plugins stay informed even when the file could not be written;
 /// - any other exception thrown by a sync, for example from the messaging facility, goes to
@@ -94,9 +101,16 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility,
     ///
     /// @param available the available block ranges, in ascending order
     /// @param stored the stored block ranges, in ascending order
-    record BlockRangesSnapshot(List<BlockRange> available, List<BlockRange> stored) {
+    /// @param availableSet the available blocks as an immutable set, built once so readers need no copy
+    record BlockRangesSnapshot(List<BlockRange> available, List<BlockRange> stored, BlockRangeSet availableSet) {
         /// The state before any blocks have been reported.
-        static final BlockRangesSnapshot EMPTY = new BlockRangesSnapshot(List.of(), List.of());
+        static final BlockRangesSnapshot EMPTY =
+                new BlockRangesSnapshot(List.of(), List.of(), new ImmutableBlockRangeSet(List.of()));
+
+        /// Creates a snapshot, building the immutable set from the available ranges.
+        BlockRangesSnapshot(final List<BlockRange> available, final List<BlockRange> stored) {
+            this(available, stored, new ImmutableBlockRangeSet(available));
+        }
     }
 
     /// The logger for this class.
@@ -125,7 +139,9 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility,
     /// moment. Provider threads update it concurrently, so it is updated with `getAndUpdate` in
     /// `refreshBlockRanges` rather than plainly assigned.
     final AtomicReference<BlockRangesSnapshot> blockRanges = new AtomicReference<>(BlockRangesSnapshot.EMPTY);
-    /// Blocks reported as stored by plugins that do not serve them for retrieval
+    /// The blocks each provider plugin reports it provides. The available blocks are the union of these sets.
+    final ConcurrentMap<BlockProviderPlugin, ConcurrentBlockRangeSet> providerBlocks = new ConcurrentHashMap<>();
+    /// Blocks reported as stored, including those reported as available
     final ConcurrentBlockRangeSet storedBlocks = new ConcurrentBlockRangeSet();
     /// Known inbound publishers loaded from configuration on startup; exposed for /statusz/inbound.
     private final AtomicReference<NetworkData> knownPublishers = new AtomicReference<>(NetworkData.DEFAULT);
@@ -160,15 +176,14 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility,
         this.dispatcher = context.threadPoolManager()
                 .createSingleThreadExecutor(
                         "ApplicationStateDispatcher", ApplicationStateUtility::uncaughtExceptionHandler);
-        final HistoricalBlockFacility historicalBlocks = context.historicalBlockProvider();
         context.metricRegistry()
                 .register(ObservableGauge.builder(METRIC_APP_HISTORICAL_OLDEST_BLOCK)
                         .setDescription("The oldest block the BN has access to")
-                        .observe(() -> historicalBlocks.availableBlocks().min()));
+                        .observe(() -> availableBlockSet().min()));
         context.metricRegistry()
                 .register(ObservableGauge.builder(METRIC_APP_HISTORICAL_NEWEST_BLOCK)
                         .setDescription("The newest block the BN has")
-                        .observe(() -> historicalBlocks.availableBlocks().max()));
+                        .observe(() -> availableBlockSet().max()));
         context.blockMessaging().registerBlockNotificationHandler(this, false, name());
     }
 
@@ -186,7 +201,7 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility,
         // any handler, so it was lost. Clear the snapshots so the startup available and stored blocks
         // (including the stored ranges just loaded) are dispatched now, whatever init() already recorded.
         blockRanges.set(BlockRangesSnapshot.EMPTY);
-        updateAvailableBlocks();
+        refreshBlockRanges();
 
         // Periodically hand the persist-interval check to the dispatcher, so it never runs concurrently
         // with the other syncs.
@@ -244,10 +259,6 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility,
             persistNodeAddressBookHistory(history);
         }
         persistBlockRanges();
-    }
-
-    private HistoricalBlockFacility historicalBlockFacility() {
-        return context.historicalBlockProvider();
     }
 
     /// Periodically persists block ranges when the running total crosses a boundary.
@@ -455,9 +466,50 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility,
         }
     }
 
+    /// {@inheritDoc}
     @Override
-    public void updateAvailableBlocks() {
+    public void addAvailableBlockRange(final BlockProviderPlugin provider, final BlockRange blockRange) {
+        providerBlocks
+                .computeIfAbsent(provider, p -> new ConcurrentBlockRangeSet())
+                .add(blockRange);
+        storedBlocks.add(blockRange);
         refreshBlockRanges();
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public void removeAvailableBlockRange(final BlockProviderPlugin provider, final BlockRange blockRange) {
+        final ConcurrentBlockRangeSet providerSet = providerBlocks.get(provider);
+        if (providerSet != null) {
+            providerSet.remove(blockRange);
+            refreshBlockRanges();
+        }
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public List<BlockRange> availableBlocks() {
+        return blockRanges.get().available();
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public BlockRangeSet availableBlockSet() {
+        return blockRanges.get().availableSet();
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public Optional<BlockProviderPlugin> blockProvider(final long blockNumber) {
+        return providerBlocks.entrySet().stream()
+                .filter(entry -> entry.getValue().contains(blockNumber))
+                .map(Map.Entry::getKey)
+                .max(Comparator.comparingInt(BlockProviderPlugin::defaultPriority));
+    }
+
+    /// The union of the blocks reported by every provider, read live.
+    private BlockRangeSet liveAvailableBlocks() {
+        return new CombinedBlockRangeSet(providerBlocks.values().toArray(BlockRangeSet[]::new));
     }
 
     /// Recomputes the available and stored block lists from the live state and installs them together,
@@ -470,9 +522,9 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility,
     /// stored >= available. The function returns the very same pair when nothing changed.
     private void refreshBlockRanges() {
         final BlockRangesSnapshot previous = blockRanges.getAndUpdate(current -> {
-            final List<BlockRange> available =
-                    historicalBlockFacility().availableBlocks().toList();
-            final List<BlockRange> stored = mergeRanges(storedBlocks, available);
+            final BlockRangeSet liveAvailable = liveAvailableBlocks();
+            final List<BlockRange> available = liveAvailable.streamRanges().toList();
+            final List<BlockRange> stored = mergeRanges(storedBlocks, liveAvailable);
             return available.equals(current.available()) && stored.equals(current.stored())
                     ? current
                     : new BlockRangesSnapshot(available, stored);
@@ -607,9 +659,8 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility,
     }
 
     private BlockRangesState toBlockRangesState() {
-        final List<BlockRange> stored = storedBlocks.toList();
-        final List<BlockRange> available =
-                historicalBlockFacility().availableBlocks().toList();
+        final List<BlockRange> stored = storedBlocks.streamRanges().toList();
+        final List<BlockRange> available = liveAvailableBlocks().streamRanges().toList();
         return new BlockRangesState(stored, available);
     }
 

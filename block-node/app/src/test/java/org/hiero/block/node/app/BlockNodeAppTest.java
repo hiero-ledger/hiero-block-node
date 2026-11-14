@@ -622,7 +622,8 @@ class BlockNodeAppTest {
         when(provider.availableBlocks()).thenReturn(new ConcurrentBlockRangeSet(0, 10));
         doAnswer(invocation -> {
                     final BlockNodeContext context = invocation.getArgument(0);
-                    context.applicationStateFacility().updateAvailableBlocks();
+                    context.applicationStateFacility()
+                            .addAvailableBlockRange(provider, new org.hiero.block.api.BlockRange(0, 10));
                     return null;
                 })
                 .when(provider)
