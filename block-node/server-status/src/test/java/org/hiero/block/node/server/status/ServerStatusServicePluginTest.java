@@ -421,23 +421,33 @@ public class ServerStatusServicePluginTest
                 localPlugin,
                 localPlugin.methods().getFirst(),
                 new SimpleInMemoryHistoricalBlockFacility(),
-                Map.of(
-                        "throttle.serverStatus.ratePerSecond", "42",
-                        "throttle.serverStatus.burstTolerance", "7",
-                        "throttle.serverStatus.maxConcurrentPerClient", "3",
-                        "throttle.serverStatus.maxPermitHoldSeconds", "11",
-                        "throttle.serverStatusDetail.ratePerSecond", "20",
-                        "throttle.serverStatusDetail.maxPermitHoldSeconds", "61",
-                        "throttle.global.serverStatusMaxConcurrent", "99",
-                        "throttle.global.serverStatusDetailMaxConcurrent", "55"));
+                Map.ofEntries(
+                        Map.entry("throttle.serverStatus.ratePerSecond", "42"),
+                        Map.entry("throttle.serverStatus.burstTolerance", "7"),
+                        Map.entry("throttle.serverStatus.maxConcurrentPerClient", "3"),
+                        Map.entry("throttle.serverStatus.maxPermitHoldSeconds", "11"),
+                        Map.entry("throttle.serverStatusDetail.ratePerSecond", "20"),
+                        Map.entry("throttle.serverStatusDetail.maxPermitHoldSeconds", "61"),
+                        Map.entry("throttle.getAddressBook.ratePerSecond", "4"),
+                        Map.entry("throttle.getAddressBook.maxConcurrentPerClient", "2"),
+                        Map.entry("throttle.getTssData.burstTolerance", "6"),
+                        Map.entry("throttle.getTssData.maxPermitHoldSeconds", "30"),
+                        Map.entry("throttle.global.serverStatusMaxConcurrent", "99"),
+                        Map.entry("throttle.global.serverStatusDetailMaxConcurrent", "55"),
+                        Map.entry("throttle.global.getAddressBookMaxConcurrent", "77"),
+                        Map.entry("throttle.global.getTssDataMaxConcurrent", "88")));
 
         assertEquals(
                 Map.of(
                         "serverStatus", new PerClientThrottleSettings(42, 7, 3, 11),
-                        "serverStatusDetail", new PerClientThrottleSettings(20, 20, 5, 61)),
+                        "serverStatusDetail", new PerClientThrottleSettings(20, 20, 5, 61),
+                        "getAddressBook", new PerClientThrottleSettings(4, 10, 2, 60),
+                        "getTssData", new PerClientThrottleSettings(10, 6, 3, 30)),
                 localPlugin.perClientSettings(),
                 "each method gets its own settings; unset keys fall back to that method's defaults");
-        assertEquals(Map.of("serverStatus", 99, "serverStatusDetail", 55), localPlugin.globalConcurrencyCeilings());
+        assertEquals(
+                Map.of("serverStatus", 99, "serverStatusDetail", 55, "getAddressBook", 77, "getTssData", 88),
+                localPlugin.globalConcurrencyCeilings());
     }
 
     @Test
@@ -449,7 +459,27 @@ public class ServerStatusServicePluginTest
         assertEquals(10, localPlugin.perClientSettings().get("serverStatus").maxPermitHoldSeconds());
         assertEquals(
                 60, localPlugin.perClientSettings().get("serverStatusDetail").maxPermitHoldSeconds());
-        assertEquals(Map.of("serverStatus", 1000, "serverStatusDetail", 1000), localPlugin.globalConcurrencyCeilings());
+        assertEquals(
+                Map.of("serverStatus", 1000, "serverStatusDetail", 1000, "getAddressBook", 500, "getTssData", 500),
+                localPlugin.globalConcurrencyCeilings());
+    }
+
+    @Test
+    @DisplayName("The roster calls default to lower per-client limits than serverStatusDetail")
+    void rosterCallsDefaultToLowerLimitsThanDetail() {
+        final ServerStatusServicePlugin localPlugin = new ServerStatusServicePlugin();
+        start(localPlugin, localPlugin.methods().getFirst(), new SimpleInMemoryHistoricalBlockFacility(), Map.of());
+
+        final PerClientThrottleSettings detail = localPlugin.perClientSettings().get("serverStatusDetail");
+        for (final String method : new String[] {"getAddressBook", "getTssData"}) {
+            final PerClientThrottleSettings roster =
+                    localPlugin.perClientSettings().get(method);
+            assertEquals(new PerClientThrottleSettings(10, 10, 3, 60), roster, method + " defaults");
+            assertTrue(roster.ratePerSecond() < detail.ratePerSecond(), method + " rate is below the detail rate");
+            assertTrue(
+                    roster.maxConcurrentPerClient() < detail.maxConcurrentPerClient(),
+                    method + " concurrency is below the detail concurrency");
+        }
     }
 
     /**
