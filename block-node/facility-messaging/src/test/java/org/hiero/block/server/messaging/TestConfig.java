@@ -4,6 +4,7 @@ package org.hiero.block.server.messaging;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import java.util.ArrayList;
+import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
 import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
@@ -23,9 +24,21 @@ public class TestConfig {
      * @throws IllegalStateException if no ConfigurationBuilderFactory implementation is found
      */
     public static Configuration getConfig() {
-        return ConfigurationBuilder.create()
-                .withConfigDataType(MessagingConfig.class)
-                .build();
+        return getConfig(Map.of());
+    }
+
+    /**
+     * Helper method to get the configuration for the messaging service with some properties overridden.
+     *
+     * @param overrides property names mapped to the values to use instead of the defaults
+     * @return the configuration for the messaging service
+     */
+    public static Configuration getConfig(final Map<String, String> overrides) {
+        final ConfigurationBuilder builder = ConfigurationBuilder.create().withConfigDataType(MessagingConfig.class);
+        for (final Map.Entry<String, String> override : overrides.entrySet()) {
+            builder.withValue(override.getKey(), override.getValue());
+        }
+        return builder.build();
     }
 
     /**
@@ -33,8 +46,18 @@ public class TestConfig {
      * needed by messaging facility so far.
      */
     public static BlockNodeContext getBlockNodeContext() {
+        return getBlockNodeContext(getConfig());
+    }
+
+    /**
+     * A test context like {@link #getBlockNodeContext()}, using the given configuration.
+     *
+     * @param configuration the configuration to put in the context
+     * @return the test context
+     */
+    public static BlockNodeContext getBlockNodeContext(final Configuration configuration) {
         return new BlockNodeContext(
-                getConfig(),
+                configuration,
                 getMetrics(),
                 null,
                 null,
