@@ -11,9 +11,8 @@ import com.hedera.pbj.runtime.OneOf;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicIntegerArray;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.stream.IntStream;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed.ItemOneOfType;
@@ -157,54 +156,60 @@ public class BlockItemTest {
     }
 
     /**
-     * Test to verify that thread names are set correctly for block item handlers and that the correct thread type is
-     * used, i.e. virtual vs non-virtual.
+     * Handler threads are named after the handler, or "Unknown" when the handler has no name.
      */
     @Test
-    public void testThreadNameAndVirtualVsNonVirtual() {
-        // Create a MessagingService instance
-        BlockMessagingFacility service = new BlockMessagingFacilityImpl();
+    void handlerThreadIsNamedAfterHandler() throws InterruptedException {
+        final List<Thread> handlerThreads = captureHandlerThreads();
+        assertEquals("MessageHandler:FooBar", handlerThreads.get(0).getName());
+        assertEquals("MessageHandler:Unknown", handlerThreads.get(1).getName());
+    }
+
+    /**
+     * Every handler runs on its own platform thread, whatever its CPU intensive hint. A virtual thread waiting on the ring
+     * keeps the carrier threads busy.
+     */
+    @Test
+    void handlersRunOnPlatformThreads() throws InterruptedException {
+        final List<Thread> handlerThreads = captureHandlerThreads();
+        assertFalse(handlerThreads.get(0).isVirtual(), "Non CPU intensive handler should run on a platform thread");
+        assertFalse(handlerThreads.get(1).isVirtual(), "CPU intensive handler should run on a platform thread");
+    }
+
+    /**
+     * Register a non CPU intensive handler named "FooBar" and an unnamed CPU intensive handler, send one batch and
+     * return the threads the two handlers ran on, in that order.
+     */
+    private static List<Thread> captureHandlerThreads() throws InterruptedException {
+        final BlockMessagingFacility service = new BlockMessagingFacilityImpl();
         service.init(TestConfig.getBlockNodeContext(), null);
-        // collect thread names and virtual vs non-virtual flags
-        final AtomicReference<String> threadName1 = new AtomicReference<>();
-        final AtomicReference<String> threadName2 = new AtomicReference<>();
-        final AtomicBoolean handler1WasVirtual = new AtomicBoolean(false);
-        final AtomicBoolean handler2WasVirtual = new AtomicBoolean(false);
-        // Register a block item handler that just throws an exception
+        final AtomicReferenceArray<Thread> handlerThreads = new AtomicReferenceArray<>(2);
+        final CountDownLatch bothHandled = new CountDownLatch(2);
         service.registerBlockItemHandler(
                 (blockItems) -> {
-                    threadName1.set(Thread.currentThread().getName());
-                    handler1WasVirtual.set(Thread.currentThread().isVirtual());
+                    handlerThreads.set(0, Thread.currentThread());
+                    bothHandled.countDown();
                 },
                 false,
                 "FooBar");
         service.registerBlockItemHandler(
                 (blockItems) -> {
-                    threadName2.set(Thread.currentThread().getName());
-                    handler2WasVirtual.set(Thread.currentThread().isVirtual());
+                    handlerThreads.set(1, Thread.currentThread());
+                    bothHandled.countDown();
                 },
                 true,
                 null);
-        // start services and send empty block items
         service.start();
-        // send empty block items
-        service.sendBlockItems(new BlockItems(
-                List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(1)))),
-                0,
-                true,
-                false));
         try {
-            Thread.sleep(50);
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
+            service.sendBlockItems(new BlockItems(
+                    List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(1)))),
+                    0,
+                    true,
+                    false));
+            assertTrue(bothHandled.await(10, TimeUnit.SECONDS), "Handlers did not receive the batch");
+        } finally {
+            service.stop();
         }
-        service.stop();
-        // check thread names
-        assertEquals("MessageHandler:FooBar", threadName1.get());
-        assertEquals("MessageHandler:Unknown", threadName2.get());
-        // check that the first handler was virtual
-        assertTrue(handler1WasVirtual.get(), "Handler 1 should be virtual");
-        // check that the second handler was not virtual
-        assertFalse(handler2WasVirtual.get(), "Handler 2 should not be virtual");
+        return List.of(handlerThreads.get(0), handlerThreads.get(1));
     }
 }

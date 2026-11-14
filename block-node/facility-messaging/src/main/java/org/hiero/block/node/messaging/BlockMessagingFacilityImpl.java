@@ -3,6 +3,7 @@ package org.hiero.block.node.messaging;
 
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
+import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 
 import com.lmax.disruptor.BatchEventProcessor;
@@ -10,7 +11,7 @@ import com.lmax.disruptor.BatchEventProcessorBuilder;
 import com.lmax.disruptor.ExceptionHandler;
 import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.SequenceBarrier;
-import com.lmax.disruptor.SleepingWaitStrategy;
+import com.lmax.disruptor.WaitStrategy;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
 import java.io.InterruptedIOException;
@@ -147,19 +148,8 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     private LongCounter.Measurement handlerFailuresCounter;
 
     /**
-     * The thread factory used to create the virtual threads for the disruptor. Virtual threads are daemon threads by
-     * default.
-     */
-    public static final ThreadFactory VIRTUAL_THREAD_FACTORY = Thread.ofVirtual()
-            .name("messaging-service-handler", 0)
-            .uncaughtExceptionHandler((thread, throwable) -> LOGGER.log(
-                    Level.ERROR,
-                    "Uncaught exception in thread " + thread.getName() + ": " + throwable.getMessage(),
-                    throwable))
-            .factory();
-
-    /**
-     * The thread factory used to create the normal platform threads for the disruptor.
+     * The thread factory for the ring handler threads. Each handler is a dedicated, long-lived loop that mostly waits for
+     * the next message, so it gets its own platform thread rather than a virtual thread.
      */
     public static final ThreadFactory PLATFORM_THREAD_FACTORY = Thread.ofPlatform()
             .name("messaging-service-handler", 0)
@@ -235,15 +225,15 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         blockItemDisruptor = new Disruptor<>(
                 BlockItemBatchRingEvent::new,
                 messagingConfig.blockItemQueueSize(),
-                VIRTUAL_THREAD_FACTORY,
+                PLATFORM_THREAD_FACTORY,
                 ProducerType.SINGLE,
-                new SleepingWaitStrategy());
+                createWaitStrategy(messagingConfig));
         blockNotificationDisruptor = new Disruptor<>(
                 BlockNotificationRingEvent::new,
                 messagingConfig.blockNotificationQueueSize(),
-                VIRTUAL_THREAD_FACTORY,
+                PLATFORM_THREAD_FACTORY,
                 ProducerType.SINGLE,
-                new SleepingWaitStrategy());
+                createWaitStrategy(messagingConfig));
 
         // Initialize metrics
         initMetrics(context);
@@ -254,7 +244,22 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                 "BlockMessagingFacility initialized with block item queue size: {0} and block notification queue size: {1}",
                 messagingConfig.blockItemQueueSize(),
                 messagingConfig.blockNotificationQueueSize());
+        LOGGER.log(
+                INFO,
+                "Messaging rings use wait strategy {0} with yield timeout {1,number,#} us",
+                messagingConfig.waitStrategy(),
+                messagingConfig.waitStrategyYieldTimeoutMicros());
         messageForwarder = context.threadPoolManager().createSingleThreadExecutor("messageForwarder");
+    }
+
+    /**
+     * Create the wait strategy for one ring. Every ring needs its own instance.
+     *
+     * @param messagingConfig the messaging configuration
+     * @return a new wait strategy for a ring
+     */
+    private static WaitStrategy createWaitStrategy(final MessagingConfig messagingConfig) {
+        return messagingConfig.waitStrategy().create(messagingConfig.waitStrategyYieldTimeoutMicros());
     }
 
     /**
@@ -391,7 +396,6 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             // if the disruptor is already running, we need to register the handler with the disruptor
             registerHandler(
                     handler,
-                    cpuIntensiveHandler,
                     handlerName,
                     blockItemDisruptor.getRingBuffer(),
                     informedEventHandler,
@@ -400,15 +404,14 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         } else {
             // if the disruptor is not running, we need to add the handler to the list of pre-registered handlers
             preRegisteredBlockItemHandlers.add(
-                    new PreRegisteredBlockItemHandler(handler, informedEventHandler, cpuIntensiveHandler, handlerName));
+                    new PreRegisteredBlockItemHandler(handler, informedEventHandler, handlerName));
         }
 
         // log the registration of the handler
         LOGGER.log(
                 DEBUG,
-                "Registering block item handler: {0}, cpuIntensive: {1}, handlerName: {2}",
+                "Registering block item handler: {0}, handlerName: {1}",
                 handler.getClass().getSimpleName(),
-                cpuIntensiveHandler,
                 handlerName);
     }
 
@@ -439,7 +442,6 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         if (blockItemDisruptor.hasStarted()) {
             registerHandler(
                     handler,
-                    cpuIntensiveHandler,
                     handlerName,
                     blockItemDisruptor.getRingBuffer(),
                     informedEventHandler,
@@ -448,15 +450,14 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         } else {
             // if the disruptor is not running, we need to add the handler to the list of pre-registered handlers
             preRegisteredBlockItemHandlers.add(
-                    new PreRegisteredBlockItemHandler(handler, informedEventHandler, cpuIntensiveHandler, handlerName));
+                    new PreRegisteredBlockItemHandler(handler, informedEventHandler, handlerName));
         }
 
         // log the registration of the handler
         LOGGER.log(
                 DEBUG,
-                "Registering no backpressure block item handler: {0}, cpuIntensive: {1}, handlerName: {2}",
+                "Registering no backpressure block item handler: {0}, handlerName: {1}",
                 handler.getClass().getSimpleName(),
-                cpuIntensiveHandler,
                 handlerName);
     }
 
@@ -637,21 +638,19 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         if (blockNotificationDisruptor.hasStarted()) {
             registerHandler(
                     handler,
-                    cpuIntensiveHandler,
                     handlerName,
                     blockNotificationDisruptor.getRingBuffer(),
                     informedEventHandler,
                     applicationStateNotificationHandlerToEventProcessor,
                     applicationStateNotificationHandlerToThread);
         } else {
-            preRegisteredApplicationStateNotificationHandlers.add(new PreRegisteredApplicationStateNotificationHandler(
-                    handler, informedEventHandler, cpuIntensiveHandler, handlerName));
+            preRegisteredApplicationStateNotificationHandlers.add(
+                    new PreRegisteredApplicationStateNotificationHandler(handler, informedEventHandler, handlerName));
         }
         LOGGER.log(
                 DEBUG,
-                "Registering application state notification handler: {0}, cpuIntensive: {1}, handlerName: {2}",
+                "Registering application state notification handler: {0}, handlerName: {1}",
                 handler.getClass().getSimpleName(),
-                cpuIntensiveHandler,
                 handlerName);
     }
 
@@ -701,7 +700,6 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             // if the disruptor is already running, we need to register the handler with the disruptor
             registerHandler(
                     handler,
-                    cpuIntensiveHandler,
                     handlerName,
                     blockNotificationDisruptor.getRingBuffer(),
                     informedEventHandler,
@@ -709,16 +707,15 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                     blockNotificationHandlerToThread);
         } else {
             // if the disruptor is not running, we need to add the handler to the list of pre-registered handlers
-            preRegisteredBlockNotificationHandlers.add(new PreRegisteredBlockNotificationHandler(
-                    handler, informedEventHandler, cpuIntensiveHandler, handlerName));
+            preRegisteredBlockNotificationHandlers.add(
+                    new PreRegisteredBlockNotificationHandler(handler, informedEventHandler, handlerName));
         }
 
         // log the registration of the handler
         LOGGER.log(
                 DEBUG,
-                "Registering block notification handler: {0}, cpuIntensive: {1}, handlerName: {2}",
+                "Registering block notification handler: {0}, handlerName: {1}",
                 handler.getClass().getSimpleName(),
-                cpuIntensiveHandler,
                 handlerName);
     }
 
@@ -746,7 +743,6 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         for (var preRegisteredHandler : preRegisteredBlockItemHandlers) {
             registerHandler(
                     preRegisteredHandler.handler(),
-                    preRegisteredHandler.cpuIntensiveHandler(),
                     preRegisteredHandler.handlerName(),
                     blockItemDisruptor.getRingBuffer(),
                     preRegisteredHandler.informedHandler(),
@@ -759,7 +755,6 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         for (var preRegisteredHandler : preRegisteredBlockNotificationHandlers) {
             registerHandler(
                     preRegisteredHandler.handler(),
-                    preRegisteredHandler.cpuIntensiveHandler(),
                     preRegisteredHandler.handlerName(),
                     blockNotificationDisruptor.getRingBuffer(),
                     preRegisteredHandler.informedHandler(),
@@ -772,7 +767,6 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         for (var preRegisteredHandler : preRegisteredApplicationStateNotificationHandlers) {
             registerHandler(
                     preRegisteredHandler.handler(),
-                    preRegisteredHandler.cpuIntensiveHandler(),
                     preRegisteredHandler.handlerName(),
                     blockNotificationDisruptor.getRingBuffer(),
                     preRegisteredHandler.informedHandler(),
@@ -847,7 +841,6 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      * @param <H> the type of the GatingHandler
      * @param <E> the type of the event
      * @param handler the handler to register
-     * @param cpuIntensiveHandler hint to the service that this handler is CPU intensive vs IO intensive
      * @param handlerName the name of the handler, used for thread name and logging
      * @param ringBuffer the ring buffer to register with
      * @param informedEventHandler the event handler to call when an event is published
@@ -856,7 +849,6 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      */
     private <H extends GatingHandler, E> void registerHandler(
             final H handler,
-            final boolean cpuIntensiveHandler,
             final String handlerName,
             final RingBuffer<E> ringBuffer,
             final InformedEventHandler<E> informedEventHandler,
@@ -885,10 +877,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             // subscriber this fills liveBlockQueue and bypasses the historical read path.
             batchEventProcessor.getSequence().set(ringBuffer.getCursor());
         }
-        // Create the new virtual thread to power the batch processor
-        final Thread handlerThread = cpuIntensiveHandler
-                ? PLATFORM_THREAD_FACTORY.newThread(batchEventProcessor)
-                : VIRTUAL_THREAD_FACTORY.newThread(batchEventProcessor);
+        final Thread handlerThread = PLATFORM_THREAD_FACTORY.newThread(batchEventProcessor);
         handlerThread.setName("MessageHandler:" + name);
         // keep track of the event processor & thread so we can stop them later
         handlerToEventProcessor.put(handler, batchEventProcessor);
@@ -1053,13 +1042,11 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      *
      * @param handler the block item handler
      * @param informedHandler the event handler to call when an event is published
-     * @param cpuIntensiveHandler hint to the service that this handler is CPU intensive vs IO intensive
      * @param handlerName the name of the handler, used for thread name and logging
      */
     private record PreRegisteredBlockItemHandler(
             BlockItemHandler handler,
             InformedEventHandler<BlockItemBatchRingEvent> informedHandler,
-            boolean cpuIntensiveHandler,
             String handlerName) {}
 
     /**
@@ -1067,13 +1054,11 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      *
      * @param handler the block notification handler
      * @param informedHandler the informed event handler
-     * @param cpuIntensiveHandler hint to the service that this handler is CPU intensive vs IO intensive
      * @param handlerName the name of the handler, used for thread name and logging
      */
     private record PreRegisteredBlockNotificationHandler(
             BlockNotificationHandler handler,
             InformedEventHandler<BlockNotificationRingEvent> informedHandler,
-            boolean cpuIntensiveHandler,
             String handlerName) {}
 
     /**
@@ -1081,12 +1066,10 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      *
      * @param handler the application state notification handler
      * @param informedHandler the informed event handler
-     * @param cpuIntensiveHandler hint to the service that this handler is CPU intensive vs IO intensive
      * @param handlerName the name of the handler, used for thread name and logging
      */
     private record PreRegisteredApplicationStateNotificationHandler(
             ApplicationStateNotificationHandler handler,
             InformedEventHandler<BlockNotificationRingEvent> informedHandler,
-            boolean cpuIntensiveHandler,
             String handlerName) {}
 }
