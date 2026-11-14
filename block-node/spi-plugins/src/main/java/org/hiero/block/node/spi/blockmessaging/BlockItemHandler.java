@@ -6,7 +6,7 @@ package org.hiero.block.node.spi.blockmessaging;
  */
 public interface BlockItemHandler extends GatingHandler {
     /**
-     * Handle a list of block items. Always called on handler thread. Each registered handler will have its own virtual
+     * Handle a list of block items. Always called on handler thread. Each registered handler will have its own platform
      * thread.
      * <p>
      * When you get block items they could be the start of a block, starting with a header or middle block items, or end
