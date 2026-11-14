@@ -278,7 +278,7 @@ Observes the server status API that provides information about the node.
 ### Throttle
 
 **Plugin:** `server-status [block-node-server-status]`
-Per-client and node-wide throttling of the `serverStatus` and `serverStatusDetail` methods. See [Throttle Configuration](./configuration.md#throttle-configuration).
+Per-client and node-wide throttling of the `serverStatus`, `serverStatusDetail`, `getAddressBook` and `getTssData` methods. See [Throttle Configuration](./configuration.md#throttle-configuration).
 
 |  Type   |               Name                |                                                                                   Description                                                                                    |
 |---------|-----------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|

@@ -471,10 +471,11 @@ See [Preparing for WRB Cutover](./operations/preparing-your-block-node-for-wrb-c
 A gRPC endpoint (`BlockNodeService.serverStatus`) that returns metadata about a Block
 Node's current state: `first_available_block`, `last_available_block`, and
 `only_latest_state`. These three fields are the only fields on `ServerStatusResponse`.
-The extended `ServerStatusDetailResponse` provides extended detail, including
-`version_information`, `node_address_book`, `available_ranges`, `stored_ranges`, `tss_data`,
-and `ranged_address_book_history`. Note: the extended response does not carry the fields
-returned in the base response.
+The extended `ServerStatusDetailResponse` (`BlockNodeService.serverStatusDetail`) provides extended detail:
+`version_information`, `available_ranges` and `stored_ranges`. It also carries `tss_data`,
+`node_address_book` and `ranged_address_book_history`, which are deprecated and not provided as of release 0.49.
+Use `BlockNodeService.getAddressBook` and `BlockNodeService.getTssData` for that data. Note: the extended response
+does not carry the fields returned in the base response.
 
 ### Simulator
 
@@ -569,8 +570,8 @@ Two options:
 - **Peer-query:** `roster.bootstrap.tss.blockNodeSourcesPath` — a JSON file listing peer Block
   Nodes to query for TSS bootstrap data at startup.
 
-Successful loading is confirmed by a non-empty `tss_data` field in the `serverStatusDetail`
-response.
+Successful loading is confirmed by a non-empty `tss_data` field in the `getTssData` response
+(or, on a node that does not have that call, in the `serverStatusDetail` response).
 See also: [RSA Bootstrap Roster](#rsa-bootstrap-roster), [TSS (hinTS)](#tss-hints).
 See [Preparing for WRB Cutover](./operations/preparing-your-block-node-for-wrb-cutover.md).
 

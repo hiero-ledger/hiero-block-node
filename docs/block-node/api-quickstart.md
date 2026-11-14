@@ -54,12 +54,12 @@ All `grpcurl` commands below assume you are running from `~/bn-proto`.
 Each Block Node service listens on its own dedicated port. Previewnet is already deployed with
 per-service ports; testnet and mainnet will be updated before the v0.76 release.
 
-|                          Service                          | Port  |  Protocol  |
-|-----------------------------------------------------------|-------|------------|
-| `BlockStreamSubscribeService` (`subscribeBlockStream`)    | 40980 | gRPC (h2c) |
-| `BlockAccessService` (`getBlock`)                         | 40981 | gRPC (h2c) |
-| `BlockNodeService` (`serverStatus`, `serverStatusDetail`) | 40982 | gRPC (h2c) |
-| Health (`/healthz`, `/readyz`)                            | 40983 | HTTP       |
+|                                          Service                                          | Port  |  Protocol  |
+|-------------------------------------------------------------------------------------------|-------|------------|
+| `BlockStreamSubscribeService` (`subscribeBlockStream`)                                    | 40980 | gRPC (h2c) |
+| `BlockAccessService` (`getBlock`)                                                         | 40981 | gRPC (h2c) |
+| `BlockNodeService` (`serverStatus`, `serverStatusDetail`, `getAddressBook`, `getTssData`) | 40982 | gRPC (h2c) |
+| Health (`/healthz`, `/readyz`)                                                            | 40983 | HTTP       |
 
 Connect with `-plaintext` for all public endpoints - TLS is terminated upstream at the load balancer.
 
@@ -120,8 +120,8 @@ The response includes `firstAvailableBlock` and `lastAvailableBlock`.
 
 ### 2. Get extended node status
 
-`serverStatusDetail` returns the Block Node software version, stream proto version, and the
-list of installed plugins with their versions.
+`serverStatusDetail` returns the Block Node software version, stream proto version, the
+list of installed plugins with their versions, and the available and stored block ranges.
 
 ```bash
 grpcurl -plaintext -emit-defaults \
@@ -131,6 +131,40 @@ grpcurl -plaintext -emit-defaults \
   s01.test.blk.sgp.lat.ope.eng.hashgraph.io:40982 \
   org.hiero.block.api.BlockNodeService/serverStatusDetail
 ```
+
+A request with no fields returns every part. To keep the response small, set the exclude flags:
+`exclude_versions`, `exclude_available_ranges` and `exclude_stored_ranges`. For example, to ask only for the
+available ranges:
+
+```bash
+grpcurl -plaintext -emit-defaults \
+  -import-path . \
+  -proto block-node/api/node_service.proto \
+  -d '{"exclude_versions": true, "exclude_stored_ranges": true}' \
+  s01.test.blk.sgp.lat.ope.eng.hashgraph.io:40982 \
+  org.hiero.block.api.BlockNodeService/serverStatusDetail
+```
+
+`serverStatusDetail` also still returns the TSS data, the latest address book and the address book history. Those
+fields are deprecated and are not provided as of release 0.49. Use the calls below instead.
+
+#### Address book and TSS data
+
+`getAddressBook` returns the address book (node ids and RSA public keys) and `getTssData` returns the TSS data (ledger
+id and roster). Both return the latest value and, unless `exclude_history` is set, the history by block range.
+
+```bash
+grpcurl -plaintext -emit-defaults \
+  -import-path . \
+  -proto block-node/api/node_service.proto \
+  -d '{"exclude_history": true}' \
+  s01.test.blk.sgp.lat.ope.eng.hashgraph.io:40982 \
+  org.hiero.block.api.BlockNodeService/getAddressBook
+```
+
+Use `org.hiero.block.api.BlockNodeService/getTssData` for the TSS data. If the node has no data yet the response is
+valid and the fields are empty. A node on an older version does not have these calls and answers `UNIMPLEMENTED`; call
+`serverStatusDetail` instead.
 
 ### 3. Retrieve a single block
 

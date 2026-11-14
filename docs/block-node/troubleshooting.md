@@ -398,7 +398,7 @@ Use the runbooks below during incidents. Each follows a consistent pattern:
    - For `MISSING_VERIFICATION_DATA` with TSS block proofs: the TSS bootstrap data is missing or not accessible inside the container. On a fresh genesis network the Block Node reads TSS data from block 0 automatically; no bootstrap file is needed. If you see this error on a non-genesis network:
      - Default TSS bootstrap path: `/opt/hiero/block-node/application-state/tss-bootstrap-roster.json` (`app.state.tssBootstrapFilePath`). See [Configure TSS bootstrap](./operations/preparing-your-block-node-for-wrb-cutover.md#configure-tss-bootstrap-if-tss-is-enabled) for both delivery options.
 4. **Verification**
-   - After providing the missing bootstrap data and restarting the Block Node, query `serverStatusDetail`. A non-empty `nodeAddressBook` field confirms the RSA roster loaded; a non-empty `tssData` field confirms TSS data loaded.
+   - After providing the missing bootstrap data and restarting the Block Node, query `getAddressBook` and `getTssData`. A non-empty `nodeAddressBook` field confirms the RSA roster loaded; a non-empty `tssData` field confirms TSS data loaded. A node on an older version answers `UNIMPLEMENTED`; query `serverStatusDetail` instead, which returns the same fields.
 
 ---
 
