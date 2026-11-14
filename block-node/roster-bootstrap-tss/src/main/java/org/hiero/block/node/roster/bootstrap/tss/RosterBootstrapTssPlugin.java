@@ -158,7 +158,7 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
 
         // Create thread executors via threadPoolManager.
         queryPeerExecutor = context.threadPoolManager()
-                .createVirtualThreadScheduledExecutor(1, "queryPeerScanner", this::uncaughtExceptionHandler);
+                .createScheduledExecutor(1, "queryPeerScanner", this::uncaughtExceptionHandler);
 
         // Schedule periodic checking of bn peers for their TssData
         // Should start immediately, initialDelay=0, as this is during plugin startup

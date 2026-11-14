@@ -2,9 +2,11 @@
 package org.hiero.block.node.block.verification.session;
 
 import java.util.Objects;
+import java.util.concurrent.BlockingDeque;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.node.block.verification.BadBlockDumper;
@@ -41,12 +43,14 @@ public final class CompletableVerificationSession implements BlockVerificationSe
     private final VerificationOutbox outbox;
     /// The last successfully verified block, shared across sessions.
     private final AtomicLong lastVerifiedBlock;
+    /// Wakes sessions waiting for the last verified block to move.
+    private final LastVerifiedBlockSignal lastVerifiedBlockSignal;
     /// The set of recently verified blocks, shared across sessions.
     private final ConcurrentLinkedDeque<Long> recentlyVerifiedBlocks;
     /// Provider of the verification data (TSS data and RSA public keys).
     private final VerificationDataProvider verificationDataProvider;
     /// The deque through which the block's item batches are supplied to the hashing stage.
-    private final ConcurrentLinkedDeque<BlockItems> blockItemsDeque;
+    private final BlockingDeque<BlockItems> blockItemsDeque;
     /// The configuration for verification.
     private final VerificationConfig verificationConfig;
     /// Dumps failing block bytes to disk for diagnostics.
@@ -65,6 +69,7 @@ public final class CompletableVerificationSession implements BlockVerificationSe
     /// @param blockSource the source of the block, must not be null
     /// @param verificationDataProvider provider of the verification data, must not be null
     /// @param lastVerifiedBlock the last successfully verified block, must not be null
+    /// @param lastVerifiedBlockSignal wakes sessions waiting for the last verified block to move, must not be null
     /// @param recentlyVerifiedBlocks the set of recently verified blocks, must not be null
     /// @param executor the executor the stage chain runs on, must not be null
     /// @param outbox the outbox to send the session's notification through, must not be null
@@ -77,6 +82,7 @@ public final class CompletableVerificationSession implements BlockVerificationSe
             final BlockSource blockSource,
             final VerificationDataProvider verificationDataProvider,
             final AtomicLong lastVerifiedBlock,
+            final LastVerifiedBlockSignal lastVerifiedBlockSignal,
             final ConcurrentLinkedDeque<Long> recentlyVerifiedBlocks,
             final ExecutorService executor,
             final VerificationOutbox outbox,
@@ -89,6 +95,7 @@ public final class CompletableVerificationSession implements BlockVerificationSe
         this.blockNumber = blockNumber;
         this.outbox = Objects.requireNonNull(outbox);
         this.lastVerifiedBlock = Objects.requireNonNull(lastVerifiedBlock);
+        this.lastVerifiedBlockSignal = Objects.requireNonNull(lastVerifiedBlockSignal);
         this.recentlyVerifiedBlocks = Objects.requireNonNull(recentlyVerifiedBlocks);
         this.verificationDataProvider = Objects.requireNonNull(verificationDataProvider);
         this.metricsHolder = Objects.requireNonNull(metricsHolder);
@@ -97,7 +104,7 @@ public final class CompletableVerificationSession implements BlockVerificationSe
         this.isCancelled = new AtomicBoolean(false);
         this.endOfBlockReceived = new AtomicBoolean(false);
         this.resultHandled = new AtomicBoolean(false);
-        this.blockItemsDeque = new ConcurrentLinkedDeque<>();
+        this.blockItemsDeque = new LinkedBlockingDeque<>();
         this.verificationConfig = Objects.requireNonNull(verificationConfig);
         this.badBlockDumper = Objects.requireNonNull(badBlockDumper);
     }
@@ -142,13 +149,14 @@ public final class CompletableVerificationSession implements BlockVerificationSe
         final BlockVerifier verifier = new BlockVerifier(
                 isCancelled, metricsHolder.proofVerificationMetrics(), System.nanoTime(), verificationDataProvider);
         final ResultOrderingManager resultOrderManager =
-                new ResultOrderingManager(isCancelled, lastVerifiedBlock, verificationConfig);
+                new ResultOrderingManager(isCancelled, lastVerifiedBlock, lastVerifiedBlockSignal, verificationConfig);
         final SessionResultHandler sessionResultHandler = new SessionResultHandler(
                 outbox,
                 verificationConfig,
                 metricsHolder.sessionResultMetrics(),
                 badBlockDumper,
                 lastVerifiedBlock,
+                lastVerifiedBlockSignal,
                 recentlyVerifiedBlocks,
                 blockNumber,
                 blockSource,
@@ -227,7 +235,7 @@ public final class CompletableVerificationSession implements BlockVerificationSe
 
     /// {@inheritDoc}
     @Override
-    public ConcurrentLinkedDeque<BlockItems> getBlockItemsDeque() {
+    public BlockingDeque<BlockItems> getBlockItemsDeque() {
         return blockItemsDeque;
     }
 }

@@ -91,7 +91,10 @@ class ExpandedCloudStoragePluginTest
     /// called from the test thread; the virtual-thread executor is used internally by
     /// the plugin for async upload tasks.
     public ExpandedCloudStoragePluginTest() {
-        super(Executors.newSingleThreadExecutor(), Executors.newSingleThreadScheduledExecutor());
+        super(
+                Executors.newThreadPerTaskExecutor(
+                        Thread.ofPlatform().daemon(true).factory()),
+                Executors.newSingleThreadScheduledExecutor());
     }
 
     // ---- Helpers ------------------------------------------------------------

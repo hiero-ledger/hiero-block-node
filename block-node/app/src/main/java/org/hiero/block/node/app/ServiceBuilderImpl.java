@@ -177,8 +177,8 @@ public class ServiceBuilderImpl implements ServiceBuilder {
         if (clientStateSweepExecutor != null) {
             return;
         }
-        clientStateSweepExecutor = threadPoolManager.createVirtualThreadScheduledExecutor(
-                1, "throttle-client-state-sweep", (thread, throwable) -> {});
+        clientStateSweepExecutor =
+                threadPoolManager.createScheduledExecutor(1, "throttle-client-state-sweep", (thread, throwable) -> {});
         final long intervalMinutes = globalThrottleConfig.clientStateSweepIntervalMinutes();
         clientStateSweepExecutor.scheduleAtFixedRate(
                 this::sweepAllThrottledServices, intervalMinutes, intervalMinutes, TimeUnit.MINUTES);

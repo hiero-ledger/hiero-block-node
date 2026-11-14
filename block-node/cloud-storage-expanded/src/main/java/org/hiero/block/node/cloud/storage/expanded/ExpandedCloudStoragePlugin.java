@@ -16,7 +16,6 @@ import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
@@ -48,13 +47,13 @@ import org.hiero.metrics.core.MetricRegistry;
 /// ## Trigger: {@link VerificationNotification}
 /// The plugin reacts to `handleVerification()` rather than `handlePersisted()`.
 /// This allows cloud upload and local file storage (`blocks-file-recent`) to run in
-/// parallel — each registered handler gets its own virtual thread. Block bytes are taken
+/// parallel — each registered handler gets its own thread. Block bytes are taken
 /// directly from `notification.block()`, eliminating any dependency on the local
 /// historical block provider.
 ///
 /// ## Async upload via CompletionService
 /// Each verified block is submitted as a {@link SingleBlockStoreTask} to a
-/// {@link CompletionService} backed by a dedicated virtual-thread executor. The plugin
+/// {@link CompletionService} backed by a dedicated thread-per-task executor. The plugin
 /// drains completed tasks on a scheduled tick (every {@link #DRAIN_INTERVAL_MS} ms), so a
 /// block is reported as persisted without waiting for the next block to arrive. Results are
 /// buffered in a {@link ConcurrentSkipListMap} keyed by block number so that
@@ -125,11 +124,11 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /// `CompletionService` for async block upload tasks.
     private CompletionService<SingleBlockStoreTask.UploadResult> completionService;
 
-    /// Dedicated virtual-thread executor created in {@link #start} and shut down in {@link #stop}.
+    /// Dedicated thread-per-task executor created in {@link #start} and shut down in {@link #stop}.
     /// Using a dedicated executor (rather than the shared platform executor) allows {@link #stop}
     /// to call {@link ExecutorService#shutdown()} + {@link ExecutorService#awaitTermination} without
     /// affecting other plugins.
-    private ExecutorService virtualThreadExecutor;
+    private ExecutorService uploadExecutor;
 
     /// Staging map for upload results awaiting publication.
     ///
@@ -241,15 +240,15 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
                 LOGGER.log(WARNING, msg, e);
             }
         }
-        virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
-        completionService = new ExecutorCompletionService<>(virtualThreadExecutor);
-        metricsHolder = Objects.requireNonNull(MetricsHolder.createMetrics(metricRegistry));
         final Thread.UncaughtExceptionHandler handler =
                 (thread, e) -> LOGGER.log(WARNING, "Uncaught exception in thread: " + thread.getName(), e);
+        uploadExecutor = threadPoolManager.getThreadPerTaskExecutor("CloudExpandedUpload", handler);
+        completionService = new ExecutorCompletionService<>(uploadExecutor);
+        metricsHolder = Objects.requireNonNull(MetricsHolder.createMetrics(metricRegistry));
         scheduler = threadPoolManager.createSingleThreadScheduledExecutor("CloudExpanded", handler);
         scheduler.scheduleWithFixedDelay(this::drainTick, DRAIN_INTERVAL_MS, DRAIN_INTERVAL_MS, TimeUnit.MILLISECONDS);
         if (config.retryEnabled()) {
-            retryCompletionService = new ExecutorCompletionService<>(virtualThreadExecutor);
+            retryCompletionService = new ExecutorCompletionService<>(uploadExecutor);
             scheduler.scheduleAtFixedRate(
                     this::retryTick, config.retryIntervalSeconds(), config.retryIntervalSeconds(), TimeUnit.SECONDS);
         }
@@ -291,14 +290,14 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
         if (retryBuffer != null) {
             retryBuffer.close();
         }
-        if (virtualThreadExecutor != null) {
+        if (uploadExecutor != null) {
             // Stop accepting new tasks (none expected since we just unregistered), then wait
             // for all running uploads to finish. The executor tracks running tasks authoritatively,
             // removing the need for manual in-flight counting.
-            virtualThreadExecutor.shutdown();
+            uploadExecutor.shutdown();
             try {
                 final boolean terminated =
-                        virtualThreadExecutor.awaitTermination(config.uploadTimeoutSeconds(), TimeUnit.SECONDS);
+                        uploadExecutor.awaitTermination(config.uploadTimeoutSeconds(), TimeUnit.SECONDS);
                 if (!terminated) {
                     LOGGER.log(
                             WARNING,
@@ -310,7 +309,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
             }
             // Final non-blocking sweep to publish results from tasks that completed during await.
             drainCompletedTasks();
-            virtualThreadExecutor = null;
+            uploadExecutor = null;
         }
         flushPendingRetriesAsFailures();
         if (s3Client != null) {

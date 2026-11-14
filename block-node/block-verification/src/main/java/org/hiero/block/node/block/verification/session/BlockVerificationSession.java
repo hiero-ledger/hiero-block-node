@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.block.verification.session;
 
-import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.BlockingDeque;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 
@@ -71,7 +71,7 @@ public interface BlockVerificationSession {
 
     /// Get the block items deque.
     /// Through this deque, we are able to offer the next block items of the block.
-    ConcurrentLinkedDeque<BlockItems> getBlockItemsDeque();
+    BlockingDeque<BlockItems> getBlockItemsDeque();
 
     /// A composite key for a [BlockVerificationSession].
     /// We allow multiple sessions for the same block.

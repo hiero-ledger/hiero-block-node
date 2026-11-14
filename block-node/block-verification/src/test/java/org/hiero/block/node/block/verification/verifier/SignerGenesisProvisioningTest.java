@@ -7,7 +7,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.BlockingDeque;
+import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.hiero.block.internal.BlockItemUnparsed;
@@ -93,7 +94,7 @@ class SignerGenesisProvisioningTest {
     }
 
     private HashingResult hash(final BlockItems blockItems, final long blockNumber) {
-        final ConcurrentLinkedDeque<BlockItems> deque = new ConcurrentLinkedDeque<>();
+        final BlockingDeque<BlockItems> deque = new LinkedBlockingDeque<>();
         final BlockHasher hasher = new BlockHasher(
                 new AtomicBoolean(false),
                 deque,

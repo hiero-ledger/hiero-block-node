@@ -72,6 +72,7 @@ class SessionResultHandlerTest {
                 metrics.sessionResultMetrics(),
                 badBlockDumper,
                 lastVerifiedBlock,
+                new LastVerifiedBlockSignal(),
                 recentlyVerifiedBlocks,
                 BLOCK_NUMBER,
                 BlockSource.PUBLISHER,

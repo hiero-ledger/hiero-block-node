@@ -23,6 +23,7 @@ import org.hiero.block.node.base.ParseHelper;
 import org.hiero.block.node.block.verification.metrics.MetricsHolder;
 import org.hiero.block.node.block.verification.session.ActiveSessionsBuffer;
 import org.hiero.block.node.block.verification.session.BlockSessionHandler;
+import org.hiero.block.node.block.verification.session.LastVerifiedBlockSignal;
 import org.hiero.block.node.block.verification.session.OrderAwareEvictionPolicy;
 import org.hiero.block.node.block.verification.session.SessionFailureType;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -64,6 +65,8 @@ public final class VerificationServicePlugin
     private static final BlockHashAlgorithm DECLARED_HASH_ALGORITHM = BlockHashAlgorithm.SHA2_256;
     /// The last successfully verified block.
     private final AtomicLong lastVerifiedBlock;
+    /// Wakes sessions waiting for the last verified block to move.
+    private final LastVerifiedBlockSignal lastVerifiedBlockSignal;
     /// The set of recently verified blocks.
     private final ConcurrentLinkedDeque<Long> recentlyVerifiedBlocks;
     /// The block node context, for access to core facilities.
@@ -88,6 +91,7 @@ public final class VerificationServicePlugin
     /// Constructor.
     public VerificationServicePlugin() {
         this.lastVerifiedBlock = new AtomicLong(-1);
+        this.lastVerifiedBlockSignal = new LastVerifiedBlockSignal();
         this.recentlyVerifiedBlocks = new ConcurrentLinkedDeque<>();
     }
 
@@ -101,7 +105,7 @@ public final class VerificationServicePlugin
         this.context = context;
         this.verificationConfig = context.configuration().getConfigData(VerificationConfig.class);
         this.executor = context.threadPoolManager()
-                .getVirtualThreadExecutor(
+                .getThreadPerTaskExecutor(
                         "VerificationSession", VerificationServicePlugin::getUncaughtExceptionHandler);
         this.metricsHolder = MetricsHolder.create(context.metricRegistry());
         this.verificationDataProvider = new VerificationDataProvider(context);
@@ -117,6 +121,7 @@ public final class VerificationServicePlugin
                 verificationConfig,
                 verificationDataProvider,
                 lastVerifiedBlock,
+                lastVerifiedBlockSignal,
                 recentlyVerifiedBlocks,
                 executor,
                 badBlockDumper,
@@ -216,6 +221,7 @@ public final class VerificationServicePlugin
                 localLastVerified = lastVerifiedBlock.get();
             }
             if (updateHappened) {
+                lastVerifiedBlockSignal.signalChanged();
                 final String message = "Updated last verified block from stored blocks to {0}";
                 LOGGER.log(INFO, message, lastVerifiedBlock.get());
             }

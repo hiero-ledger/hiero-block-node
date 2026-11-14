@@ -935,6 +935,7 @@ class BlockSessionHandlerTest {
                 config,
                 verificationDataProvider,
                 lastVerifiedBlock,
+                new LastVerifiedBlockSignal(),
                 recentlyVerifiedBlocks,
                 executor,
                 new BadBlockDumper(config, "test"),
