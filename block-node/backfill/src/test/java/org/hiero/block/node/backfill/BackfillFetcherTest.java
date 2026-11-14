@@ -30,6 +30,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Logger;
 import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.BlockRange;
+import org.hiero.block.api.ServerStatusDetailRequest;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.internal.BlockNodeSource;
 import org.hiero.block.internal.BlockNodeSourceConfig;
@@ -45,6 +46,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.mockito.ArgumentCaptor;
 
 /**
  * Unit tests for {@link BackfillFetcher}.
@@ -532,6 +534,31 @@ class BackfillFetcherTest {
             when(client.isNodeReachable()).thenReturn(true);
             when(client.getBlockNodeServiceClient()).thenReturn(serviceClient);
             return client;
+        }
+
+        @Test
+        @DisplayName("asks serverStatusDetail only for the available ranges")
+        void requestsOnlyTheAvailableRanges() throws Exception {
+            final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
+            BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
+                    mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
+            when(serviceClient.serverStatusDetail(any()))
+                    .thenReturn(ServerStatusDetailResponse.newBuilder()
+                            .availableRanges(new BlockRange(0L, 10L))
+                            .build());
+            BlockNodeClient client = mock(BlockNodeClient.class);
+            when(client.isNodeReachable()).thenReturn(true);
+            when(client.getBlockNodeServiceClient()).thenReturn(serviceClient);
+
+            createFetcherWithClient(nodeConfig, 1, createTestMetricsHolder(), client)
+                    .getNewAvailableRanges(0L);
+
+            final ArgumentCaptor<ServerStatusDetailRequest> request =
+                    ArgumentCaptor.forClass(ServerStatusDetailRequest.class);
+            verify(serviceClient).serverStatusDetail(request.capture());
+            assertTrue(request.getValue().excludeVersions(), "the versions are not needed");
+            assertTrue(request.getValue().excludeStoredRanges(), "the stored ranges are not needed");
+            assertFalse(request.getValue().excludeAvailableRanges(), "the available ranges are what is asked for");
         }
 
         @Test

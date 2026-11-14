@@ -179,8 +179,11 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
      * @return the peer's available ranges, sorted ascending; empty if the peer reports none
      */
     protected List<BlockRange> resolveAvailableRanges(BlockNodeClient node) {
-        final ServerStatusDetailResponse nodeStatus =
-                node.getBlockNodeServiceClient().serverStatusDetail(ServerStatusDetailRequest.DEFAULT);
+        final ServerStatusDetailResponse nodeStatus = node.getBlockNodeServiceClient()
+                .serverStatusDetail(ServerStatusDetailRequest.newBuilder()
+                        .excludeVersions(true)
+                        .excludeStoredRanges(true)
+                        .build());
         final List<BlockRange> ranges =
                 new ArrayList<>(nodeStatus.availableRanges().size());
         for (final BlockRange range : nodeStatus.availableRanges()) {
