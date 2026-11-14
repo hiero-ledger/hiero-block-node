@@ -5,6 +5,10 @@ package org.hiero.block.node.spi.blockmessaging;
  * This interface is used to handle block items without applying back pressure. If the handler can not keep up with the
  * incoming block items, it will receive a call on the {@link #onTooFarBehindError()} method. After that point the
  * handler will not get calls to {@link BlockItemHandler#handleBlockItemsReceived(BlockItems)} anymore.
+ * <p>
+ * The first batch passed to {@link BlockItemHandler#handleBlockItemsReceived(BlockItems)} after registration is always
+ * the start of a block ({@link BlockItems#isStartOfNewBlock()} is true); any partial block in flight at registration
+ * time is skipped.
  */
 public interface NoBackPressureBlockItemHandler extends BlockItemHandler {
     /**
