@@ -42,6 +42,12 @@ public interface BlockMessagingFacility extends BlockNodePlugin {
      * block items at its own pace, if it is too slow then the
      * {@link NoBackPressureBlockItemHandler#onTooFarBehindError} method will be called and the handler will be
      * unregistered.
+     * <p>
+     * The handler only ever sees whole blocks: the facility starts delivery at the ring head and discards batches until
+     * the first one with {@link BlockItems#isStartOfNewBlock()} true, so the first batch delivered is always a block
+     * start (it begins with the block header). The remainder of a block that was already in flight at registration
+     * time is never delivered; callers that need it must read it from history once persisted. This also applies to
+     * a handler that is re-registered after {@link NoBackPressureBlockItemHandler#onTooFarBehindError}.
      *
      * @param handler             the block item handler to unregister
      * @param cpuIntensiveHandler hint to the service that this handler is CPU intensive vs IO intensive
