@@ -48,7 +48,8 @@ public class S3ClientTest {
     @BeforeAll
     void setup() throws S3ClientException, IOException, GeneralSecurityException, MinioException {
         // Start MinIO container
-        minioContainer = new GenericContainer<>("minio/minio:latest")
+        minioContainer = new GenericContainer<>(
+                        "docker.io/pgsty/silo@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46")
                 .withCommand("server /data")
                 .withExposedPorts(MINIO_ROOT_PORT)
                 .withEnv("MINIO_ROOT_USER", MINIO_ROOT_USER)
