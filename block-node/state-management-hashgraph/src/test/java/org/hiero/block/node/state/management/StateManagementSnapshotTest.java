@@ -1,0 +1,641 @@
+// SPDX-License-Identifier: Apache-2.0
+package org.hiero.block.node.state.management;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hiero.block.node.state.management.StateManagementPluginTestSupport.listNames;
+import static org.hiero.block.node.state.management.StateManagementPluginTestSupport.numericDirs;
+import static org.hiero.block.node.state.management.StateManagementPluginTestSupport.stagingDirs;
+import static org.hiero.block.node.state.management.StateManagementPluginTestSupport.writeFile;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+
+import com.hedera.hapi.block.stream.input.RoundHeader;
+import com.hedera.hapi.block.stream.output.BlockFooter;
+import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.hapi.block.stream.output.MapChangeKey;
+import com.hedera.hapi.block.stream.output.MapChangeValue;
+import com.hedera.hapi.block.stream.output.MapUpdateChange;
+import com.hedera.hapi.block.stream.output.SingletonUpdateChange;
+import com.hedera.hapi.block.stream.output.StateChange;
+import com.hedera.hapi.block.stream.output.StateChanges;
+import com.hedera.hapi.block.stream.output.StateIdentifier;
+import com.hedera.hapi.node.state.blockstream.BlockStreamInfo;
+import com.hedera.pbj.runtime.io.ReadableSequentialData;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
+import com.swirlds.config.api.ConfigurationBuilder;
+import com.swirlds.config.api.validation.ConfigViolationException;
+import com.swirlds.merkledb.config.MerkleDbConfig;
+import com.swirlds.virtualmap.config.VirtualMapConfig;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.LockSupport;
+import java.util.function.BooleanSupplier;
+import java.util.logging.Logger;
+import java.util.stream.Stream;
+import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
+import org.hiero.block.node.app.fixtures.logging.TestLogHandler;
+import org.hiero.block.node.app.fixtures.plugintest.RecordingServiceBuilder;
+import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
+import org.hiero.block.node.spi.BlockNodeContext;
+import org.hiero.block.node.spi.blockmessaging.BlockSource;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.metrics.core.MetricRegistry;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+/// Periodic state snapshot creation in `StateManagementPlugin`: the restore round trip, when a
+/// snapshot is skipped, the reaction to write outcomes, the final snapshot on `stop()`, the
+/// scheduler, and concurrency with apply. Uses a real `VirtualMapStateLifecycleManager` on a
+/// temp dir. On-disk details (staging, retention, prune scope) are in `StateSnapshotManagerTest`.
+///
+/// Every block chains to the previous one through its footer and sets the `BlockStreamInfo`
+/// singleton to its own number (restore's self-check reads it), plus one extra singleton and
+/// one KV entry whose value changes per block, so a restored state can be told apart from its
+/// neighbours.
+class StateManagementSnapshotTest {
+
+    /// Long enough that the scheduled task never fires during a test; tests call
+    /// `saveSnapshot()` directly instead.
+    private static final String NO_SCHEDULED_SNAPSHOT_MS = "3600000";
+
+    private static final int EXTRA_SINGLETON_ID = 1;
+    private static final int EXTRA_KV_ID = 2;
+    private static final MapChangeKey EXTRA_KV_KEY =
+            MapChangeKey.newBuilder().protoBytesKey(Bytes.fromHex("01")).build();
+
+    private static final RecordingServiceBuilder NOOP_SERVICE_BUILDER = new RecordingServiceBuilder();
+
+    @Test
+    void snapshotRoundTripRestoresExactlyTheAttestedState(@TempDir final Path tmp) throws Exception {
+        final Path root = tmp.resolve("recent");
+        final BlockUnparsed block2;
+        final Bytes post2Hash;
+        try (Node node = Node.start(root)) {
+            node.applyRange(0L, 1L);
+            block2 = node.nextBlock(2L);
+            node.deliver(2L, block2);
+            assertThat(node.plugin.attested().blockNumber()).isEqualTo(1L);
+            post2Hash = node.plugin.stagedStateRootHash();
+
+            assertThat(node.plugin.saveSnapshot()).isTrue();
+            assertThat(node.plugin.lastSnapshottedBlock()).isEqualTo(1L);
+            assertThat(numericDirs(root))
+                    .as("the attested block (1) is written, not the staged one (2)")
+                    .containsExactly(1L);
+            assertThat(stagingDirs(root)).isEmpty();
+            assertThat(root.resolve("tmp"))
+                    .as("the live MerkleDb dir is left alone")
+                    .isDirectory();
+            assertThat(node.plugin.snapshotFailureTotal()).isZero();
+        }
+
+        // Left over from a crash mid-write: start-up removes it.
+        writeFile(root.resolve(".tmp-2").resolve("junk"));
+        try (Node restored = Node.start(root)) {
+            final StateManagementPlugin plugin = restored.plugin;
+            assertThat(stagingDirs(root))
+                    .as("stale staging dir removed on start")
+                    .isEmpty();
+            assertThat(plugin.isApplyHalted()).isFalse();
+            assertThat(plugin.attested().blockNumber()).isEqualTo(1L);
+            assertThat(plugin.lastSnapshottedBlock()).isEqualTo(1L);
+
+            // Read the restored content directly: it must be post-1, not post-2.
+            final var state = plugin.attested().state();
+            assertThat(state).isNotNull();
+            assertThat(state.getSingleton(EXTRA_SINGLETON_ID))
+                    .as("extra singleton holds block 1's value")
+                    .isEqualTo(storedSingletonValue(1L));
+            assertThat(state.getKv(EXTRA_KV_ID, storedKvKey()))
+                    .as("KV entry holds block 1's value")
+                    .isEqualTo(storedKvValue(1L));
+            assertThat(BlockStreamInfo.PROTOBUF
+                            .parse(state.getSingleton(StateIdentifier.STATE_ID_BLOCK_STREAM_INFO.protoOrdinal())
+                                    .toReadableSequentialData())
+                            .blockNumber())
+                    .isEqualTo(1L);
+
+            // Block 2's footer carries post-1's root hash as computed by the first instance, so
+            // it only validates if the restored state hashes identically.
+            restored.deliver(2L, block2);
+            assertThat(plugin.isApplyHalted())
+                    .as("re-delivering the original block 2 applies on the restored state")
+                    .isFalse();
+            assertThat(plugin.hashMismatchTotal()).isZero();
+            assertThat(plugin.stagedStateRootHash())
+                    .as("applying block 2 again reproduces the original post-2 root hash")
+                    .isEqualTo(post2Hash);
+        }
+    }
+
+    @Test
+    void saveSnapshotSkipsWhenThereIsNothingNewToWrite(@TempDir final Path tmp) throws Exception {
+        final Path root = tmp.resolve("recent");
+        try (Node node = Node.start(root)) {
+            assertThat(node.plugin.saveSnapshot())
+                    .as("nothing attested at boot")
+                    .isFalse();
+            node.applyRange(0L, 0L);
+            assertThat(node.plugin.saveSnapshot())
+                    .as("block 0 is only staged, not attested")
+                    .isFalse();
+            assertThat(numericDirs(root)).isEmpty();
+            assertThat(stagingDirs(root)).isEmpty();
+
+            node.applyRange(1L, 2L);
+            assertThat(node.plugin.saveSnapshot()).isTrue();
+            assertThat(node.plugin.saveSnapshot())
+                    .as("no new attestation since the last snapshot")
+                    .isFalse();
+            assertThat(numericDirs(root)).containsExactly(1L);
+            assertThat(node.plugin.snapshotFailureTotal()).isZero();
+        }
+
+        final Map<String, String> before = fingerprint(root.resolve("1"));
+        try (Node restored = Node.start(root)) {
+            assertThat(restored.plugin.attested().blockNumber()).isEqualTo(1L);
+            assertThat(restored.plugin.saveSnapshot())
+                    .as("a restored snapshot is never rewritten")
+                    .isFalse();
+
+            restored.applyRange(2L, 3L);
+            final Path marker = writeFile(root.resolve("2").resolve("marker"));
+            assertThat(restored.plugin.saveSnapshot())
+                    .as("an existing <N> dir is treated as complete")
+                    .isFalse();
+            assertThat(restored.plugin.lastSnapshottedBlock())
+                    .as("an already-present snapshot still advances the marker")
+                    .isEqualTo(2L);
+            assertThat(listNames(root.resolve("2")))
+                    .containsExactly(marker.getFileName().toString());
+            assertThat(restored.plugin.snapshotFailureTotal()).isZero();
+        }
+        assertThat(fingerprint(root.resolve("1")))
+                .as("the restored dir is untouched by restore, saveSnapshot and stop")
+                .isEqualTo(before);
+        assertThat(numericDirs(root)).containsExactly(1L, 2L);
+        assertThat(listNames(root.resolve("2")))
+                .as("stop() does not rewrite the already-present snapshot")
+                .containsExactly("marker");
+    }
+
+    @Test
+    void writeFailureIsCountedAndRetriedOnTheNextRun(@TempDir final Path tmp) throws Exception {
+        final Path root = tmp.resolve("recent");
+        try (Node node = Node.start(root)) {
+            node.applyRange(0L, 2L);
+            try {
+                // Root is listable but nothing can be created in it. The live MerkleDb under
+                // tmp keeps its own permissions. Skipped where permissions are not enforced.
+                Files.setPosixFilePermissions(root, PosixFilePermissions.fromString("r-x------"));
+                assumeTrue(!Files.isWritable(root), "directory permissions are not enforced here");
+
+                assertThat(node.plugin.saveSnapshot()).isFalse();
+                assertThat(node.plugin.snapshotFailureTotal()).isEqualTo(1L);
+                assertThat(node.plugin.lastSnapshottedBlock())
+                        .as("a failed write does not advance the snapshot marker")
+                        .isEqualTo(-1L);
+                assertThat(numericDirs(root)).isEmpty();
+                assertThat(stagingDirs(root)).isEmpty();
+            } finally {
+                Files.setPosixFilePermissions(root, PosixFilePermissions.fromString("rwx------"));
+            }
+
+            assertThat(node.plugin.saveSnapshot())
+                    .as("the same block is retried once the root is writable again")
+                    .isTrue();
+            assertThat(numericDirs(root)).containsExactly(1L);
+            assertThat(node.plugin.lastSnapshottedBlock()).isEqualTo(1L);
+            assertThat(node.plugin.snapshotFailureTotal()).isEqualTo(1L);
+        }
+    }
+
+    @Test
+    void haltedNodeStillSnapshotsTheLastAttestedBlock(@TempDir final Path tmp) throws Exception {
+        final Path root = tmp.resolve("recent");
+        try (Node node = Node.start(root)) {
+            node.applyRange(0L, 1L);
+            node.deliver(2L, block(2L, Bytes.fromHex("deadbeef".repeat(12))));
+            assertThat(node.plugin.isApplyHalted()).isTrue();
+            assertThat(node.plugin.attested().blockNumber()).isZero();
+
+            assertThat(node.plugin.saveSnapshot())
+                    .as("block 0 was attested before the halt and is a valid recovery point")
+                    .isTrue();
+            assertThat(numericDirs(root)).containsExactly(0L);
+        }
+    }
+
+    @Test
+    void configuredRetentionCountReachesThePruning(@TempDir final Path tmp) throws Exception {
+        final Path root = tmp.resolve("recent");
+        try (Node node = Node.start(root, "state.management.snapshotRecentRetentionCount", "1")) {
+            for (long last = 1L; last <= 3L; last++) {
+                node.applyRange(last == 1L ? 0L : last, last); // attested = last - 1
+                assertThat(node.plugin.saveSnapshot()).isTrue();
+            }
+            // The default retention of 3 would keep {0,1,2}; only the newest survives with 1.
+            assertThat(numericDirs(root))
+                    .as("snapshotRecentRetentionCount=1 from config keeps only the newest snapshot")
+                    .containsExactly(2L);
+        }
+    }
+
+    @Test
+    void stopWritesAFinalSnapshotOfTheLatestAttestedBlock(@TempDir final Path tmp) throws Exception {
+        final Path root = tmp.resolve("recent");
+        try (Node node = Node.start(root)) {
+            node.applyRange(0L, 3L);
+            assertThat(numericDirs(root)).isEmpty();
+
+            node.close();
+            assertThat(node.plugin.lastSnapshottedBlock()).isEqualTo(2L);
+            assertThat(numericDirs(root)).containsExactly(2L);
+        }
+
+        try (Node restored = Node.start(root)) {
+            assertThat(restored.plugin.isApplyHalted()).isFalse();
+            assertThat(restored.plugin.attested().blockNumber()).isEqualTo(2L);
+        }
+    }
+
+    @Test
+    void stopQueuesFinalSnapshotBehindAnInFlightSnapshotTask(@TempDir final Path tmp) throws Exception {
+        final Path root = tmp.resolve("recent");
+        final CountDownLatch inFlightStarted = new CountDownLatch(1);
+        final CountDownLatch releaseInFlight = new CountDownLatch(1);
+        try (Node node = Node.start(root)) {
+            node.applyRange(0L, 3L); // attested = 2
+
+            // Stand-in for a snapshot write already in flight: occupy the snapshot thread.
+            node.threads.scheduledExecutor().execute(() -> {
+                inFlightStarted.countDown();
+                try {
+                    releaseInFlight.await();
+                } catch (final InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+            assertThat(inFlightStarted.await(5L, TimeUnit.SECONDS)).isTrue();
+
+            final Thread stopper = new Thread(node::close, "stop-under-test");
+            stopper.start();
+            assertThat(awaitCondition(() -> Files.isDirectory(root.resolve("2")), 500L))
+                    .as("the final snapshot must not run alongside the task holding the snapshot thread")
+                    .isFalse();
+            assertThat(stopper.isAlive())
+                    .as("stop() waits for the snapshot thread")
+                    .isTrue();
+
+            releaseInFlight.countDown();
+            stopper.join(TimeUnit.SECONDS.toMillis(StateManagementPlugin.SNAPSHOT_STOP_TIMEOUT_SECONDS + 5L));
+            assertThat(stopper.isAlive()).isFalse();
+            assertThat(numericDirs(root))
+                    .as("the queued final snapshot ran once the snapshot thread was free")
+                    .containsExactly(2L);
+            assertThat(stagingDirs(root)).isEmpty();
+            assertThat(node.plugin.snapshotFailureTotal()).isZero();
+        }
+    }
+
+    @Test
+    void stopInterruptsAFinalSnapshotThatOverrunsTheTimeout(@TempDir final Path tmp) throws Exception {
+        final Path root = tmp.resolve("recent");
+        final CountDownLatch overrunStarted = new CountDownLatch(1);
+        final AtomicBoolean overrunInterrupted = new AtomicBoolean(false);
+        final TestLogHandler logHandler = new TestLogHandler();
+        final Logger julLogger = Logger.getLogger(StateManagementPlugin.class.getName());
+        try (Node node = Node.start(root)) {
+            node.applyRange(0L, 3L); // attested = 2
+
+            // A snapshot task that never finishes on its own, e.g. a very slow write.
+            node.threads.scheduledExecutor().execute(() -> {
+                overrunStarted.countDown();
+                try {
+                    new CountDownLatch(1).await();
+                } catch (final InterruptedException e) {
+                    overrunInterrupted.set(true);
+                }
+            });
+            assertThat(overrunStarted.await(5L, TimeUnit.SECONDS)).isTrue();
+
+            julLogger.addHandler(logHandler);
+            final long startNanos = System.nanoTime();
+            try {
+                node.close();
+            } finally {
+                julLogger.removeHandler(logHandler);
+            }
+            final long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
+
+            final long timeoutMillis = TimeUnit.SECONDS.toMillis(StateManagementPlugin.SNAPSHOT_STOP_TIMEOUT_SECONDS);
+            assertThat(elapsedMillis)
+                    .as("stop() waits the fixed timeout, then returns rather than blocking indefinitely")
+                    .isBetween(timeoutMillis - 100L, timeoutMillis + 5_000L);
+            assertThat(awaitCondition(overrunInterrupted::get, 5_000L))
+                    .as("the overrunning task is interrupted")
+                    .isTrue();
+            assertThat(logHandler.countContaining("did not finish within")).isEqualTo(1);
+            assertThat(numericDirs(root))
+                    .as("the queued final snapshot never ran, so nothing was published")
+                    .isEmpty();
+            assertThat(stagingDirs(root)).isEmpty();
+        }
+
+        // Nothing partial was left behind: the next start is a clean genesis start.
+        try (Node restarted = Node.start(root)) {
+            assertThat(restarted.plugin.isApplyHalted()).isFalse();
+            assertThat(restarted.plugin.attested().state()).isNull();
+        }
+    }
+
+    @Test
+    void scheduledTaskWritesSnapshotWithoutExplicitCall(@TempDir final Path tmp) throws Exception {
+        final Path root = tmp.resolve("recent");
+        try (Node node = Node.start(root, "state.management.snapshotIntervalMillis", "1000")) {
+            node.applyRange(0L, 2L);
+
+            assertThat(awaitCondition(() -> Files.isDirectory(root.resolve("1")), 10_000L))
+                    .as("scheduled snapshot of block 1 appears within 10s at a 1s interval")
+                    .isTrue();
+            assertThat(awaitCondition(() -> node.plugin.lastSnapshottedBlock() == 1L, 5_000L))
+                    .isTrue();
+            assertThat(node.plugin.snapshotFailureTotal()).isZero();
+        }
+    }
+
+    @Test
+    void concurrentSnapshotsDuringApplyStayConsistent(@TempDir final Path tmp) throws Exception {
+        final Path root = tmp.resolve("recent");
+        final long lastBlock = 20L;
+        final AtomicInteger written = new AtomicInteger();
+        final ConcurrentLinkedQueue<Throwable> errors = new ConcurrentLinkedQueue<>();
+        try (Node node = Node.start(root)) {
+            final AtomicBoolean done = new AtomicBoolean(false);
+            final Thread snapshotter = new Thread(
+                    () -> {
+                        while (!done.get()) {
+                            try {
+                                if (node.plugin.saveSnapshot()) {
+                                    written.incrementAndGet();
+                                }
+                            } catch (final Throwable t) {
+                                errors.add(t);
+                            }
+                            // Brief pause so the loop does not monopolise a core; not a wait.
+                            LockSupport.parkNanos(TimeUnit.MICROSECONDS.toNanos(200L));
+                        }
+                    },
+                    "snapshot-test-loop");
+            snapshotter.setDaemon(true);
+            snapshotter.start();
+            try {
+                node.applyRange(0L, lastBlock);
+            } finally {
+                done.set(true);
+                snapshotter.join(30_000L);
+            }
+            assertThat(snapshotter.isAlive()).as("snapshot loop finished").isFalse();
+            assertThat(errors).as("saveSnapshot never throws").isEmpty();
+            assertThat(node.plugin.isApplyHalted()).isFalse();
+            assertThat(node.plugin.snapshotFailureTotal()).isZero();
+            assertThat(written.get()).as("the loop wrote at least one snapshot").isPositive();
+        }
+
+        // stop() took a final snapshot of the last attested block.
+        assertThat(numericDirs(root)).hasSizeLessThanOrEqualTo(3).contains(lastBlock - 1L);
+        assertThat(stagingDirs(root)).isEmpty();
+        try (Node restored = Node.start(root)) {
+            assertThat(restored.plugin.isApplyHalted()).isFalse();
+            assertThat(restored.plugin.attested().blockNumber()).isEqualTo(lastBlock - 1L);
+        }
+    }
+
+    @Test
+    void snapshotConfigDefaultsAndBounds() {
+        final StateManagementConfig defaults = snapshotConfig(Map.of());
+        assertThat(defaults.snapshotIntervalMillis()).isEqualTo(900_000L);
+        assertThat(defaults.snapshotRecentRetentionCount()).isEqualTo(3);
+
+        assertThat(snapshotConfig(Map.of("state.management.snapshotIntervalMillis", "1000"))
+                        .snapshotIntervalMillis())
+                .isEqualTo(1_000L);
+        assertThat(snapshotConfig(Map.of("state.management.snapshotIntervalMillis", "86400000"))
+                        .snapshotIntervalMillis())
+                .isEqualTo(86_400_000L);
+        assertThat(snapshotConfig(Map.of("state.management.snapshotRecentRetentionCount", "1"))
+                        .snapshotRecentRetentionCount())
+                .isEqualTo(1);
+        assertThat(snapshotConfig(Map.of("state.management.snapshotRecentRetentionCount", "1000"))
+                        .snapshotRecentRetentionCount())
+                .isEqualTo(1000);
+
+        final List<Map<String, String>> outOfRange = List.of(
+                Map.of("state.management.snapshotIntervalMillis", "999"),
+                Map.of("state.management.snapshotIntervalMillis", "86400001"),
+                Map.of("state.management.snapshotRecentRetentionCount", "0"),
+                Map.of("state.management.snapshotRecentRetentionCount", "1001"));
+        for (final Map<String, String> values : outOfRange) {
+            assertThatThrownBy(() -> snapshotConfig(values))
+                    .as("rejects %s", values)
+                    .isInstanceOf(ConfigViolationException.class);
+        }
+    }
+
+    // ── Fixtures ───────────────────────────────────────────────────────────
+
+    /// A started plugin plus the messaging facility that feeds it. `close()` stops the plugin
+    /// once, so tests can stop explicitly and still use try-with-resources.
+    private static final class Node implements AutoCloseable {
+        private final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
+        private final StateManagementPlugin plugin = new StateManagementPlugin();
+        /// In tests the snapshot executor is this manager's single scheduled executor, so a task
+        /// submitted here occupies the snapshot thread.
+        private final TestThreadPoolManager<ExecutorService, ScheduledExecutorService> threads =
+                StateManagementPluginTestSupport.newThreadPoolManager();
+        private boolean stopped;
+
+        /// @param overrides alternating config key/value pairs
+        static Node start(final Path root, final String... overrides) throws InterruptedException {
+            final var builder = ConfigurationBuilder.create()
+                    .withConfigDataType(StateManagementConfig.class)
+                    .withConfigDataType(MerkleDbConfig.class)
+                    .withConfigDataType(VirtualMapConfig.class)
+                    .withValue("state.management.snapshotRecentPath", root.toString())
+                    .withValue("state.management.snapshotIntervalMillis", NO_SCHEDULED_SNAPSHOT_MS);
+            for (int i = 0; i < overrides.length; i += 2) {
+                builder.withValue(overrides[i], overrides[i + 1]);
+            }
+            final Node node = new Node();
+            final BlockNodeContext context = new BlockNodeContext(
+                    builder.build(),
+                    MetricRegistry.builder().build(),
+                    null,
+                    node.facility,
+                    null,
+                    null,
+                    null,
+                    node.threads,
+                    null);
+            node.plugin.init(context, NOOP_SERVICE_BUILDER);
+            node.plugin.start();
+            StateManagementPluginTestSupport.awaitReady(node.plugin, 5_000L);
+            return node;
+        }
+
+        /// The next block, chained to the currently staged state.
+        BlockUnparsed nextBlock(final long blockNumber) {
+            return block(blockNumber, plugin.stagedStateRootHash());
+        }
+
+        void deliver(final long blockNumber, final BlockUnparsed block) {
+            facility.sendBlockVerification(new VerificationNotification(
+                    true, null, blockNumber, Bytes.fromHex("aabb"), block, BlockSource.PUBLISHER));
+        }
+
+        /// Apply chained blocks `first..last` inclusive, failing fast if any halts apply.
+        void applyRange(final long first, final long last) {
+            for (long n = first; n <= last; n++) {
+                deliver(n, nextBlock(n));
+                assertThat(plugin.isApplyHalted())
+                        .as("apply halted at block %d", n)
+                        .isFalse();
+            }
+        }
+
+        @Override
+        public void close() {
+            if (!stopped) {
+                stopped = true;
+                plugin.stop();
+            }
+        }
+    }
+
+    /// A block that sets `BlockStreamInfo.block_number`, the extra singleton and the extra KV
+    /// entry to values derived from `blockNumber`.
+    private static BlockUnparsed block(final long blockNumber, final Bytes startOfBlockStateRootHash) {
+        final List<StateChange> changes = List.of(
+                StateChange.newBuilder()
+                        .stateId(StateIdentifier.STATE_ID_BLOCK_STREAM_INFO.protoOrdinal())
+                        .singletonUpdate(SingletonUpdateChange.newBuilder()
+                                .blockStreamInfoValue(BlockStreamInfo.newBuilder()
+                                        .blockNumber(blockNumber)
+                                        .build())
+                                .build())
+                        .build(),
+                StateChange.newBuilder()
+                        .stateId(EXTRA_SINGLETON_ID)
+                        .singletonUpdate(extraSingletonChange(blockNumber))
+                        .build(),
+                StateChange.newBuilder()
+                        .stateId(EXTRA_KV_ID)
+                        .mapUpdate(MapUpdateChange.newBuilder()
+                                .key(EXTRA_KV_KEY)
+                                .value(extraKvValue(blockNumber))
+                                .build())
+                        .build());
+        return BlockUnparsed.newBuilder()
+                .blockItems(
+                        BlockItemUnparsed.newBuilder()
+                                .blockHeader(BlockHeader.PROTOBUF.toBytes(BlockHeader.newBuilder()
+                                        .number(blockNumber)
+                                        .build()))
+                                .build(),
+                        BlockItemUnparsed.newBuilder()
+                                .roundHeader(RoundHeader.PROTOBUF.toBytes(RoundHeader.newBuilder()
+                                        .roundNumber(blockNumber * 10L)
+                                        .build()))
+                                .build(),
+                        BlockItemUnparsed.newBuilder()
+                                .stateChanges(StateChanges.PROTOBUF.toBytes(StateChanges.newBuilder()
+                                        .stateChanges(new ArrayList<>(changes))
+                                        .build()))
+                                .build(),
+                        BlockItemUnparsed.newBuilder()
+                                .blockFooter(BlockFooter.PROTOBUF.toBytes(BlockFooter.newBuilder()
+                                        .startOfBlockStateRootHash(startOfBlockStateRootHash)
+                                        .build()))
+                                .build())
+                .build();
+    }
+
+    private static SingletonUpdateChange extraSingletonChange(final long blockNumber) {
+        return SingletonUpdateChange.newBuilder()
+                .bytesValue(Bytes.wrap(("value-" + blockNumber).getBytes(StandardCharsets.UTF_8)))
+                .build();
+    }
+
+    private static MapChangeValue extraKvValue(final long blockNumber) {
+        return MapChangeValue.newBuilder().protoStringValue("kv-" + blockNumber).build();
+    }
+
+    // `StateChangeApplier` stores the oneof-selected payload, not the wrapper message.
+
+    private static Bytes storedSingletonValue(final long blockNumber) {
+        return firstDelimitedFieldPayload(SingletonUpdateChange.PROTOBUF.toBytes(extraSingletonChange(blockNumber)));
+    }
+
+    private static Bytes storedKvKey() {
+        return firstDelimitedFieldPayload(MapChangeKey.PROTOBUF.toBytes(EXTRA_KV_KEY));
+    }
+
+    private static Bytes storedKvValue(final long blockNumber) {
+        return firstDelimitedFieldPayload(MapChangeValue.PROTOBUF.toBytes(extraKvValue(blockNumber)));
+    }
+
+    /// Independent extraction of a wrapper message's first length-delimited field (same as
+    /// `StateChangeApplierTest`), so expected stored bytes are not hardcoded.
+    private static Bytes firstDelimitedFieldPayload(final Bytes wrapperMessageBytes) {
+        final ReadableSequentialData input = wrapperMessageBytes.toReadableSequentialData();
+        final int tag = input.readVarInt(false);
+        if ((tag & 0x7) != 2) {
+            throw new IllegalStateException("Expected a length-delimited field, got wire type " + (tag & 0x7));
+        }
+        final int length = input.readVarInt(false);
+        return input.readBytes(length);
+    }
+
+    private static StateManagementConfig snapshotConfig(final Map<String, String> values) {
+        final var builder = ConfigurationBuilder.create().withConfigDataType(StateManagementConfig.class);
+        values.forEach(builder::withValue);
+        return builder.build().getConfigData(StateManagementConfig.class);
+    }
+
+    /// Relative path -> size and modification time of every file under `dir`, to show a
+    /// directory was not rewritten.
+    private static Map<String, String> fingerprint(final Path dir) throws IOException {
+        final Map<String, String> result = new TreeMap<>();
+        try (Stream<Path> walk = Files.walk(dir)) {
+            for (final Path p : walk.filter(Files::isRegularFile).toList()) {
+                result.put(dir.relativize(p).toString(), Files.size(p) + "@" + Files.getLastModifiedTime(p));
+            }
+        }
+        return result;
+    }
+
+    private static boolean awaitCondition(final BooleanSupplier condition, final long timeoutMillis)
+            throws InterruptedException {
+        final long deadline = System.currentTimeMillis() + timeoutMillis;
+        while (!condition.getAsBoolean() && System.currentTimeMillis() < deadline) {
+            Thread.sleep(20L);
+        }
+        return condition.getAsBoolean();
+    }
+}

@@ -138,9 +138,9 @@ class StateManagementPluginLifecycleTest {
         final Path recentRoot = tmp.resolve("recent");
         Files.createDirectories(recentRoot);
 
-        // Manufacture a snapshot the same way a future snapshot-creation plugin slice would —
-        // directly via VirtualMapStateLifecycleManager's own public API, independent of this
-        // plugin (which does not create snapshots yet).
+        // Manufacture a snapshot directly via VirtualMapStateLifecycleManager's own public API,
+        // independent of the plugin's own snapshot writer, so restore is tested in isolation.
+        // StateManagementSnapshotTest covers snapshots the plugin writes itself.
         final var seedConfig = ConfigurationBuilder.create()
                 .withConfigDataType(MerkleDbConfig.class)
                 .withConfigDataType(VirtualMapConfig.class)

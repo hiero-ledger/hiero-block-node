@@ -2,8 +2,6 @@
 package org.hiero.block.node.state.management;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
-import com.hedera.hapi.block.stream.output.StateIdentifier;
-import com.hedera.hapi.node.state.blockstream.BlockStreamInfo;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.base.time.Time;
@@ -11,17 +9,15 @@ import com.swirlds.state.merkle.VirtualMapState;
 import com.swirlds.state.merkle.VirtualMapStateLifecycleManager;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
-import org.hiero.base.crypto.Hash;
 import org.hiero.base.file.FileSystemManager;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
@@ -79,9 +75,28 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     static final MetricKey<ObservableGauge> METRIC_BLOCK_LAG =
             MetricKey.of("state_block_lag", ObservableGauge.class).addCategory(METRICS_CATEGORY);
 
+    /// `blocknode:state_snapshot_block` — block number of the newest snapshot written or
+    /// restored, `-1` if none.
+    static final MetricKey<ObservableGauge> METRIC_SNAPSHOT_BLOCK =
+            MetricKey.of("state_snapshot_block", ObservableGauge.class).addCategory(METRICS_CATEGORY);
+
+    /// `blocknode:state_snapshot_latency_ms` — duration of the most recent successful snapshot
+    /// write, in milliseconds.
+    static final MetricKey<ObservableGauge> METRIC_SNAPSHOT_LATENCY_MS =
+            MetricKey.of("state_snapshot_latency_ms", ObservableGauge.class).addCategory(METRICS_CATEGORY);
+
+    /// `blocknode:state_snapshot_failures_total` — cumulative snapshot writes that failed.
+    static final MetricKey<LongCounter> METRIC_SNAPSHOT_FAILURES_TOTAL =
+            MetricKey.of("state_snapshot_failures_total", LongCounter.class).addCategory(METRICS_CATEGORY);
+
     private BlockNodeContext context;
     private StateManagementConfig config;
     private VirtualMapStateLifecycleManager lifecycleManager;
+
+    /// Restores, writes and prunes snapshots on disk. Created in `init` only when
+    /// `lifecycleManager` was, so it is `null` exactly when the plugin is inert.
+    private StateSnapshotManager snapshotManager;
+
     private StateChangeApplier applier;
 
     /// State (1) and the block/round number it corresponds to, published as one unit so a
@@ -156,10 +171,10 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// `init` (always before any apply runs in `start`).
     private LongCounter.Measurement hashMismatchMetric;
 
-    /// The catch-up thread: the plugin's only thread of its own, and the only one that reads
-    /// history. It replays missing blocks at start-up and whenever a live block arrives ahead of
-    /// the next expected one. Live blocks that are next in line are applied inline on the
-    /// messaging thread that delivers them, which never reads history. `null` until `start()`.
+    /// The catch-up thread: the only thread that reads history. It replays missing blocks at
+    /// start-up and whenever a live block arrives ahead of the next expected one. Live blocks that
+    /// are next in line are applied inline on the messaging thread that delivers them, which never
+    /// reads history. `null` until `start()`.
     private ExecutorService catchUpExecutor;
 
     /// The block the last stalled sweep stopped at, so a repeated stall is not logged as a new one.
@@ -168,6 +183,29 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
 
     /// `true` while a catch-up sweep is queued or running, so at most one runs at a time.
     private final AtomicBoolean catchUpRunning = new AtomicBoolean(false);
+
+    /// How long `stop()` waits for the final snapshot (and any write already in flight) before
+    /// interrupting it. A write cut short leaves only a staging dir, removed on the next start.
+    static final long SNAPSHOT_STOP_TIMEOUT_SECONDS = 10L;
+
+    /// The only thread that writes snapshots: the periodic task and the final snapshot queued by
+    /// `stop()` both run here, so two writes never overlap and `saveSnapshot` needs no lock.
+    /// Separate from the catch-up thread and the messaging thread that applies live blocks, so a
+    /// snapshot that takes minutes never delays apply. `null` until `start()`.
+    private ScheduledExecutorService snapshotExecutor;
+
+    /// Block number of the newest snapshot written or restored, `-1` if none. Volatile: written
+    /// by the snapshot thread (or during start-up), read by the metrics-scrape thread.
+    private volatile long lastSnapshottedBlock = -1L;
+
+    /// Duration of the most recent successful snapshot write, exported via
+    /// `state_snapshot_latency_ms`.
+    private volatile long lastSnapshotDurationMs = 0L;
+
+    private final AtomicLong snapshotFailureTotal = new AtomicLong();
+
+    /// Exported counter measurement for failed snapshot writes, registered in `init`.
+    private LongCounter.Measurement snapshotFailureMetric;
 
     /// Serialises every apply (live inline and catch-up) so only one thread mutates the
     /// lifecycle-managed state at a time. Taken per block, so a live block waits for at most one
@@ -210,6 +248,8 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                     Time.getCurrent(),
                     context.configuration(),
                     new FileSystemManager(fsmRoot));
+            this.snapshotManager =
+                    new StateSnapshotManager(fsmRoot, config.snapshotRecentRetentionCount(), lifecycleManager);
         } catch (final RuntimeException e) {
             // Non-fatal: plugin stays inert (lifecycleManager == null, start() no-ops);
             // the rest of the Block Node is unaffected.
@@ -247,6 +287,15 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         metrics.register(ObservableGauge.builder(METRIC_BLOCK_LAG)
                 .setDescription("Blocks between the latest available block and the currently attested block")
                 .observe(this::currentBlockLag));
+        metrics.register(ObservableGauge.builder(METRIC_SNAPSHOT_BLOCK)
+                .setDescription("Block number of the newest state snapshot written or restored, -1 if none")
+                .observe(() -> lastSnapshottedBlock));
+        metrics.register(ObservableGauge.builder(METRIC_SNAPSHOT_LATENCY_MS)
+                .setDescription("Duration of the most recent successful state snapshot write in ms")
+                .observe(() -> lastSnapshotDurationMs));
+        this.snapshotFailureMetric = metrics.register(LongCounter.builder(METRIC_SNAPSHOT_FAILURES_TOTAL)
+                        .setDescription("Cumulative state snapshot writes that failed"))
+                .getOrCreateNotLabeled();
     }
 
     /// Blocks between the latest block `historicalBlockProvider` has on hand and the currently
@@ -274,12 +323,21 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
             return;
         }
         loadPersistedState();
+        // A crash mid-write leaves a staging dir behind. Nothing is writing yet, so remove it.
+        snapshotManager.deleteStagingDirectories();
         context.blockMessaging().registerBlockNotificationHandler(this, true, name());
 
         // Catch up from history. Needed because an idle node (no live blocks) would otherwise
         // never become ready. The thread stays up for later catch-ups, see `requestCatchUp`.
         catchUpExecutor = context.threadPoolManager().createSingleThreadExecutor("StateManagement-catchup");
         requestCatchUp();
+
+        snapshotExecutor = context.threadPoolManager()
+                .createSingleThreadScheduledExecutor(
+                        "StateManagement-snapshot",
+                        (t, e) -> LOGGER.log(System.Logger.Level.WARNING, "Uncaught exception in " + t.getName(), e));
+        final long interval = config.snapshotIntervalMillis();
+        snapshotExecutor.scheduleWithFixedDelay(this::runSnapshotTask, interval, interval, TimeUnit.MILLISECONDS);
     }
 
     /// {@inheritDoc}
@@ -302,6 +360,7 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
                 Thread.currentThread().interrupt();
             }
         }
+        stopSnapshotExecutor();
     }
 
     /// Applies a verified block inline on the notification thread when it is the next expected
@@ -425,6 +484,20 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         return applyHalted.get();
     }
 
+    /// Block number of the newest snapshot written or restored.
+    ///
+    /// @return the newest snapshot's block number, or `-1` if none
+    long lastSnapshottedBlock() {
+        return lastSnapshottedBlock;
+    }
+
+    /// Total count of snapshot writes that failed.
+    ///
+    /// @return the cumulative snapshot-failure count
+    long snapshotFailureTotal() {
+        return snapshotFailureTotal.get();
+    }
+
     // ── Internals ───────────────────────────────────────────────────────────
 
     /// Restore from the highest-numbered recent-snapshot directory, if any exist, seeding the
@@ -432,127 +505,79 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
     /// all) falls back to genesis; a directory that fails to load or whose own
     /// `BlockStreamInfo.block_number` disagrees with its directory name halts instead, since
     /// silently falling back to genesis would discard the operator's recorded intent — see
-    /// `docs/design/state/live-state.md` §6.2.
+    /// `docs/design/state/live-state.md` §6.2. `StateSnapshotManager.restoreLatest` does the
+    /// disk work; this method logs the outcome, halts and seeds the bookkeeping.
     private void loadPersistedState() {
-        long restoreCandidate = -1L;
-        try {
-            restoreCandidate = highestNumberedSnapshotDirectory();
-        } catch (final IOException e) {
-            // Snapshots may exist but cannot be listed: same policy as an unreadable snapshot,
-            // halt rather than start from genesis and later report a hash mismatch that looks
-            // like divergence.
-            LOGGER.log(
-                    System.Logger.Level.ERROR,
-                    "Unable to scan {0} for snapshot directories; halting rather than silently starting from genesis",
-                    config.snapshotRecentPath(),
-                    e);
-            applyHalted.set(true);
-        }
-        boolean snapshotLoaded = false;
-        if (restoreCandidate >= 0L) {
-            final Path snapshotDir = recentSnapshotDirectoryFor(restoreCandidate);
-            try {
-                final Hash loadedHash = lifecycleManager.loadSnapshot(snapshotDir);
-                final long loadedBlockNumber = blockNumberOf(lifecycleManager.getLatestImmutableState());
-                if (loadedBlockNumber == restoreCandidate) {
-                    snapshotLoaded = true;
-                    lastAppliedBlock = restoreCandidate;
-                    // Logged so operators can compare it with an external value: nothing in the
-                    // chain attests this hash until the next block's footer arrives.
-                    LOGGER.log(
-                            System.Logger.Level.INFO,
-                            "Loaded state snapshot from {0} (root hash {1})",
-                            snapshotDir,
-                            loadedHash.toHex());
-                } else {
-                    // The loaded state disagrees with the name of the directory it came from —
-                    // unrecoverable in place, same as a block-apply hash mismatch: halt rather
-                    // than serve wrong data.
-                    LOGGER.log(
-                            System.Logger.Level.ERROR,
-                            "Snapshot at {0} reports block {1}, but its directory name is {2}; halting",
-                            snapshotDir,
-                            loadedBlockNumber,
-                            restoreCandidate);
-                    hashMismatchTotal.incrementAndGet();
-                    hashMismatchMetric.increment();
-                    applyHalted.set(true);
-                }
-            } catch (final IOException | RuntimeException e) {
-                // loadSnapshot wraps most on-disk problems (missing/corrupt MerkleDb files) in an
-                // unchecked exception rather than a plain IOException — catch both rather than
-                // let a bad snapshot directory crash start() outright.
+        long restoredBlock = -1L;
+        switch (snapshotManager.restoreLatest()) {
+            case StateSnapshotManager.NoSnapshot ignored -> {
+                // Fresh node: fall through to genesis below.
+            }
+            case StateSnapshotManager.Restored restored -> {
+                restoredBlock = restored.blockNumber();
+                lastAppliedBlock = restoredBlock;
+                // The restored directory already holds this block; never rewrite it.
+                lastSnapshottedBlock = restoredBlock;
+                // Logged so operators can compare it with an external value: nothing in the
+                // chain attests this hash until the next block's footer arrives.
                 LOGGER.log(
-                        System.Logger.Level.ERROR,
-                        "Snapshot at {0} unreadable; halting rather than silently starting from genesis",
-                        snapshotDir,
-                        e);
+                        System.Logger.Level.INFO,
+                        "Loaded state snapshot from {0} (root hash {1})",
+                        restored.directory(),
+                        restored.rootHash().toHex());
+            }
+            case StateSnapshotManager.Failed failed -> {
+                switch (failed.kind()) {
+                    case UNLISTABLE_ROOT ->
+                        // Snapshots may exist but cannot be listed: same policy as an unreadable
+                        // snapshot, halt rather than start from genesis and later report a hash
+                        // mismatch that looks like divergence.
+                        LOGGER.log(
+                                System.Logger.Level.ERROR,
+                                "Unable to scan {0} for snapshot directories; halting rather than silently "
+                                        + "starting from genesis",
+                                config.snapshotRecentPath(),
+                                failed.cause());
+                    case SELF_CHECK_MISMATCH -> {
+                        // The loaded state disagrees with the name of the directory it came from —
+                        // unrecoverable in place, same as a block-apply hash mismatch: halt rather
+                        // than serve wrong data.
+                        LOGGER.log(
+                                System.Logger.Level.ERROR,
+                                "Snapshot at {0} reports block {1}, but its directory name is {2}; halting",
+                                failed.directory(),
+                                failed.foundBlock(),
+                                failed.expectedBlock());
+                        hashMismatchTotal.incrementAndGet();
+                        hashMismatchMetric.increment();
+                    }
+                    case UNREADABLE ->
+                        LOGGER.log(
+                                System.Logger.Level.ERROR,
+                                "Snapshot at {0} unreadable; halting rather than silently starting from genesis",
+                                failed.directory(),
+                                failed.cause());
+                }
                 applyHalted.set(true);
             }
         }
         // Force the initial copyMutableState so getLatestImmutableState() is non-null from boot
         // onwards (and so the live mutable is a writable copy).
         lifecycleManager.copyMutableState();
-        if (snapshotLoaded) {
+        if (restoredBlock >= 0L) {
             // The loaded (already-attested) block is simultaneously state 1 (exposed to
             // readers) and state 2 (the base the next block's footer validates against).
             // roundNumber is left unknown (-1): it isn't persisted (see §5.1) and is repopulated
             // by the first applied block's RoundHeader, exactly like the existing fallback for a
             // block that doesn't carry one of its own.
             final VirtualMapState loaded = lifecycleManager.getLatestImmutableState();
-            publishAttested(loaded, restoreCandidate, -1L);
+            publishAttested(loaded, restoredBlock, -1L);
             hashingImmutable = loaded;
         } else if (!applyHalted.get()) {
             // True genesis: seed state 2 with the sealed empty VirtualMap so block 0 validates
             // through the same path as every other block. Skipped if we just halted above, so
             // hashingImmutable stays null rather than surfacing an untrustworthy hash.
             hashingImmutable = lifecycleManager.getLatestImmutableState();
-        }
-    }
-
-    /// Scan `${config.snapshotRecentPath()}` for numerically-named directories and return the
-    /// highest one.
-    ///
-    /// @return the highest-numbered snapshot directory's block number, or `-1` if none exist
-    /// @throws IOException if the snapshot root exists but cannot be listed
-    private long highestNumberedSnapshotDirectory() throws IOException {
-        final Path root = Path.of(config.snapshotRecentPath());
-        if (!Files.isDirectory(root)) {
-            return -1L;
-        }
-        try (final var entries = Files.list(root)) {
-            return entries.filter(Files::isDirectory)
-                    .map(p -> p.getFileName().toString())
-                    .filter(StateManagementPlugin::isDigits)
-                    .mapToLong(Long::parseLong)
-                    .max()
-                    .orElse(-1L);
-        }
-    }
-
-    /// @param name a directory's file name
-    /// @return `true` if `name` is non-empty and every character is an ASCII digit
-    private static boolean isDigits(@NonNull final String name) {
-        return !name.isEmpty() && name.chars().allMatch(Character::isDigit);
-    }
-
-    /// Read `BlockStreamInfo.block_number` from `state`'s own singleton — the self-consistency
-    /// check that replaces cross-referencing a separate metadata file (§5.1/§6.2).
-    ///
-    /// @param state the state to read
-    /// @return the block number recorded in `state`'s `BlockStreamInfo` singleton, or `-1` if
-    ///     absent or unparseable
-    private static long blockNumberOf(@NonNull final VirtualMapState state) {
-        final Bytes raw = state.getSingleton(StateIdentifier.STATE_ID_BLOCK_STREAM_INFO.protoOrdinal());
-        if (raw == null || raw.length() == 0L) {
-            return -1L;
-        }
-        try {
-            return BlockStreamInfo.PROTOBUF
-                    .parse(raw.toReadableSequentialData())
-                    .blockNumber();
-        } catch (final ParseException e) {
-            return -1L;
         }
     }
 
@@ -896,13 +921,108 @@ public final class StateManagementPlugin implements BlockNodePlugin, BlockNotifi
         }
     }
 
-    /// The recent-snapshot directory path for a given block number.
+    /// Body of every snapshot task on `snapshotExecutor`, periodic and final. Catches everything
+    /// `saveSnapshot` can throw, because a scheduled task that throws is silently never run again.
+    private void runSnapshotTask() {
+        try {
+            saveSnapshot();
+        } catch (final RuntimeException e) {
+            LOGGER.log(System.Logger.Level.WARNING, "State snapshot task failed", e);
+        }
+    }
+
+    /// Take a final snapshot of the latest attested block and shut down `snapshotExecutor`. The
+    /// final snapshot is queued on the snapshot thread, behind any write already in flight, so
+    /// the two never overlap. Catch-up is already stopped and `stopping` blocks new applies, so
+    /// the queued run captures the latest attested block (or no-ops if the in-flight write
+    /// already covered it). Waits up to `SNAPSHOT_STOP_TIMEOUT_SECONDS`, then interrupts: the
+    /// interrupted write fails, its staging dir is removed, and the next start restores the
+    /// previous snapshot and replays the blocks since.
+    private void stopSnapshotExecutor() {
+        if (snapshotExecutor == null) {
+            return;
+        }
+        try {
+            snapshotExecutor.execute(this::runSnapshotTask);
+        } catch (final RejectedExecutionException e) {
+            LOGGER.log(System.Logger.Level.WARNING, "Snapshot executor already shut down; skipping final snapshot");
+        }
+        snapshotExecutor.shutdown();
+        try {
+            if (!snapshotExecutor.awaitTermination(SNAPSHOT_STOP_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                LOGGER.log(
+                        System.Logger.Level.WARNING,
+                        "Final state snapshot did not finish within {0}s; interrupting it. The next start "
+                                + "restores the previous snapshot.",
+                        SNAPSHOT_STOP_TIMEOUT_SECONDS);
+                snapshotExecutor.shutdownNow();
+            }
+        } catch (final InterruptedException e) {
+            snapshotExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /// Write the attested state (state 1) to `<snapshotRecentPath>/<blockNumber>` via
+    /// `StateSnapshotManager.write`, which also prunes old snapshots after a successful write.
+    /// Runs even when apply has halted: the attested state was confirmed by a footer before the
+    /// halt and is a valid recovery point.
     ///
-    /// @param blockNumber the block number
-    /// @return the directory path under `snapshotRecentPath` for that block
-    @NonNull
-    private Path recentSnapshotDirectoryFor(final long blockNumber) {
-        return Path.of(config.snapshotRecentPath(), Long.toString(blockNumber));
+    /// Not thread-safe by design: two concurrent calls could write and prune the same staging
+    /// dir. In production it only runs on `snapshotExecutor` (thread confinement, the same
+    /// pattern as `ApplicationStateFacilityPlugin`'s dispatcher). Package-private so tests can
+    /// drive it directly from a single thread.
+    ///
+    /// @return `true` only if a new snapshot directory was written
+    boolean saveSnapshot() {
+        if (lifecycleManager == null) {
+            return false;
+        }
+        // The apply thread can release the attested root on the next promotion at any
+        // moment, so reserve it with tryReserve and re-read on a lost race.
+        AttestedSnapshot current;
+        while (true) {
+            current = attested;
+            if (current.state() == null || current.blockNumber() <= lastSnapshottedBlock) {
+                return false;
+            }
+            if (current.state().getRoot().tryReserve()) {
+                break;
+            }
+            if (attested == current) {
+                // Destroyed but still published, with nothing newer to retry with. Give up
+                // rather than spin; the next scheduled run tries again.
+                LOGGER.log(
+                        System.Logger.Level.WARNING,
+                        "Attested state for block {0} already released; skipping snapshot",
+                        current.blockNumber());
+                return false;
+            }
+        }
+        final long block = current.blockNumber();
+        final StateSnapshotManager.WriteResult result;
+        try {
+            result = snapshotManager.write(current.state(), block);
+        } finally {
+            current.state().getRoot().release();
+        }
+        return switch (result.status()) {
+            case WRITTEN -> {
+                lastSnapshotDurationMs = result.durationMs();
+                lastSnapshottedBlock = block;
+                yield true;
+            }
+            case ALREADY_PRESENT -> {
+                // Only complete snapshots are ever renamed into place, so this one is whole.
+                lastSnapshottedBlock = block;
+                yield false;
+            }
+            case FAILED -> {
+                snapshotFailureTotal.incrementAndGet();
+                snapshotFailureMetric.increment();
+                yield false;
+            }
+        };
     }
 
     /// The root hash of a sealed state, or empty if the state/root is absent or not yet hashed.
