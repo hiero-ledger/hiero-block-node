@@ -1533,6 +1533,144 @@ class BlockStreamSubscriberSessionTest {
     }
 
     /**
+     * Tests that a block is never sent to the client without its block header (issue 1581).
+     */
+    @Nested
+    @DisplayName("Partial Live Block Tests")
+    class PartialLiveBlockTests {
+        /** Upper bound for waits, so a regression fails the test instead of hanging it. */
+        private static final long WAIT_TIMEOUT_SECONDS = 10L;
+
+        /**
+         * This test verifies that when the live queue holds only the tail of the next block to send
+         * (e.g. the handler re-registered mid-block), the session does not forward those batches, and
+         * still sends the next complete block. Before the fix, the tail matched the next block number
+         * and was sent without the block header, so clients failed with
+         * "Incorrect first block item case ...".
+         */
+        @Test
+        @DisplayName("should not send a live block that does not start with its block header")
+        void testPartialLiveBlockWithoutHeaderNotSent() throws Exception {
+            historicalBlockFacility.handleBlockItemsReceived(
+                    TestBlockBuilder.generateBlockWithNumber(0).asBlockItems(), false);
+            // Released once two blocks have been completed (block 0 from history, block 1 from live).
+            final EndOfBlockLatchPipeline pipeline = new EndOfBlockLatchPipeline(2);
+            final TestBlockMessagingFacility messagingFacility = new TestBlockMessagingFacility();
+            final BlockNodeContext context =
+                    generateContext(blockNodeContext.configuration(), messagingFacility, historicalBlockFacility);
+            final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
+                    .startBlockNumber(0L)
+                    .endBlockNumber(-1L)
+                    .build();
+            final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
+                    SessionContext.create(clientId, request, context, TEST_BLOCK_READ_BULKHEAD),
+                    pipeline,
+                    context,
+                    sessionReadyLatch);
+
+            final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+            try {
+                final Future<BlockStreamSubscriberSession> sessionFuture = executor.submit(session);
+                assertThat(sessionReadyLatch.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                        .isTrue();
+                // Block 0 is sent from history; hold that send while block 1 arrives live.
+                assertThat(pipeline.firstSendStarted.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                        .isTrue();
+                // First, only the tail of block 1 (no header), then block 1 complete.
+                messagingFacility.sendBlockItems(
+                        new BlockItems(List.of(sampleRoundHeaderUnparsed(1)), 1L, false, false));
+                messagingFacility.sendBlockItems(new BlockItems(List.of(sampleHeaderUnparsed(1)), 1L, true, false));
+                messagingFacility.sendBlockItems(new BlockItems(List.of(sampleProofUnparsed(1)), 1L, false, true));
+                pipeline.releaseFirstSend.countDown();
+
+                assertThat(pipeline.blocksCompleted.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                        .isTrue();
+                session.close(Code.SUCCESS);
+                sessionFuture.get(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            } finally {
+                executor.shutdownNow();
+            }
+
+            assertEveryBlockStartsWithHeader(pipeline.getOnNextCalls());
+        }
+
+        /**
+         * This test verifies that when the live queue holds only the tail of the next block to send,
+         * the discarded block is not lost: the session sends it, with its header, from the historical
+         * provider, and then carries on with the following block. Before the fix, the tail was sent in
+         * place of the block and the block was never sent from history.
+         */
+        @Test
+        @DisplayName("should send a block from history after discarding its headerless live tail")
+        void testDiscardedPartialLiveBlockIsSentFromHistory() throws Exception {
+            historicalBlockFacility.handleBlockItemsReceived(
+                    TestBlockBuilder.generateBlockWithNumber(0).asBlockItems(), false);
+            // Block 1 is already available from history, but only its tail is queued live.
+            historicalBlockFacility.handleBlockItemsReceived(
+                    TestBlockBuilder.generateBlockWithNumber(1).asBlockItems(), false);
+            // Released once two blocks have been completed (blocks 0 and 1, both from history).
+            final EndOfBlockLatchPipeline pipeline = new EndOfBlockLatchPipeline(2);
+            final TestBlockMessagingFacility messagingFacility = new TestBlockMessagingFacility();
+            final BlockNodeContext context =
+                    generateContext(blockNodeContext.configuration(), messagingFacility, historicalBlockFacility);
+            final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
+                    .startBlockNumber(0L)
+                    .endBlockNumber(-1L)
+                    .build();
+            final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
+                    SessionContext.create(clientId, request, context, TEST_BLOCK_READ_BULKHEAD),
+                    pipeline,
+                    context,
+                    sessionReadyLatch);
+
+            final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+            try {
+                final Future<BlockStreamSubscriberSession> sessionFuture = executor.submit(session);
+                assertThat(sessionReadyLatch.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                        .isTrue();
+                // Block 0 is sent from history; hold that send while the tail of block 1 arrives live.
+                assertThat(pipeline.firstSendStarted.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                        .isTrue();
+                messagingFacility.sendBlockItems(
+                        new BlockItems(List.of(sampleRoundHeaderUnparsed(1)), 1L, false, false));
+                messagingFacility.sendBlockItems(new BlockItems(List.of(sampleProofUnparsed(1)), 1L, false, true));
+                pipeline.releaseFirstSend.countDown();
+
+                assertThat(pipeline.blocksCompleted.await(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                        .isTrue();
+                session.close(Code.SUCCESS);
+                sessionFuture.get(WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            } finally {
+                executor.shutdownNow();
+            }
+
+            assertEveryBlockStartsWithHeader(pipeline.getOnNextCalls());
+            // Blocks 0 and 1 are each sent whole, so exactly two block-items responses are expected.
+            assertThat(pipeline.getOnNextCalls())
+                    .filteredOn(r -> r.response().kind() == ResponseOneOfType.BLOCK_ITEMS)
+                    .hasSize(2);
+        }
+
+        /** Asserts the first batch of every block in the responses is its block header. */
+        private void assertEveryBlockStartsWithHeader(final List<SubscribeStreamResponseUnparsed> responses) {
+            boolean expectHeader = true;
+            for (final SubscribeStreamResponseUnparsed response : responses) {
+                final ResponseOneOfType kind = response.response().kind();
+                if (kind == ResponseOneOfType.BLOCK_ITEMS) {
+                    if (expectHeader) {
+                        assertThat(response.blockItems().blockItems().getFirst().hasBlockHeader())
+                                .as("first batch of a block must start with its block header")
+                                .isTrue();
+                    }
+                    expectHeader = false;
+                } else if (kind == ResponseOneOfType.END_OF_BLOCK) {
+                    expectHeader = true;
+                }
+            }
+        }
+    }
+
+    /**
      * Tests for closed-range requests whose later blocks arrive live.
      */
     @Nested
@@ -2147,6 +2285,34 @@ class BlockStreamSubscriberSessionTest {
                 releaseFirstSend.await();
             } catch (final InterruptedException e) {
                 Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    /**
+     * Response pipeline whose first send blocks until released, and which counts down a latch
+     * once the given number of end-of-block responses have been sent.
+     */
+    private static final class EndOfBlockLatchPipeline extends TestResponsePipeline<SubscribeStreamResponseUnparsed> {
+        private final CountDownLatch firstSendStarted = new CountDownLatch(1);
+        private final CountDownLatch releaseFirstSend = new CountDownLatch(1);
+        private final CountDownLatch blocksCompleted;
+
+        private EndOfBlockLatchPipeline(final int blocksToComplete) {
+            blocksCompleted = new CountDownLatch(blocksToComplete);
+        }
+
+        @Override
+        public void onNext(final SubscribeStreamResponseUnparsed item) {
+            super.onNext(item);
+            firstSendStarted.countDown();
+            try {
+                releaseFirstSend.await();
+            } catch (final InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            if (item.response().kind() == ResponseOneOfType.END_OF_BLOCK) {
+                blocksCompleted.countDown();
             }
         }
     }

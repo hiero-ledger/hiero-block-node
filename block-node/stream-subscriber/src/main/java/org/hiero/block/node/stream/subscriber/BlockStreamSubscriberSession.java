@@ -134,6 +134,16 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         return interruptedStream.get() || Thread.currentThread().isInterrupted();
     }
 
+    /**
+     * The number of the live block that has been started (its header batch sent) but not yet finished, or
+     * {@link org.hiero.block.node.spi.BlockNodePlugin#UNKNOWN_BLOCK_NUMBER} if none. Only accessed from the
+     * session thread. Used to
+     * ensure we never send a block that does not begin with its header. This is a block number rather than a
+     * flag so a stale value (e.g. the handler was evicted mid-block and that block was later sent from
+     * history) can never match a later block's headerless batches.
+     */
+    private long liveBlockInProgress = UNKNOWN_BLOCK_NUMBER;
+
     /** The latest block number seen in the live stream */
     private final AtomicLong latestLiveStreamBlock;
     /** The next block number to send to the client */
@@ -708,10 +718,26 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                 LOGGER.log(Level.TRACE, "Skipping block {0} for client {1}", blockItems.blockNumber(), clientId);
                 skipCurrentBlockInQueue(blockItems);
                 lastProgressNanos = nanoTime.getAsLong();
+            } else if (blockItems.blockNumber() == nextBlockToSend.get()
+                    && !blockItems.isStartOfNewBlock()
+                    && blockItems.blockNumber() != liveBlockInProgress) {
+                // This is a partial batch from the middle of the block we need next, and we have not sent
+                // that block's header (e.g. the handler re-registered mid-block, or we caught up from history
+                // while the queue held the tail of this block). Sending it would give the client a block that
+                // does not start with a block header. Discard the remainder of this block from the queue;
+                // the next pass will fetch the whole block from the historical provider.
+                LOGGER.log(
+                        Level.TRACE,
+                        "Discarding partial block {0} for client {1}, header not available",
+                        blockItems.blockNumber(),
+                        clientId);
+                skipCurrentBlockInQueue(blockItems);
+                lastProgressNanos = nanoTime.getAsLong();
             } else if (blockItems.blockNumber()
                     == nextBlockToSend.get()) { // todo if block number from block items cannot be -1, we are good here
                 blockItems = liveBlockQueue.poll();
                 if (blockItems != null) {
+                    liveBlockInProgress = blockItems.isEndOfBlock() ? UNKNOWN_BLOCK_NUMBER : blockItems.blockNumber();
                     sendOneBlockItemSet(blockItems, blockItems.isEndOfBlock());
                     if (blockItems.isEndOfBlock()) {
                         trimBlockItemQueue(nextBlockToSend.getAndIncrement());
