@@ -301,7 +301,7 @@ The `serverStatus`, `serverStatusDetail`, `getAddressBook` and `getTssData` gRPC
 |:--------------------------------|:----------------------------------------------------------------------------------------------------------------------|--------:|
 | serverStatusMaxConcurrent       | Node-wide ceiling on concurrent in-flight `serverStatus` calls across all clients.                                    |   1,000 |
 | serverStatusDetailMaxConcurrent | Node-wide ceiling on concurrent in-flight `serverStatusDetail` calls across all clients.                              |   1,000 |
-| getAddressBookMaxConcurrent     | Node-wide ceiling on concurrent in-flight `getAddressBook` calls across all clients.                                  |     500 |
+| getAddressBookMaxConcurrent     | Node-wide ceiling on concurrent in-flight `getAddressBook` calls across all clients.                                  |     100 |
 | getTssDataMaxConcurrent         | Node-wide ceiling on concurrent in-flight `getTssData` calls across all clients.                                      |     500 |
 | clientStateTtlMinutes           | How long a throttled method keeps a client's rate and concurrency state after its last call before it can be evicted. |      30 |
 | clientStateSweepIntervalMinutes | How often the sweep that evicts stale client state runs.                                                              |       5 |
