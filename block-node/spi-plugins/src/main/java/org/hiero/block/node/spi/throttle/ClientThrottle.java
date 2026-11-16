@@ -20,6 +20,7 @@ final class ClientThrottle {
     private final ThrottleMetrics throttleMetrics;
     private final String service;
     private final String method;
+    private final WeightClass weightClass;
     private final long clientStateTtlNanos;
     private final long maxPermitHoldNanos;
     private final ConcurrentHashMap<String, ClientState> clientStates = new ConcurrentHashMap<>();
@@ -44,6 +45,22 @@ final class ClientThrottle {
             @NonNull final String service,
             @NonNull final String method,
             @NonNull final Duration clientStateTtl) {
+        this(settings, globalGate, throttleMetrics, service, method, WeightClass.STANDARD, clientStateTtl);
+    }
+
+    /// As the constructor above, for one specific weight class of a method with more than one; the
+    /// weight class labels this instance's metrics and rejection reasons.
+    ///
+    /// @param weightClass the weight class this instance enforces a policy for
+    ClientThrottle(
+            @NonNull final PerClientThrottleSettings settings,
+            @NonNull final GlobalConcurrencyGate globalGate,
+            @NonNull final ThrottleMetrics throttleMetrics,
+            @NonNull final String service,
+            @NonNull final String method,
+            @NonNull final WeightClass weightClass,
+            @NonNull final Duration clientStateTtl) {
+        this.weightClass = weightClass;
         this.settings = settings;
         this.globalGate = globalGate;
         this.throttleMetrics = throttleMetrics;
@@ -53,8 +70,8 @@ final class ClientThrottle {
         this.maxPermitHoldNanos =
                 Duration.ofSeconds(settings.maxPermitHoldSeconds()).toNanos();
 
-        throttleMetrics.gaugeFor(service, method).accept(clientStates::mappingCount);
-        throttleMetrics.clientsInFlightGaugeFor(service, method).accept(this::clientsInFlight);
+        throttleMetrics.gaugeFor(service, method, weightClass).accept(clientStates::mappingCount);
+        throttleMetrics.clientsInFlightGaugeFor(service, method, weightClass).accept(this::clientsInFlight);
     }
 
     /// Attempts to admit a call from `clientKey`, applying the decision order described in the
@@ -82,17 +99,20 @@ final class ClientThrottle {
             return current;
         });
 
-        final String description = service + "." + method;
+        final String description =
+                service + "." + method + (weightClass == WeightClass.STANDARD ? "" : " (" + weightClass + ")");
         // Each check reserves atomically; a later rejection rolls back what this call already reserved.
         if (!globalGate.tryReserve()) {
-            throttleMetrics.recordCall(service, method, ThrottleMetrics.Outcome.REJECTED_GLOBAL_CONCURRENCY);
+            throttleMetrics.recordCall(
+                    service, method, weightClass, ThrottleMetrics.Outcome.REJECTED_GLOBAL_CONCURRENCY);
             return AdmissionResult.rejected("node-wide concurrency limit reached for " + description);
         }
         if (!tryReserve(state.inFlight, settings.maxConcurrentPerClient())) {
             // Only roll back the global slot: the client slot isn't held yet at this point, this
             // check is what just failed to reserve it.
             globalGate.release();
-            throttleMetrics.recordCall(service, method, ThrottleMetrics.Outcome.REJECTED_CLIENT_CONCURRENCY);
+            throttleMetrics.recordCall(
+                    service, method, weightClass, ThrottleMetrics.Outcome.REJECTED_CLIENT_CONCURRENCY);
             return AdmissionResult.rejected("per-client concurrency limit reached for " + description);
         }
         if (!state.limiter.tryAcquire(nowNanos)) {
@@ -100,11 +120,11 @@ final class ClientThrottle {
             // checks above before this one ran.
             globalGate.release();
             state.inFlight.decrementAndGet();
-            throttleMetrics.recordCall(service, method, ThrottleMetrics.Outcome.REJECTED_RATE);
+            throttleMetrics.recordCall(service, method, weightClass, ThrottleMetrics.Outcome.REJECTED_RATE);
             return AdmissionResult.rejected("rate limit exceeded for " + description);
         }
 
-        throttleMetrics.recordCall(service, method, ThrottleMetrics.Outcome.ADMITTED);
+        throttleMetrics.recordCall(service, method, weightClass, ThrottleMetrics.Outcome.ADMITTED);
         final Permit permit = new Permit(state, nowNanos);
         livePermits.add(permit);
         return AdmissionResult.admitted(permit::release);
@@ -126,7 +146,7 @@ final class ClientThrottle {
             }
         }
         if (reaped > 0) {
-            throttleMetrics.recordReaped(service, method, reaped);
+            throttleMetrics.recordReaped(service, method, weightClass, reaped);
         }
         return reaped;
     }

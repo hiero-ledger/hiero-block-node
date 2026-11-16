@@ -60,6 +60,32 @@ public class BlockAccessServicePluginTest
         sendBlocks(25);
     }
 
+    @Test
+    @DisplayName("The plugin reports live and historical throttle settings, ceilings and a weigher")
+    void throttleSpecReportsBothWeightClasses() {
+        assertTrue(plugin.weigher().isPresent());
+        assertEquals(
+                java.util.Set.of(
+                        new org.hiero.block.node.spi.throttle.MethodWeight(
+                                "getBlock", org.hiero.block.node.spi.throttle.WeightClass.STANDARD),
+                        new org.hiero.block.node.spi.throttle.MethodWeight(
+                                "getBlock", org.hiero.block.node.spi.throttle.WeightClass.HEAVY)),
+                plugin.weightedPerClientSettings().keySet());
+        assertEquals(
+                java.util.Set.of(
+                        org.hiero.block.node.spi.throttle.WeightClass.STANDARD,
+                        org.hiero.block.node.spi.throttle.WeightClass.HEAVY),
+                plugin.weightedGlobalConcurrencyCeilings().keySet());
+        // historical must be stricter than live by default
+        final var live = plugin.weightedPerClientSettings()
+                .get(new org.hiero.block.node.spi.throttle.MethodWeight(
+                        "getBlock", org.hiero.block.node.spi.throttle.WeightClass.STANDARD));
+        final var historical = plugin.weightedPerClientSettings()
+                .get(new org.hiero.block.node.spi.throttle.MethodWeight(
+                        "getBlock", org.hiero.block.node.spi.throttle.WeightClass.HEAVY));
+        assertTrue(historical.ratePerSecond() < live.ratePerSecond());
+    }
+
     /**
      * Test the service methods are correctly defined.
      */
