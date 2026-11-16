@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       base-version:
-        description: "Base BN version to install (default: latest published GA/RC)."
+        description: "Base BN version to install (default: newest GA/RC release below the snapshot version)."
         required: false
         default: ""
       snapshot-version:
@@ -197,35 +197,24 @@ jobs:
       - name: Determine versions
         id: versions
         run: |
-          if [[ -n "${{ inputs.base-version }}" ]]; then
-            # Release tags carry a leading v (v0.44.1) but images and charts are published without
-            # it, so a tag given as the base version is normalized like the release lookup below.
-            BASE="${{ inputs.base-version }}"
-            BASE="${BASE#v}"
-          else
-            # Prefer GA (draft or published) over RC: the tag push triggers image publication
-            # before the release manager clicks "Publish", so the GHCR image exists regardless
-            # of draft status. Using --exclude-drafts would return the last RC instead.
-            STABLE=$(gh release list --repo hiero-ledger/hiero-block-node --limit 20 \
-              --json tagName,isDraft \
-              --jq '[.[] | select(.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))] |
-                    (map(select(.isDraft == false)) | first) // first |
-                    .tagName | ltrimstr("v")')
-            if [[ -n "${STABLE}" ]]; then
-              BASE="${STABLE}"
-            else
-              # No stable GA tag at all yet; fall back to the latest published RC.
-              BASE=$(gh release list --repo hiero-ledger/hiero-block-node --exclude-drafts --limit 20 \
-                --json tagName \
-                --jq '[.[] | select(.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+-(rc|alpha)[0-9]+$"))] | first | .tagName | ltrimstr("v")')
-            fi
-          fi
           if [[ -n "${{ inputs.snapshot-version }}" ]]; then
-            # Normalized like the base version: the snapshot image tag and chart version have no v.
+            # Release tags carry a leading v (v0.44.1) but images and charts are published without it.
             SNAP="${{ inputs.snapshot-version }}"
             SNAP="${SNAP#v}"
           else
             SNAP=$(cat version.txt)
+          fi
+          if [[ -n "${{ inputs.base-version }}" ]]; then
+            # Normalized like the snapshot version.
+            BASE="${{ inputs.base-version }}"
+            BASE="${BASE#v}"
+          else
+            # The newest release below the snapshot, so a release branch (release/0.44) does not try to
+            # "upgrade" from a later minor line (0.46.0). The limit keeps older patch lines in reach.
+            # Drafts are passed in too: a GA tag push publishes the image before the release is published.
+            BASE=$(gh release list --repo hiero-ledger/hiero-block-node --limit 100 \
+                --json tagName,isDraft --jq '.[] | "\(.tagName) \(.isDraft)"' \
+              | bash tools-and-tests/scripts/e2e-node-operator/select-base-version.sh "${SNAP}")
           fi
           echo "BASE_VERSION=${BASE}" >> "$GITHUB_OUTPUT"
           echo "SNAP_VERSION=${SNAP}" >> "$GITHUB_OUTPUT"
