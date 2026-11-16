@@ -193,8 +193,9 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
             }
         });
         // report the blocks found on disk to the application state facility
-        availableBlocks.streamRanges().forEach(range -> context.applicationStateFacility()
-                .addAvailableBlockRange(this, range));
+        availableBlocks
+                .streamRanges()
+                .forEach(range -> context.applicationStateFacility().addAvailableBlockRange(this, range));
     }
 
     /**

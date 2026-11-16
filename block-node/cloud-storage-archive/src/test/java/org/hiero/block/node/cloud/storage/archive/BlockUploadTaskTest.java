@@ -367,8 +367,9 @@ class BlockUploadTaskTest {
         assertThat(getAllObjects()).contains(ArchiveKey.format(0, groupingLevel, config.objectKeyPrefix()));
 
         final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
-        assertThat(notifications).isNotEmpty().allSatisfy(n -> assertThat(n.succeeded())
-                .isTrue());
+        assertThat(notifications)
+                .isNotEmpty()
+                .allSatisfy(n -> assertThat(n.succeeded()).isTrue());
     }
 
     /// Verifies that the last block's [BlockSource] is preserved in its [PersistedNotification].

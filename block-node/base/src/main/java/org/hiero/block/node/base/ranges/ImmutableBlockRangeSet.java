@@ -100,6 +100,6 @@ public final class ImmutableBlockRangeSet implements BlockRangeSet {
     /// {@inheritDoc}
     @Override
     public String toString() {
-        return "ImmutableBlockRangeSet" + ranges;
+        return "ImmutableBlockRangeSet " + ranges;
     }
 }
