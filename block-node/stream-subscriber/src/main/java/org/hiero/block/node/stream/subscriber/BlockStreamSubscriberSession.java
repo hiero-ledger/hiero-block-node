@@ -5,7 +5,6 @@ import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.util.Objects.requireNonNull;
-import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
@@ -28,7 +27,9 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.LockSupport;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.LongSupplier;
 import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.SubscribeStreamRequest;
@@ -100,8 +101,6 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     private static final long MAX_LIVE_POLL_DELAY = 500;
     /** The time unit for the maximum live poll delay */
     private static final TimeUnit LIVE_POLL_UNITS = TimeUnit.MILLISECONDS;
-    /** The "resolution", in ns, to use for a polling delays. */
-    private static final long PARK_DELAY_TIME = 100_000;
     /**
      * How long a historical catch-up read waits for a shared block-read bulkhead permit before
      * giving up on this poll and retrying later, rather than disconnecting the session.
@@ -117,6 +116,8 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     private final Pipeline<? super SubscribeStreamResponseUnparsed> responsePipeline;
     /** A blocking queue to send blocks from the live handler to the session. */
     private final BlockingQueue<BlockItems> liveBlockQueue;
+    /** Wakes this session when the live block handler adds a batch to {@link #liveBlockQueue}. */
+    private final LiveEntrySignal liveEntrySignal = new LiveEntrySignal();
     /** A lock to hold the pipeline thread until this session is ready */
     private final CountDownLatch sessionReadyLatch;
     /** A flag indicating if the session should be interrupted */
@@ -210,7 +211,8 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         this.latestLiveStreamBlock = new AtomicLong(INITIAL_STATE_SENTINEL);
         this.nextBlockToSend = new AtomicLong(INITIAL_STATE_SENTINEL);
         this.liveBlockQueue = new ArrayBlockingQueue<>(sessionContext.subscriberConfig.liveQueueSize());
-        this.liveBlockHandler = new LiveBlockHandler(liveBlockQueue, latestLiveStreamBlock, sessionContext.handlerName);
+        this.liveBlockHandler = new LiveBlockHandler(
+                liveBlockQueue, liveEntrySignal, latestLiveStreamBlock, sessionContext.handlerName);
         this.nanoTime = requireNonNull(nanoTime);
         final long configuredIdleTimeoutNanos =
                 TimeUnit.SECONDS.toNanos(sessionContext.subscriberConfig.idleSessionTimeoutSeconds());
@@ -627,11 +629,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         if (closeIfIdle()) {
             return;
         }
-        final long maximumDelay = (LIVE_POLL_UNITS.toNanos(MAX_LIVE_POLL_DELAY) / PARK_DELAY_TIME);
-        for (long i = 0; i < maximumDelay && liveBlockQueue.isEmpty(); i++) {
-            // Sleep for a bit to avoid excessive spin overhead.
-            parkNanos(PARK_DELAY_TIME);
-        }
+        liveEntrySignal.awaitEntry(liveBlockQueue, LIVE_POLL_UNITS.toNanos(MAX_LIVE_POLL_DELAY));
     }
 
     /**
@@ -1031,15 +1029,18 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         private final Logger LOGGER = System.getLogger(getClass().getName());
 
         private final BlockingQueue<BlockItems> liveBlockQueue;
+        private final LiveEntrySignal liveEntrySignal;
         private final AtomicLong latestLiveStreamBlock;
         private final AtomicBoolean isRegisteredFlag;
         private final String clientId;
 
         private LiveBlockHandler(
                 @NonNull final BlockingQueue<BlockItems> liveBlockQueue,
+                @NonNull final LiveEntrySignal liveEntrySignal,
                 @NonNull final AtomicLong latestLiveStreamBlock,
                 final String clientId) {
             this.liveBlockQueue = requireNonNull(liveBlockQueue);
+            this.liveEntrySignal = requireNonNull(liveEntrySignal);
             this.latestLiveStreamBlock = requireNonNull(latestLiveStreamBlock);
             this.clientId = clientId;
             isRegisteredFlag = new AtomicBoolean(true);
@@ -1067,8 +1068,50 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             // off the head when it's full.
             try {
                 liveBlockQueue.put(blockItems);
+                liveEntrySignal.signalEntryAdded();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    /**
+     * Lets the session wait for the live block handler to add a batch, instead of polling the queue. The handler adds
+     * to the queue first and signals second, and the session checks the queue while holding the lock, so a batch
+     * added between the check and the wait still wakes the session.
+     */
+    private static final class LiveEntrySignal {
+        private final ReentrantLock lock = new ReentrantLock();
+        private final Condition entryAdded = lock.newCondition();
+
+        /** Wake any session waiting in {@link #awaitEntry}. Called after adding to the queue. */
+        private void signalEntryAdded() {
+            lock.lock();
+            try {
+                entryAdded.signalAll();
+            } finally {
+                lock.unlock();
+            }
+        }
+
+        /**
+         * Wait until the queue has an entry or the timeout passes. Returns at once if the queue already has an entry.
+         * An interrupt ends the wait and keeps the thread's interrupt flag set.
+         *
+         * @param queue the queue to wait on
+         * @param timeoutNanos the longest time to wait, in nanoseconds
+         */
+        private void awaitEntry(@NonNull final BlockingQueue<?> queue, final long timeoutNanos) {
+            lock.lock();
+            try {
+                long remainingNanos = timeoutNanos;
+                while (queue.isEmpty() && remainingNanos > 0) {
+                    remainingNanos = entryAdded.awaitNanos(remainingNanos);
+                }
+            } catch (final InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                lock.unlock();
             }
         }
     }

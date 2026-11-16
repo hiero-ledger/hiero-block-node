@@ -219,8 +219,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         // excessive contention with the idle detector task.
         threadCount = threadCount > 2 ? threadCount : 2;
         threadCount = threadCount > MAX_SCHEDULE_THREADS ? MAX_SCHEDULE_THREADS : threadCount;
-        return threadManager.createVirtualThreadScheduledExecutor(
-                threadCount, null, this::uncaughtScheduledExecutorException);
+        return threadManager.createScheduledExecutor(threadCount, null, this::uncaughtScheduledExecutorException);
     }
 
     @Override
@@ -1325,7 +1324,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// @return a Future representing pending completion of the task
     private Future<Long> launchQueueForwarder() {
         try {
-            return threadManager.getVirtualThreadExecutor().submit(new MessagingForwarderTask(this));
+            return threadManager.getThreadPerTaskExecutor().submit(new MessagingForwarderTask(this));
         } catch (final RejectedExecutionException e) {
             // Return no task so the reference stays empty and the next block proof tries again.
             LOGGER.log(WARNING, "Unable to launch the queue forwarder task, will retry.", e);

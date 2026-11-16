@@ -37,14 +37,14 @@ public class ScheduledBlockingExecutor extends ScheduledThreadPoolExecutor {
     private final Queue<ExecutorService> asyncExecutors;
 
     public ScheduledBlockingExecutor(@NonNull final BlockingQueue<Runnable> workQueue) {
-        super(1, Thread.ofVirtual().factory(), new AbortPolicy());
+        super(1, Thread.ofPlatform().daemon(true).factory(), new AbortPolicy());
         this.workQueue = workQueue; // actual work queue
         asyncExecutors = new ConcurrentLinkedQueue<>();
         scheduleQueue = new ConcurrentLinkedQueue<>();
     }
 
     public ScheduledBlockingExecutor(int corePoolSize, @NonNull final BlockingQueue<Runnable> workQueue) {
-        super(corePoolSize, Thread.ofVirtual().factory(), new AbortPolicy());
+        super(corePoolSize, Thread.ofPlatform().daemon(true).factory(), new AbortPolicy());
         this.workQueue = workQueue; // actual work queue
         asyncExecutors = new ConcurrentLinkedQueue<>();
         scheduleQueue = new ConcurrentLinkedQueue<>();

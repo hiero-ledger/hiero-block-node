@@ -218,7 +218,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
             return;
         }
         queryBnExecutor = context.threadPoolManager()
-                .createVirtualThreadScheduledExecutor(1, "queryPeerScanner", this::uncaughtExceptionHandler);
+                .createScheduledExecutor(1, "queryPeerScanner", this::uncaughtExceptionHandler);
         bnScheduledFuture = queryBnExecutor.scheduleAtFixedRate(
                 this::fetchFromPeer, 0, config.bnInitialQueryIntervalMillis(), TimeUnit.MILLISECONDS);
     }
@@ -227,7 +227,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
         if (addressBookFetcher == null) return;
         if (queryBnExecutor == null) {
             queryBnExecutor = context.threadPoolManager()
-                    .createVirtualThreadScheduledExecutor(1, "queryPeerScanner", this::uncaughtExceptionHandler);
+                    .createScheduledExecutor(1, "queryPeerScanner", this::uncaughtExceptionHandler);
         }
         queryBnExecutor.scheduleAtFixedRate(
                 this::fetchFromPeer, 0, config.bnSubsequentQueryIntervalMillis(), TimeUnit.MILLISECONDS);
@@ -262,7 +262,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
             return;
         }
         queryMnExecutor = context.threadPoolManager()
-                .createVirtualThreadScheduledExecutor(1, "queryMnScanner", this::uncaughtExceptionHandler);
+                .createScheduledExecutor(1, "queryMnScanner", this::uncaughtExceptionHandler);
         mnScheduledFuture = queryMnExecutor.scheduleAtFixedRate(
                 this::fetchFromMirrorNode, 0, config.mnInitialQueryIntervalMillis(), TimeUnit.MILLISECONDS);
     }
@@ -271,7 +271,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
         if (config.mirrorNodeBaseUrl().isBlank()) return;
         if (queryMnExecutor == null) {
             queryMnExecutor = context.threadPoolManager()
-                    .createVirtualThreadScheduledExecutor(1, "queryMnScanner", this::uncaughtExceptionHandler);
+                    .createScheduledExecutor(1, "queryMnScanner", this::uncaughtExceptionHandler);
         }
         queryMnExecutor.scheduleAtFixedRate(
                 this::fetchFromMirrorNode,

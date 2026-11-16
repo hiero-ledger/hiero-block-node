@@ -420,6 +420,7 @@ class CompletableVerificationSessionTest {
                 new VerificationDataProvider(
                         new BlockNodeContext(null, null, null, null, null, applicationState, null, null, null)),
                 lastVerifiedBlock,
+                new LastVerifiedBlockSignal(),
                 new ConcurrentLinkedDeque<>(),
                 executor,
                 new VerificationOutbox(blockMessaging),

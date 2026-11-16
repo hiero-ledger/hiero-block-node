@@ -5,7 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.BlockingDeque;
+import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -525,8 +526,8 @@ class ActiveSessionsBufferTest {
 
         /// {@inheritDoc}
         @Override
-        public ConcurrentLinkedDeque<BlockItems> getBlockItemsDeque() {
-            return new ConcurrentLinkedDeque<>();
+        public BlockingDeque<BlockItems> getBlockItemsDeque() {
+            return new LinkedBlockingDeque<>();
         }
 
         /// Produce a result and handle it, as a session whose verification ended on its

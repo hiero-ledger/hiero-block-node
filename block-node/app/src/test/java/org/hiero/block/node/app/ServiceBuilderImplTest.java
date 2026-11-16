@@ -68,7 +68,7 @@ class ServiceBuilderImplTest {
         final MetricRegistry metricRegistry = MetricRegistry.builder().build();
         final ThreadPoolManager threadPoolManager = mock(ThreadPoolManager.class);
         // Mock executor; only throttled-registration tests trigger the lazy sweep start, and none assert on it.
-        when(threadPoolManager.createVirtualThreadScheduledExecutor(
+        when(threadPoolManager.createScheduledExecutor(
                         org.mockito.ArgumentMatchers.anyInt(),
                         org.mockito.ArgumentMatchers.any(),
                         org.mockito.ArgumentMatchers.any()))
@@ -136,7 +136,7 @@ class ServiceBuilderImplTest {
                         eq(java.util.concurrent.TimeUnit.MILLISECONDS)))
                 .thenAnswer(invocation -> firstReaper);
         final ThreadPoolManager threadPoolManager = mock(ThreadPoolManager.class);
-        when(threadPoolManager.createVirtualThreadScheduledExecutor(
+        when(threadPoolManager.createScheduledExecutor(
                         org.mockito.ArgumentMatchers.anyInt(),
                         org.mockito.ArgumentMatchers.any(),
                         org.mockito.ArgumentMatchers.any()))

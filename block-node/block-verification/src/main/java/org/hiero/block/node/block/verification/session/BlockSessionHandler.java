@@ -36,6 +36,8 @@ public final class BlockSessionHandler {
     private final VerificationDataProvider verificationDataProvider;
     /// The last successfully verified block, shared with the sessions.
     private final AtomicLong lastVerifiedBlock;
+    /// Wakes sessions waiting for the last verified block to move.
+    private final LastVerifiedBlockSignal lastVerifiedBlockSignal;
     /// The set of recently verified blocks, shared with the sessions.
     private final ConcurrentLinkedDeque<Long> recentlyVerifiedBlocks;
     /// The executor used to run sessions.
@@ -55,6 +57,7 @@ public final class BlockSessionHandler {
     /// @param verificationConfig the configuration for verification, must not be null
     /// @param verificationDataProvider provider of the verification data, must not be null
     /// @param lastVerifiedBlock the last successfully verified block, must not be null
+    /// @param lastVerifiedBlockSignal wakes sessions waiting for the last verified block to move, must not be null
     /// @param recentlyVerifiedBlocks the set of recently verified blocks, must not be null
     /// @param executor the executor used to run sessions, must not be null
     /// @param badBlockDumper the bad block dumper for diagnostics, must not be null
@@ -65,6 +68,7 @@ public final class BlockSessionHandler {
             final VerificationConfig verificationConfig,
             final VerificationDataProvider verificationDataProvider,
             final AtomicLong lastVerifiedBlock,
+            final LastVerifiedBlockSignal lastVerifiedBlockSignal,
             final ConcurrentLinkedDeque<Long> recentlyVerifiedBlocks,
             final ExecutorService executor,
             final BadBlockDumper badBlockDumper,
@@ -75,6 +79,7 @@ public final class BlockSessionHandler {
         this.verificationConfig = Objects.requireNonNull(verificationConfig);
         this.verificationDataProvider = Objects.requireNonNull(verificationDataProvider);
         this.lastVerifiedBlock = Objects.requireNonNull(lastVerifiedBlock);
+        this.lastVerifiedBlockSignal = Objects.requireNonNull(lastVerifiedBlockSignal);
         this.recentlyVerifiedBlocks = Objects.requireNonNull(recentlyVerifiedBlocks);
         this.executor = Objects.requireNonNull(executor);
         this.badBlockDumper = Objects.requireNonNull(badBlockDumper);
@@ -172,6 +177,7 @@ public final class BlockSessionHandler {
                 blockSource,
                 verificationDataProvider,
                 lastVerifiedBlock,
+                lastVerifiedBlockSignal,
                 recentlyVerifiedBlocks,
                 executor,
                 outbox,

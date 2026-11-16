@@ -46,6 +46,8 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
     private final BadBlockDumper badBlockDumper;
     /// The last successfully verified block, shared across sessions.
     final AtomicLong lastVerifiedBlock;
+    /// Wakes sessions waiting for the last verified block to move.
+    final LastVerifiedBlockSignal lastVerifiedBlockSignal;
     /// The number of the block this session verified.
     final long blockNumber;
     /// The source of the block.
@@ -69,6 +71,7 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
     /// @param sessionResultMetrics metrics recorded by this stage, must not be null
     /// @param badBlockDumper the bad block dumper for diagnostics, must not be null
     /// @param lastVerifiedBlock the last successfully verified block, must not be null
+    /// @param lastVerifiedBlockSignal wakes sessions waiting for the last verified block to move, must not be null
     /// @param recentlyVerifiedBlocks the set of recently verified blocks, must not be null
     /// @param blockNumber the number of the block the session verified, must be non-negative
     /// @param blockSource the source of the block, must not be null
@@ -83,6 +86,7 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
             final SessionResultMetrics sessionResultMetrics,
             final BadBlockDumper badBlockDumper,
             final AtomicLong lastVerifiedBlock,
+            final LastVerifiedBlockSignal lastVerifiedBlockSignal,
             final ConcurrentLinkedDeque<Long> recentlyVerifiedBlocks,
             final long blockNumber,
             final BlockSource blockSource,
@@ -94,6 +98,7 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
         this.sessionResultMetrics = Objects.requireNonNull(sessionResultMetrics);
         this.badBlockDumper = Objects.requireNonNull(badBlockDumper);
         this.lastVerifiedBlock = Objects.requireNonNull(lastVerifiedBlock);
+        this.lastVerifiedBlockSignal = Objects.requireNonNull(lastVerifiedBlockSignal);
         this.blockSource = Objects.requireNonNull(blockSource);
         this.recentlyVerifiedBlocks = Objects.requireNonNull(recentlyVerifiedBlocks);
         this.sessionKey = Objects.requireNonNull(sessionKey);
@@ -283,7 +288,9 @@ public final class SessionResultHandler implements BiConsumer<BlockVerificationR
         // can supply a valid block, much higher than last verified. This concern is understood and accepted.
         final long lastVerified = lastVerifiedBlock.get();
         if (verifiedBlockNumber > lastVerified) {
-            if (!lastVerifiedBlock.compareAndSet(lastVerified, lastVerified + 1)) {
+            if (lastVerifiedBlock.compareAndSet(lastVerified, lastVerified + 1)) {
+                lastVerifiedBlockSignal.signalChanged();
+            } else {
                 final String message =
                         "Failed to increment last verified block number from {0}, for block {1}, current value is {2}";
                 LOGGER.log(Level.INFO, message, lastVerified, verifiedBlockNumber, lastVerifiedBlock.get());

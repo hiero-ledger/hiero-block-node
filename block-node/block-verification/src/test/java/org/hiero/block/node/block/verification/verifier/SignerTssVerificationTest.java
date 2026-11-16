@@ -5,7 +5,8 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.BlockingDeque;
+import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.hiero.block.api.TssData;
@@ -212,7 +213,7 @@ class SignerTssVerificationTest {
     }
 
     private HashingResult runHashing(final TestBlock block) {
-        final ConcurrentLinkedDeque<BlockItems> blockItemsDeque = new ConcurrentLinkedDeque<>();
+        final BlockingDeque<BlockItems> blockItemsDeque = new LinkedBlockingDeque<>();
         final BlockHasher hasher = new BlockHasher(
                 new AtomicBoolean(false),
                 blockItemsDeque,

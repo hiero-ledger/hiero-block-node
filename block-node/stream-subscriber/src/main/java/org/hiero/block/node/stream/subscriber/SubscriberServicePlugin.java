@@ -158,9 +158,9 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
         /** Gauge for number of subscribers */
         private final LongGauge.Measurement numberOfSubscribers;
 
-        private final ExecutorService virtualThreadExecutor;
+        private final ExecutorService sessionExecutor;
         private volatile CompletionService<BlockStreamSubscriberSession> streamSessions;
-        /** Dedicated executor for the periodic session reaper, separate from {@link #virtualThreadExecutor}. */
+        /** Dedicated executor for the periodic session reaper, separate from {@link #sessionExecutor}. */
         private final ScheduledExecutorService reaperExecutor;
 
         private SubscribeBlockStreamHandler(
@@ -168,8 +168,8 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
             this.context = requireNonNull(context);
             this.blockReadBulkhead = requireNonNull(blockReadBulkhead);
             openSessions = new ConcurrentSkipListMap<>();
-            virtualThreadExecutor = context.threadPoolManager().getVirtualThreadExecutor();
-            streamSessions = new ExecutorCompletionService<>(virtualThreadExecutor);
+            sessionExecutor = context.threadPoolManager().getThreadPerTaskExecutor();
+            streamSessions = new ExecutorCompletionService<>(sessionExecutor);
             // create the metrics
             final MetricRegistry metricRegistry = context.metricRegistry();
             numberOfSubscribers = metricRegistry
@@ -185,8 +185,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
                             .setDescription("Subscriber sessions closed for exceeding the idle session limit"))
                     .getOrCreateNotLabeled();
             reaperExecutor = context.threadPoolManager()
-                    .createVirtualThreadScheduledExecutor(
-                            1, "SubscriberSessionReaper", this::onReaperUncaughtException);
+                    .createScheduledExecutor(1, "SubscriberSessionReaper", this::onReaperUncaughtException);
             final long reapIntervalSeconds = context.configuration()
                     .getConfigData(SubscriberConfig.class)
                     .completedSessionReapIntervalSeconds();
