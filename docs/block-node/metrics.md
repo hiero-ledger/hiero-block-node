@@ -333,17 +333,21 @@ Tracks the count and byte data size regarding single block uploads
 Tracks the blocks recovered from the bucket the Consensus Nodes upload blocks to. See
 [Cloud Storage Download Plugin Configuration](./configuration.md#cloud-storage-download-plugin-configuration).
 
-|  Type   |                  Name                  |                                     Description                                     |
-|---------|----------------------------------------|-------------------------------------------------------------------------------------|
-| Counter | `cloud_download_blocks_pulled`         | Blocks persisted from the bucket.                                                   |
-| Counter | `cloud_download_blocks_already_stored` | Blocks in a pull range skipped because the publisher or backfill stored them first. |
+|  Type   |          Name           |                                  Description                                  |
+|---------|-------------------------|-------------------------------------------------------------------------------|
+| Counter | `cloud_download_blocks` | Blocks of a pull range by outcome, one increment per block, labeled `result`. |
 
-`cloud_download_blocks_pulled` is the recovery signal: any increase means streaming from the
-Consensus Nodes fell behind and the bucket filled the gap. Each pull also logs one INFO line when it
-starts and one when it ends, with the range, the counts and the duration.
+|     `result`     |                                         The block                                         |
+|------------------|-------------------------------------------------------------------------------------------|
+| `persisted`      | Was persisted from its bucket copy.                                                       |
+| `already_stored` | Was stored by another source (publisher or backfill), before download or during the wait. |
 
-> **Note:** These counters are registered without a `_total` suffix; Prometheus appends `_total` at
-> scrape time (for example `cloud_download_blocks_pulled_total`).
+`cloud_download_blocks{result="persisted"}` is the recovery signal: any increase means streaming from
+the Consensus Nodes fell behind and the bucket filled the gap. Each pull also logs one INFO line when
+it starts and one when it ends, with the range, the counts and the duration.
+
+> **Note:** This counter is registered without a `_total` suffix; Prometheus appends `_total` at
+> scrape time (for example `cloud_download_blocks_total{result="persisted"}`).
 
 ---
 

@@ -78,7 +78,6 @@ class BucketPollerTest {
 
     private static CloudStorageDownloadConfig config(final int downloadWindow, final long persistWaitTimeoutMs) {
         return new CloudStorageDownloadConfig(
-                true,
                 "http://localhost:9000",
                 "us-east-1",
                 "blocks",

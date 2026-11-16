@@ -117,7 +117,6 @@ class CloudStorageDownloadIntegrationTest
     /// last stored block.
     private void startPlugin(final String prefix, final long lastStored) {
         final Map<String, String> config = new HashMap<>();
-        config.put("cloud.storage.download.enabled", "true");
         config.put("cloud.storage.download.endpointUrl", endpoint);
         config.put("cloud.storage.download.regionName", REGION);
         config.put("cloud.storage.download.bucketName", bucket);

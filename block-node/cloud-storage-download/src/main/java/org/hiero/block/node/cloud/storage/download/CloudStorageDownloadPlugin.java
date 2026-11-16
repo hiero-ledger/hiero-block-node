@@ -8,6 +8,8 @@ import com.hedera.bucky.RetryPolicy;
 import com.hedera.bucky.S3Client;
 import com.hedera.bucky.S3ClientInitializationException;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -29,38 +31,44 @@ public class CloudStorageDownloadPlugin implements BlockNodePlugin {
     /// How long stop waits for each thread pool to end before it closes the bucket client.
     private static final long STOP_WAIT_SECONDS = 5L;
 
-    private static final MetricKey<LongCounter> METRIC_BLOCKS_PULLED =
-            MetricKey.of("cloud_download_blocks_pulled", LongCounter.class).addCategory(METRICS_CATEGORY);
+    /// Blocks of a pull range, by the outcome in the `result` label.
+    private static final MetricKey<LongCounter> METRIC_BLOCKS =
+            MetricKey.of("cloud_download_blocks", LongCounter.class).addCategory(METRICS_CATEGORY);
 
-    private static final MetricKey<LongCounter> METRIC_BLOCKS_ALREADY_STORED = MetricKey.of(
-                    "cloud_download_blocks_already_stored", LongCounter.class)
-            .addCategory(METRICS_CATEGORY);
+    /// Label naming the outcome of a block.
+    private static final String LABEL_RESULT = "result";
+
+    /// Outcome of a block persisted from its bucket copy.
+    private static final String RESULT_PERSISTED = "persisted";
+
+    /// Outcome of a block another source stored first.
+    private static final String RESULT_ALREADY_STORED = "already_stored";
+
+    /// Prefix of every setting of this plugin, for error messages.
+    private static final String PROPERTY_PREFIX = "cloud.storage.download.";
 
     /// Plugin configuration, set during {@link #init}.
     private CloudStorageDownloadConfig config;
 
-    /// Whether the plugin is enabled and its configuration is valid.
-    private boolean active;
-
-    /// The bucket client. `null` before {@link #start}, unless set by the test constructor.
+    /// The bucket client. Created in {@link #init}, unless set by the test constructor.
     private S3Client s3Client;
 
     /// Block node context, set during {@link #init}.
     private BlockNodeContext context;
 
-    /// Probes the bucket and pulls; `null` until the plugin has started active.
+    /// Probes the bucket and pulls; `null` until the plugin has started.
     private BucketPoller poller;
 
-    /// Runs the poll task; only this thread probes and pulls.
+    /// Runs the poll task; only this thread probes and pulls. `null` until the plugin has started.
     private ScheduledExecutorService scheduler;
 
-    /// Waits for the outcome of each pulled block; `null` until the plugin has started active.
+    /// Waits for the outcome of each pulled block; `null` until the plugin has started.
     private PersistenceAwaiter awaiter;
 
-    /// Runs the downloads of one window; `null` until the plugin has started active.
+    /// Runs the downloads of one window; `null` until the plugin has started.
     private ExecutorService downloader;
 
-    /// The plugin's counters; `null` until the plugin has started active.
+    /// The plugin's counters; `null` until the plugin has started.
     private MetricsHolder metricsHolder;
 
     /// No-arg constructor used by the Java {@link java.util.ServiceLoader}.
@@ -74,69 +82,59 @@ public class CloudStorageDownloadPlugin implements BlockNodePlugin {
     }
 
     /// {@inheritDoc}
+    ///
+    /// Validates the configuration and creates the bucket client. An invalid configuration
+    /// throws, so a node that loads the plugin without configuring it does not start. The
+    /// bucket itself is not contacted: whether it is reachable shows on the first probe.
+    ///
+    /// @throws IllegalStateException when a required setting is blank or not positive, or the
+    ///     bucket client cannot be created from the settings
     @Override
     public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
         this.context = context;
         config = context.configuration().getConfigData(CloudStorageDownloadConfig.class);
-        if (config.enabled()) {
-            boolean valid = isSet(config.endpointUrl(), "endpointUrl");
-            valid = isSet(config.regionName(), "regionName") && valid;
-            valid = isSet(config.bucketName(), "bucketName") && valid;
-            valid = isSet(config.accessKey(), "accessKey") && valid;
-            valid = isSet(config.secretKey(), "secretKey") && valid;
-            valid = isPositive(config.aheadThresholdBlocks(), "aheadThresholdBlocks") && valid;
-            valid = isPositive(config.downloadWindow(), "downloadWindow") && valid;
-            active = valid;
+        final List<String> invalid = new ArrayList<>();
+        requireSet(config.endpointUrl(), "endpointUrl", invalid);
+        requireSet(config.regionName(), "regionName", invalid);
+        requireSet(config.bucketName(), "bucketName", invalid);
+        requireSet(config.accessKey(), "accessKey", invalid);
+        requireSet(config.secretKey(), "secretKey", invalid);
+        requirePositive(config.aheadThresholdBlocks(), "aheadThresholdBlocks", invalid);
+        requirePositive(config.downloadWindow(), "downloadWindow", invalid);
+        if (!invalid.isEmpty()) {
+            throw new IllegalStateException(
+                    "Cloud storage download settings blank or not positive: " + String.join(", ", invalid));
+        }
+        if (s3Client == null) {
+            s3Client = createClient(config);
         }
     }
 
     /// {@inheritDoc}
     @Override
     public void start() {
-        if (active && s3Client == null) {
-            try {
-                // without a request timeout a request that connects and then stalls never returns
-                final RetryPolicy retryPolicy = new RetryPolicy(
-                        RetryPolicy.DEFAULT.maxAttempts(),
-                        RetryPolicy.DEFAULT.baseDelayMs(),
-                        RetryPolicy.DEFAULT.maxDelayMs(),
-                        RetryPolicy.DEFAULT.totalTimeoutMs(),
-                        config.requestTimeoutMs());
-                s3Client = new S3Client(
-                        config.regionName(),
-                        config.endpointUrl(),
-                        config.bucketName(),
-                        config.accessKey(),
-                        config.secretKey(),
-                        retryPolicy);
-            } catch (final S3ClientInitializationException e) {
-                LOGGER.log(WARNING, "Failed to create the S3 client; cloud storage download is disabled", e);
-                active = false;
-            }
-        }
-        if (active) {
-            awaiter = new PersistenceAwaiter();
-            context.blockMessaging().registerBlockNotificationHandler(awaiter, false, name());
-            downloader = context.threadPoolManager().getVirtualThreadExecutor("CloudStorageDownloadFetch");
-            metricsHolder = MetricsHolder.createMetrics(context.metricRegistry());
-            poller = new BucketPoller(config, s3Client, context.blockMessaging(), awaiter, downloader, metricsHolder);
-            // register before reading the current state, so no update falls between the two
-            context.blockMessaging().registerApplicationStateNotificationHandler(poller, false, name());
-            poller.handleStoredBlocksUpdate(new StoredBlocksNotification(
-                    context.applicationStateFacility().storedBlocks()));
-            poller.handleTssDataUpdate(
-                    new TssDataNotification(context.applicationStateFacility().tssData()));
-            scheduler = context.threadPoolManager()
-                    .createSingleThreadScheduledExecutor("CloudStorageDownload", new LoggingExceptionHandler());
-            scheduler.scheduleWithFixedDelay(
-                    poller, config.pollIntervalMs(), config.pollIntervalMs(), TimeUnit.MILLISECONDS);
-        }
+        awaiter = new PersistenceAwaiter();
+        context.blockMessaging().registerBlockNotificationHandler(awaiter, false, name());
+        downloader = context.threadPoolManager().getVirtualThreadExecutor("CloudStorageDownloadFetch");
+        metricsHolder = MetricsHolder.createMetrics(context.metricRegistry());
+        poller = new BucketPoller(config, s3Client, context.blockMessaging(), awaiter, downloader, metricsHolder);
+        // register before reading the current state, so no update falls between the two
+        context.blockMessaging().registerApplicationStateNotificationHandler(poller, false, name());
+        poller.handleStoredBlocksUpdate(
+                new StoredBlocksNotification(context.applicationStateFacility().storedBlocks()));
+        poller.handleTssDataUpdate(
+                new TssDataNotification(context.applicationStateFacility().tssData()));
+        scheduler = context.threadPoolManager()
+                .createSingleThreadScheduledExecutor("CloudStorageDownload", new LoggingExceptionHandler());
+        scheduler.scheduleWithFixedDelay(
+                poller, config.pollIntervalMs(), config.pollIntervalMs(), TimeUnit.MILLISECONDS);
     }
 
     /// {@inheritDoc}
     @Override
     public void stop() {
-        if (active) {
+        // nothing to stop when start did not get as far as scheduling the poll
+        if (scheduler != null) {
             context.blockMessaging().unregisterApplicationStateNotificationHandler(poller);
             context.blockMessaging().unregisterBlockNotificationHandler(awaiter);
             scheduler.shutdownNow();
@@ -155,58 +153,68 @@ public class CloudStorageDownloadPlugin implements BlockNodePlugin {
         }
     }
 
-    /// Whether the plugin is enabled and its configuration is valid.
-    ///
-    /// @return `true` when the plugin is active
-    boolean isActive() {
-        return active;
-    }
-
     /// The poller.
     ///
-    /// @return the poller, `null` until the plugin has started active
+    /// @return the poller, `null` until the plugin has started
     BucketPoller poller() {
         return poller;
     }
 
     /// The plugin's counters.
     ///
-    /// @return the counters, `null` until the plugin has started active
+    /// @return the counters, `null` until the plugin has started
     MetricsHolder metricsHolder() {
         return metricsHolder;
     }
 
-    /// Checks that a required setting is not blank, logging a WARNING naming the property
-    /// (never its value) when it is.
-    private static boolean isSet(final String value, final String property) {
-        final boolean set = value != null && !value.isBlank();
-        if (!set) {
-            LOGGER.log(
-                    WARNING,
-                    "cloud.storage.download.{0} is blank; cloud storage download is disabled until configured.",
-                    property);
+    /// Adds the full name of a required setting to the invalid ones when it is blank. Only the
+    /// name is recorded, never the value.
+    private static void requireSet(final String value, final String property, final List<String> invalid) {
+        if (value == null || value.isBlank()) {
+            invalid.add(PROPERTY_PREFIX + property);
         }
-        return set;
     }
 
-    /// Checks that a setting is positive, logging a WARNING naming the property when it is not.
-    private static boolean isPositive(final long value, final String property) {
-        final boolean positive = value > 0;
-        if (!positive) {
-            LOGGER.log(
-                    WARNING,
-                    "cloud.storage.download.{0} must be positive; cloud storage download is disabled until configured.",
-                    property);
+    /// Adds the full name of a setting to the invalid ones when it is not positive.
+    private static void requirePositive(final long value, final String property, final List<String> invalid) {
+        if (value <= 0) {
+            invalid.add(PROPERTY_PREFIX + property);
         }
-        return positive;
     }
 
-    // TODO(#4080) add the failure counters
-    // TODO(#4097) add the peer check skip counter
-    /// Holds the counters reported by this plugin.
+    /// Creates the bucket client from the validated settings. The client makes no request
+    /// until it is used.
     ///
-    /// @param blocksPulled blocks persisted from the bucket
-    /// @param blocksAlreadyStored blocks in a pull range skipped because another source stored them first
+    /// @throws IllegalStateException when the client cannot be created from the settings
+    private static S3Client createClient(final CloudStorageDownloadConfig config) {
+        try {
+            // without a request timeout a request that connects and then stalls never returns
+            final RetryPolicy retryPolicy = new RetryPolicy(
+                    RetryPolicy.DEFAULT.maxAttempts(),
+                    RetryPolicy.DEFAULT.baseDelayMs(),
+                    RetryPolicy.DEFAULT.maxDelayMs(),
+                    RetryPolicy.DEFAULT.totalTimeoutMs(),
+                    config.requestTimeoutMs());
+            return new S3Client(
+                    config.regionName(),
+                    config.endpointUrl(),
+                    config.bucketName(),
+                    config.accessKey(),
+                    config.secretKey(),
+                    retryPolicy);
+        } catch (final S3ClientInitializationException e) {
+            throw new IllegalStateException("Cannot create the cloud storage download S3 client", e);
+        }
+    }
+
+    // TODO(#4080) add the not_present, download_failed, verification_failed and persist_timeout
+    //  results, the copy counters and the latency metrics
+    /// Holds the measurements reported by this plugin.
+    ///
+    /// @param blocksPulled `cloud_download_blocks{result="persisted"}`: blocks persisted from
+    ///     their bucket copy
+    /// @param blocksAlreadyStored `cloud_download_blocks{result="already_stored"}`: blocks of a
+    ///     pull range another source stored first
     record MetricsHolder(LongCounter.Measurement blocksPulled, LongCounter.Measurement blocksAlreadyStored) {
 
         /// Registers the counters with the given registry.
@@ -214,16 +222,12 @@ public class CloudStorageDownloadPlugin implements BlockNodePlugin {
         /// @param metricRegistry the metrics registry
         /// @return a new `MetricsHolder` with the counters registered
         static MetricsHolder createMetrics(@NonNull final MetricRegistry metricRegistry) {
+            final LongCounter blocks = metricRegistry.register(LongCounter.builder(METRIC_BLOCKS)
+                    .setDescription("Blocks of a pull range by result (persisted|already_stored)")
+                    .addDynamicLabelNames(LABEL_RESULT));
             return new MetricsHolder(
-                    metricRegistry
-                            .register(LongCounter.builder(METRIC_BLOCKS_PULLED)
-                                    .setDescription("Blocks persisted from the bucket"))
-                            .getOrCreateNotLabeled(),
-                    metricRegistry
-                            .register(LongCounter.builder(METRIC_BLOCKS_ALREADY_STORED)
-                                    .setDescription(
-                                            "Blocks in a pull range skipped because another source stored them first"))
-                            .getOrCreateNotLabeled());
+                    blocks.getOrCreateLabeled(LABEL_RESULT, RESULT_PERSISTED),
+                    blocks.getOrCreateLabeled(LABEL_RESULT, RESULT_ALREADY_STORED));
         }
     }
 
