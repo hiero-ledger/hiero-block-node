@@ -31,7 +31,7 @@ source "${LIB}"
 # tracks the implementation. The script runs main when executed, so it is not sourced.
 constants=$(sed -n -E '/^readonly (NOVA_WRAPS_MN_MIN_VERSION|COMPAT_CN_MINS|COMPAT_MN_MINS|COMPAT_BN_MINS|NOVA_WRAPS_BN_MIN_VERSION)=/p' "${RESOLVE_SCRIPT}")
 eval "${constants}"
-for fn in log_line enforce_minimum_version enforce_nova_wraps_cn_floor cn_build_published resolve_published_nova_cn list_cn_prerelease_tags resolve_compatibility_mins; do
+for fn in log_line enforce_minimum_version enforce_nova_wraps_cn_floor cn_build_published resolve_published_nova_cn list_cn_prerelease_tags hold_block_node_for_pre_nova_cn latest_pre_nova_block_node resolve_compatibility_mins; do
     pattern="/^function ${fn} [{]/,/^[}]/p"
     definition=$(sed -n "${pattern}" "${RESOLVE_SCRIPT}")
     eval "${definition}"
@@ -128,6 +128,36 @@ PUBLISHED="" TAGS="v0.79.0-alpha.2" expect_fail_fast "fails fast when the pre-re
 TAGS="" PUBLISHED="" expect_fail_fast "fails fast when no pre-release of the floor version exists" 0.79.0 0.45.0
 expect_equal "CN above the floor is left alone" "0.80.0" "$(PUBLISHED="" resolve_published_nova_cn 0.80.0 0.45.0 2>/dev/null)"
 expect_equal "old BN is left alone" "0.78.1" "$(PUBLISHED="" resolve_published_nova_cn 0.78.1 0.44.2 2>/dev/null)"
+
+echo "[8] hold_block_node_for_pre_nova_cn replaces a 'latest' Block Node, but fails fast on a pinned one"
+# stub the Block Node release lookup after extracting the real function above
+function latest_pre_nova_block_node { [[ -n "${PRE_NOVA_BN:-}" ]] && echo "${PRE_NOVA_BN}"; }
+# expect_hold_fails <label> <bn_input> <bn_resolved> <cn_floor> <cn>
+function expect_hold_fails {
+    if ( function fail { exit 1; }; hold_block_node_for_pre_nova_cn "$2" "$3" "$4" "$5" >/dev/null 2>&1 ); then
+        fail "$1 (expected a non-zero exit)"
+    else
+        pass "$1"
+    fi
+}
+expect_equal "'latest' BN 0.46.0 with a pre-release CN is held" "v0.44.3" "$(PRE_NOVA_BN=v0.44.3 hold_block_node_for_pre_nova_cn latest v0.46.0 0.79.0 0.79.0-alpha.2 2>/dev/null)"
+expect_equal "'LATEST' BN is held too" "v0.44.3" "$(PRE_NOVA_BN=v0.44.3 hold_block_node_for_pre_nova_cn LATEST v0.45.0 0.79.0 0.79.0-alpha.2 2>/dev/null)"
+expect_hold_fails "a pinned BN tag fails fast" v0.47.0-rc1 v0.47.0-rc1 0.79.0 0.79.0-alpha.2
+expect_hold_fails "a pinned BN release fails fast" v0.46.0 v0.46.0 0.79.0 0.79.0-alpha.2
+expect_hold_fails "the 'rc' keyword fails fast" rc v0.47.0-rc1 0.79.0 0.79.0-alpha.2
+expect_hold_fails "'latest' with no older Block Node release fails fast" latest v0.46.0 0.79.0 0.79.0-alpha.2
+expect_equal "CN not swapped: BN untouched" "v0.46.0" "$(hold_block_node_for_pre_nova_cn latest v0.46.0 0.79.0 0.79.0 2>/dev/null)"
+expect_equal "pinned BN below the Nova minimum is untouched" "v0.44.2" "$(hold_block_node_for_pre_nova_cn v0.44.2 v0.44.2 0.79.0 0.79.0-alpha.2 2>/dev/null)"
+expect_equal "SNAPSHOT BN is untouched" "0.47.0-SNAPSHOT" "$(hold_block_node_for_pre_nova_cn main 0.47.0-SNAPSHOT 0.79.0 0.79.0-alpha.2 2>/dev/null)"
+
+echo "[9] latest_pre_nova_block_node picks the newest GA release below the Nova minimum"
+eval "$(sed -n '/^function latest_pre_nova_block_node [{]/,/^[}]/p' "${RESOLVE_SCRIPT}")"
+BN_REPO="hiero-ledger/hiero-block-node"
+function curl { printf '%s\n' '"tag_name": "v0.46.0"' '"tag_name": "v0.45.0"' '"tag_name": "v0.44.3"' '"tag_name": "v0.44.10"' '"tag_name": "v0.44.9"' '"tag_name": "v0.45.0-rc1"' '"tag_name": "v0.43.0"'; }
+expect_equal "newest GA below 0.45.0 (rc and newer skipped)" "v0.44.10" "$(latest_pre_nova_block_node)"
+function curl { printf '%s\n' '"tag_name": "v0.46.0"' '"tag_name": "v0.45.0"'; }
+latest_pre_nova_block_node >/dev/null && fail "no older release should return non-zero" || pass "returns non-zero when no older release exists"
+unset -f curl
 
 echo ""
 echo "${passed} passed, ${failed} failed"

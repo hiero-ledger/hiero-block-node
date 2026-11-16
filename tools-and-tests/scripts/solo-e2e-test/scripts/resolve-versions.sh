@@ -261,6 +261,42 @@ function latest_pre_nova_block_node {
   echo "${found}"
 }
 
+# Holds the Block Node below NOVA_WRAPS_BN_MIN_VERSION when the CN was swapped for a pre-release
+# of an unpublished floor (an earlier TSS library, which a Nova-only Block Node cannot verify).
+# Only a Block Node requested as 'latest' is replaced; one pinned explicitly (a tag, 'rc') fails
+# fast, since silently testing another Block Node would report a green run for the wrong build.
+# Arguments:
+#   $1 - Block Node input ('latest', 'rc', 'main' or a tag)
+#   $2 - Resolved BN version string
+#   $3 - CN version before resolve_published_nova_cn
+#   $4 - CN version after resolve_published_nova_cn
+# Returns (via stdout):
+#   The Block Node version to use
+function hold_block_node_for_pre_nova_cn {
+  local bn_input="${1}"
+  local bn_resolved="${2}"
+  local cn_floor_resolved="${3}"
+  local cn_resolved="${4}"
+
+  if [[ "${cn_resolved}" == "${cn_floor_resolved}" \
+      || "${bn_resolved}" == *-SNAPSHOT \
+      || "$(compare_semver "${bn_resolved}" "${NOVA_WRAPS_BN_MIN_VERSION}")" == "-1" ]]; then
+    echo "${bn_resolved}"
+    return 0
+  fi
+
+  # The CN is a pre-release on the earlier TSS library, which a Nova-only Block Node cannot
+  # verify: hold the Block Node below the Nova WRAPS minimum, unless it was pinned.
+  if [[ "${bn_input}" != "latest" && "${bn_input}" != "LATEST" ]]; then
+    fail "ERROR: Block Node ${bn_resolved} was requested explicitly and verifies only Nova WRAPS proofs, but CN ${cn_floor_resolved} has no published build and its pre-release ${cn_resolved} is on the earlier TSS library. Pin CN_VERSION to a published Nova WRAPS build, or pin an older BN_VERSION." 1
+  fi
+  local bn_pre_nova
+  bn_pre_nova=$(latest_pre_nova_block_node) \
+    || fail "ERROR: Block Node ${bn_resolved} verifies only Nova WRAPS proofs and CN ${cn_resolved} is not on that library, but no older Block Node release was found. Pin BN_VERSION." 1
+  log_line "WARNING: Block Node ${bn_resolved} cannot verify CN ${cn_resolved}; using Block Node ${bn_pre_nova} instead"
+  echo "${bn_pre_nova}"
+}
+
 # Resolves the MN and BN minimum versions required for a given CN version.
 # Evaluates the compatibility matrix tiers from highest to lowest.
 # SNAPSHOT CN versions skip enforcement (unreleased builds may mix freely).
@@ -479,17 +515,7 @@ function main {
   local cn_floor_resolved
   cn_floor_resolved="${cn_resolved}"
   cn_resolved=$(resolve_published_nova_cn "${cn_resolved}" "${bn_resolved}") || exit $?
-  if [[ "${cn_resolved}" != "${cn_floor_resolved}" \
-      && "${bn_resolved}" != *-SNAPSHOT \
-      && "$(compare_semver "${bn_resolved}" "${NOVA_WRAPS_BN_MIN_VERSION}")" != "-1" ]]; then
-    # The CN is a pre-release on the earlier TSS library, which a Nova-only Block Node cannot
-    # verify: hold the Block Node below the Nova WRAPS minimum.
-    local bn_pre_nova
-    bn_pre_nova=$(latest_pre_nova_block_node) \
-      || fail "ERROR: Block Node ${bn_resolved} verifies only Nova WRAPS proofs and CN ${cn_resolved} is not on that library, but no older Block Node release was found. Pin BN_VERSION." 1
-    log_line "WARNING: Block Node ${bn_resolved} cannot verify CN ${cn_resolved}; using Block Node ${bn_pre_nova} instead"
-    bn_resolved="${bn_pre_nova}"
-  fi
+  bn_resolved=$(hold_block_node_for_pre_nova_cn "${bn_input}" "${bn_resolved}" "${cn_floor_resolved}" "${cn_resolved}") || exit $?
   local compat_out mn_min bn_min
   compat_out=$(resolve_compatibility_mins "${cn_resolved}")
   mn_min=$(echo "${compat_out}" | grep "^mn_min=" | cut -d= -f2)
