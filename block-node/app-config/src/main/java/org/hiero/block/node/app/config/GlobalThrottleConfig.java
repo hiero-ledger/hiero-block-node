@@ -31,7 +31,7 @@ public record GlobalThrottleConfig(
         @Loggable @ConfigProperty(defaultValue = "1000") @Min(1)
         int serverStatusDetailMaxConcurrent,
 
-        @Loggable @ConfigProperty(defaultValue = "500") @Min(1)
+        @Loggable @ConfigProperty(defaultValue = "100") @Min(1)
         int getAddressBookMaxConcurrent,
 
         @Loggable @ConfigProperty(defaultValue = "500") @Min(1)
