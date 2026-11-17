@@ -35,8 +35,9 @@ backfill plugin is not modified.
 * The plugin must be restart safe without any local state of its own.
 * A failure of the plugin or of the bucket while the node runs must never affect the publisher,
   backfill, health or any other plugin.
-* The plugin has no switch of its own: loading it turns it on. A node that does not load it is
-  unaffected, and a node that loads it without a valid configuration fails to start.
+* The plugin has no switch of its own: loading it with bucket settings turns it on. A node that
+  does not load it is unaffected. A node that loads it without bucket settings starts, and the
+  plugin stays idle. A node that loads it with invalid settings fails to start.
 * The plugin must work with any S3-compatible store, including Google Cloud Storage through S3
   interoperability.
 * The probe block of each pull must be persisted within 30 seconds of its consensus timestamp.
@@ -343,13 +344,18 @@ were pulled and when. Levels follow `docs/logging-guidelines.md`.
 
 ### Configuration validation
 
-The plugin is turned on by listing `cloud-storage-download` in the node's plugins; there is no
-`enabled` property.
+The plugin is turned on by listing `cloud-storage-download` in the node's plugins and giving it
+bucket settings; there is no `enabled` property. This follows the `cloud-storage-expanded`
+plugin, so a node that loads every plugin starts without download settings.
 
 `init()` checks that `bucketName`, `endpointUrl`, `regionName`, `accessKey` and `secretKey` are
-not blank, that `aheadThresholdBlocks` and `downloadWindow` are positive, and that the bucky
-client can be built from these settings. If any check fails, `init()` throws an exception naming
-the settings (never their values), and the node does not start.
+not blank. If any of them is blank, it logs a WARNING naming each blank setting (never a value),
+schedules no poll, and the plugin stays idle for the life of the node.
+
+If all of them are set, `init()` checks that `aheadThresholdBlocks` and `downloadWindow` are
+positive and that the bucky client can be built from these settings. These values were set on
+purpose, so a failed check is a real misconfiguration: `init()` throws an exception naming the
+settings (never their values), and the node does not start.
 
 Problems only the bucket can reveal, such as wrong credentials, a missing bucket or an
 unreachable endpoint, are not checked at startup. They show up as request failures (see
@@ -431,17 +437,17 @@ All properties are under the `cloud.storage.download` namespace.
 | `secretKey`            | `""`    | Read-only secret key. Not logged. Required.                                                     |
 | `objectKeyPrefix`      | `""`    | The network folder, `<prefix>` in `<prefix>/<node-id>/block/<archive>`. Changes at every reset. |
 | `pollIntervalMs`       | `10000` | Time between probes.                                                                            |
-| `aheadThresholdBlocks` | `5`     | The probe block is `last stored + this`. Must be positive and below the CN buffer limit.        |
+| `aheadThresholdBlocks` | `10`    | The probe block is `last stored + this`. Must be positive and below the CN buffer limit.        |
 | `downloadWindow`       | `10`    | Blocks downloaded in parallel before being submitted in order. Must be positive.                |
 | `requestTimeoutMs`     | `10000` | Timeout for one bucket request.                                                                 |
 | `persistWaitTimeoutMs` | `90000` | How long to wait for the persisted notification of one block before ending the pull.            |
 | `peerCheckTimeoutMs`   | `2000`  | Overall limit for the peer check; peers are queried in parallel.                                |
 
-The defaults of `aheadThresholdBlocks` and `pollIntervalMs` are small, so a node that falls
-behind is caught up quickly and the 30 second latency goal holds. They are a starting point, to
-be refined against real environments toward a larger threshold and a longer poll interval, which
-give the CNs and the publish protocol more time to recover on their own before the plugin acts.
-When tuning them:
+The defaults of `aheadThresholdBlocks` and `pollIntervalMs` are a starting point, to be refined
+through testing in real environments. A threshold below 10 is too aggressive: the plugin would
+act before the CNs and the publish protocol have had time to recover on their own, weakening the
+guarantees the publish protocol gives. A larger threshold or a longer poll interval gives them
+more time, at the cost of a longer catch-up and of the latency goal. When tuning them:
 
 * A probe can find the node behind up to one poll interval after it crossed the threshold, and
   that delay comes out of the margin left before the CN buffer fills. The poll interval must
@@ -512,7 +518,8 @@ so that distance is unknown.
 
 |                 Condition                 |                                                     Handling                                                     |
 |-------------------------------------------|------------------------------------------------------------------------------------------------------------------|
-| Required setting blank or not positive    | `init()` throws naming the setting, never its value; the node does not start.                                    |
+| Required bucket setting blank             | WARNING naming the setting, never its value; no poll scheduled; the plugin stays idle and the node starts.       |
+| Threshold or window not positive          | `init()` throws naming the setting; the node does not start.                                                     |
 | bucky client cannot be built              | `init()` throws; the node does not start.                                                                        |
 | 404 for a block in one node folder        | Not an error; try the next node folder.                                                                          |
 | Bad zstd, parse error, wrong block number | DEBUG; `copies_rejected` incremented; try the next node folder.                                                  |
@@ -534,8 +541,9 @@ backfill or the server.
    `testnet-202611011200/3/block/0000/0000/0010/8273/182.blk.zstd`; an empty prefix gives no
    leading `/`; the archive part matches the examples in the `cloud-storage-expanded` design
    (blocks `1`, `1234567` and `108273182`).
-2. **Configuration validation:** each blank required setting, a zero threshold and a zero window
-   make `init()` throw; the message names the setting and contains no credential value.
+2. **Configuration validation:** each blank required bucket setting makes `init()` return
+   normally, log one WARNING naming the setting with no credential value, and schedule no poll. A
+   zero threshold and a zero window make `init()` throw; the message names the setting.
 3. **Client construction:** settings bucky cannot build a client from make `init()` throw.
 4. **Nothing stored yet:** with `last = -1` the probe block is `threshold - 1`.
 5. **Not behind:** probe block absent in two node folders; no pull.
