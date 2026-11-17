@@ -4,7 +4,7 @@
 # address-book-shrink.sh
 #
 # Shrinks a Block Node RSA address book history file (rsa-bootstrap-roster.json, a JSON-encoded
-# RangedAddressBookHistory). The whole history is returned by the serverStatusDetail API, so a large
+# RangedAddressBookHistory). The whole history is returned by the getAddressBook API, so a large
 # file makes every call slow (#3901).
 #
 # 1. Optional trim. When a block height n is given, every era ending before n is dropped. The era

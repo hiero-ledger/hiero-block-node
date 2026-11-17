@@ -530,14 +530,15 @@ ensure_proto_dir() {
 # stdout and stderr are both captured by the caller via $() so that error
 # messages from grpcurl are available for display on failure.
 grpc_call() {
-  local target="$1" method="$2"
+  local target="$1" method="$2" request="${3:-}"
+  [[ -n "$request" ]] || request='{}'
   local -a flags=(
     -emit-defaults
     -connect-timeout 5
     -import-path "${RESOLVED_PROTO_DIR}"
     -proto        "${NODE_SERVICE_PROTO}"
     -max-msg-sz   "$(( MAX_RESPONSE_SZ_MIB * 1048576 ))"
-    -d            '{}'
+    -d            "${request}"
   )
   [[ "$USE_TLS" == "false" ]] && flags=("-plaintext" "${flags[@]}")
 
@@ -854,9 +855,12 @@ print_server_status() {
 #                            with each range's start and end block printed below.
 #   installed_plugins      — plugins registered in the node, with their versions.
 #   tss_data               — whether TSS (Threshold Signature Scheme) ledger
-#                            configuration data is present on this node.
+#                            configuration data is present on this node. Read
+#                            from the getTssData response when one is passed
+#                            as the second argument, otherwise from the
+#                            deprecated tss_data field of serverStatusDetail.
 print_server_status_detail() {
-  local json="$1"
+  local json="$1" tss_json="${2:-}"
 
   # ── Extract all scalar fields in a single jq pass ─────────────────────────
   # Inlines the semver formatter as a jq function (identical logic to
@@ -921,6 +925,9 @@ print_server_status_detail() {
   # non-empty. jq -r with // "" never returns the string "null" for an absent
   # field, so a plain non-empty test is sufficient.
   local tss_status
+  if [[ -n "$tss_json" ]]; then
+    ledger_id="$(echo "$tss_json" | jq -r '.tssData.ledgerId // ""')"
+  fi
   if [[ -n "$ledger_id" ]]; then
     tss_status="present"
   else
@@ -1005,7 +1012,14 @@ check_endpoint() {
     if detail_json="$(grpc_call "$endpoint" "serverStatusDetail" 2>&1)"; then
       elapsed="$(format_elapsed_ms "$(( $(now_ms) - t0 ))")"
       log_success "  📦 serverStatusDetail  (${elapsed})"
-      print_server_status_detail "$detail_json"
+      # TSS data has its own RPC. Older nodes answer UNIMPLEMENTED, in which
+      # case the deprecated field of the detail response is used instead.
+      local tss_json=""
+      if tss_json="$(grpc_call "$endpoint" "getTssData" '{"excludeHistory": true}' 2>&1)"; then
+        print_server_status_detail "$detail_json" "$tss_json"
+      else
+        print_server_status_detail "$detail_json"
+      fi
     else
       elapsed="$(format_elapsed_ms "$(( $(now_ms) - t0 ))")"
       log_warn "  🟠 serverStatusDetail WARN (method unavailable or proxy limitation)  (${elapsed})"
