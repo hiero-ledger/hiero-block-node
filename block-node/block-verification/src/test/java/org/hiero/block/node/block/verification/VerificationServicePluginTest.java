@@ -1246,13 +1246,11 @@ class VerificationServicePluginTest {
             plugin.handleBackfilled(block1.asBackfilledNotification());
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(16);
             assertThat(notifications).hasSize(16);
-            assertThat(notifications)
-                    .filteredOn("success", false)
-                    .hasSize(2)
-                    .allSatisfy(notification -> assertThat(notification)
-                            .returns(FailureInfo.standard(FailureType.CANCELLED), VerificationNotification::failureInfo)
-                            .returns(block5.number(), VerificationNotification::blockNumber)
-                            .returns(BlockSource.BACKFILL, VerificationNotification::source));
+            assertThat(notifications).filteredOn("success", false).hasSize(2).allSatisfy(notification -> assertThat(
+                            notification)
+                    .returns(FailureInfo.standard(FailureType.CANCELLED), VerificationNotification::failureInfo)
+                    .returns(block5.number(), VerificationNotification::blockNumber)
+                    .returns(BlockSource.BACKFILL, VerificationNotification::source));
             assertThat(notifications)
                     .filteredOn(VerificationNotification::success)
                     .extracting(VerificationNotification::blockNumber)
@@ -1960,11 +1958,9 @@ class VerificationServicePluginTest {
         // Assert that proof is appended
         assertThat(result)
                 .returns(true, multiProof -> multiProof.blockSize() == base.blockSize() + 1)
-                .returns(
-                        true,
-                        multiProof -> proofToAppend
-                                .blockProof()
-                                .equals(multiProof.proofs().getLast()));
+                .returns(true, multiProof -> proofToAppend
+                        .blockProof()
+                        .equals(multiProof.proofs().getLast()));
     }
     /// Longest time to wait for the verification of one TSS signed block: verifying its signature costs
     /// a noticeable amount of CPU time, and a loaded CI runner verifies much slower than a laptop.

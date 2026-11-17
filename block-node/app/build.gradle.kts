@@ -21,7 +21,7 @@ tasks.startScripts {
     classpath = files()
     doLast {
         unixScript.writeText(
-            unixScript.readText().replace("MODULE_PATH=\n", selectPluginsSnippet.asFile.readText()),
+            unixScript.readText().replace("MODULE_PATH=\n", selectPluginsSnippet.asFile.readText())
         )
     }
 }
@@ -252,9 +252,7 @@ val copyRsaTestFixture =
     tasks.register<Copy>("copyRsaTestFixture") {
         description = "Copies the RSA bootstrap test fixture into build/tmp/data/config/"
         from(
-            layout.projectDirectory.file(
-                "src/test/resources/data/config/rsa-bootstrap-roster.json",
-            ),
+            layout.projectDirectory.file("src/test/resources/data/config/rsa-bootstrap-roster.json")
         )
         into(layout.buildDirectory.dir("tmp/data/config"))
     }
@@ -385,10 +383,10 @@ val assemblePluginCatalog =
             }
             File(outputDir, ".manifest")
                 .writeText(
-                    "version=$catalogVersion\nplugins=${pluginClasspaths.keys.sorted().joinToString(",")}\n",
+                    "version=$catalogVersion\nplugins=${pluginClasspaths.keys.sorted().joinToString(",")}\n"
                 )
             logger.lifecycle(
-                "Assembled plugin catalog: ${pluginClasspaths.size} plugins, ${copiedJars.size} unique jars",
+                "Assembled plugin catalog: ${pluginClasspaths.size} plugins, ${copiedJars.size} unique jars"
             )
         }
     }
