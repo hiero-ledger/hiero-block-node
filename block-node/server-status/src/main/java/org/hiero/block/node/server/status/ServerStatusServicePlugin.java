@@ -245,13 +245,25 @@ public class ServerStatusServicePlugin
                 BlockNodeServiceInterface.BlockNodeServiceMethod.serverStatusDetail.name(),
                 configuration
                         .getConfigData(ServerStatusDetailThrottleConfig.class)
+                        .toSettings(),
+                BlockNodeServiceInterface.BlockNodeServiceMethod.getAddressBook.name(),
+                configuration
+                        .getConfigData(ServerStatusAddressBookThrottleConfig.class)
+                        .toSettings(),
+                BlockNodeServiceInterface.BlockNodeServiceMethod.getTssData.name(),
+                configuration
+                        .getConfigData(ServerStatusTssDataThrottleConfig.class)
                         .toSettings());
         final GlobalThrottleConfig globalThrottleConfig = configuration.getConfigData(GlobalThrottleConfig.class);
         this.globalConcurrencyCeilings = Map.of(
                 BlockNodeServiceInterface.BlockNodeServiceMethod.serverStatus.name(),
                 globalThrottleConfig.serverStatusMaxConcurrent(),
                 BlockNodeServiceInterface.BlockNodeServiceMethod.serverStatusDetail.name(),
-                globalThrottleConfig.serverStatusDetailMaxConcurrent());
+                globalThrottleConfig.serverStatusDetailMaxConcurrent(),
+                BlockNodeServiceInterface.BlockNodeServiceMethod.getAddressBook.name(),
+                globalThrottleConfig.getAddressBookMaxConcurrent(),
+                BlockNodeServiceInterface.BlockNodeServiceMethod.getTssData.name(),
+                globalThrottleConfig.getTssDataMaxConcurrent());
 
         // Register this service; a null port (the default) shares server.port
         final Integer port =

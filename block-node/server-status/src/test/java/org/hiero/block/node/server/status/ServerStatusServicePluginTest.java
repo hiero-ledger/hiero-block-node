@@ -5,13 +5,27 @@ import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
 import static org.hiero.block.node.base.ParseHelper.standardParse;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.grpc.GrpcException;
+import com.hedera.pbj.runtime.grpc.GrpcStatus;
+import com.hedera.pbj.runtime.grpc.Pipeline;
+import com.hedera.pbj.runtime.grpc.ServiceInterface;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
+import java.net.UnknownHostException;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Flow;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.logging.Formatter;
@@ -29,8 +43,13 @@ import org.hiero.block.node.app.fixtures.logging.TestLogHandler;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
+import org.hiero.block.node.spi.throttle.RemoteAddressKeyExtractor;
+import org.hiero.block.node.spi.throttle.ThrottleMetrics;
+import org.hiero.block.node.spi.throttle.ThrottledServiceInterface;
+import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -421,23 +440,33 @@ public class ServerStatusServicePluginTest
                 localPlugin,
                 localPlugin.methods().getFirst(),
                 new SimpleInMemoryHistoricalBlockFacility(),
-                Map.of(
-                        "throttle.serverStatus.ratePerSecond", "42",
-                        "throttle.serverStatus.burstTolerance", "7",
-                        "throttle.serverStatus.maxConcurrentPerClient", "3",
-                        "throttle.serverStatus.maxPermitHoldSeconds", "11",
-                        "throttle.serverStatusDetail.ratePerSecond", "20",
-                        "throttle.serverStatusDetail.maxPermitHoldSeconds", "61",
-                        "throttle.global.serverStatusMaxConcurrent", "99",
-                        "throttle.global.serverStatusDetailMaxConcurrent", "55"));
+                Map.ofEntries(
+                        Map.entry("throttle.serverStatus.ratePerSecond", "42"),
+                        Map.entry("throttle.serverStatus.burstTolerance", "7"),
+                        Map.entry("throttle.serverStatus.maxConcurrentPerClient", "3"),
+                        Map.entry("throttle.serverStatus.maxPermitHoldSeconds", "11"),
+                        Map.entry("throttle.serverStatusDetail.ratePerSecond", "20"),
+                        Map.entry("throttle.serverStatusDetail.maxPermitHoldSeconds", "61"),
+                        Map.entry("throttle.getAddressBook.ratePerSecond", "4"),
+                        Map.entry("throttle.getAddressBook.maxConcurrentPerClient", "2"),
+                        Map.entry("throttle.getTssData.burstTolerance", "6"),
+                        Map.entry("throttle.getTssData.maxPermitHoldSeconds", "30"),
+                        Map.entry("throttle.global.serverStatusMaxConcurrent", "99"),
+                        Map.entry("throttle.global.serverStatusDetailMaxConcurrent", "55"),
+                        Map.entry("throttle.global.getAddressBookMaxConcurrent", "77"),
+                        Map.entry("throttle.global.getTssDataMaxConcurrent", "88")));
 
         assertEquals(
                 Map.of(
                         "serverStatus", new PerClientThrottleSettings(42, 7, 3, 11),
-                        "serverStatusDetail", new PerClientThrottleSettings(20, 20, 5, 61)),
+                        "serverStatusDetail", new PerClientThrottleSettings(20, 20, 5, 61),
+                        "getAddressBook", new PerClientThrottleSettings(4, 10, 2, 60),
+                        "getTssData", new PerClientThrottleSettings(10, 6, 3, 30)),
                 localPlugin.perClientSettings(),
                 "each method gets its own settings; unset keys fall back to that method's defaults");
-        assertEquals(Map.of("serverStatus", 99, "serverStatusDetail", 55), localPlugin.globalConcurrencyCeilings());
+        assertEquals(
+                Map.of("serverStatus", 99, "serverStatusDetail", 55, "getAddressBook", 77, "getTssData", 88),
+                localPlugin.globalConcurrencyCeilings());
     }
 
     @Test
@@ -449,7 +478,171 @@ public class ServerStatusServicePluginTest
         assertEquals(10, localPlugin.perClientSettings().get("serverStatus").maxPermitHoldSeconds());
         assertEquals(
                 60, localPlugin.perClientSettings().get("serverStatusDetail").maxPermitHoldSeconds());
-        assertEquals(Map.of("serverStatus", 1000, "serverStatusDetail", 1000), localPlugin.globalConcurrencyCeilings());
+        assertEquals(
+                Map.of("serverStatus", 1000, "serverStatusDetail", 1000, "getAddressBook", 100, "getTssData", 500),
+                localPlugin.globalConcurrencyCeilings());
+    }
+
+    @Test
+    @DisplayName("The roster calls default to lower per-client limits than serverStatusDetail")
+    void rosterCallsDefaultToLowerLimitsThanDetail() {
+        final ServerStatusServicePlugin localPlugin = new ServerStatusServicePlugin();
+        start(localPlugin, localPlugin.methods().getFirst(), new SimpleInMemoryHistoricalBlockFacility(), Map.of());
+
+        final PerClientThrottleSettings detail = localPlugin.perClientSettings().get("serverStatusDetail");
+        for (final String method : new String[] {"getAddressBook", "getTssData"}) {
+            final PerClientThrottleSettings roster =
+                    localPlugin.perClientSettings().get(method);
+            assertEquals(new PerClientThrottleSettings(10, 10, 3, 60), roster, method + " defaults");
+            assertTrue(roster.ratePerSecond() < detail.ratePerSecond(), method + " rate is below the detail rate");
+            assertTrue(
+                    roster.maxConcurrentPerClient() < detail.maxConcurrentPerClient(),
+                    method + " concurrency is below the detail concurrency");
+        }
+    }
+
+    @Nested
+    @DisplayName("Throttling of the roster calls")
+    class RosterCallThrottling {
+
+        private static final String[] ROSTER_METHODS = {"getAddressBook", "getTssData"};
+
+        /// Starts a plugin with the given settings and wraps it in the same throttle decorator the server registers it
+        /// with, so the rejection comes from the real per-client and node-wide limits of the plugin.
+        private ThrottledServiceInterface throttled(final Map<String, String> settings) {
+            final ServerStatusServicePlugin localPlugin = new ServerStatusServicePlugin();
+            start(localPlugin, localPlugin.methods().getFirst(), new SimpleInMemoryHistoricalBlockFacility(), settings);
+            final MetricRegistry registry = MetricRegistry.builder().build();
+            return new ThrottledServiceInterface(
+                    localPlugin,
+                    localPlugin.perClientSettings(),
+                    localPlugin.defaultPerClientSettings(),
+                    localPlugin.globalConcurrencyCeilings(),
+                    new RemoteAddressKeyExtractor(registry),
+                    new ThrottleMetrics(registry),
+                    Duration.ofDays(1));
+        }
+
+        private ServiceInterface.Method method(final ThrottledServiceInterface service, final String name) {
+            return service.methods().stream()
+                    .filter(m -> m.name().equals(name))
+                    .findFirst()
+                    .orElseThrow();
+        }
+
+        @Test
+        @DisplayName("A second concurrent call from the same client is rejected with RESOURCE_EXHAUSTED")
+        void perClientConcurrencyLimitRejectsSecondCall() {
+            for (final String name : ROSTER_METHODS) {
+                final ThrottledServiceInterface service =
+                        throttled(Map.of("throttle." + name + ".maxConcurrentPerClient", "1"));
+                final ServiceInterface.Method method = method(service, name);
+                final CapturingPipeline first = new CapturingPipeline();
+                final CapturingPipeline second = new CapturingPipeline();
+
+                // The first call keeps its permit because it is never completed.
+                service.open(method, optionsFor("10.0.0.1"), first);
+                service.open(method, optionsFor("10.0.0.1"), second);
+
+                assertTrue(first.errors.isEmpty(), name + ": the first call is admitted");
+                assertEquals(1, second.errors.size(), name + ": the second call is rejected");
+                assertInstanceOf(GrpcException.class, second.errors.getFirst());
+                assertEquals(GrpcStatus.RESOURCE_EXHAUSTED, ((GrpcException) second.errors.getFirst()).status(), name);
+            }
+        }
+
+        @Test
+        @DisplayName("A call from another client is admitted while the first client holds its permit")
+        void anotherClientIsNotAffectedByTheClientLimit() {
+            for (final String name : ROSTER_METHODS) {
+                final ThrottledServiceInterface service =
+                        throttled(Map.of("throttle." + name + ".maxConcurrentPerClient", "1"));
+                final ServiceInterface.Method method = method(service, name);
+                final CapturingPipeline other = new CapturingPipeline();
+
+                service.open(method, optionsFor("10.0.0.1"), new CapturingPipeline());
+                service.open(method, optionsFor("10.0.0.2"), other);
+
+                assertTrue(other.errors.isEmpty(), name + ": a different client has its own allowance");
+            }
+        }
+
+        @Test
+        @DisplayName("The node-wide ceiling rejects a call from another client with RESOURCE_EXHAUSTED")
+        void nodeWideCeilingRejectsCallFromAnotherClient() {
+            for (final String name : ROSTER_METHODS) {
+                final ThrottledServiceInterface service =
+                        throttled(Map.of("throttle.global." + name + "MaxConcurrent", "1"));
+                final ServiceInterface.Method method = method(service, name);
+                final CapturingPipeline first = new CapturingPipeline();
+                final CapturingPipeline second = new CapturingPipeline();
+
+                service.open(method, optionsFor("10.0.0.1"), first);
+                service.open(method, optionsFor("10.0.0.2"), second);
+
+                assertTrue(first.errors.isEmpty(), name + ": the first call is admitted");
+                assertEquals(1, second.errors.size(), name + ": the node-wide ceiling rejects the second call");
+                assertEquals(GrpcStatus.RESOURCE_EXHAUSTED, ((GrpcException) second.errors.getFirst()).status(), name);
+            }
+        }
+
+        @Test
+        @DisplayName("The limits of one roster call do not affect the other")
+        void limitsAreIndependentPerMethod() {
+            final ThrottledServiceInterface service = throttled(Map.of(
+                    "throttle.getAddressBook.maxConcurrentPerClient", "1",
+                    "throttle.getTssData.maxConcurrentPerClient", "1"));
+            final CapturingPipeline tss = new CapturingPipeline();
+
+            service.open(method(service, "getAddressBook"), optionsFor("10.0.0.1"), new CapturingPipeline());
+            service.open(method(service, "getTssData"), optionsFor("10.0.0.1"), tss);
+
+            assertTrue(tss.errors.isEmpty(), "getTssData has its own allowance for the same client");
+        }
+    }
+
+    /// A reply pipeline that records the errors sent to it.
+    private static final class CapturingPipeline implements Pipeline<Bytes> {
+        private final List<Throwable> errors = new ArrayList<>();
+
+        @Override
+        public void onSubscribe(final Flow.Subscription subscription) {}
+
+        @Override
+        public void onNext(final Bytes item) {}
+
+        @Override
+        public void onError(final Throwable throwable) {
+            errors.add(throwable);
+        }
+
+        @Override
+        public void onComplete() {}
+    }
+
+    private static ServiceInterface.RequestOptions optionsFor(final String ipAddress) {
+        final InetSocketAddress address;
+        try {
+            address = new InetSocketAddress(InetAddress.getByName(ipAddress), 40840);
+        } catch (final UnknownHostException e) {
+            throw new IllegalStateException(e);
+        }
+        return new ServiceInterface.RequestOptions() {
+            @Override
+            public Optional<String> authority() {
+                return Optional.empty();
+            }
+
+            @Override
+            public String contentType() {
+                return ServiceInterface.RequestOptions.APPLICATION_GRPC_PROTO;
+            }
+
+            @Override
+            public SocketAddress remoteAddress() {
+                return address;
+            }
+        };
     }
 
     /**
