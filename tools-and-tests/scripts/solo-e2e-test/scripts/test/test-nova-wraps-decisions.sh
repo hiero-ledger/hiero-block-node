@@ -142,9 +142,9 @@ function expect_hold_fails {
 }
 expect_equal "'latest' BN 0.46.0 with a pre-release CN is held" "v0.44.3" "$(PRE_NOVA_BN=v0.44.3 hold_block_node_for_pre_nova_cn latest v0.46.0 0.79.0 0.79.0-alpha.2 2>/dev/null)"
 expect_equal "'LATEST' BN is held too" "v0.44.3" "$(PRE_NOVA_BN=v0.44.3 hold_block_node_for_pre_nova_cn LATEST v0.45.0 0.79.0 0.79.0-alpha.2 2>/dev/null)"
-expect_hold_fails "a pinned BN tag fails fast" v0.47.0-rc1 v0.47.0-rc1 0.79.0 0.79.0-alpha.2
-expect_hold_fails "a pinned BN release fails fast" v0.46.0 v0.46.0 0.79.0 0.79.0-alpha.2
-expect_hold_fails "the 'rc' keyword fails fast" rc v0.47.0-rc1 0.79.0 0.79.0-alpha.2
+PRE_NOVA_BN=v0.44.3 expect_hold_fails "a pinned BN tag fails fast" v0.47.0-rc1 v0.47.0-rc1 0.79.0 0.79.0-alpha.2
+PRE_NOVA_BN=v0.44.3 expect_hold_fails "a pinned BN release fails fast" v0.46.0 v0.46.0 0.79.0 0.79.0-alpha.2
+PRE_NOVA_BN=v0.44.3 expect_hold_fails "the 'rc' keyword fails fast" rc v0.47.0-rc1 0.79.0 0.79.0-alpha.2
 expect_hold_fails "'latest' with no older Block Node release fails fast" latest v0.46.0 0.79.0 0.79.0-alpha.2
 expect_equal "CN not swapped: BN untouched" "v0.46.0" "$(hold_block_node_for_pre_nova_cn latest v0.46.0 0.79.0 0.79.0 2>/dev/null)"
 expect_equal "pinned BN below the Nova minimum is untouched" "v0.44.2" "$(hold_block_node_for_pre_nova_cn v0.44.2 v0.44.2 0.79.0 0.79.0-alpha.2 2>/dev/null)"
