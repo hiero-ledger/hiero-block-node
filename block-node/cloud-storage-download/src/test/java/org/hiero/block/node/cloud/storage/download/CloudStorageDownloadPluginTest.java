@@ -14,10 +14,12 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.logging.Logger;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.RosterEntry;
 import org.hiero.block.api.TssData;
 import org.hiero.block.api.TssRoster;
+import org.hiero.block.node.app.fixtures.logging.TestLogHandler;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.junit.jupiter.api.DisplayName;
@@ -61,15 +63,52 @@ class CloudStorageDownloadPluginTest
     }
 
     @Test
-    @DisplayName("Default configuration fails init, naming every required setting")
-    void defaultConfigurationFailsInit() {
-        assertThatThrownBy(() -> start(new CloudStorageDownloadPlugin(), new SimpleInMemoryHistoricalBlockFacility()))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("cloud.storage.download.endpointUrl")
-                .hasMessageContaining("cloud.storage.download.regionName")
-                .hasMessageContaining("cloud.storage.download.bucketName")
-                .hasMessageContaining("cloud.storage.download.accessKey")
-                .hasMessageContaining("cloud.storage.download.secretKey");
+    @DisplayName("Default configuration leaves the plugin idle, with a WARNING for every required setting")
+    void defaultConfigurationLeavesPluginIdle() {
+        final TestLogHandler logHandler = new TestLogHandler();
+        final Logger pluginLogger = Logger.getLogger(CloudStorageDownloadPlugin.class.getName());
+        pluginLogger.addHandler(logHandler);
+        try {
+            start(new CloudStorageDownloadPlugin(), new SimpleInMemoryHistoricalBlockFacility());
+            assertThat(logHandler.countContaining("cloud.storage.download.endpointUrl is blank"))
+                    .isOne();
+            assertThat(logHandler.countContaining("cloud.storage.download.regionName is blank"))
+                    .isOne();
+            assertThat(logHandler.countContaining("cloud.storage.download.bucketName is blank"))
+                    .isOne();
+            assertThat(logHandler.countContaining("cloud.storage.download.accessKey is blank"))
+                    .isOne();
+            assertThat(logHandler.countContaining("cloud.storage.download.secretKey is blank"))
+                    .isOne();
+            assertThat(plugin.poller()).isNull();
+            assertThat(testThreadPoolManager.scheduledExecutor().getQueue()).isEmpty();
+            plugin.stop();
+        } finally {
+            pluginLogger.removeHandler(logHandler);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"endpointUrl, ''", "regionName, ''", "bucketName, ' '", "accessKey, ''", "secretKey, ''"})
+    @DisplayName("A blank bucket setting leaves the plugin idle, naming the setting but never a value")
+    void blankSettingLeavesPluginIdle(final String property, final String value) {
+        final Map<String, String> config = validConfig();
+        config.put("cloud.storage.download." + property, value);
+        final TestLogHandler logHandler = new TestLogHandler();
+        final Logger pluginLogger = Logger.getLogger(CloudStorageDownloadPlugin.class.getName());
+        pluginLogger.addHandler(logHandler);
+        try {
+            start(new CloudStorageDownloadPlugin(s3Client), new SimpleInMemoryHistoricalBlockFacility(), config);
+            assertThat(logHandler.countContaining("cloud.storage.download." + property + " is blank"))
+                    .isOne();
+            assertThat(logHandler.countContaining(ACCESS_KEY)).isZero();
+            assertThat(logHandler.countContaining(SECRET_KEY)).isZero();
+            assertThat(plugin.poller()).isNull();
+            assertThat(testThreadPoolManager.scheduledExecutor().getQueue()).isEmpty();
+            verifyNoInteractions(s3Client);
+        } finally {
+            pluginLogger.removeHandler(logHandler);
+        }
     }
 
     @Test
@@ -91,16 +130,9 @@ class CloudStorageDownloadPluginTest
     }
 
     @ParameterizedTest
-    @CsvSource({
-        "endpointUrl, ''",
-        "regionName, ''",
-        "bucketName, ' '",
-        "accessKey, ''",
-        "secretKey, ''",
-        "aheadThresholdBlocks, 0",
-        "downloadWindow, 0"
-    })
-    @DisplayName("An invalid setting fails init, naming the setting but never a value, and never touches the bucket")
+    @CsvSource({"aheadThresholdBlocks, 0", "downloadWindow, 0"})
+    @DisplayName(
+            "A setting that is not positive fails init, naming the setting but never a value, and never touches the bucket")
     void invalidSettingFailsInit(final String property, final String value) {
         final Map<String, String> config = validConfig();
         config.put("cloud.storage.download." + property, value);

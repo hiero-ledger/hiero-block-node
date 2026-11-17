@@ -467,13 +467,14 @@ checks whether the bucket holds the block `aheadThresholdBlocks` after the last 
 does, the plugin downloads the missing blocks and submits them, in order, to the same verification and
 persistence path backfill uses. It only reads from the bucket, so read-only credentials are enough.
 
-The plugin is turned on by adding `cloud-storage-download` to `plugins.names`; it has no switch of its
-own. It needs the five required settings below and a positive
-`CLOUD_STORAGE_DOWNLOAD_AHEAD_THRESHOLD_BLOCKS` and `CLOUD_STORAGE_DOWNLOAD_DOWNLOAD_WINDOW`. A blank or
-invalid one stops the Block Node at startup with an error that names the setting (never its value).
-Whether the bucket is reachable is not checked at startup: wrong credentials, a missing bucket or an
-unreachable endpoint fail each probe with a WARNING, and the plugin recovers once the bucket is
-reachable.
+The plugin is turned on by adding `cloud-storage-download` to `plugins.names` and setting the five
+required settings below; it has no switch of its own. If any of them is blank, the plugin logs a
+WARNING naming each blank setting (never its value) and stays idle, and the Block Node starts as
+usual. With all five set, a `CLOUD_STORAGE_DOWNLOAD_AHEAD_THRESHOLD_BLOCKS` or
+`CLOUD_STORAGE_DOWNLOAD_DOWNLOAD_WINDOW` that is not positive stops the Block Node at startup with an
+error that names the setting. Whether the bucket is reachable is not checked at startup: wrong
+credentials, a missing bucket or an unreachable endpoint fail each probe with a WARNING, and the
+plugin recovers once the bucket is reachable.
 
 | ENV Variable                                   | Description                                                                                                                                     | Default |
 |:-----------------------------------------------|:------------------------------------------------------------------------------------------------------------------------------------------------|--------:|
@@ -484,16 +485,17 @@ reachable.
 | CLOUD_STORAGE_DOWNLOAD_SECRET_KEY              | Read-only secret key (not logged). Required.                                                                                                    |      "" |
 | CLOUD_STORAGE_DOWNLOAD_OBJECT_KEY_PREFIX       | Network folder of the bucket, e.g. `mainnet` or `testnet-202611011200` (network name and last reset time). Update it after every network reset. |      "" |
 | CLOUD_STORAGE_DOWNLOAD_POLL_INTERVAL_MS        | Time between two checks of the bucket, in milliseconds.                                                                                         |   10000 |
-| CLOUD_STORAGE_DOWNLOAD_AHEAD_THRESHOLD_BLOCKS  | How many blocks the bucket must be ahead of the last stored block before the plugin pulls. Must be positive and below the CN buffer limit.      |       5 |
+| CLOUD_STORAGE_DOWNLOAD_AHEAD_THRESHOLD_BLOCKS  | How many blocks the bucket must be ahead of the last stored block before the plugin pulls. Must be positive and below the CN buffer limit.      |      10 |
 | CLOUD_STORAGE_DOWNLOAD_DOWNLOAD_WINDOW         | Number of blocks downloaded in parallel before being submitted in order. Must be positive.                                                      |      10 |
 | CLOUD_STORAGE_DOWNLOAD_PERSIST_WAIT_TIMEOUT_MS | How long to wait for one submitted block to be persisted before ending the pull, in milliseconds.                                               |   90000 |
 | CLOUD_STORAGE_DOWNLOAD_REQUEST_TIMEOUT_MS      | Timeout for the response of one bucket request, in milliseconds.                                                                                |   10000 |
 
 > **Note:** The defaults of `CLOUD_STORAGE_DOWNLOAD_AHEAD_THRESHOLD_BLOCKS` and
-> `CLOUD_STORAGE_DOWNLOAD_POLL_INTERVAL_MS` are small, so a node that falls behind catches up quickly.
-> They are a starting point, to be refined per network toward a larger threshold and a longer
-> interval. Keep the poll interval below `(CN buffer limit - threshold) x block time`, so the plugin
-> notices the node is behind before the Consensus Node buffers fill.
+> `CLOUD_STORAGE_DOWNLOAD_POLL_INTERVAL_MS` are a starting point, to be refined per network. A
+> threshold below 10 is too aggressive: the plugin would act before the Consensus Nodes and the
+> publish protocol have had time to recover on their own. Keep the poll interval below
+> `(CN buffer limit - threshold) x block time`, so the plugin notices the node is behind before the
+> Consensus Node buffers fill.
 
 Each Consensus Node uploads to its own folder, named after its node ID, and the plugin reads the node
 IDs from the current roster. Each block file is uploaded with a single PUT, so a block file found in

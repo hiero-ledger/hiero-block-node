@@ -626,6 +626,7 @@ Each plugin is identified by its `plugins.names` key (used in Helm configuration
 | `blocks-file-recent`     | Short-term block persistence on local NVMe with configurable retention policy                  | LFH and RFH profiles                  |
 | `blocks-file-historic`   | Long-term block persistence on local HDD (archive tier)                                        | LFH profile                           |
 | `cloud-storage-archive`  | Archives blocks to S3-compatible cloud storage (group files)                                   | RFH and cloud-backup profiles         |
+| `cloud-storage-download` | Recovers missing blocks from the bucket the Consensus Nodes upload blocks to                   | Optional                              |
 | `cloud-storage-expanded` | Uploads each verified block individually to S3-compatible storage                              | Optional                              |
 | `backfill`               | Fetches missing historical blocks from peer Block Nodes                                        | All production deployments            |
 | `roster-bootstrap-rsa`   | Loads the RSA node address book at startup for WRB block proof verification                    | Required for WRB cutover              |

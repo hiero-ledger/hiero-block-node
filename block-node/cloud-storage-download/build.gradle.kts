@@ -12,6 +12,7 @@ mainModuleInfo { runtimeOnly("com.swirlds.config.impl") }
 testModuleInfo {
     requires("org.hiero.block.node.app.test.fixtures")
     requires("io.minio")
+    requires("java.logging")
     requires("org.assertj.core")
     requires("org.junit.jupiter.api")
     requires("org.junit.jupiter.params")

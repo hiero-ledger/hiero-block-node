@@ -56,6 +56,10 @@ public class CloudStorageDownloadPlugin implements BlockNodePlugin {
     /// Block node context, set during {@link #init}.
     private BlockNodeContext context;
 
+    /// Whether a required bucket setting is blank or the bucket client cannot be created, which
+    /// leaves the plugin idle; set during {@link #init}.
+    private boolean idle;
+
     /// Probes the bucket and pulls; `null` until the plugin has started.
     private BucketPoller poller;
 
@@ -83,51 +87,67 @@ public class CloudStorageDownloadPlugin implements BlockNodePlugin {
 
     /// {@inheritDoc}
     ///
-    /// Validates the configuration and creates the bucket client. An invalid configuration
-    /// throws, so a node that loads the plugin without configuring it does not start. The
-    /// bucket itself is not contacted: whether it is reachable shows on the first probe.
+    /// Validates the configuration and creates the bucket client. A blank bucket setting, or a
+    /// bucket client that cannot be created, is logged at WARNING and leaves the plugin idle, so
+    /// a node that loads every plugin starts without download settings. A set but invalid value
+    /// throws, so a misconfigured node does not start. The bucket itself is not contacted:
+    /// whether it is reachable shows on the first probe.
     ///
-    /// @throws IllegalStateException when a required setting is blank or not positive, or the
-    ///     bucket client cannot be created from the settings
+    /// @throws IllegalStateException when the bucket settings are set but the threshold or the
+    ///     window is not positive
     @Override
     public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
         this.context = context;
         config = context.configuration().getConfigData(CloudStorageDownloadConfig.class);
-        final List<String> invalid = new ArrayList<>();
-        requireSet(config.endpointUrl(), "endpointUrl", invalid);
-        requireSet(config.regionName(), "regionName", invalid);
-        requireSet(config.bucketName(), "bucketName", invalid);
-        requireSet(config.accessKey(), "accessKey", invalid);
-        requireSet(config.secretKey(), "secretKey", invalid);
-        requirePositive(config.aheadThresholdBlocks(), "aheadThresholdBlocks", invalid);
-        requirePositive(config.downloadWindow(), "downloadWindow", invalid);
-        if (!invalid.isEmpty()) {
-            throw new IllegalStateException(
-                    "Cloud storage download settings blank or not positive: " + String.join(", ", invalid));
-        }
-        if (s3Client == null) {
-            s3Client = createClient(config);
+        final List<String> blank = new ArrayList<>();
+        addIfBlank(config.endpointUrl(), "endpointUrl", blank);
+        addIfBlank(config.regionName(), "regionName", blank);
+        addIfBlank(config.bucketName(), "bucketName", blank);
+        addIfBlank(config.accessKey(), "accessKey", blank);
+        addIfBlank(config.secretKey(), "secretKey", blank);
+        if (blank.isEmpty()) {
+            final List<String> invalid = new ArrayList<>();
+            addIfNotPositive(config.aheadThresholdBlocks(), "aheadThresholdBlocks", invalid);
+            addIfNotPositive(config.downloadWindow(), "downloadWindow", invalid);
+            if (!invalid.isEmpty()) {
+                throw new IllegalStateException(
+                        "Cloud storage download settings not positive: " + String.join(", ", invalid));
+            }
+            if (s3Client == null) {
+                s3Client = createClient(config);
+                idle = s3Client == null;
+            }
+        } else {
+            idle = true;
+            // only the name is logged, never the value
+            for (final String property : blank) {
+                LOGGER.log(WARNING, property + " is blank; cloud storage download stays idle");
+            }
         }
     }
 
     /// {@inheritDoc}
+    ///
+    /// Does nothing when {@link #init} left the plugin idle.
     @Override
     public void start() {
-        awaiter = new PersistenceAwaiter();
-        context.blockMessaging().registerBlockNotificationHandler(awaiter, false, name());
-        downloader = context.threadPoolManager().getVirtualThreadExecutor("CloudStorageDownloadFetch");
-        metricsHolder = MetricsHolder.createMetrics(context.metricRegistry());
-        poller = new BucketPoller(config, s3Client, context.blockMessaging(), awaiter, downloader, metricsHolder);
-        // register before reading the current state, so no update falls between the two
-        context.blockMessaging().registerApplicationStateNotificationHandler(poller, false, name());
-        poller.handleStoredBlocksUpdate(
-                new StoredBlocksNotification(context.applicationStateFacility().storedBlocks()));
-        poller.handleTssDataUpdate(
-                new TssDataNotification(context.applicationStateFacility().tssData()));
-        scheduler = context.threadPoolManager()
-                .createSingleThreadScheduledExecutor("CloudStorageDownload", new LoggingExceptionHandler());
-        scheduler.scheduleWithFixedDelay(
-                poller, config.pollIntervalMs(), config.pollIntervalMs(), TimeUnit.MILLISECONDS);
+        if (!idle) {
+            awaiter = new PersistenceAwaiter();
+            context.blockMessaging().registerBlockNotificationHandler(awaiter, false, name());
+            downloader = context.threadPoolManager().getVirtualThreadExecutor("CloudStorageDownloadFetch");
+            metricsHolder = MetricsHolder.createMetrics(context.metricRegistry());
+            poller = new BucketPoller(config, s3Client, context.blockMessaging(), awaiter, downloader, metricsHolder);
+            // register before reading the current state, so no update falls between the two
+            context.blockMessaging().registerApplicationStateNotificationHandler(poller, false, name());
+            poller.handleStoredBlocksUpdate(new StoredBlocksNotification(
+                    context.applicationStateFacility().storedBlocks()));
+            poller.handleTssDataUpdate(
+                    new TssDataNotification(context.applicationStateFacility().tssData()));
+            scheduler = context.threadPoolManager()
+                    .createSingleThreadScheduledExecutor("CloudStorageDownload", new LoggingExceptionHandler());
+            scheduler.scheduleWithFixedDelay(
+                    poller, config.pollIntervalMs(), config.pollIntervalMs(), TimeUnit.MILLISECONDS);
+        }
     }
 
     /// {@inheritDoc}
@@ -167,16 +187,16 @@ public class CloudStorageDownloadPlugin implements BlockNodePlugin {
         return metricsHolder;
     }
 
-    /// Adds the full name of a required setting to the invalid ones when it is blank. Only the
+    /// Adds the full name of a required setting to the blank ones when it is blank. Only the
     /// name is recorded, never the value.
-    private static void requireSet(final String value, final String property, final List<String> invalid) {
+    private static void addIfBlank(final String value, final String property, final List<String> blank) {
         if (value == null || value.isBlank()) {
-            invalid.add(PROPERTY_PREFIX + property);
+            blank.add(PROPERTY_PREFIX + property);
         }
     }
 
     /// Adds the full name of a setting to the invalid ones when it is not positive.
-    private static void requirePositive(final long value, final String property, final List<String> invalid) {
+    private static void addIfNotPositive(final long value, final String property, final List<String> invalid) {
         if (value <= 0) {
             invalid.add(PROPERTY_PREFIX + property);
         }
@@ -185,8 +205,10 @@ public class CloudStorageDownloadPlugin implements BlockNodePlugin {
     /// Creates the bucket client from the validated settings. The client makes no request
     /// until it is used.
     ///
-    /// @throws IllegalStateException when the client cannot be created from the settings
+    /// @return the client, or `null` when it cannot be created from the settings, which is
+    ///     logged at WARNING
     private static S3Client createClient(final CloudStorageDownloadConfig config) {
+        S3Client client = null;
         try {
             // without a request timeout a request that connects and then stalls never returns
             final RetryPolicy retryPolicy = new RetryPolicy(
@@ -195,7 +217,7 @@ public class CloudStorageDownloadPlugin implements BlockNodePlugin {
                     RetryPolicy.DEFAULT.maxDelayMs(),
                     RetryPolicy.DEFAULT.totalTimeoutMs(),
                     config.requestTimeoutMs());
-            return new S3Client(
+            client = new S3Client(
                     config.regionName(),
                     config.endpointUrl(),
                     config.bucketName(),
@@ -203,8 +225,12 @@ public class CloudStorageDownloadPlugin implements BlockNodePlugin {
                     config.secretKey(),
                     retryPolicy);
         } catch (final S3ClientInitializationException e) {
-            throw new IllegalStateException("Cannot create the cloud storage download S3 client", e);
+            LOGGER.log(
+                    WARNING,
+                    "Cannot create the cloud storage download S3 client; cloud storage download stays idle",
+                    e);
         }
+        return client;
     }
 
     // TODO(#4080) add the not_present, download_failed, verification_failed and persist_timeout

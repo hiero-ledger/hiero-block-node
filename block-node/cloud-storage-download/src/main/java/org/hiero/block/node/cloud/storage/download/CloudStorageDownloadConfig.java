@@ -7,8 +7,8 @@ import com.swirlds.config.api.validation.annotation.Min;
 import org.hiero.block.node.base.Loggable;
 
 /// Configuration for the cloud storage download plugin, which recovers missing blocks from
-/// the bucket the consensus nodes upload blocks to. Loading the plugin turns it on; there is
-/// no switch of its own.
+/// the bucket the consensus nodes upload blocks to. Loading the plugin with the bucket settings
+/// turns it on; there is no switch of its own. Without them the plugin stays idle.
 ///
 /// @param endpointUrl          S3-compatible endpoint URL. Required.
 /// @param regionName           S3 region name. Required.
@@ -36,7 +36,7 @@ public record CloudStorageDownloadConfig(
         @ConfigProperty(defaultValue = "") String secretKey,
         @Loggable @ConfigProperty(defaultValue = "") String objectKeyPrefix,
         @Loggable @ConfigProperty(defaultValue = "10000") @Min(1) long pollIntervalMs,
-        @Loggable @ConfigProperty(defaultValue = "5") long aheadThresholdBlocks,
+        @Loggable @ConfigProperty(defaultValue = "10") long aheadThresholdBlocks,
         @Loggable @ConfigProperty(defaultValue = "10") int downloadWindow,
         @Loggable @ConfigProperty(defaultValue = "90000") @Min(1) long persistWaitTimeoutMs,
         @Loggable @ConfigProperty(defaultValue = "10000") @Min(1) long requestTimeoutMs) {}
