@@ -13,13 +13,18 @@ import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.SocketAddress;
+import java.net.UnknownHostException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Flow;
+import java.util.function.Supplier;
 import org.hiero.metrics.core.MetricRegistry;
+import org.hiero.metrics.core.MetricRegistrySnapshot;
+import org.hiero.metrics.core.MetricsExporter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -239,7 +244,7 @@ class WeightedThrottledServiceInterfaceTest {
         final InetSocketAddress address;
         try {
             address = new InetSocketAddress(InetAddress.getByName(ipAddress), 40840);
-        } catch (final java.net.UnknownHostException e) {
+        } catch (final UnknownHostException e) {
             throw new IllegalStateException(e);
         }
         return new ServiceInterface.RequestOptions() {
@@ -254,7 +259,7 @@ class WeightedThrottledServiceInterfaceTest {
             }
 
             @Override
-            public java.net.SocketAddress remoteAddress() {
+            public SocketAddress remoteAddress() {
                 return address;
             }
         };
@@ -345,10 +350,9 @@ class WeightedThrottledServiceInterfaceTest {
         }
     }
 
-    private static final class NoOpMetricsExporter implements org.hiero.metrics.core.MetricsExporter {
+    private static final class NoOpMetricsExporter implements MetricsExporter {
         @Override
-        public void setSnapshotSupplier(
-                final java.util.function.Supplier<org.hiero.metrics.core.MetricRegistrySnapshot> supplier) {}
+        public void setSnapshotSupplier(final Supplier<MetricRegistrySnapshot> supplier) {}
 
         @Override
         public void close() {}

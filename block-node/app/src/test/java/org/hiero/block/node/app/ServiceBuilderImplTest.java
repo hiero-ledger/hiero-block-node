@@ -10,14 +10,18 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.hedera.pbj.grpc.helidon.PbjRouting;
+import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import io.helidon.common.socket.SocketOptions;
 import io.helidon.webserver.ListenerConfig;
 import io.helidon.webserver.WebServerConfig;
@@ -29,6 +33,7 @@ import java.net.StandardSocketOptions;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.hiero.block.node.app.config.BlockReadBulkheadConfig;
 import org.hiero.block.node.app.config.GlobalThrottleConfig;
@@ -144,8 +149,7 @@ class ServiceBuilderImplTest {
         assertThrows(
                 IllegalArgumentException.class, () -> serviceBuilder.registerGrpcService(CONSUMER_PORT, testService));
 
-        verify(spyBuilder, org.mockito.Mockito.never())
-                .service(org.mockito.ArgumentMatchers.any(ServiceInterface.class));
+        verify(spyBuilder, never()).service(any(ServiceInterface.class));
     }
 
     @Test
@@ -207,8 +211,7 @@ class ServiceBuilderImplTest {
                         "NeverReapsService",
                         Map.of("method", new PerClientThrottleSettings(10, 5, 3)),
                         Map.of("method", 100)));
-        org.mockito.Mockito.verify(firstReaper, org.mockito.Mockito.never())
-                .cancel(org.mockito.ArgumentMatchers.anyBoolean());
+        org.mockito.Mockito.verify(firstReaper, never()).cancel(org.mockito.ArgumentMatchers.anyBoolean());
 
         // A service with a smaller hold limit tightens the period: the old schedule is cancelled.
         builder.registerGrpcService(
@@ -345,16 +348,14 @@ class ServiceBuilderImplTest {
         }
 
         @Override
-        public com.hedera.pbj.runtime.grpc.Pipeline<? super com.hedera.pbj.runtime.io.buffer.Bytes> open(
-                final Method method,
-                final RequestOptions opts,
-                final com.hedera.pbj.runtime.grpc.Pipeline<? super com.hedera.pbj.runtime.io.buffer.Bytes> responses) {
+        public Pipeline<? super Bytes> open(
+                final Method method, final RequestOptions opts, final Pipeline<? super Bytes> responses) {
             throw new UnsupportedOperationException("not exercised by these registration-only tests");
         }
 
         @Override
-        public java.util.Optional<ContentAwareWeigher> weigher() {
-            return java.util.Optional.of((method, bytes) -> WeightClass.STANDARD);
+        public Optional<ContentAwareWeigher> weigher() {
+            return Optional.of((method, bytes) -> WeightClass.STANDARD);
         }
 
         @Override

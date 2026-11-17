@@ -236,10 +236,10 @@ public final class WeightedThrottledServiceInterface implements ServiceInterface
             }
             decided = true;
             final WeightClass weightClass = weigher.classify(method, requestBytes);
-            ClientThrottle throttle = throttles.get(new MethodWeight(method.name(), weightClass));
-            if (throttle == null) {
-                throttle = throttles.get(new MethodWeight(method.name(), WeightClass.STANDARD));
-            }
+            final ClientThrottle weightedThrottle = throttles.get(new MethodWeight(method.name(), weightClass));
+            final ClientThrottle throttle = (weightedThrottle != null)
+                    ? weightedThrottle
+                    : throttles.get(new MethodWeight(method.name(), WeightClass.STANDARD));
             final AdmissionResult result = (throttle != null)
                     ? throttle.tryAdmit(clientKey, System.nanoTime())
                     : globalOnlyAdmit(method.name(), weightClass);
