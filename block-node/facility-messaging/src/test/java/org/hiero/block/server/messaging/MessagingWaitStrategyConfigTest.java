@@ -45,7 +45,7 @@ class MessagingWaitStrategyConfigTest {
     void negativeYieldTimeoutIsRejected() {
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new MessagingConfig(512, 32, MessagingWaitStrategy.PHASED_BACKOFF, -1L));
+                () -> new MessagingConfig(512, 32, 32, MessagingWaitStrategy.PHASED_BACKOFF, -1L));
     }
 
     @Test
