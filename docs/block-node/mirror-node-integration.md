@@ -57,7 +57,7 @@ Over the wire the pattern is: `block_items + end_of_block` repeated per block, f
 
 ## Connecting to multiple Block Nodes
 
-A Mirror Node should be configured to subscribe to more than one Block Node. The Mirror Node holds the full list as a configured array under `hiero.mirror.importer.block.nodes[]` and chooses which node to use according to a scheduler strategy - by default, `PRIORITY_THEN_LATENCY`. Each entry carries a `priority` (lower is higher priority) and an optional `requiresTls` flag.
+A Mirror Node should be configured to subscribe to more than one Block Node. The Mirror Node holds the full list as a configured array under `hiero.mirror.importer.block.nodes[]` and chooses which node to use according to a scheduler strategy - by default, `PRIORITY_THEN_LATENCY`. Each entry carries a `priority` (lower is higher priority) and a list of `endpoints`, each with a `host`, a `port`, the Block Node APIs it serves (`apis`), and an optional `requiresTls` flag.
 
 The selection rules at a glance:
 

@@ -63,16 +63,21 @@ Configure the Mirror Node via `application.yml` (or equivalent Spring property s
 
 #### Block Node endpoints
 
-Declare one entry under `hiero.mirror.importer.block.nodes[]` per target Block Node:
+Declare one entry under `hiero.mirror.importer.block.nodes[]` per target Block Node, and list that Block Node's gRPC endpoints under `endpoints[]`:
 
-|                     Property                      | Default |                                                Effect                                                 |
-|---------------------------------------------------|---------|-------------------------------------------------------------------------------------------------------|
-| `hiero.mirror.importer.block.nodes[].host`        | -       | Host or IP of the Block Node gRPC service. **Required.**                                              |
-| `hiero.mirror.importer.block.nodes[].port`        | `40980` | Subscribe API port of the Block Node. LFH profile default: `40980`; base-chart default: `40840`.      |
-| `hiero.mirror.importer.block.nodes[].priority`    | `0`     | Selection priority. **Lower value is higher priority.** Highest-priority reachable node is preferred. |
-| `hiero.mirror.importer.block.nodes[].requiresTls` | `false` | Set to `true` if the Block Node endpoint is fronted by TLS termination.                               |
+|                           Property                            |           Default            |                                                                                  Effect                                                                                  |
+|---------------------------------------------------------------|------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `hiero.mirror.importer.block.nodes[].endpoints[].host`        | -                            | Host or IP of the endpoint. **Required.**                                                                                                                                |
+| `hiero.mirror.importer.block.nodes[].endpoints[].port`        | `40840`                      | Port of the endpoint.                                                                                                                                                    |
+| `hiero.mirror.importer.block.nodes[].endpoints[].apis`        | `[STATUS, SUBSCRIBE_STREAM]` | Block Node APIs served on this endpoint. The Mirror Node sends `serverStatusDetail` requests to the `STATUS` endpoint and subscribes on the `SUBSCRIBE_STREAM` endpoint. |
+| `hiero.mirror.importer.block.nodes[].endpoints[].requiresTls` | `false`                      | Set to `true` if the endpoint is fronted by TLS termination.                                                                                                             |
+| `hiero.mirror.importer.block.nodes[].priority`                | `0`                          | Selection priority. **Lower value is higher priority.** Highest-priority reachable node is preferred.                                                                    |
 
-Example YAML for two Block Nodes with the second as failover:
+The endpoints of one Block Node must together provide both `STATUS` and `SUBSCRIBE_STREAM`, or the Mirror Node fails validation at startup. When the Block Node serves each API on its own port (per-service ports; the LFH profile uses `40982` for server status and `40980` for subscribe), declare two endpoints for the same host, one per API, as in the example below. When the Block Node serves both APIs on one port (the base-chart default `40840`), a single endpoint with the default `apis` is enough. If the `STATUS` endpoint does not answer, the Mirror Node logs `Failed to get server status detail for ...` and skips that Block Node.
+
+> **Note:** Mirror Node v0.157.0 introduced `endpoints[]`. Earlier versions used flat `nodes[].host`, `nodes[].port`, and `nodes[].requiresTls` keys, which current versions do not read.
+
+Example YAML for two Block Nodes with per-service ports, the second as failover:
 
 ```yaml
 hiero:
@@ -82,15 +87,26 @@ hiero:
         enabled: true
         sourceType: BLOCK_NODE
         nodes:
-          - host: bn-primary.example.com
-            port: 40980
-            priority: 0
-            requiresTls: true
-          - host: bn-fallback.example.com
-            port: 40980
-            priority: 10
-            requiresTls: true
+          - priority: 0
+            endpoints:
+              - host: bn-primary.example.com
+                port: 40982
+                apis: [STATUS]
+              - host: bn-primary.example.com
+                port: 40980
+                apis: [SUBSCRIBE_STREAM]
+          - priority: 10
+            endpoints:
+              - host: bn-fallback.example.com
+                port: 40982
+                apis: [STATUS]
+              - host: bn-fallback.example.com
+                port: 40980
+                apis: [SUBSCRIBE_STREAM]
 ```
+
+> **Note:** Set `requiresTls: true` on an endpoint only if a TLS-terminating proxy or load balancer sits
+> in front of the Block Node. The Block Node itself serves plaintext.
 
 #### Selection and readmit behaviour
 
@@ -101,7 +117,7 @@ The Mirror Node will not block on a single unhealthy Block Node. Tune the readmi
 | `hiero.mirror.importer.block.scheduler.type`              | `PRIORITY_THEN_LATENCY` | Selection strategy: `LATENCY`, `PRIORITY`, or `PRIORITY_THEN_LATENCY`. The default picks by priority and uses measured latency as a tiebreaker. |
 | `hiero.mirror.importer.block.stream.maxSubscribeAttempts` | `3`                     | Consecutive failed subscribe attempts before a Block Node is marked inactive.                                                                   |
 | `hiero.mirror.importer.block.stream.readmitDelay`         | `1m`                    | How long an inactive Block Node stays out before being retried.                                                                                 |
-| `hiero.mirror.importer.block.stream.responseTimeout`      | `400ms`                 | `serverStatus` request timeout.                                                                                                                 |
+| `hiero.mirror.importer.block.stream.responseTimeout`      | `400ms`                 | Timeout for the `serverStatusDetail` request to a Block Node's `STATUS` endpoint.                                                               |
 
 #### Migration cutover
 
