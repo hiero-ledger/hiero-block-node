@@ -71,17 +71,15 @@ sudo solo-provisioner block node check --profile=mainnet
 
 The Block Node uses five persistent volumes. Confirm each is mounted and has adequate free space before upgrading. The `solo-provisioner block node check` preflight validates storage requirements for the configured profile.
 
-|     Volume     |                                      Default mount path                                       | Minimum free space |                                         Purpose                                         |
-|----------------|-----------------------------------------------------------------------------------------------|--------------------|-----------------------------------------------------------------------------------------|
-| `live`         | `blockNode.persistence.live.mountPath` (default `/opt/hiero/block-node/data/live`)            | 6 TB               | Recent block stream and live state                                                      |
-| `archive`      | `blockNode.persistence.archive.mountPath` (default `/opt/hiero/block-node/data/historic`)     | 90 TB              | Compressed historic block archive                                                       |
-| `verification` | `blockNode.persistence.verification.mountPath` (default `/opt/hiero/block-node/verification`) | 50 GB              | Block hash state and verification data                                                  |
-| `logging`      | `blockNode.persistence.logging.mountPath` (default `/opt/hiero/block-node/logs`)              | 100 GB             | Application logs                                                                        |
-| `plugins`      | `blockNode.persistence.plugins`                                                               | -                  | Plugin JARs; always mounted but may contain no JARs until plugins are explicitly loaded |
+|       Volume       |                                           Default mount path                                           | Minimum free space |                                         Purpose                                         |
+|--------------------|--------------------------------------------------------------------------------------------------------|--------------------|-----------------------------------------------------------------------------------------|
+| `live`             | `blockNode.persistence.live.mountPath` (default `/opt/hiero/block-node/data/live`)                     | 6 TB               | Recent block stream and live state                                                      |
+| `archive`          | `blockNode.persistence.archive.mountPath` (default `/opt/hiero/block-node/data/historic`)              | 90 TB              | Compressed historic block archive                                                       |
+| `applicationState` | `blockNode.persistence.applicationState.mountPath` (default `/opt/hiero/block-node/application-state`) | 50 GB              | Block hash state and verification data                                                  |
+| `logging`          | `blockNode.persistence.logging.mountPath` (default `/opt/hiero/block-node/logs`)                       | 100 GB             | Application logs                                                                        |
+| `plugins`          | `blockNode.persistence.plugins`                                                                        | -                  | Plugin JARs; always mounted but may contain no JARs until plugins are explicitly loaded |
 
 > Note: The exact mount paths depend on your Helm values. Run `helm -n block-node get values <release-name>` to inspect your installation's overrides.
->
-> Note: In the next Block Node version, `blockNode.persistence.verification.mountPath` will be replaced by `blockNode.persistence.applicationState.mountPath`. Check the Helm chart release notes for your target version before running volume-size checks.
 
 Confirm all volumes are mounted and visible inside the pod:
 
@@ -89,7 +87,7 @@ Confirm all volumes are mounted and visible inside the pod:
 kubectl -n block-node exec $BN_POD -c block-node-server -- df -h \
   /opt/hiero/block-node/data/live \
   /opt/hiero/block-node/data/historic \
-  /opt/hiero/block-node/verification \
+  /opt/hiero/block-node/application-state \
   /opt/hiero/block-node/logs
 ```
 
@@ -139,11 +137,11 @@ Complete the subsection below that matches the upgrade you are preparing for. Fu
 
 ### WRB streaming cutover prep
 
-**Applies to:** the Consensus Node release that activates Wrapped Record Block (WRB) streaming - currently scheduled for CN release 0.75.0. The exact release may change if release testing surfaces a blocker; monitor the [hiero-consensus-node releases](https://github.com/hiero-ledger/hiero-consensus-node/releases) and network announcements for the confirmed target release.
+**Applies to:** the Consensus Node release that activates Wrapped Record Block (WRB) streaming - shipped at CN release 0.75.0.
 
 For the full network cutover timeline - phases, CN-side WRB catch-up, [TSS](../glossary.md#tss-hints) ceremony, and [Jumpstart Data](../glossary.md#jumpstart-data) - see [Cutover Process and Timeline](../Cutover-Process.md).
 
-**What is changing:** from the cutover release onwards, Consensus Nodes begin producing Wrapped Recordfile Blocks with aggregated RSA signature Block Proofs. The production of Record files uploaded to S3 storage will continue until the cutover to TSS and Block Streams in a later release. Any preview blocks stored by the Block Node before the cutover are invalid and must be discarded before the BN can receive and store authoritative WRB history. Do not skip the reset step even if the BN appears to be functioning normally.
+**What changed:** from CN 0.75.0 onwards, Consensus Nodes produce Wrapped Recordfile Blocks with aggregated RSA signature Block Proofs. Record file uploads to S3 continued until the TSS and Block Streams cutover at CN 0.77.0. Any preview blocks stored by the Block Node before the cutover are invalid and must be discarded before the BN can receive and store authoritative WRB history. Do not skip the reset step even if the BN appears to be functioning normally.
 
 > **Note:** Before beginning the WRB cutover steps, confirm that the Consensus Nodes peered with this Block Node are no longer streaming preview blocks. Ingesting blocks from a CN that is still in preview mode will store invalid data that requires another reset to clear.
 
@@ -151,7 +149,7 @@ Complete the [common pre-upgrade checks](#common-pre-upgrade-checks) first, then
 
 #### Clear the block store (preview-blocks reset)
 
-> **Caution:** This operation is destructive and cannot be undone. It scales the StatefulSet to 0, clears all files from the `live`, `archive`, `verification`, and `logging` storage directories, then scales back up to 1. All block data on this node is lost. Do not run this step until the maintenance window is confirmed open and your off-host artifact backups are current.
+> **Caution:** This operation is destructive and cannot be undone. It scales the StatefulSet to 0, clears all files from the `live`, `archive`, `applicationState`, `logging`, and `plugins` storage directories, then scales back up to 1. All block data on this node is lost. Do not run this step until the maintenance window is confirmed open and your off-host artifact backups are current.
 
 ```bash
 sudo solo-provisioner block node reset --profile=mainnet
@@ -162,9 +160,10 @@ sudo solo-provisioner block node reset --profile=mainnet
   ```text
   Ensuring weaver service account (weaver:2500)
   Preflight Checks
-  Scaling down Block Node
+  Scaling down Block Node StatefulSet
+  Waiting for Block Node pods to terminate
   Clearing Block Node storage
-  Scaling up Block Node
+  Scaling up Block Node StatefulSet
   Waiting for Block Node to be ready
 
   Completed successfully
@@ -293,18 +292,9 @@ grpcurl -plaintext -emit-defaults \
 
 After the block store reset, the BN backfills WRB history automatically as long as other Block Nodes on the network already hold the relevant block range. All Tier 1 operators should have at least one Block Node source configured for both backfill and peer roster queries. **Most operators do not need to manually configure a specific backfill source** - once peer Block Nodes are advertising history on the network, the backfill plugin discovers them through the normal backfill path.
 
-**Enable greedy backfill**
+**Greedy backfill**
 
-For the WRB cutover, enable greedy backfill on all Tier 1 Block Nodes. With greedy [backfill](../glossary.md#backfill) enabled, the BN proactively retrieves blocks beyond the latest acknowledged block, preventing the node from falling too far behind during the initial catch-up period.
-
-In your Helm values overlay, set `BACKFILL_GREEDY` to `"true"`, apply the change, and confirm:
-
-```bash
-helm -n block-node upgrade <release-name> <chart> -f block-node-values.yaml
-helm -n block-node get values <release-name> | grep BACKFILL_GREEDY
-```
-
-- **Expected:** `BACKFILL_GREEDY: "true"`
+[Backfill](../glossary.md#backfill) greedy mode is enabled by default from BN 0.46.0 (`BACKFILL_GREEDY` defaults to `"true"`). On BN 0.44.x and 0.45.x it defaults to `"false"`, so set `BACKFILL_GREEDY: "true"` in your Helm values overlay and confirm it with `helm -n block-node get values <release-name> | grep BACKFILL_GREEDY`. With greedy backfill active, the BN proactively retrieves blocks beyond the latest acknowledged block, preventing the node from falling too far behind during the initial catch-up period.
 
 **Edge case - bootstrapping from genesis when no public BN holds the history yet:**
 
@@ -354,7 +344,7 @@ If you need to configure a specific backfill source:
      org.hiero.block.api.BlockNodeService/serverStatus
    ```
 
-   Full backfill of current network history takes one to several weeks; the BN does not need to complete backfill before the cutover release, but it must be active and making progress.
+   Full backfill of current network history takes one to several weeks; the BN must be active and making progress.
 
 #### Configure TSS bootstrap (if TSS is enabled)
 
@@ -452,7 +442,6 @@ After completing all applicable checks, confirm the BN is ready before the maint
 | Block store cleared (WRB only)            | `grpcurl ... BlockNodeService/serverStatus`                                   | `firstAvailableBlock = uint64_max`                                   |
 | RSA roster loaded (WRB only)              | `grpcurl ... BlockNodeService/serverStatusDetail`                             | Non-empty `nodeAddressBook` in response                              |
 | TSS bootstrap loaded (if TSS is enabled)  | `grpcurl ... BlockNodeService/serverStatusDetail`                             | Non-empty `tssData` in response                                      |
-| Greedy backfill enabled (WRB only)        | `helm -n block-node get values <release-name> \| grep BACKFILL_GREEDY`        | `BACKFILL_GREEDY: "true"`                                            |
 | Backfill active (WRB only, if configured) | `kubectl -n block-node logs $BN_POD -c block-node-server \| grep -i backfill` | Fetching or completed (if `BACKFILL_BLOCK_NODE_SOURCES_PATH` is set) |
 | Alloy shipping                            | `kubectl -n grafana-alloy get pods`                                           | `1/1 Running`                                                        |
 
