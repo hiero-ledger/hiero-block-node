@@ -20,6 +20,7 @@ import io.helidon.webserver.WebServer;
 import io.helidon.webserver.WebServerConfig;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import org.hiero.block.api.AddressBookRequest;
 import org.hiero.block.api.AddressBookResponse;
 import org.hiero.block.api.BlockEnd;
@@ -49,6 +50,24 @@ public class TestBlockNodeServer {
     private final WebServer webServer;
 
     public TestBlockNodeServer(int port, HistoricalBlockFacility historicalBlockFacility) {
+        this(port, historicalBlockFacility, false);
+    }
+
+    /**
+     * Creates a server that behaves like a peer on a version before {@code getAddressBook} and {@code getTssData}
+     * existed. Those two methods are not registered, so a PBJ server answers a call to them with {@code NOT_FOUND},
+     * the same as a real older Block Node.
+     *
+     * @param port the port to listen on, or 0 for an OS-assigned port
+     * @param historicalBlockFacility the blocks to serve
+     * @return the started server
+     */
+    public static TestBlockNodeServer withoutAddressBookAndTssDataMethods(
+            int port, HistoricalBlockFacility historicalBlockFacility) {
+        return new TestBlockNodeServer(port, historicalBlockFacility, true);
+    }
+
+    private TestBlockNodeServer(int port, HistoricalBlockFacility historicalBlockFacility, boolean legacyStatusApi) {
         // Override the default message size in PBJ
         final PbjConfig pbjConfig = PbjConfig.builder()
                 .name("pbj")
@@ -57,7 +76,10 @@ public class TestBlockNodeServer {
 
         // Create the service builder
         final Builder pbjRoutingBuilder = PbjRouting.builder()
-                .service(new TrivialBlockNodeServerInterface(historicalBlockFacility))
+                .service(
+                        legacyStatusApi
+                                ? new LegacyBlockNodeServerInterface(historicalBlockFacility)
+                                : new TrivialBlockNodeServerInterface(historicalBlockFacility))
                 .service(new TestBlockStreamSubscribeService(historicalBlockFacility));
         // start the web server with the PBJ configuration and routing
         int BUFFER_SIZE_4_MB = 4 * 1024 * 1024;
@@ -190,6 +212,25 @@ public class TestBlockNodeServer {
 
         private static long estimateItemSize(@NonNull final BlockItem item) {
             return BlockItem.PROTOBUF.measureRecord(item);
+        }
+    }
+
+    /**
+     * The test BlockNodeService as an older Block Node registers it, without the address book and TSS data methods.
+     */
+    private static final class LegacyBlockNodeServerInterface extends TrivialBlockNodeServerInterface {
+        private static final Set<String> NEW_METHODS = Set.of("getAddressBook", "getTssData");
+
+        private LegacyBlockNodeServerInterface(final HistoricalBlockFacility historicalFacility) {
+            super(historicalFacility);
+        }
+
+        @Override
+        @NonNull
+        public List<Method> methods() {
+            return super.methods().stream()
+                    .filter(method -> !NEW_METHODS.contains(method.name()))
+                    .toList();
         }
     }
 

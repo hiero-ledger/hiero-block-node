@@ -153,10 +153,9 @@ public class TssDataFetcher implements AutoCloseable {
         }
     }
 
-    /// Asks the peer for its latest TSS data with `getTssData`, without the history. A peer on an older version does
-    /// not
-    /// have that call and answers `UNIMPLEMENTED`; for that case the data is read from the deprecated field of
-    /// `serverStatusDetail`, asking for none of the other parts.
+    /// Asks the peer for its latest TSS data with `getTssData`, without the history. A peer on an older version
+    /// does not have that call and answers `NOT_FOUND` (or `UNIMPLEMENTED` from a non-PBJ server). For that case
+    /// the data is read from the deprecated field of `serverStatusDetail`, asking for none of the other parts.
     ///
     /// @param client the peer's client
     /// @return the TSS data the peer reports, or null if it has none

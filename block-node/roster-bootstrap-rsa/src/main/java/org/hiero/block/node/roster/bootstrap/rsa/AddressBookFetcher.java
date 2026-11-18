@@ -175,9 +175,9 @@ public class AddressBookFetcher implements AutoCloseable {
                 n.grpcWebclientTuning());
     }
 
-    /// Asks the peer for its address book history with `getAddressBook`. A peer on an older version does not have that
-    /// call and answers `UNIMPLEMENTED`; for that case the history is read from the deprecated field of
-    /// `serverStatusDetail`, asking for none of the other parts.
+    /// Asks the peer for its address book history with `getAddressBook`. A peer on an older version does not
+    /// have that call and answers `NOT_FOUND` (or `UNIMPLEMENTED` from a non-PBJ server). For that case the
+    /// history is read from the deprecated field of `serverStatusDetail`, asking for none of the other parts.
     ///
     /// @param client the peer's client
     /// @return the address book history the peer reports

@@ -16,6 +16,7 @@ import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.pbj.runtime.grpc.GrpcException;
 import com.hedera.pbj.runtime.grpc.GrpcStatus;
+import java.io.IOException;
 import java.util.List;
 import org.hiero.block.api.AddressBookResponse;
 import org.hiero.block.api.BlockNodeServiceInterface;
@@ -25,6 +26,8 @@ import org.hiero.block.api.ServerStatusDetailRequest;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.internal.BlockNodeSource;
 import org.hiero.block.internal.BlockNodeSourceConfig;
+import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.app.fixtures.server.TestBlockNodeServer;
 import org.hiero.block.node.base.client.BlockNodeClient;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -344,6 +347,61 @@ class AddressBookFetcherTest {
             AddressBookFetcher fetcher = fetcherWithClient(peer, clientWith(serviceClient));
 
             assertEquals(expected, fetcher.getRangedNodeAddressBookHistory());
+        }
+
+        @Test
+        @DisplayName("Reads the history from serverStatusDetail when the peer answers NOT_FOUND")
+        void fallsBackWhenNotFound() {
+            BlockNodeSourceConfig peer = peer("old-peer", 8080);
+            RangedAddressBookHistory expected = historyWith("aabbcc");
+            BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
+                    mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
+            when(serviceClient.getAddressBook(any()))
+                    .thenThrow(new GrpcException(GrpcStatus.NOT_FOUND, "no route for getAddressBook"));
+            when(serviceClient.serverStatusDetail(any()))
+                    .thenReturn(ServerStatusDetailResponse.newBuilder()
+                            .rangedAddressBookHistory(expected)
+                            .build());
+
+            AddressBookFetcher fetcher = fetcherWithClient(peer, clientWith(serviceClient));
+
+            assertEquals(expected, fetcher.getRangedNodeAddressBookHistory());
+        }
+
+        @Test
+        @DisplayName("Reads the history over the wire from a peer that does not register getAddressBook")
+        void fallsBackOverTheWireForAnOlderPeer() throws IOException {
+            final TestBlockNodeServer olderPeer = TestBlockNodeServer.withoutAddressBookAndTssDataMethods(
+                    0, new SimpleInMemoryHistoricalBlockFacility());
+            final BlockNodeSource source = BlockNodeSource.newBuilder()
+                    .nodes(List.of(peer("127.0.0.1", olderPeer.port())))
+                    .build();
+            try (AddressBookFetcher fetcher = new AddressBookFetcher(source, testConfig(), metricsHolder)) {
+                final RangedAddressBookHistory history = fetcher.getRangedNodeAddressBookHistory();
+
+                assertNotNull(history);
+                assertFalse(history.addressBooks().isEmpty());
+            } finally {
+                olderPeer.stop();
+            }
+        }
+
+        @Test
+        @DisplayName("Reads the history over the wire from a peer that registers getAddressBook")
+        void readsOverTheWireFromACurrentPeer() throws IOException {
+            final TestBlockNodeServer currentPeer =
+                    new TestBlockNodeServer(0, new SimpleInMemoryHistoricalBlockFacility());
+            final BlockNodeSource source = BlockNodeSource.newBuilder()
+                    .nodes(List.of(peer("127.0.0.1", currentPeer.port())))
+                    .build();
+            try (AddressBookFetcher fetcher = new AddressBookFetcher(source, testConfig(), metricsHolder)) {
+                final RangedAddressBookHistory history = fetcher.getRangedNodeAddressBookHistory();
+
+                assertNotNull(history);
+                assertFalse(history.addressBooks().isEmpty());
+            } finally {
+                currentPeer.stop();
+            }
         }
 
         @Test

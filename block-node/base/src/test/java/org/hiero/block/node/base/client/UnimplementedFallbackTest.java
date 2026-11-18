@@ -43,6 +43,31 @@ class UnimplementedFallbackTest {
     }
 
     @Test
+    @DisplayName(
+            "Runs the fallback when the call fails with NOT_FOUND, which is how a PBJ peer answers a missing method")
+    void notFoundRunsFallback() {
+        final String result = UnimplementedFallback.callOrFallback(
+                () -> {
+                    throw new GrpcException(GrpcStatus.NOT_FOUND, "no such route");
+                },
+                () -> "old");
+
+        assertEquals("old", result);
+    }
+
+    @Test
+    @DisplayName("Runs the fallback when NOT_FOUND is wrapped as the cause of another failure")
+    void wrappedNotFoundRunsFallback() {
+        final String result = UnimplementedFallback.callOrFallback(
+                () -> {
+                    throw new RuntimeException("call failed", new GrpcException(GrpcStatus.NOT_FOUND, "no"));
+                },
+                () -> "old");
+
+        assertEquals("old", result);
+    }
+
+    @Test
     @DisplayName("Runs the fallback when UNIMPLEMENTED is wrapped as the cause of another failure")
     void wrappedUnimplementedRunsFallback() {
         final String result = UnimplementedFallback.callOrFallback(
@@ -94,9 +119,12 @@ class UnimplementedFallbackTest {
     }
 
     @Test
-    @DisplayName("isUnimplemented recognises the status in the cause chain and nothing else")
+    @DisplayName("isUnimplemented recognises NOT_FOUND and UNIMPLEMENTED in the cause chain and nothing else")
     void isUnimplemented() {
         assertTrue(UnimplementedFallback.isUnimplemented(new GrpcException(GrpcStatus.UNIMPLEMENTED, "x")));
+        assertTrue(UnimplementedFallback.isUnimplemented(new GrpcException(GrpcStatus.NOT_FOUND, "x")));
+        assertTrue(UnimplementedFallback.isUnimplemented(
+                new IllegalStateException("outer", new GrpcException(GrpcStatus.NOT_FOUND, "x"))));
         assertTrue(UnimplementedFallback.isUnimplemented(
                 new IllegalStateException("outer", new GrpcException(GrpcStatus.UNIMPLEMENTED, "x"))));
         assertFalse(UnimplementedFallback.isUnimplemented(new GrpcException(GrpcStatus.INTERNAL, "x")));

@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 import com.hedera.pbj.runtime.grpc.GrpcException;
 import com.hedera.pbj.runtime.grpc.GrpcStatus;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -25,6 +26,8 @@ import org.hiero.block.api.TssDataResponse;
 import org.hiero.block.api.TssRoster;
 import org.hiero.block.internal.BlockNodeSource;
 import org.hiero.block.internal.BlockNodeSourceConfig;
+import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.app.fixtures.server.TestBlockNodeServer;
 import org.hiero.block.node.base.client.BlockNodeClient;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.DisplayName;
@@ -210,6 +213,61 @@ class TssDataFetcherTest {
             TssDataFetcher fetcher = createFetcherWithClient(nodeConfig, metrics, clientWith(serviceClient));
 
             assertEquals(List.of(sampleData()), fetcher.getTssData());
+        }
+
+        @Test
+        @DisplayName("Reads the TSS data from serverStatusDetail when the peer answers NOT_FOUND")
+        void fallsBackWhenNotFound() {
+            final BlockNodeSourceConfig nodeConfig = node("old-peer", 1, 1);
+            BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
+                    mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
+            when(serviceClient.getTssData(any()))
+                    .thenThrow(new GrpcException(GrpcStatus.NOT_FOUND, "no route for getTssData"));
+            when(serviceClient.serverStatusDetail(any()))
+                    .thenReturn(ServerStatusDetailResponse.newBuilder()
+                            .tssData(sampleData())
+                            .build());
+
+            TssDataFetcher fetcher = createFetcherWithClient(nodeConfig, freshMetrics(), clientWith(serviceClient));
+
+            assertEquals(List.of(sampleData()), fetcher.getTssData());
+        }
+
+        private TssDataFetcher overTheWireFetcher(final TestBlockNodeServer peer) {
+            final BlockNodeSource source = BlockNodeSource.newBuilder()
+                    .nodes(List.of(node("127.0.0.1", peer.port(), 1)))
+                    .build();
+            return new TssDataFetcher(source, createTestConfig(), freshMetrics());
+        }
+
+        @Test
+        @DisplayName("Reads the TSS data over the wire from a peer that does not register getTssData")
+        void fallsBackOverTheWireForAnOlderPeer() throws IOException {
+            final TestBlockNodeServer olderPeer = TestBlockNodeServer.withoutAddressBookAndTssDataMethods(
+                    0, new SimpleInMemoryHistoricalBlockFacility());
+            try (TssDataFetcher fetcher = overTheWireFetcher(olderPeer)) {
+                final List<TssData> result = fetcher.getTssData();
+
+                assertEquals(1, result.size());
+                assertEquals(Bytes.fromHex("01010101"), result.getFirst().ledgerId());
+            } finally {
+                olderPeer.stop();
+            }
+        }
+
+        @Test
+        @DisplayName("Reads the TSS data over the wire from a peer that registers getTssData")
+        void readsOverTheWireFromACurrentPeer() throws IOException {
+            final TestBlockNodeServer currentPeer =
+                    new TestBlockNodeServer(0, new SimpleInMemoryHistoricalBlockFacility());
+            try (TssDataFetcher fetcher = overTheWireFetcher(currentPeer)) {
+                final List<TssData> result = fetcher.getTssData();
+
+                assertEquals(1, result.size());
+                assertEquals(Bytes.fromHex("01010101"), result.getFirst().ledgerId());
+            } finally {
+                currentPeer.stop();
+            }
         }
 
         @Test
