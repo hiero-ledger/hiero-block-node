@@ -67,7 +67,7 @@ class BucketPollerTest {
         when(s3Client.listObjectsPage(anyString(), any(), any(), anyInt()))
                 .thenReturn(new S3Client.ListPage(List.of(), null));
         messaging.registerBlockNotificationHandler(awaiter, false, "awaiter");
-        messaging.registerBlockNotificationHandler(persistence, false, "persistence");
+        messaging.registerUnvalidatedBlockHandler(persistence, false, "persistence");
         recordingPoller = new RecordingPoller(config(10, 90_000L), s3Client, messaging, awaiter, downloader, metrics);
     }
 

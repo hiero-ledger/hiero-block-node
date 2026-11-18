@@ -127,7 +127,7 @@ class CloudStorageDownloadIntegrationTest
         config.put("cloud.storage.download.downloadWindow", "4");
         config.put("cloud.storage.download.pollIntervalMs", "3600000");
         start(new CloudStorageDownloadPlugin(), new SimpleInMemoryHistoricalBlockFacility(), config);
-        blockMessaging.registerBlockNotificationHandler(persistence, false, "persistence");
+        blockMessaging.registerUnvalidatedBlockHandler(persistence, false, "persistence");
         updateTssData(roster());
         if (lastStored >= 0) {
             replaceStoredBlocks(List.of(
