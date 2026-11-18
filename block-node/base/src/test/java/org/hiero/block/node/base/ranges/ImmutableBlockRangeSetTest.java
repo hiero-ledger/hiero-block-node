@@ -4,6 +4,7 @@ package org.hiero.block.node.base.ranges;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.ArrayList;
 import java.util.List;
 import org.hiero.block.api.BlockRange;
 import org.junit.jupiter.api.Test;
@@ -94,5 +95,98 @@ class ImmutableBlockRangeSetTest {
     @Test
     void toStringListsTheRanges() {
         assertThat(set.toString()).startsWith("ImmutableBlockRangeSet ").contains("0");
+    }
+
+    @Test
+    void emptySetHasEmptyListAndStreams() {
+        final ImmutableBlockRangeSet empty = new ImmutableBlockRangeSet(List.of());
+        assertThat(empty.toList()).isEmpty();
+        assertThat(empty.streamRanges().toList()).isEmpty();
+        assertThat(empty.contains(0, 0)).isFalse();
+    }
+
+    @Test
+    void singleBlockRange() {
+        final ImmutableBlockRangeSet single = new ImmutableBlockRangeSet(List.of(new BlockRange(7, 7)));
+        assertThat(single.size()).isEqualTo(1L);
+        assertThat(single.min()).isEqualTo(7L);
+        assertThat(single.max()).isEqualTo(7L);
+        assertThat(single.contains(7)).isTrue();
+        assertThat(single.contains(6)).isFalse();
+        assertThat(single.contains(8)).isFalse();
+        assertThat(single.stream().boxed().toList()).containsExactly(7L);
+    }
+
+    @Test
+    void changingTheInputListAfterConstructionHasNoEffect() {
+        final List<BlockRange> input = new ArrayList<>(List.of(new BlockRange(0, 9)));
+        final ImmutableBlockRangeSet copy = new ImmutableBlockRangeSet(input);
+        input.add(new BlockRange(20, 29));
+        assertThat(copy.size()).isEqualTo(10L);
+        assertThat(copy.max()).isEqualTo(9L);
+        assertThat(copy.contains(25)).isFalse();
+    }
+
+    @Test
+    void unmodifiableInputIsNotCopied() {
+        final List<BlockRange> input = List.of(new BlockRange(0, 9), new BlockRange(20, 29));
+        assertThat(new ImmutableBlockRangeSet(input).toList()).isSameAs(input);
+    }
+
+    @Test
+    void manyTouchingRangesMergeIntoOne() {
+        final ImmutableBlockRangeSet merged = new ImmutableBlockRangeSet(List.of(
+                new BlockRange(0, 4),
+                new BlockRange(5, 9),
+                new BlockRange(10, 14),
+                new BlockRange(30, 34),
+                new BlockRange(35, 39)));
+        assertThat(merged.toList()).containsExactly(new BlockRange(0, 14), new BlockRange(30, 39));
+        assertThat(merged.size()).isEqualTo(25L);
+        assertThat(merged.contains(0, 14)).isTrue();
+        assertThat(merged.contains(30, 39)).isTrue();
+        assertThat(merged.contains(14, 30)).isFalse();
+    }
+
+    @Test
+    void overlappingRangesAreMerged() {
+        final ImmutableBlockRangeSet merged =
+                new ImmutableBlockRangeSet(List.of(new BlockRange(0, 10), new BlockRange(5, 15)));
+        assertThat(merged.toList()).containsExactly(new BlockRange(0, 15));
+        assertThat(merged.size()).isEqualTo(16L);
+    }
+
+    @Test
+    void containsHandlesBoundaryQueries() {
+        assertThat(set.contains(-5, 3)).isFalse();
+        assertThat(set.contains(20, 29)).isTrue();
+        assertThat(set.contains(20, 30)).isFalse();
+        assertThat(set.contains(19, 20)).isFalse();
+        assertThat(set.contains(41, 41)).isFalse();
+        assertThat(set.contains(Long.MAX_VALUE)).isFalse();
+    }
+
+    @Test
+    void streamRangesMatchesToList() {
+        assertThat(set.streamRanges().toList()).isEqualTo(set.toList());
+    }
+
+    @Test
+    void streamIsInAscendingOrder() {
+        final List<Long> blocks = set.stream().boxed().toList();
+        assertThat(blocks).isSorted();
+        assertThat(blocks).hasSize((int) set.size());
+    }
+
+    @Test
+    void largeBlockNumbers() {
+        final long base = 5_000_000_000L;
+        final ImmutableBlockRangeSet large = new ImmutableBlockRangeSet(
+                List.of(new BlockRange(base, base + 99), new BlockRange(base + 200, base + 299)));
+        assertThat(large.size()).isEqualTo(200L);
+        assertThat(large.min()).isEqualTo(base);
+        assertThat(large.max()).isEqualTo(base + 299);
+        assertThat(large.contains(base + 150)).isFalse();
+        assertThat(large.contains(base + 250)).isTrue();
     }
 }
