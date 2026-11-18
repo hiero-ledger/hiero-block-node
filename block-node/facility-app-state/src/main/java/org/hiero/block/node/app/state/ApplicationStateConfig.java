@@ -15,6 +15,9 @@ import org.hiero.block.node.base.Loggable;
  *
  * @param tssBootstrapFilePath path where application state, like TSS data (ledger ID and roster),
  *     are persisted across restarts as a serialized {@code TssData}.
+ * @param tssHistoryFilePath path to the JSON file (a serialized {@code RangedTssDataHistory}) where every TSS data
+ *     the node has installed is persisted, by the block it is valid from, so the history survives restarts.
+ *     Configured via {@code app.state.tssHistoryFilePath}.
  * @param rsaBootstrapFilePath path to the RSA roster bootstrap file (JSON-encoded {@code NodeAddressBook}) or
  *     the block-number-keyed RSA address book history file (JSON-encoded {@code RangedAddressBookHistory}).
  *     Configured via {@code app.state.rsaBootstrapFilePath}.
@@ -43,6 +46,7 @@ import org.hiero.block.node.base.Loggable;
 public record ApplicationStateConfig(
         // spotless:off
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/tss-bootstrap-roster.json") Path tssBootstrapFilePath,
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/tss-history.json") Path tssHistoryFilePath,
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/rsa-bootstrap-roster.json") Path rsaBootstrapFilePath,
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/block-ranges.json") Path blockRangesFilePath,
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/application-state/known-publishers.json") Path knownPublishersFilePath,

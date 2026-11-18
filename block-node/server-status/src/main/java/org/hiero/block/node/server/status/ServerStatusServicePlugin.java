@@ -188,14 +188,18 @@ public class ServerStatusServicePlugin
      * Handle a request for the TSS data
      *
      * @param request the request, whose flag leaves out the TSS data history
-     * @return the response with the most recent TSS data
+     * @return the response with the most recent TSS data and, unless the request excludes it, the history of the TSS
+     *     data by block range
      */
     @Override
     @NonNull
     public TssDataResponse getTssData(@NonNull final TssDataRequest request) {
-        // Only the most recent TSS data is kept today, so the history is never filled in, whatever the request
-        // asks for. Keeping a history is tracked as its own task.
-        return TssDataResponse.newBuilder().tssData(tssData).build();
+        final TssDataResponse.Builder response = TssDataResponse.newBuilder().tssData(tssData);
+        if (!request.excludeHistory()) {
+            response.rangedTssDataHistory(
+                    blockNodeContext.applicationStateFacility().rangedTssDataHistory());
+        }
+        return response.build();
     }
 
     /**
