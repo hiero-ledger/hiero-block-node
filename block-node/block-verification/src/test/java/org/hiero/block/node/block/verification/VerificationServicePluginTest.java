@@ -42,9 +42,9 @@ import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBloc
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.block.verification.harness.HarnessChainBuilder;
 import org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler;
-import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
+import org.hiero.block.node.spi.blockmessaging.UnvalidatedBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureInfo;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
@@ -58,6 +58,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.NullSource;
 
 /// Plugin-level integration test for [VerificationServicePlugin].
 @DisplayName("VerificationServicePlugin Tests")
@@ -130,7 +131,7 @@ class VerificationServicePluginTest {
         void testSuccessfulWRAPSVerificationBackfill() throws NoSuchAlgorithmException {
             final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed genesis =
                     harnessChainBuilder().genesisWithPublication();
-            plugin.handleBackfilled(genesis.block().asBackfilledNotification());
+            plugin.handleUnvalidatedBlock(genesis.block().asUnvalidatedNotification(BlockSource.BACKFILL));
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
             assertThat(notifications)
                     .hasSize(1)
@@ -150,7 +151,7 @@ class VerificationServicePluginTest {
         @DisplayName("Successful WRAPS Verification - Cloud Storage")
         void testSuccessfulWRAPSVerificationCloudStorage() throws NoSuchAlgorithmException {
             final HarnessChainBuilder.Signed genesis = harnessChainBuilder().genesisWithPublication();
-            plugin.handleBackfilled(new BackfilledBlockNotification(
+            plugin.handleUnvalidatedBlock(new UnvalidatedBlockNotification(
                     genesis.block().number(), genesis.block().blockUnparsed(), BlockSource.CLOUD_STORAGE));
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
             assertThat(notifications)
@@ -164,35 +165,36 @@ class VerificationServicePluginTest {
                     .returns(genesis.rootHash(), VerificationNotification::blockHash);
         }
 
-        /// This test aims to assert that a complete block notification whose
-        /// source the session handler does not support is ignored without
-        /// starting verification.
+        /// This test aims to assert that an unvalidated block notification
+        /// whose source is missing, the live publisher, unknown or history is
+        /// rejected without starting verification.
         @ParameterizedTest
+        @NullSource
         @EnumSource(
                 value = BlockSource.class,
-                names = {"UNKNOWN", "HISTORY"})
-        @DisplayName("Complete block notification with unsupported source is ignored")
-        void testBackfilledNotificationWithUnsupportedSourceIgnored(final BlockSource source)
+                names = {"UNKNOWN", "PUBLISHER", "HISTORY"})
+        @DisplayName("Unvalidated block notification with unsupported source is rejected")
+        void testUnvalidatedNotificationWithUnsupportedSourceRejected(final BlockSource source)
                 throws NoSuchAlgorithmException {
             final HarnessChainBuilder.Signed genesis = harnessChainBuilder().genesisWithPublication();
-            plugin.handleBackfilled(new BackfilledBlockNotification(
+            plugin.handleUnvalidatedBlock(new UnvalidatedBlockNotification(
                     genesis.block().number(), genesis.block().blockUnparsed(), source));
             assertThat(blockMessaging.getSentVerificationNotifications()).isEmpty();
         }
 
-        /// This test aims to assert that a complete block notification with
-        /// source [BlockSource#PUBLISHER] is dropped: a valid block is not
-        /// verified and a block that fails validation sends no failure
+        /// This test aims to assert that an unvalidated block notification
+        /// with source [BlockSource#PUBLISHER] is dropped: a valid block is
+        /// not verified and a block that fails validation sends no failure
         /// notification.
         @Test
-        @DisplayName("Complete block notification with publisher source is dropped")
-        void testBackfilledNotificationWithPublisherSourceDropped() throws NoSuchAlgorithmException {
+        @DisplayName("Unvalidated block notification with publisher source is dropped")
+        void testUnvalidatedNotificationWithPublisherSourceDropped() throws NoSuchAlgorithmException {
             final HarnessChainBuilder.Signed genesis = harnessChainBuilder().genesisWithPublication();
-            plugin.handleBackfilled(new BackfilledBlockNotification(
+            plugin.handleUnvalidatedBlock(new UnvalidatedBlockNotification(
                     genesis.block().number(), genesis.block().blockUnparsed(), BlockSource.PUBLISHER));
             // the header number does not match, which would otherwise send a failure notification
             // on this thread, so a short wait is enough
-            plugin.handleBackfilled(new BackfilledBlockNotification(
+            plugin.handleUnvalidatedBlock(new UnvalidatedBlockNotification(
                     genesis.block().number() + 1, genesis.block().blockUnparsed(), BlockSource.PUBLISHER));
             assertThat(blockMessaging.getSentVerificationNotifications(1, Duration.ofMillis(200)))
                     .isEmpty();
@@ -236,10 +238,10 @@ class VerificationServicePluginTest {
         void testSuccessfulConsecutiveWRAPSVerificationBackfill() throws NoSuchAlgorithmException {
             final List<org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed> chain =
                     signedChain(5);
-            plugin.handleBackfilled(chain.getFirst().block().asBackfilledNotification());
+            plugin.handleUnvalidatedBlock(chain.getFirst().block().asUnvalidatedNotification(BlockSource.BACKFILL));
             blockMessaging.getSentVerificationNotifications(1);
             for (int i = 1; i < chain.size(); i++) {
-                plugin.handleBackfilled(chain.get(i).block().asBackfilledNotification());
+                plugin.handleUnvalidatedBlock(chain.get(i).block().asUnvalidatedNotification(BlockSource.BACKFILL));
             }
             final List<VerificationNotification> notifications =
                     awaitTssChainNotifications(blockMessaging, chain.size());
@@ -266,14 +268,14 @@ class VerificationServicePluginTest {
             final List<org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed> chain =
                     signedChain(5);
             final Map<Long, BlockSource> blockSources = new HashMap<>();
-            plugin.handleBackfilled(chain.getFirst().block().asBackfilledNotification());
+            plugin.handleUnvalidatedBlock(chain.getFirst().block().asUnvalidatedNotification(BlockSource.BACKFILL));
             blockSources.put(chain.getFirst().block().number(), BlockSource.BACKFILL);
             blockMessaging.getSentVerificationNotifications(1);
             for (int i = 1; i < chain.size(); i++) {
                 final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed signed = chain.get(i);
                 if (signed.block().number() % 2 == 0) {
                     blockSources.put(signed.block().number(), BlockSource.BACKFILL);
-                    plugin.handleBackfilled(signed.block().asBackfilledNotification());
+                    plugin.handleUnvalidatedBlock(signed.block().asUnvalidatedNotification(BlockSource.BACKFILL));
                 } else {
                     blockSources.put(signed.block().number(), BlockSource.PUBLISHER);
                     plugin.handleBlockItemsReceived(signed.block().asBlockItems());
@@ -500,11 +502,11 @@ class VerificationServicePluginTest {
             final org.hiero.block.node.block.verification.harness.StateProofChainBuilder builder = spBuilder();
             final org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed genesis =
                     builder.genesisWithPublication();
-            plugin.handleBackfilled(genesis.block().asBackfilledNotification());
+            plugin.handleUnvalidatedBlock(genesis.block().asUnvalidatedNotification(BlockSource.BACKFILL));
             blockMessaging.getSentVerificationNotifications(1).clear();
             final org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed block1 =
                     builder.next(1L);
-            plugin.handleBackfilled(block1.block().asBackfilledNotification());
+            plugin.handleUnvalidatedBlock(block1.block().asUnvalidatedNotification(BlockSource.BACKFILL));
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
             assertThat(notifications)
                     .hasSize(1)
@@ -547,10 +549,10 @@ class VerificationServicePluginTest {
         void testSuccessfulConsecutiveStateProofVerificationBackfill() throws NoSuchAlgorithmException {
             final List<org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed> chain =
                     signedStateProofChain(5);
-            plugin.handleBackfilled(chain.getFirst().block().asBackfilledNotification());
+            plugin.handleUnvalidatedBlock(chain.getFirst().block().asUnvalidatedNotification(BlockSource.BACKFILL));
             blockMessaging.getSentVerificationNotifications(1);
             for (int i = 1; i < chain.size(); i++) {
-                plugin.handleBackfilled(chain.get(i).block().asBackfilledNotification());
+                plugin.handleUnvalidatedBlock(chain.get(i).block().asUnvalidatedNotification(BlockSource.BACKFILL));
             }
             final List<VerificationNotification> notifications =
                     awaitTssChainNotifications(blockMessaging, chain.size());
@@ -573,14 +575,14 @@ class VerificationServicePluginTest {
             final List<org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed> chain =
                     signedStateProofChain(5);
             final Map<Long, BlockSource> blockSources = new HashMap<>();
-            plugin.handleBackfilled(chain.getFirst().block().asBackfilledNotification());
+            plugin.handleUnvalidatedBlock(chain.getFirst().block().asUnvalidatedNotification(BlockSource.BACKFILL));
             blockSources.put(chain.getFirst().block().number(), BlockSource.BACKFILL);
             blockMessaging.getSentVerificationNotifications(1);
             for (int i = 1; i < chain.size(); i++) {
                 final org.hiero.block.node.block.verification.harness.StateProofChainBuilder.Signed s = chain.get(i);
                 if (s.block().number() % 2 == 0) {
                     blockSources.put(s.block().number(), BlockSource.BACKFILL);
-                    plugin.handleBackfilled(s.block().asBackfilledNotification());
+                    plugin.handleUnvalidatedBlock(s.block().asUnvalidatedNotification(BlockSource.BACKFILL));
                 } else {
                     blockSources.put(s.block().number(), BlockSource.PUBLISHER);
                     plugin.handleBlockItemsReceived(s.block().asBlockItems());
@@ -807,7 +809,7 @@ class VerificationServicePluginTest {
             // First, we update the node address book
             updateAddressBook(block0.nodeAddressBook());
             // Then, we push the block as a backfilled notification
-            plugin.handleBackfilled(block0.asBackfilledNotification());
+            plugin.handleUnvalidatedBlock(block0.asUnvalidatedNotification(BlockSource.BACKFILL));
             // Finally, await a single response and assert success
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
             assertThat(notifications)
@@ -878,7 +880,7 @@ class VerificationServicePluginTest {
             // Then, we push block 0 first.
             final ResourceTestWRBBlock block0 = loadedBlocks.getFirst();
             updateAddressBook(block0.nodeAddressBook());
-            plugin.handleBackfilled(block0.asBackfilledNotification());
+            plugin.handleUnvalidatedBlock(block0.asUnvalidatedNotification(BlockSource.BACKFILL));
             // Await for the notification of block 0
             blockMessaging.getSentVerificationNotifications(1);
             // Then, we push the rest of the blocks
@@ -886,7 +888,7 @@ class VerificationServicePluginTest {
                 // First, we update the node address book
                 updateAddressBook(block.nodeAddressBook());
                 // Then, we push them as backfilled notifications in order
-                plugin.handleBackfilled(block.asBackfilledNotification());
+                plugin.handleUnvalidatedBlock(block.asUnvalidatedNotification(BlockSource.BACKFILL));
             }
             // Finally, await responses and assert success, we expect success in order
             final List<VerificationNotification> notifications =
@@ -920,7 +922,7 @@ class VerificationServicePluginTest {
             // Then, we push block 0 first.
             final ResourceTestWRBBlock block0 = loadedBlocks.getFirst();
             updateAddressBook(block0.nodeAddressBook());
-            plugin.handleBackfilled(block0.asBackfilledNotification());
+            plugin.handleUnvalidatedBlock(block0.asUnvalidatedNotification(BlockSource.BACKFILL));
             // Await for the notification of block 0
             final Map<Long, BlockSource> blockSources = new HashMap<>();
             blockMessaging.getSentVerificationNotifications(1);
@@ -932,7 +934,7 @@ class VerificationServicePluginTest {
                 // Then, we push them to the live items RB or as backfilled notifications in order
                 if (block.number() % 2 == 0) {
                     blockSources.put(block.number(), BlockSource.BACKFILL);
-                    plugin.handleBackfilled(block.asBackfilledNotification());
+                    plugin.handleUnvalidatedBlock(block.asUnvalidatedNotification(BlockSource.BACKFILL));
                 } else {
                     blockSources.put(block.number(), BlockSource.PUBLISHER);
                     final BlockItems blockItems = block.asBlockItems();
@@ -1236,7 +1238,7 @@ class VerificationServicePluginTest {
             blockMessaging.getSentVerificationNotifications(1);
             plugin.handleBlockItemsReceived(block5.asBlockItems());
             backfillCopies(block2, 12);
-            plugin.handleBackfilled(block1.asBackfilledNotification());
+            plugin.handleUnvalidatedBlock(block1.asUnvalidatedNotification(BlockSource.BACKFILL));
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(15);
             assertThat(notifications).hasSize(15);
             assertThat(notifications)
@@ -1286,7 +1288,7 @@ class VerificationServicePluginTest {
             backfillCopies(loadedBlocks.get(4), 3);
             backfillCopies(loadedBlocks.get(3), 3);
             backfillCopies(loadedBlocks.get(2), 4);
-            plugin.handleBackfilled(block1.asBackfilledNotification());
+            plugin.handleUnvalidatedBlock(block1.asUnvalidatedNotification(BlockSource.BACKFILL));
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(16);
             assertThat(notifications).hasSize(16);
             assertThat(notifications).filteredOn("success", false).hasSize(2).allSatisfy(notification -> assertThat(
@@ -1313,7 +1315,7 @@ class VerificationServicePluginTest {
         /// notifications.
         private void backfillCopies(final ResourceTestWRBBlock block, final int copies) {
             for (int copy = 0; copy < copies; copy++) {
-                plugin.handleBackfilled(block.asBackfilledNotification());
+                plugin.handleUnvalidatedBlock(block.asUnvalidatedNotification(BlockSource.BACKFILL));
             }
         }
     }
@@ -1483,8 +1485,8 @@ class VerificationServicePluginTest {
         void testNoHeaderForNewBlockBackfill() {
             final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(0);
             final List<BlockItemUnparsed> block1NoHeader = block0.asBlockItemUnparsedFiltered(i -> !i.hasBlockHeader());
-            plugin.handleBackfilled(
-                    new BackfilledBlockNotification(block0.number(), new BlockUnparsed(block1NoHeader)));
+            plugin.handleUnvalidatedBlock(new UnvalidatedBlockNotification(
+                    block0.number(), new BlockUnparsed(block1NoHeader), BlockSource.BACKFILL));
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
             assertThat(notifications)
                     .hasSize(1)
@@ -1509,9 +1511,10 @@ class VerificationServicePluginTest {
             final long headerBlockNumber = 0;
             final long reportedBlockNumber = headerBlockNumber + 1;
             final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(headerBlockNumber);
-            plugin.handleBackfilled(new BackfilledBlockNotification(
+            plugin.handleUnvalidatedBlock(new UnvalidatedBlockNotification(
                     reportedBlockNumber,
-                    new BlockUnparsed(block0.blockUnparsed().blockItems())));
+                    new BlockUnparsed(block0.blockUnparsed().blockItems()),
+                    BlockSource.BACKFILL));
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
             assertThat(notifications)
                     .hasSize(1)
@@ -1581,7 +1584,7 @@ class VerificationServicePluginTest {
                             TssBlockSigner.create(), HashAlgorithm.SHA2_384)
                     .genesisWithPublication();
             assertThat(genesis.rootHash().length()).isEqualTo(HashAlgorithm.SHA2_384.hashSize());
-            plugin.handleBackfilled(genesis.block().asBackfilledNotification());
+            plugin.handleUnvalidatedBlock(genesis.block().asUnvalidatedNotification(BlockSource.BACKFILL));
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
             assertThat(notifications)
                     .hasSize(1)
@@ -1640,7 +1643,7 @@ class VerificationServicePluginTest {
                     .block();
             final TestBlock declaringSha256 = sha384Block.replace(
                     BlockItemUnparsed::hasBlockHeader, headerDeclaring(sha384Block, BlockHashAlgorithm.SHA2_256));
-            plugin.handleBackfilled(declaringSha256.asBackfilledNotification());
+            plugin.handleUnvalidatedBlock(declaringSha256.asUnvalidatedNotification(BlockSource.BACKFILL));
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
             assertThat(notifications)
                     .hasSize(1)
@@ -1690,7 +1693,7 @@ class VerificationServicePluginTest {
             final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(0);
             final TestBlock unrecognized =
                     block0.replace(BlockItemUnparsed::hasBlockHeader, headerDeclaringUnrecognized(block0));
-            plugin.handleBackfilled(unrecognized.asBackfilledNotification());
+            plugin.handleUnvalidatedBlock(unrecognized.asUnvalidatedNotification(BlockSource.BACKFILL));
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
             assertThat(notifications)
                     .hasSize(1)

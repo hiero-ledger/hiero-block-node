@@ -41,6 +41,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /// Tests for the [BlockSessionHandler] together with the [ActiveSessionsBuffer] it
 /// admits sessions to.
@@ -105,6 +107,28 @@ class BlockSessionHandlerTest {
         toTest.processBlockItems(block.asBlockItems(), BlockSource.PUBLISHER);
         // Assert a session started
         assertThat(executor.wasAnyTaskSubmitted()).isTrue();
+    }
+
+    /// This test aims to assert that a whole block from any source other than the
+    /// publisher gets a session of its own, so no source the caller lets through is
+    /// dropped without a verification result.
+    @ParameterizedTest
+    @EnumSource(value = BlockSource.class, mode = EnumSource.Mode.EXCLUDE, names = "PUBLISHER")
+    @DisplayName("processBlockItems() starts a session for a whole block from any source other than the publisher")
+    void testStartsASessionForAWholeBlockFromAnyNonPublisherSource(final BlockSource source) {
+        final BlockSessionHandler toTest = newHandlerWithProductionPolicy();
+        toTest.processBlockItems(TestBlockBuilder.generateBlockWithNumber(0).asBlockItems(), source);
+        assertThat(executor.wasAnyTaskSubmitted()).isTrue();
+    }
+
+    /// This test aims to assert that items without a source are discarded and no
+    /// session is started.
+    @Test
+    @DisplayName("processBlockItems() ignores items without a source")
+    void testIgnoresItemsWithoutASource() {
+        final BlockSessionHandler toTest = newHandlerWithProductionPolicy();
+        toTest.processBlockItems(TestBlockBuilder.generateBlockWithNumber(0).asBlockItems(), null);
+        assertThat(executor.wasAnyTaskSubmitted()).isFalse();
     }
 
     /// Tests for the integration between the handler, its buffer and the production

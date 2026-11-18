@@ -19,8 +19,9 @@ import java.util.concurrent.locks.LockSupport;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.internal.BlockUnparsed;
-import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
+import org.hiero.block.node.spi.blockmessaging.BlockSource;
+import org.hiero.block.node.spi.blockmessaging.UnvalidatedBlockNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 
 /**
@@ -326,9 +327,10 @@ final class BackfillRunner {
             long blockNumber = blockNumbers.get(i);
             BlockUnparsed blockUnparsed = blocks.get(i);
             metricsHolder.backfillFetchedBlocks().increment();
-            // always track persistence before sending backfill notification to avoid race conditions
+            // always track persistence before sending the unvalidated block notification to avoid race conditions
             persistenceAwaiter.trackBlock(blockNumber);
-            messaging.sendBackfilledBlockNotification(new BackfilledBlockNotification(blockNumber, blockUnparsed));
+            messaging.sendUnvalidatedBlock(
+                    new UnvalidatedBlockNotification(blockNumber, blockUnparsed, BlockSource.BACKFILL));
             final String backfillingBlockMsg = "Backfilling block [{0}]";
             logger.log(TRACE, backfillingBlockMsg, blockNumber);
             pendingBackfillBlocks.incrementAndGet();

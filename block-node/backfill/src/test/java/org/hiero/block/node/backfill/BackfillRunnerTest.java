@@ -29,10 +29,10 @@ import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
-import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.blockmessaging.UnvalidatedBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.metrics.LongCounter;
@@ -355,7 +355,7 @@ class BackfillRunnerTest {
             messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
-                        public void handleBackfilled(BackfilledBlockNotification notification) {
+                        public void handleUnvalidatedBlock(UnvalidatedBlockNotification notification) {
                             messaging.sendBlockPersisted(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
                         }
@@ -400,7 +400,7 @@ class BackfillRunnerTest {
             messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
-                        public void handleBackfilled(BackfilledBlockNotification notification) {
+                        public void handleUnvalidatedBlock(UnvalidatedBlockNotification notification) {
                             messaging.sendBlockPersisted(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
                         }
@@ -454,7 +454,7 @@ class BackfillRunnerTest {
             messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
-                        public void handleBackfilled(BackfilledBlockNotification notification) {
+                        public void handleUnvalidatedBlock(UnvalidatedBlockNotification notification) {
                             messaging.sendBlockPersisted(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
                         }
@@ -508,7 +508,7 @@ class BackfillRunnerTest {
             messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
-                        public void handleBackfilled(BackfilledBlockNotification notification) {
+                        public void handleUnvalidatedBlock(UnvalidatedBlockNotification notification) {
                             messaging.sendBlockPersisted(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
                         }
@@ -585,7 +585,7 @@ class BackfillRunnerTest {
             messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
-                        public void handleBackfilled(BackfilledBlockNotification notification) {
+                        public void handleUnvalidatedBlock(UnvalidatedBlockNotification notification) {
                             // Simulate immediate persistence
                             messaging.sendBlockPersisted(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
@@ -628,7 +628,7 @@ class BackfillRunnerTest {
             messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
-                        public void handleBackfilled(BackfilledBlockNotification notification) {
+                        public void handleUnvalidatedBlock(UnvalidatedBlockNotification notification) {
                             messaging.sendBlockPersisted(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
                         }
@@ -731,7 +731,7 @@ class BackfillRunnerTest {
             messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
-                        public void handleBackfilled(BackfilledBlockNotification notification) {
+                        public void handleUnvalidatedBlock(UnvalidatedBlockNotification notification) {
                             // Deliver the persisted notification only after the first await's
                             // 100ms timeout has already elapsed, so only a retried (re-tracked)
                             // await can pick it up. 175ms lands comfortably inside the second
@@ -799,7 +799,7 @@ class BackfillRunnerTest {
             messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
-                        public void handleBackfilled(BackfilledBlockNotification notification) {
+                        public void handleUnvalidatedBlock(UnvalidatedBlockNotification notification) {
                             // 200ms is past the first attempt's 50ms timeout and well inside the
                             // 400ms backoff that follows it, so only a block re-tracked before the
                             // sleep can still receive this.
@@ -911,7 +911,7 @@ class BackfillRunnerTest {
          * the outcome always lands before the runner starts awaiting.
          */
         private long runSingleBlockGapWithOutcome(
-                long blockNumber, Consumer<BackfilledBlockNotification> outcomePublisher) throws Exception {
+                long blockNumber, Consumer<UnvalidatedBlockNotification> outcomePublisher) throws Exception {
             BackfillConfiguration singleAttemptConfig = BackfillPluginTest.BackfillConfigBuilder.NewBuilder()
                     .delayBetweenBatches(0)
                     .perBlockProcessingTimeout(500)
@@ -942,7 +942,7 @@ class BackfillRunnerTest {
             messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
-                        public void handleBackfilled(BackfilledBlockNotification notification) {
+                        public void handleUnvalidatedBlock(UnvalidatedBlockNotification notification) {
                             outcomePublisher.accept(notification);
                         }
                     },
@@ -980,7 +980,7 @@ class BackfillRunnerTest {
             messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
-                        public void handleBackfilled(BackfilledBlockNotification notification) {
+                        public void handleUnvalidatedBlock(UnvalidatedBlockNotification notification) {
                             messaging.sendBlockPersisted(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
                         }
@@ -1046,7 +1046,7 @@ class BackfillRunnerTest {
             messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
-                        public void handleBackfilled(BackfilledBlockNotification notification) {
+                        public void handleUnvalidatedBlock(UnvalidatedBlockNotification notification) {
                             messaging.sendBlockPersisted(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
                         }
@@ -1102,7 +1102,7 @@ class BackfillRunnerTest {
             messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
-                        public void handleBackfilled(BackfilledBlockNotification notification) {
+                        public void handleUnvalidatedBlock(UnvalidatedBlockNotification notification) {
                             messaging.sendBlockPersisted(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
                         }
@@ -1144,7 +1144,7 @@ class BackfillRunnerTest {
             messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
-                        public void handleBackfilled(BackfilledBlockNotification notification) {
+                        public void handleUnvalidatedBlock(UnvalidatedBlockNotification notification) {
                             receivedBlocks.add(notification.blockNumber());
                             messaging.sendBlockPersisted(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));
@@ -1193,7 +1193,7 @@ class BackfillRunnerTest {
             messaging.registerUnvalidatedBlockHandler(
                     new BlockNotificationHandler() {
                         @Override
-                        public void handleBackfilled(BackfilledBlockNotification notification) {
+                        public void handleUnvalidatedBlock(UnvalidatedBlockNotification notification) {
                             receivedBlocks.add(notification.blockNumber());
                             messaging.sendBlockPersisted(new PersistedNotification(
                                     notification.blockNumber(), true, 1, BlockSource.BACKFILL));

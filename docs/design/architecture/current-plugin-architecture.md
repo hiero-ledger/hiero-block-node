@@ -124,12 +124,12 @@ Any plugin may subscribe to notifications via `registerBlockNotificationHandler(
 
 Any plugin may subscribe via `registerApplicationStateNotificationHandler(ApplicationStateNotificationHandler, ...)`, and should call `unregisterApplicationStateNotificationHandler(...)` in `stop()`.
 
-**Unvalidated Blocks**: whole blocks that are not verified yet and do not come from the live publisher, for now the blocks fetched by the backfill plugin. They travel on a ring buffer of their own, sized by `messaging.unvalidatedBlockQueueSize`:
-- `sendBackfilledBlockNotification(BackfilledBlockNotification)`: called by the backfill plugin for every fetched block. Several backfill threads may send at once, and a full ring holds the sender back until the handlers catch up.
-- `registerUnvalidatedBlockHandler(BlockNotificationHandler, cpuIntensive, name)`: subscribe with back-pressure; the handler receives each block through `handleBackfilled`. The verification plugin is currently the only handler.
+**Unvalidated Blocks**: whole blocks that are not verified yet and do not come from the live publisher, for example the blocks fetched by the backfill plugin or downloaded by the cloud storage download plugin. They travel on a ring buffer of their own, sized by `messaging.unvalidatedBlockQueueSize`:
+- `sendUnvalidatedBlock(UnvalidatedBlockNotification)`: called by backfill and cloud storage download for every block they fetch, with the `BlockSource` of the block. Several threads may send at once, and a full ring holds the sender back until the handlers catch up.
+- `registerUnvalidatedBlockHandler(BlockNotificationHandler, cpuIntensive, name)`: subscribe with back-pressure; the handler receives each block through `handleUnvalidatedBlock`. The verification plugin is currently the only handler.
 - `unregisterUnvalidatedBlockHandler(BlockNotificationHandler)`: stop receiving unvalidated blocks.
 
-`handleBackfilled` is only called for handlers registered with `registerUnvalidatedBlockHandler`. A handler that needs both block notifications and unvalidated blocks registers both ways, and gets a separate thread for each ring.
+`handleUnvalidatedBlock` is only called for handlers registered with `registerUnvalidatedBlockHandler`. A handler that needs both block notifications and unvalidated blocks registers both ways, and gets a separate thread for each ring.
 
 ### `HistoricalBlockFacility` (interface + plugin)
 
@@ -279,9 +279,9 @@ Block Lifecycle Events (verification, persistence, etc.)
       ▼           ▼
   Subscriber   Publisher   ...  (N handlers)
 
-Backfill Plugin
+Backfill / Cloud Storage Download Plugins
       │
-      ▼  sendBackfilledBlockNotification()
+      ▼  sendUnvalidatedBlock()
 ┌────────────────────────────┐
 │  Unvalidated Block Buffer  │  (Disruptor ring)
 └────────────────────────────┘
@@ -414,7 +414,8 @@ flowchart LR
     BI --> VER[Verification Plugin]
     BI --> N1[... Plugin N]
 
-    BF[Backfill Plugin] -->|sendBackfilledBlockNotification| UB[Unvalidated Blocks\nDisruptor]
+    BF[Backfill Plugin] -->|sendUnvalidatedBlock| UB[Unvalidated Blocks\nDisruptor]
+    CSD[Cloud Storage Download Plugin] -->|sendUnvalidatedBlock| UB
     UB --> VER
 
     VER -->|sendBlockVerification| BN[Block Notification\nDisruptor]

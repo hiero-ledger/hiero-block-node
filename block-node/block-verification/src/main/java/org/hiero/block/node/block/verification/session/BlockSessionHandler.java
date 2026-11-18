@@ -84,16 +84,17 @@ public final class BlockSessionHandler {
     }
 
     /// Process the supplied [BlockItems] based on the source.
-    /// Items supplied here must be validated beforehand.
+    /// Items supplied here must be validated beforehand. Items from the publisher
+    /// are live items, items from any other source are whole blocks. Which sources
+    /// may send whole blocks is decided by the caller before the items get here.
     ///
     /// @param blockItems the block items to process, must be validated beforehand
     /// @param blockSource the source the items were received from
     public void processBlockItems(final BlockItems blockItems, final BlockSource blockSource) {
         switch (blockSource) {
             case PUBLISHER -> processPublisherLiveItems(blockItems);
-            case BACKFILL, CLOUD_STORAGE -> processBackfilledItems(blockItems, blockSource);
-            case null, default ->
-                LOGGER.log(INFO, "Received block items from unknown or unsupported source: {0}", blockSource);
+            case null -> LOGGER.log(INFO, "Received block items without a source");
+            default -> processUnvalidatedBlockItems(blockItems, blockSource);
         }
     }
 
@@ -135,13 +136,13 @@ public final class BlockSessionHandler {
         }
     }
 
-    /// Process the reception of complete blocks from outside the live stream (backfill or cloud storage).
-    /// Such blocks always come complete in a single batch of [BlockItems]. The session for the block is
-    /// marked complete before it is admitted, so an eviction reports a cancelled complete block.
+    /// Process the reception of complete blocks from outside the live stream (for example backfill or
+    /// cloud storage). Such blocks always come complete in a single batch of [BlockItems]. The session for
+    /// the block is marked complete before it is admitted, so an eviction reports a cancelled complete block.
     ///
     /// @param blockItems to process
     /// @param blockSource the source the block was received from
-    private void processBackfilledItems(final BlockItems blockItems, final BlockSource blockSource) {
+    private void processUnvalidatedBlockItems(final BlockItems blockItems, final BlockSource blockSource) {
         final BlockVerificationSession session = startNewSession(blockItems, blockSource);
         session.markEndOfBlockReceived();
         activeSessions.admit(session);

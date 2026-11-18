@@ -113,7 +113,7 @@ below the highest block.</dd>
 ### VerificationServicePlugin
 
 The main plugin class. It listens for live block items from the publisher,
-backfilled block notifications, persistence notifications, and application
+unvalidated block notifications, persistence notifications, and application
 state updates. On startup it establishes the initial *last verified block* from
 the highest persisted block known to application state. For each incoming block
 it validates the start of the block (a header must be present and its number

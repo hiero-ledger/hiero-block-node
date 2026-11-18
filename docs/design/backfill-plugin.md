@@ -33,9 +33,9 @@ Detect missing gaps in the stored block sequence and autonomously fetch missing 
     (delay = initialRetryDelay × 2^(attempts-1), capped at maxBackoffMs).
     Nodes in backoff are excluded from selection until the period expires.</dd>
 
-  <dt>BackfilledBlockNotification</dt>
-  <dd>A Notification Type published to the Messaging Facility containing a whole block that was fetched
-    from a peer and is being backfilled into the system.</dd>
+  <dt>UnvalidatedBlockNotification</dt>
+  <dd>A Notification Type published to the Messaging Facility containing a whole block that is not
+    verified yet. Backfill sends one with source BACKFILL for every block fetched from a peer.</dd>
 
   <dt>BlockSource</dt>
   <dd>An Enum added to VerificationNotification and PersistedNotification to indicate the
@@ -133,7 +133,7 @@ flowchart TB
   CLI <-->|"gRPC"| PEER
 
   %% Dispatch flow
-  RNR -->|"4. BackfilledBlockNotification"| VER
+  RNR -->|"4. UnvalidatedBlockNotification"| VER
   VER --> PERS
 
   %% Backpressure flow
@@ -185,7 +185,7 @@ sequenceDiagram
             Fetcher->>Fetcher: Select best node
             Fetcher-->>BP: Fetch blocks (batches)
             loop Each block
-                BP->>MF: BackfilledBlockNotification
+                BP->>MF: UnvalidatedBlockNotification
             end
             MF->>Persist: Verify & persist
             Persist-->>BP: PersistedNotification
@@ -223,7 +223,7 @@ sequenceDiagram
     alt Gap exists
         BP->>Fetcher: Fetch missing blocks
         Fetcher-->>BP: Blocks
-        BP->>MF: BackfilledBlockNotification
+        BP->>MF: UnvalidatedBlockNotification
     end
 ```
 

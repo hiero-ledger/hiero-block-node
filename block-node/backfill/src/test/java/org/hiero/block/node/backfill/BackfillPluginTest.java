@@ -35,12 +35,12 @@ import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.app.fixtures.server.TestBlockNodeServer;
-import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.blockmessaging.UnvalidatedBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
@@ -1794,7 +1794,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         blockMessaging.registerUnvalidatedBlockHandler(
                 new BlockNotificationHandler() {
                     @Override
-                    public void handleBackfilled(BackfilledBlockNotification notification) {
+                    public void handleUnvalidatedBlock(UnvalidatedBlockNotification notification) {
                         int fetchCount = fetchCountsByBlock
                                 .computeIfAbsent(notification.blockNumber(), b -> new AtomicInteger())
                                 .incrementAndGet();
@@ -1876,7 +1876,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         blockMessaging.registerUnvalidatedBlockHandler(
                 new BlockNotificationHandler() {
                     @Override
-                    public void handleBackfilled(BackfilledBlockNotification notification) {
+                    public void handleUnvalidatedBlock(UnvalidatedBlockNotification notification) {
                         final long blockNumber = notification.blockNumber();
                         int fetchCount = fetchCountsByBlock
                                 .computeIfAbsent(blockNumber, b -> new AtomicInteger())
@@ -1959,7 +1959,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         blockMessaging.registerUnvalidatedBlockHandler(
                 new BlockNotificationHandler() {
                     @Override
-                    public void handleBackfilled(BackfilledBlockNotification notification) {
+                    public void handleUnvalidatedBlock(UnvalidatedBlockNotification notification) {
                         final long blockNumber = notification.blockNumber();
                         if (blockNumber > 0) {
                             if (!genesisPersisted.get()) {
@@ -2168,7 +2168,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         this.blockMessaging.registerUnvalidatedBlockHandler(
                 new BlockNotificationHandler() {
                     @Override
-                    public void handleBackfilled(BackfilledBlockNotification notification) {
+                    public void handleUnvalidatedBlock(UnvalidatedBlockNotification notification) {
                         blockNodeContext
                                 .blockMessaging()
                                 .sendBlockVerification(new VerificationNotification(

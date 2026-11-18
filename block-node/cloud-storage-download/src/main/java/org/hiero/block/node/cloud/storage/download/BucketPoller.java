@@ -32,11 +32,11 @@ import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.base.ParseHelper;
 import org.hiero.block.node.cloud.storage.download.CloudStorageDownloadPlugin.MetricsHolder;
 import org.hiero.block.node.cloud.storage.download.PersistenceAwaiter.Outcome;
-import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
+import org.hiero.block.node.spi.blockmessaging.UnvalidatedBlockNotification;
 
 /// The scheduled poll of the bucket: probes it for the block the bucket must hold before a pull
 /// is worth it, and pulls the missing range when it does. Only the poll thread runs the poll;
@@ -328,8 +328,8 @@ class BucketPoller implements Runnable {
     private void submit(final long blockNumber, final BlockUnparsed block, final PullProgress progress) {
         awaiter.track(blockNumber);
         try {
-            messaging.sendBackfilledBlockNotification(
-                    new BackfilledBlockNotification(blockNumber, block, BlockSource.CLOUD_STORAGE));
+            messaging.sendUnvalidatedBlock(
+                    new UnvalidatedBlockNotification(blockNumber, block, BlockSource.CLOUD_STORAGE));
             final Outcome outcome = awaiter.await(blockNumber, config.persistWaitTimeoutMs());
             if (outcome == Outcome.PERSISTED_BY_PULL) {
                 progress.pulled(blockNumber);

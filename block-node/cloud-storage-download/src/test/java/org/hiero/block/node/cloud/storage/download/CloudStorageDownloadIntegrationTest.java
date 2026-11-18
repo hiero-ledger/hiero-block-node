@@ -28,10 +28,10 @@ import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.base.CompressionType;
-import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.blockmessaging.UnvalidatedBlockNotification;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -265,7 +265,7 @@ class CloudStorageDownloadIntegrationTest
         private final List<Long> sourceNodes = new CopyOnWriteArrayList<>();
 
         @Override
-        public void handleBackfilled(final BackfilledBlockNotification notification) {
+        public void handleUnvalidatedBlock(final UnvalidatedBlockNotification notification) {
             submitted.add(notification.blockNumber());
             try {
                 final BlockHeader header = BlockHeader.PROTOBUF.parse(
