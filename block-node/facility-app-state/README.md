@@ -13,6 +13,7 @@ plugins when it changes:
 |             State             |                                     Accessor                                      |           Persisted to           |
 |-------------------------------|-----------------------------------------------------------------------------------|----------------------------------|
 | TSS data                      | `tssData()`                                                                       | `app.state.tssBootstrapFilePath` |
+| TSS data history              | `rangedTssDataHistory()`                                                          | `app.state.tssHistoryFilePath`   |
 | RSA address book history      | `rangedAddressBookHistory()`, `getAddressBookForBlock`                            | `app.state.rsaBootstrapFilePath` |
 | Stored block ranges           | `storedBlocks()`                                                                  | `app.state.blockRangesFilePath`  |
 | Available block ranges        | derived from `HistoricalBlockFacility`                                            | not persisted                    |

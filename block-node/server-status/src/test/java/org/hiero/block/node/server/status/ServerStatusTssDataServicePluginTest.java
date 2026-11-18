@@ -70,11 +70,29 @@ public class ServerStatusTssDataServicePluginTest
     }
 
     @Test
-    @DisplayName("The history is not filled in yet, even when it is requested")
-    void historyIsNotFilledInYet() throws ParseException {
-        blockMessaging.sendTssDataUpdate(new TssDataNotification(sampleTssData()));
+    @DisplayName("Returns the history by block range when it is requested")
+    void returnsHistoryWhenRequested() throws ParseException {
+        updateTssData(tssDataFrom(10L, "0a0b"));
+        updateTssData(tssDataFrom(42L, "0a0b"));
 
         final TssDataResponse response = getTssData(false);
+
+        assertEquals(42L, response.tssData().validFromBlock());
+        assertNotNull(response.rangedTssDataHistory());
+        assertEquals(2, response.rangedTssDataHistory().tssData().size());
+        assertEquals(10L, response.rangedTssDataHistory().tssData().get(0).startBlock());
+        assertEquals(41L, response.rangedTssDataHistory().tssData().get(0).endBlock());
+        assertEquals(42L, response.rangedTssDataHistory().tssData().get(1).startBlock());
+        assertEquals(-1L, response.rangedTssDataHistory().tssData().get(1).endBlock());
+    }
+
+    @Test
+    @DisplayName("Leaves the history out when the request excludes it")
+    void leavesHistoryOutWhenExcluded() throws ParseException {
+        updateTssData(tssDataFrom(10L, "0a0b"));
+        updateTssData(tssDataFrom(42L, "0a0b"));
+
+        final TssDataResponse response = getTssData(true);
 
         assertNotNull(response.tssData());
         assertNull(response.rangedTssDataHistory());
@@ -85,6 +103,15 @@ public class ServerStatusTssDataServicePluginTest
                 TssDataRequest.newBuilder().excludeHistory(excludeHistory).build()));
         assertEquals(1, fromPluginBytes.size());
         return standardParse(TssDataResponse.PROTOBUF, fromPluginBytes.getFirst());
+    }
+
+    private static TssData tssDataFrom(final long validFromBlock, final String ledgerIdHex) {
+        return TssData.newBuilder()
+                .ledgerId(Bytes.fromHex(ledgerIdHex))
+                .wrapsVerificationKey(Bytes.EMPTY)
+                .currentRoster(TssRoster.DEFAULT)
+                .validFromBlock(validFromBlock)
+                .build();
     }
 
     private static TssData sampleTssData() {

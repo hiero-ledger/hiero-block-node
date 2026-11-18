@@ -22,10 +22,13 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.NavigableMap;
 import java.util.TreeMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
@@ -37,6 +40,8 @@ import org.hiero.block.api.NetworkConnection;
 import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
+import org.hiero.block.api.RangedTssData;
+import org.hiero.block.api.RangedTssDataHistory;
 import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockRangesState;
 import org.hiero.block.node.base.ranges.ConcurrentBlockRangeSet;
@@ -117,6 +122,9 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility,
     /// The current TSS data. Compare-and-set, not plainly assigned: verification threads and the
     /// TSS bootstrap scanner both update it, and check-then-assign lets older data win.
     final AtomicReference<TssData> currentTssData = new AtomicReference<>();
+    /// Every TSS data this node has installed, by the block it is valid from. A candidate is installed only when it
+    /// is valid from a later block than the current one, so the entries are exactly the installed values.
+    final ConcurrentSkipListMap<Long, TssData> tssDataByStartBlock = new ConcurrentSkipListMap<>();
     /// The current RSA address-book history and its lookup index, installed together so a reader
     /// never sees an index built from a different history. Compare-and-set for the same reason as
     /// currentTssData: the RSA bootstrap plugin updates it from two independent executors.
@@ -238,6 +246,7 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility,
         final TssData tssData = currentTssData.get();
         if (tssData != null) {
             persistTssData(tssData);
+            persistTssHistory();
         }
         final RangedAddressBookHistory history = addressBookState.get().history();
         if (history != null) {
@@ -275,6 +284,7 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility,
         final TssData previous =
                 currentTssData.getAndUpdate(current -> shouldInstall(tssData, current) ? tssData : current);
         if (shouldInstall(tssData, previous)) {
+            tssDataByStartBlock.put(tssData.validFromBlock(), tssData);
             dispatch(this::syncTssData);
         }
     }
@@ -316,8 +326,33 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility,
         final TssData tssData = currentTssData.get();
         if (tssData != null) {
             persistTssData(tssData);
+            persistTssHistory();
             context.blockMessaging().sendTssDataUpdate(new TssDataNotification(tssData));
         }
+    }
+
+    /// {@inheritDoc}
+    ///
+    /// Built from the installed TSS data: each entry is valid from its own block up to the block before the next
+    /// entry, and the last entry is open ended.
+    @Override
+    public RangedTssDataHistory rangedTssDataHistory() {
+        final List<TssData> installed = List.copyOf(tssDataByStartBlock.values());
+        if (installed.isEmpty()) {
+            return null;
+        }
+        final List<RangedTssData> ranges = new ArrayList<>(installed.size());
+        for (int i = 0; i < installed.size(); i++) {
+            final TssData data = installed.get(i);
+            final long endBlock =
+                    i + 1 < installed.size() ? installed.get(i + 1).validFromBlock() - 1 : -1L;
+            ranges.add(RangedTssData.newBuilder()
+                    .tssData(data)
+                    .startBlock(data.validFromBlock())
+                    .endBlock(endBlock)
+                    .build());
+        }
+        return RangedTssDataHistory.newBuilder().tssData(ranges).build();
     }
 
     @Override
@@ -615,6 +650,21 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility,
 
     /// Loads all ApplicationState from file paths specified in the ApplicationStateConfig class.
     /// Must be called after the BlockNodeContext is available and the messaging facility is started.
+    /// Persist the TSS data history
+    /// Persists every installed TSS data to the file path specified in the ApplicationStateConfig class.
+    private void persistTssHistory() {
+        final RangedTssDataHistory history = rangedTssDataHistory();
+        if (history == null) {
+            return;
+        }
+        final Path historyFilePath = appStateConfig.tssHistoryFilePath();
+        try {
+            replaceFile(historyFilePath, RangedTssDataHistory.JSON.toBytes(history));
+        } catch (IOException e) {
+            LOGGER.log(WARNING, "Failed to persist the TSS data history to %s: %s".formatted(historyFilePath, e), e);
+        }
+    }
+
     private void loadApplicationState() {
         // Load the connection-information sets (JSON-serialized NetworkData) used by the /statusz endpoints
         // first. These are read-only configuration; absent or unreadable files yield an empty set. Loading the
@@ -623,9 +673,47 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility,
         knownPublishers.set(loadNetworkData(appStateConfig.knownPublishersFilePath()));
         inboundPartners.set(loadNetworkData(appStateConfig.inboundPartnersFilePath()));
         outboundPartners.set(loadNetworkData(appStateConfig.outboundPartnersFilePath()));
+        loadTssHistory();
         loadTssData();
+        installLatestOfTssHistory();
         loadAddressBookHistory();
         loadBlockRanges();
+    }
+
+    /// Loads the TSS data history (JSON format) if the file exists, and keeps its entries as the known history.
+    /// An entry that carries no ledger id is ignored, and an unreadable file is logged and ignored, so a bad
+    /// history file never stops the node. The current TSS data is not touched here, see
+    /// [#installLatestOfTssHistory].
+    private void loadTssHistory() {
+        final Path historyFilePath = appStateConfig.tssHistoryFilePath();
+        if (!Files.exists(historyFilePath)) {
+            return;
+        }
+        try {
+            final RangedTssDataHistory history =
+                    standardParse(RangedTssDataHistory.JSON, Bytes.wrap(Files.readAllBytes(historyFilePath)));
+            for (final RangedTssData ranged : history.tssData()) {
+                final TssData data = ranged.tssData();
+                if (data != null && data.ledgerId().length() > 0) {
+                    tssDataByStartBlock.put(data.validFromBlock(), data);
+                } else {
+                    LOGGER.log(WARNING, "Ignoring a TSS data entry in {0}: it carries no ledger id", historyFilePath);
+                }
+            }
+        } catch (ParseException | IOException e) {
+            LOGGER.log(WARNING, "Failed to read the TSS data history file: " + historyFilePath, e);
+        }
+    }
+
+    /// Makes the latest entry of the loaded TSS data history the current TSS data when it is newer than what
+    /// the bootstrap file gave, or when that file gave nothing. It goes through [#updateTssData], so it is
+    /// persisted and dispatched like any installed value. Nothing happens when the bootstrap file already
+    /// carried the latest.
+    private void installLatestOfTssHistory() {
+        final Map.Entry<Long, TssData> latest = tssDataByStartBlock.lastEntry();
+        if (latest != null) {
+            updateTssData(latest.getValue());
+        }
     }
 
     /// Loads the TssData (JSON format) if the file exists, otherwise creates its directory for future writes.

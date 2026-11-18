@@ -9,10 +9,12 @@ import com.swirlds.config.api.converter.ConfigConverter;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.TreeMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Stream;
@@ -22,6 +24,8 @@ import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
+import org.hiero.block.api.RangedTssData;
+import org.hiero.block.api.RangedTssDataHistory;
 import org.hiero.block.api.TssData;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.base.ranges.ConcurrentBlockRangeSet;
@@ -89,6 +93,8 @@ public abstract class PluginTestBase<
     protected volatile RangedAddressBookHistory currentAddressBookHistory;
 
     protected volatile TssData currentTssData;
+    /** Every TSS data reported through {@link #updateTssData}, by the block it is valid from. */
+    private final TreeMap<Long, TssData> tssDataByStartBlock = new TreeMap<>();
 
     protected PluginTestBase(@NonNull final E executorService, @NonNull final S scheduledExecutorService) {
         testThreadPoolManager = new TestThreadPoolManager<>(executorService, scheduledExecutorService);
@@ -310,6 +316,9 @@ public abstract class PluginTestBase<
     public void updateTssData(TssData tssData) {
         if (tssData == null) return;
         this.currentTssData = tssData;
+        synchronized (tssDataByStartBlock) {
+            tssDataByStartBlock.put(tssData.validFromBlock(), tssData);
+        }
         blockMessaging.sendTssDataUpdate(new TssDataNotification(tssData));
     }
 
@@ -348,6 +357,32 @@ public abstract class PluginTestBase<
     @Override
     public TssData tssData() {
         return currentTssData;
+    }
+
+    /**
+     * The TSS data reported through {@link #updateTssData}, by block range: each entry is valid until the block before
+     * the next one, and the last is open ended.
+     */
+    @Override
+    public RangedTssDataHistory rangedTssDataHistory() {
+        final List<TssData> updates;
+        synchronized (tssDataByStartBlock) {
+            updates = List.copyOf(tssDataByStartBlock.values());
+        }
+        if (updates.isEmpty()) {
+            return null;
+        }
+        final List<RangedTssData> ranges = new ArrayList<>();
+        for (int i = 0; i < updates.size(); i++) {
+            final TssData data = updates.get(i);
+            final long end = i + 1 < updates.size() ? updates.get(i + 1).validFromBlock() - 1 : -1L;
+            ranges.add(RangedTssData.newBuilder()
+                    .tssData(data)
+                    .startBlock(data.validFromBlock())
+                    .endBlock(end)
+                    .build());
+        }
+        return RangedTssDataHistory.newBuilder().tssData(ranges).build();
     }
 
     @Override
