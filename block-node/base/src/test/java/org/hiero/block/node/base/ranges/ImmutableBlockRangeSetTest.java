@@ -2,6 +2,7 @@
 package org.hiero.block.node.base.ranges;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
 import org.hiero.block.api.BlockRange;
@@ -56,5 +57,42 @@ class ImmutableBlockRangeSetTest {
         assertThat(set.streamRanges().toList())
                 .containsExactly(new BlockRange(0, 9), new BlockRange(20, 29), new BlockRange(40, 40));
         assertThat(set.toList()).isSameAs(set.toList());
+    }
+
+    @Test
+    void touchingRangesAreMergedSoSpanningQueriesWork() {
+        final ImmutableBlockRangeSet touching =
+                new ImmutableBlockRangeSet(List.of(new BlockRange(0, 9), new BlockRange(10, 19)));
+        assertThat(touching.contains(0, 15)).isTrue();
+        assertThat(touching.contains(0, 19)).isTrue();
+        assertThat(touching.contains(0, 20)).isFalse();
+        assertThat(touching.toList()).containsExactly(new BlockRange(0, 19));
+        assertThat(touching.size()).isEqualTo(20L);
+    }
+
+    @Test
+    void rangesWithAGapAreNotMerged() {
+        assertThat(set.contains(0, 20)).isFalse();
+        assertThat(set.toList()).hasSize(3);
+    }
+
+    @Test
+    void streamYieldsEveryBlockInOrder() {
+        assertThat(set.stream().boxed().toList())
+                .startsWith(0L, 1L, 2L)
+                .contains(9L, 20L, 29L, 40L)
+                .doesNotContain(10L, 19L, 30L)
+                .hasSize(21);
+    }
+
+    @Test
+    void toListIsUnmodifiable() {
+        assertThatThrownBy(() -> set.toList().add(new BlockRange(50, 60)))
+                .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    void toStringListsTheRanges() {
+        assertThat(set.toString()).startsWith("ImmutableBlockRangeSet ").contains("0");
     }
 }

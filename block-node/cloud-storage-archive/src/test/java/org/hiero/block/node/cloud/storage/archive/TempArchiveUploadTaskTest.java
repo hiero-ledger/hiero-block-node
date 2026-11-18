@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -35,9 +36,11 @@ import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
+import org.hiero.block.node.base.ranges.ConcurrentBlockRangeSet;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.AfterAll;
@@ -767,29 +770,24 @@ class TempArchiveUploadTaskTest {
         public void updateBackfillSources(final NetworkData sources) {}
 
         @Override
-        public void addAvailableBlockRange(
-                final org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin provider,
-                final org.hiero.block.api.BlockRange blockRange) {}
+        public void addAvailableBlockRange(final BlockProviderPlugin provider, final BlockRange blockRange) {}
 
         @Override
-        public void removeAvailableBlockRange(
-                final org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin provider,
-                final org.hiero.block.api.BlockRange blockRange) {}
+        public void removeAvailableBlockRange(final BlockProviderPlugin provider, final BlockRange blockRange) {}
 
         @Override
-        public List<org.hiero.block.api.BlockRange> availableBlocks() {
+        public List<BlockRange> availableBlocks() {
             return List.of();
         }
 
         @Override
-        public org.hiero.block.node.spi.historicalblocks.BlockRangeSet availableBlockSet() {
-            return new org.hiero.block.node.base.ranges.ConcurrentBlockRangeSet();
+        public BlockRangeSet availableBlockSet() {
+            return new ConcurrentBlockRangeSet();
         }
 
         @Override
-        public java.util.Optional<org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin> blockProvider(
-                final long blockNumber) {
-            return java.util.Optional.empty();
+        public Optional<BlockProviderPlugin> blockProvider(final long blockNumber) {
+            return Optional.empty();
         }
     }
 }

@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Stream;
@@ -83,6 +84,10 @@ public abstract class PluginTestBase<
     private HistoricalBlockFacility activeHistoricalBlockFacility;
     /** The stored-block set backing {@link #addStoredBlockRange} and {@link #updateStoredBlocks}. */
     protected final ConcurrentBlockRangeSet appStoredBlocks = new ConcurrentBlockRangeSet();
+    /** Every range a provider reported as newly available through the facility, in call order. */
+    private final List<BlockRange> reportedAvailableRanges = new CopyOnWriteArrayList<>();
+    /** Every range a provider reported as removed through the facility, in call order. */
+    private final List<BlockRange> reportedRemovedRanges = new CopyOnWriteArrayList<>();
 
     protected List<BlockRange> storedBlocks = List.of();
     protected List<BlockRange> availableBlocks = List.of();
@@ -455,11 +460,23 @@ public abstract class PluginTestBase<
     public void addAvailableBlockRange(final BlockProviderPlugin provider, final BlockRange blockRange) {
         // Available blocks are read live from the active historical block facility; only record as stored.
         appStoredBlocks.add(blockRange);
+        reportedAvailableRanges.add(blockRange);
     }
 
     @Override
     public void removeAvailableBlockRange(final BlockProviderPlugin provider, final BlockRange blockRange) {
-        // No-op for test base; available blocks are read live from the active historical block facility.
+        // Available blocks are read live from the active historical block facility; only record the call.
+        reportedRemovedRanges.add(blockRange);
+    }
+
+    /// The ranges providers have reported as available to the facility so far, in call order.
+    protected List<BlockRange> reportedAvailableRanges() {
+        return List.copyOf(reportedAvailableRanges);
+    }
+
+    /// The ranges providers have reported as removed from the facility so far, in call order.
+    protected List<BlockRange> reportedRemovedRanges() {
+        return List.copyOf(reportedRemovedRanges);
     }
 
     @Override

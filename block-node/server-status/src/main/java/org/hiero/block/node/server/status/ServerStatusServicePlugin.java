@@ -58,7 +58,7 @@ public class ServerStatusServicePlugin
 
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
-    /** The block provider */
+    /** The application state facility, the authority on stored and available blocks */
     private ApplicationStateFacility applicationState;
     /** The block node context, used to provide access to facilities */
     private volatile BlockNodeContext blockNodeContext;

@@ -182,9 +182,8 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
 
                 addStoredBlocks(firstZippedBlock, latestZippedBlock);
                 // report every range found on startup, gaps between zip files included
-                availableBlocks
-                        .streamRanges()
-                        .forEach(range -> context.applicationStateFacility().addAvailableBlockRange(this, range));
+                availableBlocks.streamRanges().forEach(range -> context.applicationStateFacility()
+                        .addAvailableBlockRange(this, range));
 
                 // Initialize total bytes stored by querying the zip block archive
                 totalBytesStored.set(zipBlockArchive.calculateTotalStoredBytes());

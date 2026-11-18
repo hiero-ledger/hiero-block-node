@@ -426,10 +426,9 @@ class ApplicationStateFacilityPluginTest {
 
         assertThat(f.plugin.updateAddressBookHistory(history)).isTrue();
 
-        assertThat(f.plugin.knownPublishers().activeEndpoints())
-                .singleElement()
-                .satisfies(
-                        connection -> assertThat(connection.remote().address()).isEqualTo("node1.example.com"));
+        assertThat(f.plugin.knownPublishers().activeEndpoints()).singleElement().satisfies(connection -> assertThat(
+                        connection.remote().address())
+                .isEqualTo("node1.example.com"));
         f.plugin.stop();
     }
 

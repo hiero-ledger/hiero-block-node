@@ -483,6 +483,12 @@ public class ApplicationStateFacilityPlugin implements ApplicationStateFacility,
         if (providerSet != null) {
             providerSet.remove(blockRange);
             refreshBlockRanges();
+        } else {
+            LOGGER.log(
+                    WARNING,
+                    "Provider [{0}] removed block range [{1}] but never reported any available blocks",
+                    provider,
+                    blockRange);
         }
     }
 

@@ -23,6 +23,7 @@ import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.bulkhead.BlockReadBulkhead;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.core.MetricKey;
@@ -98,6 +99,8 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
     private BlockResponseUnparsed getBlockUnparsed(BlockRequest request) {
         requestCounter.increment();
         try {
+            // Take one snapshot so every check below sees a consistent view of available blocks.
+            final BlockRangeSet availableBlocks = applicationState.availableBlockSet();
             long blockNumberToRetrieve;
             // The block number and retrieve latest are mutually exclusive in
             // the proto definition, so no need to check for that here.
@@ -107,7 +110,7 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
                 LOGGER.log(DEBUG, "Received `block_number` BlockRequest, retrieving block: {0}", blockNumberToRetrieve);
             } else if ((request.hasRetrieveLatest() && request.retrieveLatest())
                     || (request.hasBlockNumber() && request.blockNumber() == -1)) {
-                blockNumberToRetrieve = applicationState.availableBlockSet().max();
+                blockNumberToRetrieve = availableBlocks.max();
                 LOGGER.log(
                         DEBUG, "Received 'retrieveLatest' BlockRequest, retrieving block={0}", blockNumberToRetrieve);
             } else {
@@ -115,9 +118,9 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
                 return new BlockResponseUnparsed(Code.INVALID_REQUEST, null);
             }
             // Check if block is within the available range
-            if (!applicationState.availableBlockSet().contains(blockNumberToRetrieve)) {
-                long lowestBlockNumber = applicationState.availableBlockSet().min();
-                long highestBlockNumber = applicationState.availableBlockSet().max();
+            if (!availableBlocks.contains(blockNumberToRetrieve)) {
+                long lowestBlockNumber = availableBlocks.min();
+                long highestBlockNumber = availableBlocks.max();
                 LOGGER.log(
                         DEBUG,
                         "Requested block {0} is outside available range [{1}, {2}]",
