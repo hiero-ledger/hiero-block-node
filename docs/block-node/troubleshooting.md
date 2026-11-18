@@ -371,6 +371,86 @@ Use the runbooks below during incidents. Each follows a consistent pattern:
 
 ---
 
+### Empty Block Node stalls while backfilling and receiving the live stream
+
+> **Applies to:** a Block Node that started with no stored blocks and backfills history from peer Block Nodes with
+> greedy backfill on (`BACKFILL_GREEDY=true`, the default), while it also receives the live stream from a Consensus
+> Node. For example a new node, or a node whose block storage was reset or lost.
+
+1. **Triage**
+   - Confirm the node started empty: the startup log line `Started BlockNode Server : State=RUNNING HistoricBlockRange=`
+     shows an empty range.
+   - Check which block ranges the node holds (requires `grpcurl`, `jq` and the proto files from the
+     [Hiero Block Node repo release artifacts](https://github.com/hiero-ledger/hiero-block-node/releases)):
+
+     ```sh
+     grpcurl -plaintext -emit-defaults -import-path /path/to/proto \
+         -proto block-node/api/node_service.proto -d '{}' \
+         <IP_OF_BLOCK_NODE>:<GRPC_PORT> \
+         org.hiero.block.api.BlockNodeService/serverStatusDetail | jq -c '.availableRanges'
+     ```
+
+     - Healthy: two ranges that both grow, history from block 0 and the live tail near the network head, until they
+       merge into one range.
+     - Stalled: a single range from block 0 whose end has stopped growing, and no range near the network head.
+2. **Logs**
+   - Search for cancelled verification sessions and backfill chunks that never persist:
+
+     ```bash
+     kubectl -n block-node logs $BN_POD -c block-node-server --since=30m \
+       | grep -E "was cancelled with type CANCELLED|did not fully persist after|Starting backfillGap"
+     ```
+   - A stalled node shows:
+     - many `Session for block <N> with source PUBLISHER was cancelled with type CANCELLED`, and the same with
+       `source BACKFILL`
+     - `Chunk [BlockRange[...]] did not fully persist after [<N>] attempt(s); stopping this gap scan, remaining range will be re-detected`,
+       repeating for the same block range
+     - a `Starting backfillGap type=[HISTORICAL]` and a `Starting backfillGap type=[LIVE_TAIL]` covering nearly the
+       same range
+3. **Metrics**
+
+   ```bash
+   curl -s http://localhost:16007/metrics | grep -E \
+     "blocknode_verification_(active_sessions|blocks_failed)|blocknode_app_historical_newest_block|blocknode_publisher_(open_connections|latest_block_number_acknowledged)"
+   ```
+
+   - `blocknode_verification_active_sessions` stays at `VERIFICATION_ACTIVE_SESSIONS_BUFFER_SIZE` (default `100`).
+   - `blocknode_verification_blocks_failed_total` keeps increasing.
+   - `blocknode_app_historical_newest_block` and `blocknode_publisher_latest_block_number_acknowledged` stop
+     increasing.
+   - `blocknode_publisher_open_connections` is `1` or more: the Consensus Node is connected, which tells this case
+     apart from [Block Node not receiving new blocks](#block-node-not-receiving-new-blocks).
+4. **Cause**
+   - A node with no stored blocks starts strict verification ordering at the first block it verifies. Greedy backfill
+     usually verifies block 0 before the first live block arrives, so every live block waits for all of history to
+     verify in order. The waiting sessions fill the active sessions buffer, sessions get cancelled, and the node stops
+     storing blocks.
+   - Restarting alone does not help: after a restart, ordering starts at the highest stored block, and live blocks
+     still wait for the whole gap to the network head.
+5. **Resolution**
+   - Set `VERIFICATION_FIRST_ORDERED_BLOCK` to a block number the network will not reach before the node catches up:
+     the current network head plus a margin for the catch-up time. Blocks below it do not wait for ordering, so
+     history and the live tail are stored independently.
+
+     ```yaml
+     blockNode:
+       config:
+         VERIFICATION_FIRST_ORDERED_BLOCK: "<network head + catch-up margin>"
+     ```
+   - Apply the Helm values and restart the Block Node pod; the value is read at startup.
+   - To avoid the stall, set it before starting an empty node that will backfill while it receives the live stream.
+6. **Verification**
+   - `serverStatusDetail` shows two ranges that both grow, then a single range up to the network head.
+   - `blocknode_verification_active_sessions` stays well below the buffer size, `blocknode_verification_blocks_failed_total`
+     stops increasing, and `blocknode_publisher_latest_block_number_acknowledged` follows the network head.
+7. **After the node has caught up**
+   - Once `serverStatusDetail` shows one range up to the network head, remove `VERIFICATION_FIRST_ORDERED_BLOCK` (or set
+     it back to `0`) and restart the Block Node. Ordering then starts at the highest stored block, the normal state.
+   - Do this before the network reaches the configured value: blocks at or above it are ordered again, and a node
+     that has not caught up can stall again.
+
+---
+
 ### Block verification fails (`BAD_BLOCK_PROOF` or `MISSING_VERIFICATION_DATA`)
 
 > **Applies to:** Block Nodes running with WRB streaming (Consensus Node `v0.75`) or TSS-enabled builds.
@@ -432,19 +512,20 @@ Use the runbooks below during incidents. Each follows a consistent pattern:
 
 The table below is a **summary-only quick reference**. Use the runbooks above for full diagnosis and remediation steps.
 
-|                         **Issue**                         |                                                                   **Symptoms**                                                                   |                                                                       **Diagnosis**                                                                        |                                                                                                                                 **Resolution**                                                                                                                                 |
-|-----------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| CN not sending blocks (misconfigured stream mode)         | `publisher_block_items_received_total` stays at 0; no ingest despite BN running (`writerMode=FILE` also keeps `publisher_open_connections` at 0) | Check CN `blockStream.streamMode` (must be `BOTH` or `BLOCKS`, not `RECORDS`) and `blockStream.writerMode` (must be `FILE_AND_GRPC` or `GRPC`, not `FILE`) | Set the correct values in CN configuration and restart; see [CN to BN Configuration](./operations/consensus-node-to-block-node-configuration.md)                                                                                                                               |
-| Node not receiving new blocks                             | Ingest stalled; publisher metrics flat, heartbeat `newestBlock` not advancing                                                                    | Check firewall on publish/ingest port (`40984` in LFH; `40840` base-chart default), Consensus Node logs                                                    | Open inbound port, ensure node is authorized / whitelisted by upstream CN; check ingress cert if using TLS termination                                                                                                                                                         |
-| Block Node operator: subscribers cannot connect           | gRPC connection failures; clients repeatedly reconnecting                                                                                        | Endpoint config; `stream-subscriber` plugin present; TLS cert check at ingress (if TLS is enabled)                                                         | Fix endpoint or firewall; renew ingress TLS certs (if TLS is enabled); add `stream-subscriber` to plugin configuration                                                                                                                                                         |
-| Mirror Node operator: Mirror Node cannot connect          | MN block height not advancing; repeated subscribe errors in importer logs                                                                        | `nc` reachability; `serverStatus` output; subscribe smoke test; MN `block.*` config                                                                        | Fix endpoint or firewall; correct `requiresTls`; see [connecting guide](./operations/connecting-a-mirror-node-to-a-block-node.md#troubleshooting)                                                                                                                              |
-| Disk full / out of space                                  | Node crashes or refuses new blocks                                                                                                               | `df -h`, `files_recent_total_bytes_stored` nearing limit                                                                                                   | Prune old blocks (partial-history), expand volume, or migrate to archive node                                                                                                                                                                                                  |
-| Metrics endpoint not accessible                           | Grafana dashboards empty, Prometheus target `DOWN`                                                                                               | Port `16007` blocked or metrics disabled via config                                                                                                        | Open port, enable metrics, fix Prometheus scrape job                                                                                                                                                                                                                           |
-| Blocks not being backfilled                               | Log entries show backfill warnings, missing historical ranges                                                                                    | Check `blocknode_backfill*` metrics, `BLOCK_NODE_EARLIEST_MANAGED_BLOCK` / `BACKFILL_START_BLOCK` config                                                   | Fix earliest-block config, restart node if required, ensure healthy upstream archival source                                                                                                                                                                                   |
-| Block verification fails with `BAD_BLOCK_PROOF`           | `BAD_BLOCK_PROOF` in verification logs                                                                                                           | Block proof validation failure; block root hash does not match or proof is otherwise invalid                                                               | Examine log context around the error to identify the block and proof type; verify the upstream source is sending correct, uncorrupted block data                                                                                                                               |
-| Block verification fails with `MISSING_VERIFICATION_DATA` | `MISSING_VERIFICATION_DATA` / `VerificationSessionFailedException` in verification logs                                                          | RSA address book data missing (WRB/RSA proofs) or TSS data missing (TSS proofs); file not accessible inside the container                                  | For RSA proofs: set `app.state.rsaBootstrapFilePath` and mount the file inside the container. For TSS proofs: set `app.state.tssBootstrapFilePath`; see [WRB cutover doc](./operations/preparing-your-block-node-for-wrb-cutover.md#configure-tss-bootstrap-if-tss-is-enabled) |
-| TSS blocks fail with `BAD_BLOCK_PROOF` after upgrade      | WARNING `The TSS library <version> rejected the block signature or the ledger id ...` for the first TSS block, DEBUG after                       | TSS data (ledger ID) kept from before a TSS library change, for example across the upgrade to BN 0.45.0                                                    | Reset the TSS data; see [Resetting TSS data](./operations/resetting-and-upgrading-the-block-node.md#resetting-tss-data-across-a-tss-library-change)                                                                                                                            |
-| Node shuts down at start (TSS library cannot verify)      | Pod restarts; log ends with `The TSS library <version> cannot verify block proofs in this process, shutting down`                                | WARNING `The TSS library <version> could not be loaded (temp directory <dir>)`: temp directory not writable or `noexec`, or unsupported platform           | Make `java.io.tmpdir` writable and executable (writable `emptyDir` at `/tmp`); see [the runbook](#block-node-shuts-down-at-start-tss-library-cannot-verify)                                                                                                                    |
+|                         **Issue**                         |                                                                        **Symptoms**                                                                        |                                                                       **Diagnosis**                                                                        |                                                                                                                                 **Resolution**                                                                                                                                 |
+|-----------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| CN not sending blocks (misconfigured stream mode)         | `publisher_block_items_received_total` stays at 0; no ingest despite BN running (`writerMode=FILE` also keeps `publisher_open_connections` at 0)           | Check CN `blockStream.streamMode` (must be `BOTH` or `BLOCKS`, not `RECORDS`) and `blockStream.writerMode` (must be `FILE_AND_GRPC` or `GRPC`, not `FILE`) | Set the correct values in CN configuration and restart; see [CN to BN Configuration](./operations/consensus-node-to-block-node-configuration.md)                                                                                                                               |
+| Node not receiving new blocks                             | Ingest stalled; publisher metrics flat, heartbeat `newestBlock` not advancing                                                                              | Check firewall on publish/ingest port (`40984` in LFH; `40840` base-chart default), Consensus Node logs                                                    | Open inbound port, ensure node is authorized / whitelisted by upstream CN; check ingress cert if using TLS termination                                                                                                                                                         |
+| Block Node operator: subscribers cannot connect           | gRPC connection failures; clients repeatedly reconnecting                                                                                                  | Endpoint config; `stream-subscriber` plugin present; TLS cert check at ingress (if TLS is enabled)                                                         | Fix endpoint or firewall; renew ingress TLS certs (if TLS is enabled); add `stream-subscriber` to plugin configuration                                                                                                                                                         |
+| Mirror Node operator: Mirror Node cannot connect          | MN block height not advancing; repeated subscribe errors in importer logs                                                                                  | `nc` reachability; `serverStatus` output; subscribe smoke test; MN `block.*` config                                                                        | Fix endpoint or firewall; correct `requiresTls`; see [connecting guide](./operations/connecting-a-mirror-node-to-a-block-node.md#troubleshooting)                                                                                                                              |
+| Disk full / out of space                                  | Node crashes or refuses new blocks                                                                                                                         | `df -h`, `files_recent_total_bytes_stored` nearing limit                                                                                                   | Prune old blocks (partial-history), expand volume, or migrate to archive node                                                                                                                                                                                                  |
+| Metrics endpoint not accessible                           | Grafana dashboards empty, Prometheus target `DOWN`                                                                                                         | Port `16007` blocked or metrics disabled via config                                                                                                        | Open port, enable metrics, fix Prometheus scrape job                                                                                                                                                                                                                           |
+| Blocks not being backfilled                               | Log entries show backfill warnings, missing historical ranges                                                                                              | Check `blocknode_backfill*` metrics, `BLOCK_NODE_EARLIEST_MANAGED_BLOCK` / `BACKFILL_START_BLOCK` config                                                   | Fix earliest-block config, restart node if required, ensure healthy upstream archival source                                                                                                                                                                                   |
+| Empty node stalls while backfilling during live streaming | Single stored range from block 0 stops growing, no live range; `verification_active_sessions` at the buffer limit; `verification_blocks_failed` increasing | Node started empty with greedy backfill on; logs show `was cancelled with type CANCELLED` and `did not fully persist after`                                | Set `VERIFICATION_FIRST_ORDERED_BLOCK` above the network head plus a catch-up margin and restart; remove it after catch-up; see [the runbook](#empty-block-node-stalls-while-backfilling-and-receiving-the-live-stream)                                                        |
+| Block verification fails with `BAD_BLOCK_PROOF`           | `BAD_BLOCK_PROOF` in verification logs                                                                                                                     | Block proof validation failure; block root hash does not match or proof is otherwise invalid                                                               | Examine log context around the error to identify the block and proof type; verify the upstream source is sending correct, uncorrupted block data                                                                                                                               |
+| Block verification fails with `MISSING_VERIFICATION_DATA` | `MISSING_VERIFICATION_DATA` / `VerificationSessionFailedException` in verification logs                                                                    | RSA address book data missing (WRB/RSA proofs) or TSS data missing (TSS proofs); file not accessible inside the container                                  | For RSA proofs: set `app.state.rsaBootstrapFilePath` and mount the file inside the container. For TSS proofs: set `app.state.tssBootstrapFilePath`; see [WRB cutover doc](./operations/preparing-your-block-node-for-wrb-cutover.md#configure-tss-bootstrap-if-tss-is-enabled) |
+| TSS blocks fail with `BAD_BLOCK_PROOF` after upgrade      | WARNING `The TSS library <version> rejected the block signature or the ledger id ...` for the first TSS block, DEBUG after                                 | TSS data (ledger ID) kept from before a TSS library change, for example across the upgrade to BN 0.45.0                                                    | Reset the TSS data; see [Resetting TSS data](./operations/resetting-and-upgrading-the-block-node.md#resetting-tss-data-across-a-tss-library-change)                                                                                                                            |
+| Node shuts down at start (TSS library cannot verify)      | Pod restarts; log ends with `The TSS library <version> cannot verify block proofs in this process, shutting down`                                          | WARNING `The TSS library <version> could not be loaded (temp directory <dir>)`: temp directory not writable or `noexec`, or unsupported platform           | Make `java.io.tmpdir` writable and executable (writable `emptyDir` at `/tmp`); see [the runbook](#block-node-shuts-down-at-start-tss-library-cannot-verify)                                                                                                                    |
 
 ---
 
