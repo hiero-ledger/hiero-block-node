@@ -42,6 +42,9 @@ jobs:
         run: |
           mkdir -p hiero-docs/block-node
           cp -r block-node/docs/. hiero-docs/block-node/
+          SRC=$(find block-node/docs -name '*.md' | wc -l | tr -d ' ')
+          DST=$(find hiero-docs/block-node -name '*.md' | wc -l | tr -d ' ')
+          echo "Synced: ${SRC} source .md files -> ${DST} destination .md files"
 
       - name: Import GPG Key
         id: gpg_importer
