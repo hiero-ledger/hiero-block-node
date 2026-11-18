@@ -10,6 +10,8 @@ live block stream. This guide walks through making your first API call from the 
 |---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------|-------------------------------------------------------------------------------------------|
 | [`BlockNodeService`](https://github.com/hiero-ledger/hiero-block-node/blob/main/protobuf-sources/src/main/proto/block-node/api/node_service.proto)                              | `serverStatus`         | Returns the block number range available on this node and basic version info. Start here. |
 | [`BlockNodeService`](https://github.com/hiero-ledger/hiero-block-node/blob/main/protobuf-sources/src/main/proto/block-node/api/node_service.proto)                              | `serverStatusDetail`   | Returns software version, stream proto version, and the list of installed plugins.        |
+| [`BlockNodeService`](https://github.com/hiero-ledger/hiero-block-node/blob/main/protobuf-sources/src/main/proto/block-node/api/node_service.proto)                              | `getAddressBook`       | Returns the address book (node ids and RSA keys), and its history unless excluded.        |
+| [`BlockNodeService`](https://github.com/hiero-ledger/hiero-block-node/blob/main/protobuf-sources/src/main/proto/block-node/api/node_service.proto)                              | `getTssData`           | Returns the TSS data (ledger id and roster) of this node.                                 |
 | [`BlockAccessService`](https://github.com/hiero-ledger/hiero-block-node/blob/main/protobuf-sources/src/main/proto/block-node/api/block_access_service.proto)                    | `getBlock`             | Retrieves a single block by block number, or the latest block.                            |
 | [`BlockStreamSubscribeService`](https://github.com/hiero-ledger/hiero-block-node/blob/main/protobuf-sources/src/main/proto/block-node/api/block_stream_subscribe_service.proto) | `subscribeBlockStream` | Streams a range of blocks, or streams new blocks live as they arrive.                     |
 
@@ -151,7 +153,8 @@ fields are deprecated and are not provided as of release 0.49. Use the calls bel
 #### Address book and TSS data
 
 `getAddressBook` returns the address book (node ids and RSA public keys) and `getTssData` returns the TSS data (ledger
-id and roster). Both return the latest value and, unless `exclude_history` is set, the history by block range.
+id and roster). `getAddressBook` returns the latest value and, unless `exclude_history` is set, the history by block
+range. `getTssData` returns only the latest value for now.
 
 ```bash
 grpcurl -plaintext -emit-defaults \

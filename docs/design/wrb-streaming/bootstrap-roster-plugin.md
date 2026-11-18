@@ -122,9 +122,9 @@ The BN automatically determines which proof type to verify based on the proof pr
   </dd>
 
   <dt>AddressBookFetcher</dt>
-  <dd>A helper class that queries configured peer block nodes via gRPC <code>serverStatusDetail</code> and returns the
-    first valid <code>NodeAddressBook</code> found. Pools <code>BlockNodeClient</code> instances for reuse across
-    scheduled ticks.
+  <dd>A helper class that queries configured peer block nodes via gRPC <code>getAddressBook</code> (falling back to
+    <code>serverStatusDetail</code> for peers on an older version) and returns the first valid
+    <code>NodeAddressBook</code> found. Pools <code>BlockNodeClient</code> instances for reuse across scheduled ticks.
   </dd>
 
   <dt>Phase 2a</dt>

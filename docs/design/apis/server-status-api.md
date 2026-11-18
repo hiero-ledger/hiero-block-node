@@ -234,10 +234,8 @@ The `server.status.port` and `server.status.heartbeatPeriodSeconds` settings are
 |---------|---------------------------------------|-----------------------------------------|
 | Counter | `server_status_requests`              | Number of `serverStatus` requests       |
 | Counter | `server_status_details_requests`      | Number of `serverStatusDetail` requests |
-| Counter | `server_status_address_book_requests` | Number of `getAddressBook` requests     |
-| Counter | `server_status_tss_data_requests`     | Number of `getTssData` requests         |
 
-The counter names for the roster calls follow the naming of the existing counters.
+`getAddressBook` and `getTssData` have no request counters of their own.
 
 ## Exceptions
 
