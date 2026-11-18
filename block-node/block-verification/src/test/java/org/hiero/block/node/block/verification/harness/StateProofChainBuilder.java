@@ -34,7 +34,7 @@ import org.hiero.block.signing.TssBlockSigner;
  * {@link StateProof} that reconstructs a signed root hash from a 3-path merkle chain and a
  * {@link TssSignedBlockProof} signing that reconstructed root.
  *
- * <p>Path structure emitted per gap block matches what {@code CN_11_12_TSS_SCHNORR} fixtures
+ * <p>Path structure emitted per gap block matches what the {@code tss/indirect/varied/local-cn-11-12} fixtures
  * carry (the {@code statePaths} contract enforced by {@code StateProofVerifierTest}):
  * <ol>
  *   <li><b>path[0]</b> — {@code TIMESTAMP_LEAF} content plus one right sibling, {@code nextPathIndex=2}</li>

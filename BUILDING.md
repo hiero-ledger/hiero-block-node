@@ -7,7 +7,7 @@ Common tasks
 
 Root build (all modules)
 - Build: `./gradlew build`
-- Run tests: `./gradlew test`
+- Run tests: `./gradlew test`. The first run needs Docker: it downloads the test blocks image, see [Test blocks](docs/test-blocks.md).
 
 The project is made up of several apps/modules. They each have their own README and BUILDING instructions:
 - `/block-node`: The Block Node Server implementation.
