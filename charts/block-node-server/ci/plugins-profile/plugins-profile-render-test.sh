@@ -10,7 +10,8 @@
 #   - precedence: an explicit non-empty plugins.names overrides a profile;
 #   - an explicit empty plugins.names keeps its meaning and a profile does not override it;
 #   - an unrecognized plugins.profile fails templating with a clear message;
-#   - the plugins.names chart default stays byte-identical to the "lfh" profile.
+#   - an explicit plugins.names equal to the lfh list still beats a profile;
+#   - solo-dev (names: "") keeps plugins baked into the image.
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
@@ -65,13 +66,23 @@ assert_names "override rfh" "${RFH}" -f "${OVERRIDES}/plugin-profile-rfh.yaml"
 assert_names "override all" "${ALL}" -f "${OVERRIDES}/plugin-profile-all.yaml"
 assert_names "override minimal" "${MINIMAL}" -f "${OVERRIDES}/plugin-profile-minimal.yaml"
 
-echo "--- chart default (no selector) is byte-identical to the lfh profile"
+echo "--- chart default (no selector) resolves to the lfh profile"
 assert_names "default" "${LFH}"
 
 echo "--- precedence: an explicit non-empty plugins.names overrides a profile"
 EXPLICIT="facility-app-state,health,server-status"
 assert_names "explicit names beats profile" "${EXPLICIT}" \
   --set plugins.profile=rfh --set-string plugins.names="facility-app-state\,health\,server-status"
+
+echo "--- precedence: explicit plugins.names identical to the lfh list still beats a profile"
+assert_names "explicit lfh-equal names beats profile" "${LFH}" \
+  --set plugins.profile=rfh --set-string plugins.names="${LFH//,/\\,}"
+
+echo "--- solo-dev keeps plugins baked into the image (no resolve-plugins init container)"
+solo_out=$(helm template "${RELEASE}" "${CHART}" --show-only templates/statefulset.yaml \
+  -f "${OVERRIDES}/solo-dev.yaml" 2>/dev/null)
+grep -q "resolve-plugins" <<<"${solo_out}" && fail "solo-dev: resolve-plugins init container rendered"
+ok "solo-dev renders without Maven plugin resolution"
 
 echo "--- precedence: a profile does not override an intentional empty plugins.names"
 empty_out=$(helm template "${RELEASE}" "${CHART}" --show-only templates/statefulset.yaml \

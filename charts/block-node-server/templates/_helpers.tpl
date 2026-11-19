@@ -105,37 +105,31 @@ so adding a new profile file makes it selectable with no change here or in value
 Precedence (first match wins):
   1. an explicit non-empty plugins.names is used as-is. An explicit empty ("") plugins.names
      also wins and keeps its meaning (plugins baked into the image); a profile never overrides
-     an intentional empty. "Explicit" is distinguished from the chart default by comparing
-     against plugin-profile-lfh.yaml, which the chart default (plugins.names) mirrors.
+     an intentional empty. The chart default for plugins.names is null, so "explicit" is simply
+     "set to anything other than null".
   2. otherwise a non-empty plugins.profile expands to the names from plugin-profile-<profile>.yaml;
-  3. otherwise the plugins.names chart default applies.
+  3. otherwise the lfh profile (plugin-profile-lfh.yaml) applies.
 
 An unrecognized plugins.profile stops templating via fail, listing the available profiles
 discovered from the values-overrides/plugin-profile-*.yaml files -- it never resolves to an
 empty or partial set.
 */}}
 {{- define "hiero-block-node.pluginNames" -}}
-{{- $names := default "" .Values.plugins.names -}}
-{{- $profile := default "" .Values.plugins.profile -}}
-{{- if $profile -}}
+{{- if kindIs "invalid" .Values.plugins.names -}}
+{{- /* plugins.names is unset (chart default is null): resolve via the profile, defaulting to lfh */ -}}
+{{- $profile := default "lfh" .Values.plugins.profile -}}
 {{- $profilePluginNames := include "hiero-block-node.pluginProfileNames" (dict "root" . "profile" $profile) -}}
 {{- if not $profilePluginNames -}}
 {{- $available := list -}}
 {{- range $path, $_ := .Files.Glob "values-overrides/plugin-profile-*.yaml" -}}
 {{- $available = append $available (base $path | trimPrefix "plugin-profile-" | trimSuffix ".yaml") -}}
 {{- end -}}
-{{- fail (printf "plugins.profile %q is not recognized; valid profiles are: %s (or \"\" to use plugins.names)" $profile ($available | sortAlpha | join ", ")) -}}
+{{- fail (printf "plugins.profile %q is not recognized; valid profiles are: %s (or \"\" to use the default)" $profile ($available | sortAlpha | join ", ")) -}}
 {{- end -}}
-{{- $chartDefault := include "hiero-block-node.pluginProfileNames" (dict "root" . "profile" "lfh") -}}
-{{- if eq $names $chartDefault -}}
-{{- /* plugins.names is at the chart default -> the profile selection wins (rule 2) */ -}}
 {{- $profilePluginNames -}}
 {{- else -}}
-{{- /* plugins.names was set explicitly (incl. an explicit "") -> it wins (rule 1) */ -}}
-{{- $names -}}
-{{- end -}}
-{{- else -}}
-{{- $names -}}
+{{- /* plugins.names was set explicitly (incl. an explicit "") -> it wins */ -}}
+{{- .Values.plugins.names -}}
 {{- end -}}
 {{- end -}}
 

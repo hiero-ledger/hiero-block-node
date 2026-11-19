@@ -173,7 +173,7 @@ helm install "${RELEASE}" charts/block-node-server --set plugins.profile=rfh
    never overrides an intentional empty.
 2. otherwise a non-empty `plugins.profile` expands to the `plugins.names` from the matching
    `values-overrides/plugin-profile-<profile>.yaml` file (read at render time via `.Files.Get`);
-3. otherwise the `plugins.names` chart default applies.
+3. otherwise the `lfh` profile applies (`plugins.names` defaults to `null`, i.e. unset).
 
 An unrecognized `plugins.profile` fails templating with a clear message listing the available
 profiles — it never silently resolves to an empty or partial plugin set.
