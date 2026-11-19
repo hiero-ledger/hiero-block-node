@@ -5,6 +5,7 @@ import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
+import static java.lang.System.Logger.Level.WARNING;
 
 import com.lmax.disruptor.BatchEventProcessor;
 import com.lmax.disruptor.BatchEventProcessorBuilder;
@@ -18,9 +19,12 @@ import java.io.InterruptedIOException;
 import java.lang.System.Logger.Level;
 import java.nio.channels.ClosedByInterruptException;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadFactory;
@@ -60,9 +64,17 @@ import org.hiero.metrics.core.MetricRegistry;
  * receive them through their {@link BlockNotificationHandler#handleBackfilled} method, on a thread of their own.
  * <p>
  * Verified blocks are the results of block verification, which carry the whole block when verification succeeded.
- * They have a ring of their own, so the block notification ring never holds whole blocks. Handlers registered with
- * {@link #registerVerifiedBlockHandler} receive them through their {@link BlockNotificationHandler#handleVerification}
- * method, on a thread of their own.
+ * Only handlers registered with {@link #registerVerifiedBlockHandler} receive them, through their
+ * {@link BlockNotificationHandler#handleVerification} method, and a handler registered only that way receives no other
+ * block notifications. Where they travel depends on {@link MessagingConfig#verifiedBlockRingEnabled()}:
+ * <ul>
+ *     <li>false, the default: on the block notification ring, through the message forwarder, as before the verified
+ *     block ring existed. A verified block handler then has a registration on that ring, a single one shared with its
+ *     block notification registration if it has one, so it receives its verification results and its other block
+ *     notifications on one thread, in the order they were sent.</li>
+ *     <li>true: on the verified block ring, a ring of their own, on a thread of their own per handler. THE VERIFIED
+ *     BLOCK RING IS NOT READY FOR PRODUCTION: it is for testing only and must not be enabled in production.</li>
+ * </ul>
  */
 public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
 
@@ -200,10 +212,33 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
 
     /**
      * The disruptor that handles the verified blocks. It is used to send block verification notifications to the
-     * verified block handlers. It is a multiple producer, multiple consumer disruptor: notifications are published
-     * directly from the sending threads, without the message forwarder.
+     * verified block handlers, but only when the verified block ring is enabled, see {@link #verifiedBlockRingEnabled}.
+     * It is a multiple producer, multiple consumer disruptor: notifications are published directly from the sending
+     * threads, without the message forwarder.
      */
     private Disruptor<VerifiedBlockRingEvent> verifiedBlockDisruptor;
+
+    /**
+     * Whether block verification notifications travel on the verified block ring, from
+     * {@link MessagingConfig#verifiedBlockRingEnabled()}. False by default: they travel on the block notification ring,
+     * as before the verified block ring existed. THE VERIFIED BLOCK RING IS NOT READY FOR PRODUCTION.
+     */
+    private boolean verifiedBlockRingEnabled;
+
+    /**
+     * The ways each handler on the block notification ring was registered there. A handler gets one registration, and
+     * so one thread, on that ring however many ways it was registered, and keeps it until it is unregistered every way.
+     * While the verified block ring is disabled, a verified block handler is registered on the block notification ring
+     * too, so a handler registered both ways receives its verification results and its other block notifications on
+     * one thread, in the order they were sent.
+     * <p>
+     * The registrations also decide what each handler receives, whatever the setting of the verified block ring: block
+     * verification notifications only reach handlers registered with {@link #registerVerifiedBlockHandler}, and the
+     * other block notifications only reach handlers registered with {@link #registerBlockNotificationHandler}. The
+     * handler threads read this map for every notification, so its values are immutable sets, replaced on every change.
+     */
+    private final Map<BlockNotificationHandler, Set<NotificationRingRegistration>> notificationRingRegistrations =
+            new ConcurrentHashMap<>();
 
     /** Map of block item handlers to their threads. So that we can stop them */
     private final Map<BlockItemHandler, Thread> blockItemHandlerToThread = new HashMap<>();
@@ -300,13 +335,21 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                 PLATFORM_THREAD_FACTORY,
                 ProducerType.MULTI,
                 createWaitStrategy(messagingConfig));
-        // Verified blocks are published directly from the sending threads, and several threads may send at once
+        // Verified blocks are published directly from the sending threads, and several threads may send at once. The
+        // ring only carries messages when it is enabled; otherwise verified block handlers are on the notification ring
         verifiedBlockDisruptor = new Disruptor<>(
                 VerifiedBlockRingEvent::new,
                 messagingConfig.verifiedBlockQueueSize(),
                 PLATFORM_THREAD_FACTORY,
                 ProducerType.MULTI,
                 createWaitStrategy(messagingConfig));
+        verifiedBlockRingEnabled = messagingConfig.verifiedBlockRingEnabled();
+        if (verifiedBlockRingEnabled) {
+            LOGGER.log(
+                    WARNING,
+                    "The verified block ring is enabled (messaging.verifiedBlockRingEnabled is true). It is NOT READY"
+                            + " FOR PRODUCTION: it is for testing only and must not be enabled in production");
+        }
 
         // Initialize metrics
         initMetrics(context);
@@ -315,11 +358,13 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         LOGGER.log(
                 DEBUG,
                 "BlockMessagingFacility initialized with block item queue size: {0}, block notification queue size: {1}"
-                        + ", unvalidated block queue size: {2} and verified block queue size: {3}",
+                        + ", unvalidated block queue size: {2}, verified block queue size: {3} and verified block ring"
+                        + " enabled: {4}",
                 messagingConfig.blockItemQueueSize(),
                 messagingConfig.blockNotificationQueueSize(),
                 messagingConfig.unvalidatedBlockQueueSize(),
-                messagingConfig.verifiedBlockQueueSize());
+                messagingConfig.verifiedBlockQueueSize(),
+                verifiedBlockRingEnabled);
         LOGGER.log(
                 INFO,
                 "Messaging rings use wait strategy {0} with yield timeout {1,number,#} us",
@@ -591,12 +636,31 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     /**
      * {@inheritDoc}
      * <p>
-     * The notification is published on the verified block ring directly from the calling thread, without the message
-     * forwarder. While that ring is full, this call waits. Several threads may call this method at once.
+     * By default the notification goes through the message forwarder onto the block notification ring, as before the
+     * verified block ring existed, and this call never waits. When the verified block ring is enabled (NOT READY FOR
+     * PRODUCTION, see {@link MessagingConfig#verifiedBlockRingEnabled()}) it is published on that ring directly from the
+     * calling thread, without the message forwarder; while that ring is full, this call waits. Several threads may call
+     * this method at once.
      */
     @Override
     public void sendBlockVerification(final VerificationNotification notification) {
-        verifiedBlockDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
+        if (verifiedBlockRingEnabled) {
+            verifiedBlockDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
+            countAndLogVerificationSent(notification);
+        } else {
+            forward(() -> {
+                blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
+                countAndLogVerificationSent(notification);
+            });
+        }
+    }
+
+    /**
+     * Counts a block verification notification that was just published and logs it.
+     *
+     * @param notification the published notification
+     */
+    private void countAndLogVerificationSent(final VerificationNotification notification) {
         // metrics
         blockVerificationNotificationsCounter.increment();
         // logs
@@ -768,27 +832,129 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
 
     /**
      * {@inheritDoc}
+     * <p>
+     * The handler receives no block verification notifications unless it is registered with
+     * {@link #registerVerifiedBlockHandler} too. A handler that is also a verified block handler while the verified
+     * block ring is disabled keeps the single registration it already has on the block notification ring.
      */
     @Override
     public synchronized void registerBlockNotificationHandler(
             final BlockNotificationHandler handler, final boolean cpuIntensiveHandler, final String handlerName) {
+        addNotificationRingRegistration(handler, NotificationRingRegistration.BLOCK_NOTIFICATIONS, handlerName);
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * A handler that is also a verified block handler while the verified block ring is disabled stops receiving block
+     * notifications but stays on the block notification ring, for its verification results, until it is unregistered
+     * as a verified block handler too.
+     */
+    @Override
+    public synchronized void unregisterBlockNotificationHandler(final BlockNotificationHandler handler) {
+        removeNotificationRingRegistration(handler, NotificationRingRegistration.BLOCK_NOTIFICATIONS);
+    }
+
+    /**
+     * Records one more way a handler is registered on the block notification ring, and attaches the handler to the ring
+     * if this is its first registration there. A handler registered several ways keeps a single registration, and so
+     * a single thread, on the ring.
+     *
+     * @param handler the handler to register
+     * @param registration the way the handler is registered
+     * @param handlerName the name of the handler, used for thread name and logging
+     */
+    private void addNotificationRingRegistration(
+            final BlockNotificationHandler handler,
+            final NotificationRingRegistration registration,
+            final String handlerName) {
+        final Set<NotificationRingRegistration> current = notificationRingRegistrations.getOrDefault(handler, Set.of());
+        final EnumSet<NotificationRingRegistration> updated = EnumSet.of(registration);
+        updated.addAll(current);
+        notificationRingRegistrations.put(handler, Set.copyOf(updated));
+        if (current.isEmpty()) {
+            attachToNotificationRing(handler, handlerName);
+        } else {
+            LOGGER.log(
+                    DEBUG,
+                    "Block notification handler {0} is already on the block notification ring, now registered as {1}",
+                    handler.getClass().getSimpleName(),
+                    updated);
+        }
+    }
+
+    /**
+     * Removes one way a handler is registered on the block notification ring, and detaches the handler from the ring
+     * once it is no longer registered any way.
+     *
+     * @param handler the handler to unregister
+     * @param registration the way the handler is no longer registered
+     */
+    private void removeNotificationRingRegistration(
+            final BlockNotificationHandler handler, final NotificationRingRegistration registration) {
+        final Set<NotificationRingRegistration> current = notificationRingRegistrations.get(handler);
+        if (current == null) {
+            LOGGER.log(
+                    DEBUG,
+                    "Block notification handler {0} is not on the block notification ring",
+                    handler.getClass().getSimpleName());
+        } else {
+            final EnumSet<NotificationRingRegistration> remaining = EnumSet.noneOf(NotificationRingRegistration.class);
+            remaining.addAll(current);
+            remaining.remove(registration);
+            if (remaining.isEmpty()) {
+                notificationRingRegistrations.remove(handler);
+                preRegisteredBlockNotificationHandlers.removeIf(preRegistered -> preRegistered.handler() == handler);
+                unregisterHandler(
+                        handler,
+                        blockNotificationDisruptor.getRingBuffer(),
+                        blockNotificationHandlerToEventProcessor,
+                        blockNotificationHandlerToThread);
+            } else {
+                notificationRingRegistrations.put(handler, Set.copyOf(remaining));
+                LOGGER.log(
+                        DEBUG,
+                        "Block notification handler {0} stays on the block notification ring, still registered as {1}",
+                        handler.getClass().getSimpleName(),
+                        remaining);
+            }
+        }
+    }
+
+    /**
+     * Whether a handler on the block notification ring is registered for the notification an event carries. A block
+     * verification notification only reaches handlers registered with {@link #registerVerifiedBlockHandler}; every
+     * other block notification only reaches handlers registered with {@link #registerBlockNotificationHandler}.
+     *
+     * @param handler the handler on the block notification ring
+     * @param event the event about to be delivered to the handler
+     * @return true if the handler is registered for the notification of the event
+     */
+    private boolean isRegisteredFor(final BlockNotificationHandler handler, final BlockNotificationRingEvent event) {
+        final NotificationRingRegistration requiredRegistration;
+        if (event.getVerificationNotification() != null) {
+            requiredRegistration = NotificationRingRegistration.VERIFIED_BLOCKS;
+        } else {
+            requiredRegistration = NotificationRingRegistration.BLOCK_NOTIFICATIONS;
+        }
+        return notificationRingRegistrations.getOrDefault(handler, Set.of()).contains(requiredRegistration);
+    }
+
+    /**
+     * Attaches a handler to the block notification ring. The handler receives, on one thread and in the order the
+     * notifications were sent, the notifications it is registered for: the block verification notifications if it is a
+     * verified block handler while the verified block ring is disabled, and the other block notifications if it is a
+     * block notification handler.
+     *
+     * @param handler the handler to attach
+     * @param handlerName the name of the handler, used for thread name and logging
+     */
+    private void attachToNotificationRing(final BlockNotificationHandler handler, final String handlerName) {
         final InformedEventHandler<BlockNotificationRingEvent> informedEventHandler =
                 (event, sequence, endOfBatch, percentageBehindRingHead) -> {
-                    // send on the event
-                    if (event.getPersistedNotification() != null) {
-                        handler.handlePersisted(event.getPersistedNotification());
-                    } else if (event.getNewestBlockKnownToNetworkNotification() != null) {
-                        handler.handleNewestBlockKnownToNetwork(event.getNewestBlockKnownToNetworkNotification());
-                    } else if (event.getNextExpectedPublisherBlockNotification() != null) {
-                        handler.handleNextExpectedPublisherBlock(event.getNextExpectedPublisherBlockNotification());
-                    } else if (event.getPublisherStatusUpdateNotification() != null) {
-                        handler.handlePublisherStatusUpdate(event.getPublisherStatusUpdateNotification());
-                    } else if (event.getTssDataNotification() == null
-                            && event.getAddressBookHistoryNotification() == null
-                            && event.getStoredBlocksNotification() == null
-                            && event.getAvailableBlocksNotification() == null) {
-                        // Context notification types are silently ignored; only log when truly empty.
-                        LOGGER.log(Level.INFO, "Received an event with no notification set");
+                    // send on the event, only if the handler is registered for it
+                    if (isRegisteredFor(handler, event)) {
+                        deliverBlockNotification(handler, event);
                     }
                 };
         if (blockNotificationDisruptor.hasStarted()) {
@@ -815,15 +981,30 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     }
 
     /**
-     * {@inheritDoc}
+     * Delivers the notification an event of the block notification ring carries to a handler registered for it.
+     *
+     * @param handler the handler to deliver to
+     * @param event the event carrying the notification
      */
-    @Override
-    public synchronized void unregisterBlockNotificationHandler(final BlockNotificationHandler handler) {
-        unregisterHandler(
-                handler,
-                blockNotificationDisruptor.getRingBuffer(),
-                blockNotificationHandlerToEventProcessor,
-                blockNotificationHandlerToThread);
+    private static void deliverBlockNotification(
+            final BlockNotificationHandler handler, final BlockNotificationRingEvent event) {
+        if (event.getVerificationNotification() != null) {
+            handler.handleVerification(event.getVerificationNotification());
+        } else if (event.getPersistedNotification() != null) {
+            handler.handlePersisted(event.getPersistedNotification());
+        } else if (event.getNewestBlockKnownToNetworkNotification() != null) {
+            handler.handleNewestBlockKnownToNetwork(event.getNewestBlockKnownToNetworkNotification());
+        } else if (event.getNextExpectedPublisherBlockNotification() != null) {
+            handler.handleNextExpectedPublisherBlock(event.getNextExpectedPublisherBlockNotification());
+        } else if (event.getPublisherStatusUpdateNotification() != null) {
+            handler.handlePublisherStatusUpdate(event.getPublisherStatusUpdateNotification());
+        } else if (event.getTssDataNotification() == null
+                && event.getAddressBookHistoryNotification() == null
+                && event.getStoredBlocksNotification() == null
+                && event.getAvailableBlocksNotification() == null) {
+            // Context notification types are silently ignored; only log when truly empty.
+            LOGGER.log(Level.INFO, "Received an event with no notification set");
+        }
     }
 
     /**
@@ -874,12 +1055,52 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     /**
      * {@inheritDoc}
      * <p>
-     * The handler gets a thread of its own for the verified block ring, separate from the thread that delivers its
-     * block notifications if it is also registered as a block notification handler.
+     * By default, with the verified block ring disabled, the handler is registered on the block notification ring and
+     * receives the verification results there, on the same thread as its other block notifications if it is also a
+     * block notification handler; a handler that is already registered there as a block notification handler keeps
+     * that single registration. When the verified block ring is enabled (NOT READY FOR PRODUCTION, see
+     * {@link MessagingConfig#verifiedBlockRingEnabled()}) the handler gets a thread of its own for the verified block
+     * ring, separate from the thread that delivers its block notifications if it is also registered as a block
+     * notification handler.
      */
     @Override
     public synchronized void registerVerifiedBlockHandler(
             final BlockNotificationHandler handler, final boolean cpuIntensiveHandler, final String handlerName) {
+        if (verifiedBlockRingEnabled) {
+            attachToVerifiedBlockRing(handler, handlerName);
+        } else {
+            addNotificationRingRegistration(handler, NotificationRingRegistration.VERIFIED_BLOCKS, handlerName);
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * By default, with the verified block ring disabled, a handler that is also registered as a block notification
+     * handler stops receiving verification results but stays on the block notification ring, for its other block
+     * notifications, until it is unregistered that way too.
+     */
+    @Override
+    public synchronized void unregisterVerifiedBlockHandler(final BlockNotificationHandler handler) {
+        if (verifiedBlockRingEnabled) {
+            unregisterHandler(
+                    handler,
+                    verifiedBlockDisruptor.getRingBuffer(),
+                    verifiedBlockHandlerToEventProcessor,
+                    verifiedBlockHandlerToThread);
+        } else {
+            removeNotificationRingRegistration(handler, NotificationRingRegistration.VERIFIED_BLOCKS);
+        }
+    }
+
+    /**
+     * Attaches a handler to the verified block ring, used only when that ring is enabled. The handler gets a thread of
+     * its own for the ring.
+     *
+     * @param handler the handler to attach
+     * @param handlerName the name of the handler, used for thread name and logging
+     */
+    private void attachToVerifiedBlockRing(final BlockNotificationHandler handler, final String handlerName) {
         final InformedEventHandler<VerifiedBlockRingEvent> informedEventHandler =
                 (event, sequence, endOfBatch, percentageBehindRingHead) -> handler.handleVerification(event.get());
         final String verifiedBlockHandlerName = "VerifiedBlocks:" + handlerName;
@@ -902,18 +1123,6 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                 "Registering verified block handler: {0}, handlerName: {1}",
                 handler.getClass().getSimpleName(),
                 handlerName);
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public synchronized void unregisterVerifiedBlockHandler(final BlockNotificationHandler handler) {
-        unregisterHandler(
-                handler,
-                verifiedBlockDisruptor.getRingBuffer(),
-                verifiedBlockHandlerToEventProcessor,
-                verifiedBlockHandlerToThread);
     }
 
     /**
@@ -1336,4 +1545,18 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             BlockNotificationHandler handler,
             InformedEventHandler<VerifiedBlockRingEvent> informedHandler,
             String handlerName) {}
+
+    /** The ways a handler can be registered on the block notification ring, each with what it receives there. */
+    private enum NotificationRingRegistration {
+        /**
+         * Registered with {@link BlockMessagingFacilityImpl#registerBlockNotificationHandler}: receives every block
+         * notification except the block verification notifications.
+         */
+        BLOCK_NOTIFICATIONS,
+        /**
+         * Registered with {@link BlockMessagingFacilityImpl#registerVerifiedBlockHandler} while the verified block ring
+         * is disabled: receives the block verification notifications.
+         */
+        VERIFIED_BLOCKS
+    }
 }

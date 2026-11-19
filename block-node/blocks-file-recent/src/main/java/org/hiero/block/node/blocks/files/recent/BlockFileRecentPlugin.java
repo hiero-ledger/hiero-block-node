@@ -175,7 +175,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
             LOGGER.log(ERROR, "Could not create root directory", e);
             context.serverHealth().shutdown(name(), "Could not create root directory");
         }
-        // we want to listen to block notifications and to know when blocks are verified
+        // we want to know when blocks are verified
         context.blockMessaging().registerVerifiedBlockHandler(this, false, "BlocksFilesRecent");
         // scan file system to find the oldest and newest blocks
         // TODO this can be way for efficient, very brute force at the moment

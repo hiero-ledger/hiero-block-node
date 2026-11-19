@@ -222,7 +222,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         virtualThreadExecutor = context.threadPoolManager().getVirtualThreadExecutor();
         if (configValid) {
             recoveryFuture = virtualThreadExecutor.submit(new StartupRecoveryTask(config));
-            // register to listen to block notifications if config is valid
+            // register to listen to verified blocks if config is valid
             context.blockMessaging().registerVerifiedBlockHandler(this, false, "Cloud Storage Archive");
         }
         LOGGER.log(TRACE, "Cloud storage archive plugin started");

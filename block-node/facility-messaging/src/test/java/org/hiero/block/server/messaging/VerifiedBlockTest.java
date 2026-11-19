@@ -14,9 +14,12 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -59,8 +62,13 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * Tests for the verified block ring of {@link BlockMessagingFacilityImpl}. Block verification notifications travel on a
- * ring of their own, published directly from the sending threads, and reach the handlers registered with
+ * Tests for the verified block ring of {@link BlockMessagingFacilityImpl}. The ring is behind the
+ * {@code messaging.verifiedBlockRingEnabled} configuration property, false by default, because THE VERIFIED BLOCK RING
+ * IS NOT READY FOR PRODUCTION. With the ring disabled, block verification notifications travel on the block
+ * notification ring, as they did before the ring existed, but still only reach the verified block handlers
+ * ({@link VerifiedBlockRingDisabled}). The tests of the ring itself enable it and are grouped under
+ * {@link VerifiedBlockRingEnabled}: block verification notifications then travel on a ring of their own, published
+ * directly from the sending threads, and reach the handlers registered with
  * {@link BlockMessagingFacilityImpl#registerVerifiedBlockHandler} through their
  * {@link BlockNotificationHandler#handleVerification} method, on a thread of their own.
  */
@@ -84,11 +92,20 @@ class VerifiedBlockTest {
     private int queueSize;
     /** The messaging facility under test */
     private BlockMessagingFacilityImpl facility;
+    /**
+     * The single thread that runs the sends handed to the message forwarder, kept for the whole test like the one
+     * forwarder thread of the facility: the block notification ring has a single producer
+     */
+    private ExecutorService forwarderThread;
     /** Every holding handler of the test, released after the test so no handler thread stays parked */
     private final List<HoldingHandler> holdingHandlers = new ArrayList<>();
-
-    @BeforeEach
-    void setUp() {
+    /**
+     * Creates and initializes the messaging facility under test with the test configuration, changed by the given
+     * configuration properties.
+     *
+     * @param overrides configuration properties to use instead of their defaults
+     */
+    private void createFacility(final Map<String, String> overrides) {
         threadPoolManager = new TestThreadPoolManager<>(
                 new BlockingExecutor(new LinkedBlockingQueue<>()),
                 new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
@@ -96,9 +113,10 @@ class VerifiedBlockTest {
         final MetricRegistry metricRegistry =
                 MetricRegistry.builder().setMetricsExporter(metricsExporter).build();
         context = new BlockNodeContext(
-                TestConfig.getConfig(), metricRegistry, null, null, null, null, null, threadPoolManager, null);
+                TestConfig.getConfig(overrides), metricRegistry, null, null, null, null, null, threadPoolManager, null);
         messagingConfig = context.configuration().getConfigData(MessagingConfig.class);
         queueSize = messagingConfig.verifiedBlockQueueSize();
+        forwarderThread = Executors.newSingleThreadExecutor();
         facility = new BlockMessagingFacilityImpl();
         facility.init(context, null);
     }
@@ -107,426 +125,616 @@ class VerifiedBlockTest {
     void tearDown() {
         facility.stop();
         holdingHandlers.forEach(HoldingHandler::release);
+        forwarderThread.shutdownNow();
     }
 
     @Nested
-    @DisplayName("Delivery")
-    class Delivery {
-        /**
-         * This test aims to assert that every block verification notification reaches every registered verified block
-         * handler, in the order the notifications were sent, whether the handlers were registered before or after the
-         * facility started. More notifications than the ring holds are sent, so the ring wraps around.
-         */
-        @ParameterizedTest
-        @ValueSource(booleans = {true, false})
-        @DisplayName("Every verified block handler receives every verification notification in order")
-        void everyHandlerReceivesEveryNotificationInOrder(final boolean registerBeforeStart)
-                throws InterruptedException {
-            final int blockCount = queueSize * 2 + 1;
-            final RecordingHandler first = new RecordingHandler(blockCount);
-            final RecordingHandler second = new RecordingHandler(blockCount);
-            if (registerBeforeStart) {
-                facility.registerVerifiedBlockHandler(first, false, "first");
-                facility.registerVerifiedBlockHandler(second, false, "second");
-                facility.start();
-            } else {
-                facility.start();
-                facility.registerVerifiedBlockHandler(first, false, "first");
-                facility.registerVerifiedBlockHandler(second, false, "second");
-            }
-
-            sendInBackground(0, blockCount, new AtomicInteger());
-
-            final List<Long> expected = blockNumbers(0, blockCount);
-            assertTrue(first.awaitAll(), "First handler is missing notifications: " + first.received.size());
-            assertTrue(second.awaitAll(), "Second handler is missing notifications: " + second.received.size());
-            assertEquals(expected, first.received);
-            assertEquals(expected, second.received);
+    @DisplayName("Verified block ring disabled, the default")
+    class VerifiedBlockRingDisabled {
+        @BeforeEach
+        void createFacilityWithTheDefaultConfiguration() {
+            createFacility(Map.of());
         }
 
         /**
-         * This test aims to assert that a verified block handler receives the very notification that was sent, with
-         * the whole block it carries, and not a copy without the block.
+         * This test aims to assert that, by default, block verification notifications travel as they did before the
+         * verified block ring existed: they go through the message forwarder onto the block notification ring, and
+         * reach a verified block handler there, on its block notification thread, in the order they were sent. The
+         * forwarder of this test only runs its tasks when the test asks it to, so the notifications must be waiting in
+         * the forwarder before anything is delivered.
          */
         @Test
-        @DisplayName("A verification notification arrives unchanged, with its block")
-        void notificationArrivesWithItsBlock() throws InterruptedException {
-            final RecordingHandler handler = new RecordingHandler(1);
+        @DisplayName("Verification notifications go through the message forwarder onto the block notification ring")
+        void notificationsGoThroughTheForwarderOntoTheNotificationRing() throws InterruptedException {
+            final int blockCount = messagingConfig.blockNotificationQueueSize();
+            final RecordingHandler handler = new RecordingHandler(blockCount);
             facility.registerVerifiedBlockHandler(handler, false, "recording");
             facility.start();
-            final VerificationNotification sent = verifiedBlock(0);
 
-            facility.sendBlockVerification(sent);
+            for (long blockNumber = 0; blockNumber < blockCount; blockNumber++) {
+                facility.sendBlockVerification(verifiedBlock(blockNumber));
+            }
+            assertTrue(threadPoolManager.executor().wasAnyTaskSubmitted(), "No notification went to the forwarder");
+            runForwardedSends();
 
-            assertTrue(handler.awaitAll(), "Handler did not receive the notification");
-            assertSame(sent, handler.notifications.getFirst());
-            assertSame(sent.block(), handler.notifications.getFirst().block());
+            assertTrue(handler.awaitAll(), "Handler is missing notifications: " + handler.received.size());
+            assertEquals(blockNumbers(0, blockCount), handler.received);
+            assertEquals("MessageHandler:recording", handler.verificationThreadName);
         }
 
         /**
-         * This test aims to assert that a handler registered only as a block notification handler is not attached to
-         * the verified block ring: it receives no verification notifications and does not hold the ring back. The
-         * handler would hold on to the first verification notification it receives, so if it were attached the sender
-         * would wait on the full ring instead of finishing.
+         * This test aims to assert that, by default, a handler registered both as a block notification handler and as
+         * a verified block handler, in either order, has a single registration on the block notification ring: it
+         * receives its verification notifications and its persisted notifications on one thread, in exactly the order
+         * they were sent, as every handler did before the verified block ring existed. This is what keeps a handler
+         * such as the publisher manager from handling a verification result and a persisted notification at the same
+         * time.
+         *
+         * @param verifiedFirst whether the handler is registered as a verified block handler first
+         */
+        @ParameterizedTest(name = "registered as a verified block handler first: {0}")
+        @ValueSource(booleans = {true, false})
+        @DisplayName("A handler registered both ways gets every notification on one thread, in order")
+        void handlerRegisteredBothWaysGetsEverythingOnOneThreadInOrder(final boolean verifiedFirst)
+                throws InterruptedException {
+            final int blockCount = messagingConfig.blockNotificationQueueSize();
+            final SequenceRecordingHandler handler = new SequenceRecordingHandler(blockCount * 2);
+            if (verifiedFirst) {
+                facility.registerVerifiedBlockHandler(handler, false, "both");
+                facility.registerBlockNotificationHandler(handler, false, "both");
+            } else {
+                facility.registerBlockNotificationHandler(handler, false, "both");
+                facility.registerVerifiedBlockHandler(handler, false, "both");
+            }
+            facility.start();
+            final List<String> expected = new ArrayList<>();
+
+            for (long blockNumber = 0; blockNumber < blockCount; blockNumber++) {
+                facility.sendBlockVerification(verifiedBlock(blockNumber));
+                facility.sendBlockPersisted(new PersistedNotification(blockNumber, true, 1, BlockSource.PUBLISHER));
+                expected.add("verification " + blockNumber);
+                expected.add("persisted " + blockNumber);
+            }
+            runForwardedSends();
+
+            assertTrue(handler.awaitAll(), "Handler is missing notifications: " + handler.received.size());
+            assertEquals(expected, handler.received);
+            assertEquals(Set.of("MessageHandler:both"), handler.threadNames);
+        }
+
+        /**
+         * This test aims to assert that, by default, a handler registered only as a block notification handler
+         * receives no block verification notifications, although they travel on the block notification ring: only
+         * verified block handlers receive them, whatever the setting of the verified block ring. A verification
+         * notification and then a persisted notification are sent; the handler thread takes them in that order, so
+         * once the persisted notification has arrived the verification notification was already passed over.
          */
         @Test
         @DisplayName("A handler registered only for block notifications gets no verification notifications")
-        void notificationOnlyHandlerGetsNoVerifications() throws InterruptedException {
-            final int blockCount = queueSize * 2;
-            final HoldingHandler notificationOnly = newHoldingHandler();
-            final RecordingHandler verified = new RecordingHandler(blockCount);
-            facility.registerBlockNotificationHandler(notificationOnly, false, "notification-only");
-            facility.registerVerifiedBlockHandler(verified, false, "verified");
-            facility.start();
-
-            final Thread sender = sendInBackground(0, blockCount, new AtomicInteger());
-
-            sender.join(TimeUnit.SECONDS.toMillis(AWAIT_TIMEOUT_SECONDS));
-            assertFalse(sender.isAlive(), "Sender is waiting on a handler that is not a verified block handler");
-            assertTrue(verified.awaitAll(), "Verified block handler is missing notifications");
-            assertTrue(notificationOnly.received.isEmpty(), "Notification handler received verification notifications");
-        }
-
-        /**
-         * This test aims to assert that verification notifications are published directly from the sending thread and
-         * never go through the message forwarder. The forwarder of this test only runs its tasks when the test asks it
-         * to, which this test never does, yet every notification is delivered and no task is ever submitted to the
-         * forwarder.
-         */
-        @Test
-        @DisplayName("Verification notifications are delivered without the message forwarder")
-        void notificationsAreDeliveredWithoutTheMessageForwarder() throws InterruptedException {
-            final RecordingHandler handler = new RecordingHandler(queueSize);
-            facility.registerVerifiedBlockHandler(handler, false, "recording");
-            facility.start();
-
-            for (long blockNumber = 0; blockNumber < queueSize; blockNumber++) {
-                facility.sendBlockVerification(verifiedBlock(blockNumber));
-            }
-
-            assertTrue(handler.awaitAll(), "Handler is missing notifications: " + handler.received.size());
-            assertFalse(threadPoolManager.executor().wasAnyTaskSubmitted(), "A task went through the forwarder");
-        }
-
-        /**
-         * This test aims to assert that a handler receives verification notifications on a thread of its own, named
-         * after the verified block ring, and not on the thread that delivers its block notifications.
-         */
-        @Test
-        @DisplayName("Verification notifications arrive on a thread of their own")
-        void notificationsArriveOnAThreadOfTheirOwn() throws InterruptedException {
-            final RecordingHandler handler = new RecordingHandler(1);
-            facility.registerBlockNotificationHandler(handler, false, "recording");
-            facility.registerVerifiedBlockHandler(handler, false, "recording");
+        void notificationOnlyHandlerGetsNoVerificationNotifications() throws InterruptedException {
+            final SequenceRecordingHandler handler = new SequenceRecordingHandler(1);
+            facility.registerBlockNotificationHandler(handler, false, "notification-only");
             facility.start();
 
             facility.sendBlockVerification(verifiedBlock(0));
             facility.sendBlockPersisted(new PersistedNotification(0, true, 1, BlockSource.PUBLISHER));
             runForwardedSends();
 
-            assertTrue(handler.awaitAll(), "Handler did not receive the verification notification");
-            awaitCondition(() -> handler.persistedThreadName != null, "Handler did not receive the notification");
-            assertEquals("MessageHandler:VerifiedBlocks:recording", handler.verificationThreadName);
-            assertNotEquals(handler.verificationThreadName, handler.persistedThreadName);
+            assertTrue(handler.awaitAll(), "Handler did not receive the persisted notification");
+            assertEquals(List.of("persisted 0"), handler.received);
         }
-    }
 
-    @Nested
-    @DisplayName("Back pressure")
-    class BackPressure {
         /**
-         * This test aims to assert that a handler that falls behind makes the sender of verification notifications
-         * wait once the ring is full, that the gauge reports the ring as full meanwhile, and that every notification
-         * is delivered in order once the handler catches up, after which the gauge reports the ring as empty.
+         * This test aims to assert that, by default, a handler registered only as a verified block handler receives
+         * its verification notifications on the block notification ring but none of the other block notifications,
+         * as with the verified block ring enabled. A persisted notification and then a verification notification are
+         * sent; the handler thread takes them in that order, so once the verification notification has arrived the
+         * persisted notification was already passed over.
          */
         @Test
-        @DisplayName("A full ring makes the sender wait until the handler catches up")
-        void fullRingMakesTheSenderWait() throws InterruptedException {
+        @DisplayName("A handler registered only for verified blocks gets no other block notifications")
+        void verifiedOnlyHandlerGetsNoOtherBlockNotifications() throws InterruptedException {
+            final SequenceRecordingHandler handler = new SequenceRecordingHandler(1);
+            facility.registerVerifiedBlockHandler(handler, false, "verified-only");
+            facility.start();
+
+            facility.sendBlockPersisted(new PersistedNotification(0, true, 1, BlockSource.PUBLISHER));
+            facility.sendBlockVerification(verifiedBlock(0));
+            runForwardedSends();
+
+            assertTrue(handler.awaitAll(), "Handler did not receive the verification notification");
+            assertEquals(List.of("verification 0"), handler.received);
+        }
+
+        /**
+         * This test aims to assert that, by default, a handler registered both ways keeps the other way when it is
+         * unregistered one way. Unregistered as a verified block handler, it stops receiving verification
+         * notifications but still receives its block notifications; unregistered as a block notification handler
+         * too, it receives nothing more. A witness block notification handler receives every persisted notification,
+         * so the test knows when the last one was handled.
+         */
+        @Test
+        @DisplayName("A handler unregistered one way keeps receiving what it is still registered for")
+        void unregisteringOneWayKeepsTheOther() throws InterruptedException {
+            final SequenceRecordingHandler handler = new SequenceRecordingHandler(1);
+            final SequenceRecordingHandler witness = new SequenceRecordingHandler(2);
+            facility.registerBlockNotificationHandler(handler, false, "both");
+            facility.registerVerifiedBlockHandler(handler, false, "both");
+            facility.registerBlockNotificationHandler(witness, false, "witness");
+            facility.start();
+
+            facility.unregisterVerifiedBlockHandler(handler);
+            facility.sendBlockVerification(verifiedBlock(0));
+            facility.sendBlockPersisted(new PersistedNotification(0, true, 1, BlockSource.PUBLISHER));
+            runForwardedSends();
+            assertTrue(handler.awaitAll(), "Handler stopped receiving its block notifications");
+            assertEquals(List.of("persisted 0"), handler.received);
+
+            facility.unregisterBlockNotificationHandler(handler);
+            facility.sendBlockPersisted(new PersistedNotification(1, true, 1, BlockSource.PUBLISHER));
+            runForwardedSends();
+            assertTrue(witness.awaitAll(), "Witness handler is missing notifications: " + witness.received);
+            assertEquals(List.of("persisted 0"), handler.received);
+        }
+
+        /**
+         * This test aims to assert that, by default, a sender of block verification notifications never waits, even
+         * when a handler holds the ring back: the notification goes to the message forwarder, and only the forwarder
+         * waits for room on the block notification ring, as before the verified block ring existed. The handler holds
+         * on to the first notification it receives, so twice as many notifications as the ring holds cannot all be
+         * delivered, yet the sending thread finishes.
+         */
+        @Test
+        @DisplayName("A sender of verification notifications never waits, even when a handler holds the ring back")
+        void senderNeverWaitsForTheHandlers() throws InterruptedException {
+            final int blockCount = messagingConfig.blockNotificationQueueSize() * 2;
             final HoldingHandler handler = newHoldingHandler();
             facility.registerVerifiedBlockHandler(handler, false, "holding");
-            facility.start();
-            final AtomicInteger sent = new AtomicInteger();
-
-            final Thread sender = sendInBackground(0, queueSize * 2, sent);
-
-            awaitRingFull(handler, sent);
-            LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(STILL_WAITING_MILLIS));
-            assertEquals(queueSize, sent.get(), "Sender did not wait on the full ring");
-            assertTrue(sender.isAlive(), "Sender finished while the ring was full");
-            assertEquals(100.0, metricsExporter.verifiedBlockQueuePercentUsed());
-
-            handler.release();
-            sender.join(TimeUnit.SECONDS.toMillis(AWAIT_TIMEOUT_SECONDS));
-            assertFalse(sender.isAlive(), "Sender is still waiting after the handler caught up");
-            awaitCondition(() -> handler.received.size() == queueSize * 2, "Handler is missing notifications");
-            assertEquals(blockNumbers(0, queueSize * 2), handler.received);
-            awaitCondition(
-                    () -> metricsExporter.verifiedBlockQueuePercentUsed() == 0.0,
-                    "Gauge does not report the drained ring as empty");
-        }
-
-        /**
-         * This test aims to assert that unregistering a handler that holds the ring full releases the waiting sender,
-         * even though the handler still holds on to its notification, that the remaining handler still receives every
-         * notification, and that the unregistered handler receives nothing after the batch it had already taken. Once
-         * released, that handler may still finish the batch, at most a ring's worth of slots whose content can already
-         * be newer, since nothing holds them for it any more; then its thread must stop instead of taking another
-         * batch.
-         */
-        @Test
-        @DisplayName("Unregistering the handler that holds the ring releases the sender")
-        void unregisteringTheHoldingHandlerReleasesTheSender() throws InterruptedException {
-            final int blockCount = queueSize * 2;
-            final HoldingHandler holding = newHoldingHandler();
-            final RecordingHandler recording = new RecordingHandler(blockCount);
-            facility.registerVerifiedBlockHandler(holding, false, "holding");
-            facility.registerVerifiedBlockHandler(recording, false, "recording");
             facility.start();
             final AtomicInteger sent = new AtomicInteger();
 
             final Thread sender = sendInBackground(0, blockCount, sent);
-            awaitRingFull(holding, sent);
-            facility.unregisterVerifiedBlockHandler(holding);
-
             sender.join(TimeUnit.SECONDS.toMillis(AWAIT_TIMEOUT_SECONDS));
-            assertFalse(sender.isAlive(), "Sender is still waiting after the holding handler was unregistered");
-            assertTrue(
-                    recording.awaitAll(), "Remaining handler is missing notifications: " + recording.received.size());
-            assertEquals(blockNumbers(0, blockCount), recording.received);
-            holding.release();
-            assertTrue(
-                    holding.holdingThread.join(Duration.ofSeconds(AWAIT_TIMEOUT_SECONDS)),
-                    "Thread of the unregistered handler did not stop");
-            assertTrue(
-                    holding.received.size() <= queueSize,
-                    "Unregistered handler went on after its batch, it received " + holding.received.size());
-        }
-
-        /**
-         * This test aims to assert that stopping the facility releases a sender that waits on a full ring, even when
-         * the handler that holds the ring does not react to being stopped, so stopping the node never hangs on a
-         * verification notification that no handler will take.
-         */
-        @Test
-        @DisplayName("Stopping the facility releases a sender waiting on a full ring")
-        void stoppingTheFacilityReleasesAWaitingSender() throws InterruptedException {
-            final HoldingHandler handler = newHoldingHandler();
-            facility.registerVerifiedBlockHandler(handler, false, "holding");
-            facility.start();
-            final AtomicInteger sent = new AtomicInteger();
-
-            final Thread sender = sendInBackground(0, queueSize + 1, sent);
-            awaitRingFull(handler, sent);
-            facility.stop();
-
-            sender.join(TimeUnit.SECONDS.toMillis(AWAIT_TIMEOUT_SECONDS));
-            assertFalse(sender.isAlive(), "Sender is still waiting after the facility stopped");
-            assertEquals(queueSize + 1, sent.get());
-        }
-    }
-
-    @Nested
-    @DisplayName("Several senders")
-    class SeveralSenders {
-        /**
-         * This test aims to assert that verification notifications sent from two threads at the same time are each
-         * delivered exactly once, and that the notifications of each sender arrive in the order that sender sent them.
-         * Verification sends from several threads: its sessions, its block item thread and its unvalidated block
-         * thread.
-         */
-        @Test
-        @DisplayName("Notifications from concurrent senders are each delivered once, in sender order")
-        void notificationsFromConcurrentSendersAreEachDeliveredOnce() throws InterruptedException {
-            final int blocksPerSender = queueSize * 4;
-            final RecordingHandler handler = new RecordingHandler(blocksPerSender * 2);
-            facility.registerVerifiedBlockHandler(handler, false, "recording");
-            facility.start();
-
-            final Thread firstSender = sendInBackground(0, blocksPerSender, new AtomicInteger());
-            final Thread secondSender =
-                    sendInBackground(SECOND_SENDER_FIRST_BLOCK, blocksPerSender, new AtomicInteger());
-
-            firstSender.join(TimeUnit.SECONDS.toMillis(AWAIT_TIMEOUT_SECONDS));
-            secondSender.join(TimeUnit.SECONDS.toMillis(AWAIT_TIMEOUT_SECONDS));
-            assertTrue(handler.awaitAll(), "Handler is missing notifications: " + handler.received.size());
-            assertEquals(blocksPerSender * 2, new HashSet<>(handler.received).size(), "A notification arrived twice");
-            assertEquals(
-                    blockNumbers(0, blocksPerSender),
-                    handler.received.stream()
-                            .filter(blockNumber -> blockNumber < SECOND_SENDER_FIRST_BLOCK)
-                            .toList());
-            assertEquals(
-                    blockNumbers(SECOND_SENDER_FIRST_BLOCK, blocksPerSender),
-                    handler.received.stream()
-                            .filter(blockNumber -> blockNumber >= SECOND_SENDER_FIRST_BLOCK)
-                            .toList());
-        }
-    }
-
-    @Nested
-    @DisplayName("Isolation from the other rings")
-    class Isolation {
-        /**
-         * This test aims to assert that a full verified block ring does not hold back block items that are sent by
-         * another thread than the waiting sender: block items still flow to their handler, through more batches than
-         * the block item ring holds.
-         */
-        @Test
-        @DisplayName("A full verified block ring does not hold back block items")
-        void fullRingDoesNotHoldBackBlockItems() throws InterruptedException {
-            final int batchCount = messagingConfig.blockItemQueueSize() * 2;
-            final HoldingHandler holding = newHoldingHandler();
-            final CountDownLatch batchesReceived = new CountDownLatch(batchCount);
-            final BlockItemHandler blockItemHandler = blockItems -> batchesReceived.countDown();
-            facility.registerVerifiedBlockHandler(holding, false, "holding");
-            facility.registerBlockItemHandler(blockItemHandler, false, "block-items");
-            facility.start();
-            final AtomicInteger sent = new AtomicInteger();
-            final Thread sender = sendInBackground(0, queueSize + 1, sent);
-            awaitRingFull(holding, sent);
-
-            for (int blockNumber = 0; blockNumber < batchCount; blockNumber++) {
-                facility.sendBlockItems(blockItems(blockNumber));
-            }
-
-            assertTrue(
-                    batchesReceived.await(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS),
-                    "Block item handler is missing batches: " + batchesReceived.getCount());
-            assertTrue(sender.isAlive(), "The verified block ring was not full while block items were sent");
-        }
-
-        /**
-         * This test aims to assert that a full verified block ring never holds back block notifications, not even
-         * those of the handler that holds the ring full: its block notifications arrive on another thread.
-         */
-        @Test
-        @DisplayName("A full verified block ring does not hold back block notifications")
-        void fullRingDoesNotHoldBackBlockNotifications() {
-            final int notificationCount = messagingConfig.blockNotificationQueueSize() * 2;
-            final HoldingHandler holding = newHoldingHandler();
-            facility.registerBlockNotificationHandler(holding, false, "holding");
-            facility.registerVerifiedBlockHandler(holding, false, "holding");
-            facility.start();
-            final AtomicInteger sent = new AtomicInteger();
-            final Thread sender = sendInBackground(0, queueSize + 1, sent);
-            awaitRingFull(holding, sent);
-
-            for (long blockNumber = 0; blockNumber < notificationCount; blockNumber++) {
-                facility.sendBlockPersisted(new PersistedNotification(blockNumber, true, 1, BlockSource.PUBLISHER));
-            }
+            assertFalse(sender.isAlive(), "Sender waited for the handler that holds the ring back");
+            assertEquals(blockCount, sent.get());
             runForwardedSends();
 
-            awaitCondition(
-                    () -> holding.persisted.size() == notificationCount,
-                    "Holding handler is missing block notifications");
-            assertTrue(sender.isAlive(), "The verified block ring was not full while notifications were sent");
+            awaitCondition(() -> handler.holding.getCount() == 0, "Handler never received the first notification");
+            assertEquals(List.of(0L), handler.received);
+        }
+    }
+
+    @Nested
+    @DisplayName("Verified block ring enabled, for testing only (NOT READY FOR PRODUCTION)")
+    class VerifiedBlockRingEnabled {
+        @BeforeEach
+        void createFacilityWithTheRingEnabled() {
+            createFacility(Map.of("messaging.verifiedBlockRingEnabled", "true"));
         }
 
-        /**
-         * This test aims to assert that a full verified block ring does not hold back unvalidated blocks that are sent
-         * by another thread than the waiting sender: backfilled blocks still flow to their handler, through more
-         * blocks than the unvalidated block ring holds.
-         */
-        @Test
-        @DisplayName("A full verified block ring does not hold back unvalidated blocks")
-        void fullRingDoesNotHoldBackUnvalidatedBlocks() throws InterruptedException {
-            final int backfilledCount = messagingConfig.unvalidatedBlockQueueSize() * 2;
-            final HoldingHandler holding = newHoldingHandler();
-            final CountDownLatch backfilledReceived = new CountDownLatch(backfilledCount);
-            final BlockNotificationHandler unvalidatedHandler = new BlockNotificationHandler() {
-                @Override
-                public void handleBackfilled(final BackfilledBlockNotification notification) {
-                    backfilledReceived.countDown();
+        @Nested
+        @DisplayName("Delivery")
+        class Delivery {
+            /**
+             * This test aims to assert that every block verification notification reaches every registered verified block
+             * handler, in the order the notifications were sent, whether the handlers were registered before or after the
+             * facility started. More notifications than the ring holds are sent, so the ring wraps around.
+             */
+            @ParameterizedTest
+            @ValueSource(booleans = {true, false})
+            @DisplayName("Every verified block handler receives every verification notification in order")
+            void everyHandlerReceivesEveryNotificationInOrder(final boolean registerBeforeStart)
+                    throws InterruptedException {
+                final int blockCount = queueSize * 2 + 1;
+                final RecordingHandler first = new RecordingHandler(blockCount);
+                final RecordingHandler second = new RecordingHandler(blockCount);
+                if (registerBeforeStart) {
+                    facility.registerVerifiedBlockHandler(first, false, "first");
+                    facility.registerVerifiedBlockHandler(second, false, "second");
+                    facility.start();
+                } else {
+                    facility.start();
+                    facility.registerVerifiedBlockHandler(first, false, "first");
+                    facility.registerVerifiedBlockHandler(second, false, "second");
                 }
-            };
-            facility.registerVerifiedBlockHandler(holding, false, "holding");
-            facility.registerUnvalidatedBlockHandler(unvalidatedHandler, false, "unvalidated");
-            facility.start();
-            final AtomicInteger sent = new AtomicInteger();
-            final Thread sender = sendInBackground(0, queueSize + 1, sent);
-            awaitRingFull(holding, sent);
 
-            for (long blockNumber = 0; blockNumber < backfilledCount; blockNumber++) {
-                facility.sendBackfilledBlockNotification(
-                        new BackfilledBlockNotification(blockNumber, BlockUnparsed.DEFAULT));
+                sendInBackground(0, blockCount, new AtomicInteger());
+
+                final List<Long> expected = blockNumbers(0, blockCount);
+                assertTrue(first.awaitAll(), "First handler is missing notifications: " + first.received.size());
+                assertTrue(second.awaitAll(), "Second handler is missing notifications: " + second.received.size());
+                assertEquals(expected, first.received);
+                assertEquals(expected, second.received);
             }
 
-            assertTrue(
-                    backfilledReceived.await(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS),
-                    "Unvalidated block handler is missing blocks: " + backfilledReceived.getCount());
-            assertTrue(sender.isAlive(), "The verified block ring was not full while unvalidated blocks were sent");
+            /**
+             * This test aims to assert that a verified block handler receives the very notification that was sent, with
+             * the whole block it carries, and not a copy without the block.
+             */
+            @Test
+            @DisplayName("A verification notification arrives unchanged, with its block")
+            void notificationArrivesWithItsBlock() throws InterruptedException {
+                final RecordingHandler handler = new RecordingHandler(1);
+                facility.registerVerifiedBlockHandler(handler, false, "recording");
+                facility.start();
+                final VerificationNotification sent = verifiedBlock(0);
+
+                facility.sendBlockVerification(sent);
+
+                assertTrue(handler.awaitAll(), "Handler did not receive the notification");
+                assertSame(sent, handler.notifications.getFirst());
+                assertSame(sent.block(), handler.notifications.getFirst().block());
+            }
+
+            /**
+             * This test aims to assert that a handler registered only as a block notification handler is not attached to
+             * the verified block ring: it receives no verification notifications and does not hold the ring back. The
+             * handler would hold on to the first verification notification it receives, so if it were attached the sender
+             * would wait on the full ring instead of finishing.
+             */
+            @Test
+            @DisplayName("A handler registered only for block notifications gets no verification notifications")
+            void notificationOnlyHandlerGetsNoVerifications() throws InterruptedException {
+                final int blockCount = queueSize * 2;
+                final HoldingHandler notificationOnly = newHoldingHandler();
+                final RecordingHandler verified = new RecordingHandler(blockCount);
+                facility.registerBlockNotificationHandler(notificationOnly, false, "notification-only");
+                facility.registerVerifiedBlockHandler(verified, false, "verified");
+                facility.start();
+
+                final Thread sender = sendInBackground(0, blockCount, new AtomicInteger());
+
+                sender.join(TimeUnit.SECONDS.toMillis(AWAIT_TIMEOUT_SECONDS));
+                assertFalse(sender.isAlive(), "Sender is waiting on a handler that is not a verified block handler");
+                assertTrue(verified.awaitAll(), "Verified block handler is missing notifications");
+                assertTrue(
+                        notificationOnly.received.isEmpty(),
+                        "Notification handler received verification notifications");
+            }
+
+            /**
+             * This test aims to assert that verification notifications are published directly from the sending thread and
+             * never go through the message forwarder. The forwarder of this test only runs its tasks when the test asks it
+             * to, which this test never does, yet every notification is delivered and no task is ever submitted to the
+             * forwarder.
+             */
+            @Test
+            @DisplayName("Verification notifications are delivered without the message forwarder")
+            void notificationsAreDeliveredWithoutTheMessageForwarder() throws InterruptedException {
+                final RecordingHandler handler = new RecordingHandler(queueSize);
+                facility.registerVerifiedBlockHandler(handler, false, "recording");
+                facility.start();
+
+                for (long blockNumber = 0; blockNumber < queueSize; blockNumber++) {
+                    facility.sendBlockVerification(verifiedBlock(blockNumber));
+                }
+
+                assertTrue(handler.awaitAll(), "Handler is missing notifications: " + handler.received.size());
+                assertFalse(threadPoolManager.executor().wasAnyTaskSubmitted(), "A task went through the forwarder");
+            }
+
+            /**
+             * This test aims to assert that a handler receives verification notifications on a thread of its own, named
+             * after the verified block ring, and not on the thread that delivers its block notifications.
+             */
+            @Test
+            @DisplayName("Verification notifications arrive on a thread of their own")
+            void notificationsArriveOnAThreadOfTheirOwn() throws InterruptedException {
+                final RecordingHandler handler = new RecordingHandler(1);
+                facility.registerBlockNotificationHandler(handler, false, "recording");
+                facility.registerVerifiedBlockHandler(handler, false, "recording");
+                facility.start();
+
+                facility.sendBlockVerification(verifiedBlock(0));
+                facility.sendBlockPersisted(new PersistedNotification(0, true, 1, BlockSource.PUBLISHER));
+                runForwardedSends();
+
+                assertTrue(handler.awaitAll(), "Handler did not receive the verification notification");
+                awaitCondition(() -> handler.persistedThreadName != null, "Handler did not receive the notification");
+                assertEquals("MessageHandler:VerifiedBlocks:recording", handler.verificationThreadName);
+                assertNotEquals(handler.verificationThreadName, handler.persistedThreadName);
+            }
         }
 
-        /**
-         * This test aims to assert that a handler busy with a block notification still receives verification
-         * notifications: they no longer queue behind the block notifications of the handler.
-         */
-        @Test
-        @DisplayName("A handler busy with a block notification still receives verification notifications")
-        void handlerBusyWithANotificationStillReceivesVerifications() {
-            final NotificationHoldingHandler handler = new NotificationHoldingHandler();
-            facility.registerBlockNotificationHandler(handler, false, "notification-holding");
-            facility.registerVerifiedBlockHandler(handler, false, "notification-holding");
-            facility.start();
-            facility.sendBlockPersisted(new PersistedNotification(0, true, 1, BlockSource.PUBLISHER));
-            runForwardedSends();
-            awaitCondition(() -> handler.holding.getCount() == 0, "Handler never received the notification");
+        @Nested
+        @DisplayName("Back pressure")
+        class BackPressure {
+            /**
+             * This test aims to assert that a handler that falls behind makes the sender of verification notifications
+             * wait once the ring is full, that the gauge reports the ring as full meanwhile, and that every notification
+             * is delivered in order once the handler catches up, after which the gauge reports the ring as empty.
+             */
+            @Test
+            @DisplayName("A full ring makes the sender wait until the handler catches up")
+            void fullRingMakesTheSenderWait() throws InterruptedException {
+                final HoldingHandler handler = newHoldingHandler();
+                facility.registerVerifiedBlockHandler(handler, false, "holding");
+                facility.start();
+                final AtomicInteger sent = new AtomicInteger();
 
-            for (long blockNumber = 0; blockNumber < queueSize * 2; blockNumber++) {
-                facility.sendBlockVerification(verifiedBlock(blockNumber));
+                final Thread sender = sendInBackground(0, queueSize * 2, sent);
+
+                awaitRingFull(handler, sent);
+                LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(STILL_WAITING_MILLIS));
+                assertEquals(queueSize, sent.get(), "Sender did not wait on the full ring");
+                assertTrue(sender.isAlive(), "Sender finished while the ring was full");
+                assertEquals(100.0, metricsExporter.verifiedBlockQueuePercentUsed());
+
+                handler.release();
+                sender.join(TimeUnit.SECONDS.toMillis(AWAIT_TIMEOUT_SECONDS));
+                assertFalse(sender.isAlive(), "Sender is still waiting after the handler caught up");
+                awaitCondition(() -> handler.received.size() == queueSize * 2, "Handler is missing notifications");
+                assertEquals(blockNumbers(0, queueSize * 2), handler.received);
+                awaitCondition(
+                        () -> metricsExporter.verifiedBlockQueuePercentUsed() == 0.0,
+                        "Gauge does not report the drained ring as empty");
             }
 
-            awaitCondition(
-                    () -> handler.received.size() == queueSize * 2,
-                    "Handler busy with a notification is missing verification notifications");
-            assertEquals(blockNumbers(0, queueSize * 2), handler.received);
-            handler.release.countDown();
+            /**
+             * This test aims to assert that unregistering a handler that holds the ring full releases the waiting sender,
+             * even though the handler still holds on to its notification, that the remaining handler still receives every
+             * notification, and that the unregistered handler receives nothing after the batch it had already taken. Once
+             * released, that handler may still finish the batch, at most a ring's worth of slots whose content can already
+             * be newer, since nothing holds them for it any more; then its thread must stop instead of taking another
+             * batch.
+             */
+            @Test
+            @DisplayName("Unregistering the handler that holds the ring releases the sender")
+            void unregisteringTheHoldingHandlerReleasesTheSender() throws InterruptedException {
+                final int blockCount = queueSize * 2;
+                final HoldingHandler holding = newHoldingHandler();
+                final RecordingHandler recording = new RecordingHandler(blockCount);
+                facility.registerVerifiedBlockHandler(holding, false, "holding");
+                facility.registerVerifiedBlockHandler(recording, false, "recording");
+                facility.start();
+                final AtomicInteger sent = new AtomicInteger();
+
+                final Thread sender = sendInBackground(0, blockCount, sent);
+                awaitRingFull(holding, sent);
+                facility.unregisterVerifiedBlockHandler(holding);
+
+                sender.join(TimeUnit.SECONDS.toMillis(AWAIT_TIMEOUT_SECONDS));
+                assertFalse(sender.isAlive(), "Sender is still waiting after the holding handler was unregistered");
+                assertTrue(
+                        recording.awaitAll(),
+                        "Remaining handler is missing notifications: " + recording.received.size());
+                assertEquals(blockNumbers(0, blockCount), recording.received);
+                holding.release();
+                assertTrue(
+                        holding.holdingThread.join(Duration.ofSeconds(AWAIT_TIMEOUT_SECONDS)),
+                        "Thread of the unregistered handler did not stop");
+                assertTrue(
+                        holding.received.size() <= queueSize,
+                        "Unregistered handler went on after its batch, it received " + holding.received.size());
+            }
+
+            /**
+             * This test aims to assert that stopping the facility releases a sender that waits on a full ring, even when
+             * the handler that holds the ring does not react to being stopped, so stopping the node never hangs on a
+             * verification notification that no handler will take.
+             */
+            @Test
+            @DisplayName("Stopping the facility releases a sender waiting on a full ring")
+            void stoppingTheFacilityReleasesAWaitingSender() throws InterruptedException {
+                final HoldingHandler handler = newHoldingHandler();
+                facility.registerVerifiedBlockHandler(handler, false, "holding");
+                facility.start();
+                final AtomicInteger sent = new AtomicInteger();
+
+                final Thread sender = sendInBackground(0, queueSize + 1, sent);
+                awaitRingFull(handler, sent);
+                facility.stop();
+
+                sender.join(TimeUnit.SECONDS.toMillis(AWAIT_TIMEOUT_SECONDS));
+                assertFalse(sender.isAlive(), "Sender is still waiting after the facility stopped");
+                assertEquals(queueSize + 1, sent.get());
+            }
         }
-    }
 
-    @Nested
-    @DisplayName("Handler failures")
-    class HandlerFailures {
-        /**
-         * This test aims to assert that a handler that fails on one verification notification skips only that
-         * notification: it still receives the notifications after it, and the skipped notification is counted.
-         */
-        @Test
-        @DisplayName("A handler that fails on a notification still receives the next notifications")
-        void handlerThatFailsOnANotificationStillReceivesTheNextNotifications() {
-            final FailOnFirstHandler handler = new FailOnFirstHandler();
-            facility.registerVerifiedBlockHandler(handler, false, "fails-on-first");
-            facility.start();
+        @Nested
+        @DisplayName("Several senders")
+        class SeveralSenders {
+            /**
+             * This test aims to assert that verification notifications sent from two threads at the same time are each
+             * delivered exactly once, and that the notifications of each sender arrive in the order that sender sent them.
+             * Verification sends from several threads: its sessions, its block item thread and its unvalidated block
+             * thread.
+             */
+            @Test
+            @DisplayName("Notifications from concurrent senders are each delivered once, in sender order")
+            void notificationsFromConcurrentSendersAreEachDeliveredOnce() throws InterruptedException {
+                final int blocksPerSender = queueSize * 4;
+                final RecordingHandler handler = new RecordingHandler(blocksPerSender * 2);
+                facility.registerVerifiedBlockHandler(handler, false, "recording");
+                facility.start();
 
-            for (long blockNumber = 0; blockNumber < 3; blockNumber++) {
-                facility.sendBlockVerification(verifiedBlock(blockNumber));
+                final Thread firstSender = sendInBackground(0, blocksPerSender, new AtomicInteger());
+                final Thread secondSender =
+                        sendInBackground(SECOND_SENDER_FIRST_BLOCK, blocksPerSender, new AtomicInteger());
+
+                firstSender.join(TimeUnit.SECONDS.toMillis(AWAIT_TIMEOUT_SECONDS));
+                secondSender.join(TimeUnit.SECONDS.toMillis(AWAIT_TIMEOUT_SECONDS));
+                assertTrue(handler.awaitAll(), "Handler is missing notifications: " + handler.received.size());
+                assertEquals(
+                        blocksPerSender * 2, new HashSet<>(handler.received).size(), "A notification arrived twice");
+                assertEquals(
+                        blockNumbers(0, blocksPerSender),
+                        handler.received.stream()
+                                .filter(blockNumber -> blockNumber < SECOND_SENDER_FIRST_BLOCK)
+                                .toList());
+                assertEquals(
+                        blockNumbers(SECOND_SENDER_FIRST_BLOCK, blocksPerSender),
+                        handler.received.stream()
+                                .filter(blockNumber -> blockNumber >= SECOND_SENDER_FIRST_BLOCK)
+                                .toList());
             }
-
-            awaitCondition(() -> handler.received.size() == 2, "Handler stopped after the failed notification");
-            assertEquals(List.of(1L, 2L), handler.received);
-            assertEquals(1L, counterValue(BlockMessagingFacilityImpl.METRIC_MESSAGING_HANDLER_FAILURES));
         }
-    }
 
-    @Nested
-    @DisplayName("Metrics")
-    class Metrics {
-        /**
-         * This test aims to assert that every verification notification sent is counted once it is on the ring, as
-         * the verification notification counter did before the notifications had a ring of their own.
-         */
-        @Test
-        @DisplayName("Every sent verification notification is counted")
-        void everySentNotificationIsCounted() {
-            facility.start();
+        @Nested
+        @DisplayName("Isolation from the other rings")
+        class Isolation {
+            /**
+             * This test aims to assert that a full verified block ring does not hold back block items that are sent by
+             * another thread than the waiting sender: block items still flow to their handler, through more batches than
+             * the block item ring holds.
+             */
+            @Test
+            @DisplayName("A full verified block ring does not hold back block items")
+            void fullRingDoesNotHoldBackBlockItems() throws InterruptedException {
+                final int batchCount = messagingConfig.blockItemQueueSize() * 2;
+                final HoldingHandler holding = newHoldingHandler();
+                final CountDownLatch batchesReceived = new CountDownLatch(batchCount);
+                final BlockItemHandler blockItemHandler = blockItems -> batchesReceived.countDown();
+                facility.registerVerifiedBlockHandler(holding, false, "holding");
+                facility.registerBlockItemHandler(blockItemHandler, false, "block-items");
+                facility.start();
+                final AtomicInteger sent = new AtomicInteger();
+                final Thread sender = sendInBackground(0, queueSize + 1, sent);
+                awaitRingFull(holding, sent);
 
-            for (long blockNumber = 0; blockNumber < queueSize; blockNumber++) {
-                facility.sendBlockVerification(verifiedBlock(blockNumber));
+                for (int blockNumber = 0; blockNumber < batchCount; blockNumber++) {
+                    facility.sendBlockItems(blockItems(blockNumber));
+                }
+
+                assertTrue(
+                        batchesReceived.await(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS),
+                        "Block item handler is missing batches: " + batchesReceived.getCount());
+                assertTrue(sender.isAlive(), "The verified block ring was not full while block items were sent");
             }
 
-            assertEquals(
-                    queueSize,
-                    counterValue(BlockMessagingFacilityImpl.METRIC_MESSAGING_BLOCK_VERIFICATION_NOTIFICATIONS));
+            /**
+             * This test aims to assert that a full verified block ring never holds back block notifications, not even
+             * those of the handler that holds the ring full: its block notifications arrive on another thread.
+             */
+            @Test
+            @DisplayName("A full verified block ring does not hold back block notifications")
+            void fullRingDoesNotHoldBackBlockNotifications() {
+                final int notificationCount = messagingConfig.blockNotificationQueueSize() * 2;
+                final HoldingHandler holding = newHoldingHandler();
+                facility.registerBlockNotificationHandler(holding, false, "holding");
+                facility.registerVerifiedBlockHandler(holding, false, "holding");
+                facility.start();
+                final AtomicInteger sent = new AtomicInteger();
+                final Thread sender = sendInBackground(0, queueSize + 1, sent);
+                awaitRingFull(holding, sent);
+
+                for (long blockNumber = 0; blockNumber < notificationCount; blockNumber++) {
+                    facility.sendBlockPersisted(new PersistedNotification(blockNumber, true, 1, BlockSource.PUBLISHER));
+                }
+                runForwardedSends();
+
+                awaitCondition(
+                        () -> holding.persisted.size() == notificationCount,
+                        "Holding handler is missing block notifications");
+                assertTrue(sender.isAlive(), "The verified block ring was not full while notifications were sent");
+            }
+
+            /**
+             * This test aims to assert that a full verified block ring does not hold back unvalidated blocks that are sent
+             * by another thread than the waiting sender: backfilled blocks still flow to their handler, through more
+             * blocks than the unvalidated block ring holds.
+             */
+            @Test
+            @DisplayName("A full verified block ring does not hold back unvalidated blocks")
+            void fullRingDoesNotHoldBackUnvalidatedBlocks() throws InterruptedException {
+                final int backfilledCount = messagingConfig.unvalidatedBlockQueueSize() * 2;
+                final HoldingHandler holding = newHoldingHandler();
+                final CountDownLatch backfilledReceived = new CountDownLatch(backfilledCount);
+                final BlockNotificationHandler unvalidatedHandler = new BlockNotificationHandler() {
+                    @Override
+                    public void handleBackfilled(final BackfilledBlockNotification notification) {
+                        backfilledReceived.countDown();
+                    }
+                };
+                facility.registerVerifiedBlockHandler(holding, false, "holding");
+                facility.registerUnvalidatedBlockHandler(unvalidatedHandler, false, "unvalidated");
+                facility.start();
+                final AtomicInteger sent = new AtomicInteger();
+                final Thread sender = sendInBackground(0, queueSize + 1, sent);
+                awaitRingFull(holding, sent);
+
+                for (long blockNumber = 0; blockNumber < backfilledCount; blockNumber++) {
+                    facility.sendBackfilledBlockNotification(
+                            new BackfilledBlockNotification(blockNumber, BlockUnparsed.DEFAULT));
+                }
+
+                assertTrue(
+                        backfilledReceived.await(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS),
+                        "Unvalidated block handler is missing blocks: " + backfilledReceived.getCount());
+                assertTrue(sender.isAlive(), "The verified block ring was not full while unvalidated blocks were sent");
+            }
+
+            /**
+             * This test aims to assert that a handler busy with a block notification still receives verification
+             * notifications: they no longer queue behind the block notifications of the handler.
+             */
+            @Test
+            @DisplayName("A handler busy with a block notification still receives verification notifications")
+            void handlerBusyWithANotificationStillReceivesVerifications() {
+                final NotificationHoldingHandler handler = new NotificationHoldingHandler();
+                facility.registerBlockNotificationHandler(handler, false, "notification-holding");
+                facility.registerVerifiedBlockHandler(handler, false, "notification-holding");
+                facility.start();
+                facility.sendBlockPersisted(new PersistedNotification(0, true, 1, BlockSource.PUBLISHER));
+                runForwardedSends();
+                awaitCondition(() -> handler.holding.getCount() == 0, "Handler never received the notification");
+
+                for (long blockNumber = 0; blockNumber < queueSize * 2; blockNumber++) {
+                    facility.sendBlockVerification(verifiedBlock(blockNumber));
+                }
+
+                awaitCondition(
+                        () -> handler.received.size() == queueSize * 2,
+                        "Handler busy with a notification is missing verification notifications");
+                assertEquals(blockNumbers(0, queueSize * 2), handler.received);
+                handler.release.countDown();
+            }
+        }
+
+        @Nested
+        @DisplayName("Handler failures")
+        class HandlerFailures {
+            /**
+             * This test aims to assert that a handler that fails on one verification notification skips only that
+             * notification: it still receives the notifications after it, and the skipped notification is counted.
+             */
+            @Test
+            @DisplayName("A handler that fails on a notification still receives the next notifications")
+            void handlerThatFailsOnANotificationStillReceivesTheNextNotifications() {
+                final FailOnFirstHandler handler = new FailOnFirstHandler();
+                facility.registerVerifiedBlockHandler(handler, false, "fails-on-first");
+                facility.start();
+
+                for (long blockNumber = 0; blockNumber < 3; blockNumber++) {
+                    facility.sendBlockVerification(verifiedBlock(blockNumber));
+                }
+
+                awaitCondition(() -> handler.received.size() == 2, "Handler stopped after the failed notification");
+                assertEquals(List.of(1L, 2L), handler.received);
+                assertEquals(1L, counterValue(BlockMessagingFacilityImpl.METRIC_MESSAGING_HANDLER_FAILURES));
+            }
+        }
+
+        @Nested
+        @DisplayName("Metrics")
+        class Metrics {
+            /**
+             * This test aims to assert that every verification notification sent is counted once it is on the ring, as
+             * the verification notification counter did before the notifications had a ring of their own.
+             */
+            @Test
+            @DisplayName("Every sent verification notification is counted")
+            void everySentNotificationIsCounted() {
+                facility.start();
+
+                for (long blockNumber = 0; blockNumber < queueSize; blockNumber++) {
+                    facility.sendBlockVerification(verifiedBlock(blockNumber));
+                }
+
+                assertEquals(
+                        queueSize,
+                        counterValue(BlockMessagingFacilityImpl.METRIC_MESSAGING_BLOCK_VERIFICATION_NOTIFICATIONS));
+            }
         }
     }
 
@@ -554,10 +762,10 @@ class VerifiedBlockTest {
     }
 
     /**
-     * Runs the sends handed to the message forwarder, on a thread of their own.
+     * Runs the sends handed to the message forwarder so far, on the forwarder thread of the test.
      */
     private void runForwardedSends() {
-        threadPoolManager.executor().executeAsync(false, 10_000L, false, false, Executors::newSingleThreadExecutor);
+        threadPoolManager.executor().executeAsync(false, 10_000L, false, false, () -> forwarderThread);
     }
 
     /**
@@ -675,6 +883,59 @@ class VerifiedBlockTest {
 
         /**
          * Waits for all the expected verification notifications.
+         *
+         * @return true if all the expected notifications arrived in time
+         * @throws InterruptedException if the waiting thread is interrupted
+         */
+        private boolean awaitAll() throws InterruptedException {
+            return allReceived.await(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        }
+    }
+
+    /**
+     * Block notification handler that records every verification and persisted notification it receives, in the order
+     * received, and the names of the threads they arrive on.
+     */
+    private static final class SequenceRecordingHandler implements BlockNotificationHandler {
+        /** The notifications received, in the order received, as their kind and block number */
+        private final List<String> received = new CopyOnWriteArrayList<>();
+        /** The names of the threads the notifications arrived on */
+        private final Set<String> threadNames = ConcurrentHashMap.newKeySet();
+        /** Counted down for every notification received */
+        private final CountDownLatch allReceived;
+
+        /**
+         * Create a handler expecting the given number of notifications.
+         *
+         * @param expectedNotifications the number of verification and persisted notifications to expect
+         */
+        private SequenceRecordingHandler(final int expectedNotifications) {
+            this.allReceived = new CountDownLatch(expectedNotifications);
+        }
+
+        @Override
+        public void handleVerification(final VerificationNotification notification) {
+            record("verification " + notification.blockNumber());
+        }
+
+        @Override
+        public void handlePersisted(final PersistedNotification notification) {
+            record("persisted " + notification.blockNumber());
+        }
+
+        /**
+         * Records a notification and the thread it arrived on.
+         *
+         * @param notification the kind and block number of the notification
+         */
+        private void record(final String notification) {
+            threadNames.add(Thread.currentThread().getName());
+            received.add(notification);
+            allReceived.countDown();
+        }
+
+        /**
+         * Waits for all the expected notifications.
          *
          * @return true if all the expected notifications arrived in time
          * @throws InterruptedException if the waiting thread is interrupted
