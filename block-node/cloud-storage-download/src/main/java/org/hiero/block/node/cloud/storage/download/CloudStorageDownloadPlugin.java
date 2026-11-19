@@ -89,12 +89,9 @@ public class CloudStorageDownloadPlugin implements BlockNodePlugin {
     ///
     /// Validates the configuration and creates the bucket client. A blank bucket setting, or a
     /// bucket client that cannot be created, is logged at WARNING and leaves the plugin idle, so
-    /// a node that loads every plugin starts without download settings. A set but invalid value
-    /// throws, so a misconfigured node does not start. The bucket itself is not contacted:
+    /// a node that loads every plugin starts without download settings. Numeric settings are
+    /// checked by the configuration itself before this runs. The bucket itself is not contacted:
     /// whether it is reachable shows on the first probe.
-    ///
-    /// @throws IllegalStateException when the bucket settings are set but the threshold or the
-    ///     window is not positive
     @Override
     public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
         this.context = context;
@@ -106,13 +103,6 @@ public class CloudStorageDownloadPlugin implements BlockNodePlugin {
         addIfBlank(config.accessKey(), "accessKey", blank);
         addIfBlank(config.secretKey(), "secretKey", blank);
         if (blank.isEmpty()) {
-            final List<String> invalid = new ArrayList<>();
-            addIfNotPositive(config.aheadThresholdBlocks(), "aheadThresholdBlocks", invalid);
-            addIfNotPositive(config.downloadWindow(), "downloadWindow", invalid);
-            if (!invalid.isEmpty()) {
-                throw new IllegalStateException(
-                        "Cloud storage download settings not positive: " + String.join(", ", invalid));
-            }
             if (s3Client == null) {
                 s3Client = createClient(config);
                 idle = s3Client == null;
@@ -192,13 +182,6 @@ public class CloudStorageDownloadPlugin implements BlockNodePlugin {
     private static void addIfBlank(final String value, final String property, final List<String> blank) {
         if (value == null || value.isBlank()) {
             blank.add(PROPERTY_PREFIX + property);
-        }
-    }
-
-    /// Adds the full name of a setting to the invalid ones when it is not positive.
-    private static void addIfNotPositive(final long value, final String property, final List<String> invalid) {
-        if (value <= 0) {
-            invalid.add(PROPERTY_PREFIX + property);
         }
     }
 

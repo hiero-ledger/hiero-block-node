@@ -2,11 +2,12 @@
 package org.hiero.block.node.cloud.storage.download;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.hedera.bucky.S3Client;
+import com.swirlds.config.api.validation.ConfigViolationException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -132,16 +133,17 @@ class CloudStorageDownloadPluginTest
     @ParameterizedTest
     @CsvSource({"aheadThresholdBlocks, 0", "downloadWindow, 0"})
     @DisplayName(
-            "A setting that is not positive fails init, naming the setting but never a value, and never touches the bucket")
-    void invalidSettingFailsInit(final String property, final String value) {
+            "A setting that is not positive fails the configuration, naming the setting, and never touches the bucket")
+    void invalidSettingFailsConfiguration(final String property, final String value) {
         final Map<String, String> config = validConfig();
         config.put("cloud.storage.download." + property, value);
-        assertThatThrownBy(() -> start(
-                        new CloudStorageDownloadPlugin(s3Client), new SimpleInMemoryHistoricalBlockFacility(), config))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("cloud.storage.download." + property)
-                .hasMessageNotContaining(ACCESS_KEY)
-                .hasMessageNotContaining(SECRET_KEY);
+        final ConfigViolationException exception = catchThrowableOfType(
+                ConfigViolationException.class,
+                () -> start(
+                        new CloudStorageDownloadPlugin(s3Client), new SimpleInMemoryHistoricalBlockFacility(), config));
+        assertThat(exception.getViolations()).hasSize(1);
+        assertThat(exception.getViolations().getFirst().getPropertyName())
+                .isEqualTo("cloud.storage.download." + property);
         verifyNoInteractions(s3Client);
     }
 

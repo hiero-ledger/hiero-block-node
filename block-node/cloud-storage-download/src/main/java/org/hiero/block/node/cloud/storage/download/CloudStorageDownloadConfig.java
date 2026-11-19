@@ -19,13 +19,14 @@ import org.hiero.block.node.base.Loggable;
 ///                             bucket, such as `mainnet` or `testnet-202611011200`. Changes at
 ///                             every network reset. Empty for no prefix.
 /// @param pollIntervalMs       time between two probes of the bucket, in milliseconds.
+///                             Minimum 1.
 /// @param aheadThresholdBlocks how many blocks the bucket must be ahead of the last stored
-///                             block before the plugin pulls. Must be positive.
-/// @param downloadWindow       number of blocks downloaded in parallel. Must be positive.
+///                             block before the plugin pulls. Minimum 1.
+/// @param downloadWindow       number of blocks downloaded in parallel. Minimum 1.
 /// @param persistWaitTimeoutMs maximum time to wait for one submitted block to be persisted,
-///                             in milliseconds.
+///                             in milliseconds. Minimum 1.
 /// @param requestTimeoutMs     maximum time to wait for the response headers of one bucket
-///                             request, in milliseconds.
+///                             request, in milliseconds. Minimum 1.
 // spotless:off - long annotations on record components must stay on one line
 @ConfigData("cloud.storage.download")
 public record CloudStorageDownloadConfig(
@@ -36,8 +37,8 @@ public record CloudStorageDownloadConfig(
         @ConfigProperty(defaultValue = "") String secretKey,
         @Loggable @ConfigProperty(defaultValue = "") String objectKeyPrefix,
         @Loggable @ConfigProperty(defaultValue = "10000") @Min(1) long pollIntervalMs,
-        @Loggable @ConfigProperty(defaultValue = "10") long aheadThresholdBlocks,
-        @Loggable @ConfigProperty(defaultValue = "10") int downloadWindow,
+        @Loggable @ConfigProperty(defaultValue = "10") @Min(1) long aheadThresholdBlocks,
+        @Loggable @ConfigProperty(defaultValue = "10") @Min(1) int downloadWindow,
         @Loggable @ConfigProperty(defaultValue = "90000") @Min(1) long persistWaitTimeoutMs,
         @Loggable @ConfigProperty(defaultValue = "10000") @Min(1) long requestTimeoutMs) {}
 // spotless:on

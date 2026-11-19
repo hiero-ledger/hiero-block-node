@@ -183,7 +183,6 @@ class BucketPoller implements Runnable, ApplicationStateNotificationHandler {
             final long target = last + config.aheadThresholdBlocks();
             try {
                 final long sourceNode = findBlock(nodes, target);
-                // TODO(#4097) skip the pull when a peer block node has the target block
                 if (sourceNode >= 0 && pull(last, target, sourceNode)) {
                     pulledUpTo = target;
                 }
