@@ -78,7 +78,7 @@ dependencies.constraints {
         because("org.hiero.consensus.concurrent")
     }
     // Non-modular jars pulled in transitively by swirlds-state-impl / virtualmap.
-    api("net.java.dev.jna:jna:5.19.0") { because("com.sun.jna") }
+    api("net.java.dev.jna:jna:5.19.1") { because("com.sun.jna") }
     api("io.prometheus:simpleclient:0.16.0") { because("simpleclient") }
     api("io.prometheus:simpleclient_common:0.16.0") { because("simpleclient.common") }
     api("io.prometheus:simpleclient_httpserver:0.16.0") { because("simpleclient.httpserver") }
