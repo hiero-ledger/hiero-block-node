@@ -11,10 +11,10 @@ CNs can upload each finished block file to a cloud bucket in addition to streami
 nodes, for example for disaster recovery. Such a bucket is then a valid recovery path for any
 block node that receives the stream from CNs, whatever its tier. The plugin runs inside these
 block nodes and frequently checks the bucket. When the bucket is ahead of what this node has by
-more than a configurable number of blocks, and peer block nodes cannot supply the blocks through
-backfill, it downloads one valid copy of each missing block. It then submits the blocks to the
-same verification and storage path backfill uses. Every pull is recorded with clear metrics, so
-we can see when streaming failed and never mistake a recovered period for a healthy one.
+more than a configurable number of blocks, it downloads one valid copy of each missing block. It
+then submits the blocks to the same verification and storage path backfill uses. Every pull is
+recorded with clear metrics, so we can see when streaming failed and never mistake a recovered
+period for a healthy one.
 
 This must not change behavior for subscribers of a Tier 1 BN, and it is a separate plugin; the
 backfill plugin is not modified.
@@ -23,21 +23,24 @@ backfill plugin is not modified.
 
 * The plugin must detect that this block node is behind the network by a configurable number of
   blocks, using only the CN upload bucket.
-* The plugin must not download anything while a peer block node can supply the missing blocks
-  and backfill is fetching them; fetching from peers stays the job of the backfill plugin.
+* The plugin must pull from the bucket whenever the node is behind by the threshold, whether or
+  not a peer block node could supply the missing blocks. It never contacts peer block nodes;
+  fetching from peers stays the job of the backfill plugin.
 * The plugin must deliver the missing blocks strictly in block order, through the same
   verification and persistence path that backfilled blocks use.
 * The plugin must tolerate a bad, missing or late copy in one CN's folder by trying another CN's
   copy of the same block.
 * Blocks pulled from the bucket must be distinguishable from publisher and backfill blocks in
   notifications, metrics and logs, so that every recovery is visible to operators.
-* The plugin must never write to or delete from the bucket.
-* The plugin must be restart safe without any local state of its own.
-* A failure of the plugin or of the bucket while the node runs must never affect the publisher,
-  backfill, health or any other plugin.
+* The plugin must never write to or delete from the bucket, and must work with read-only
+  credentials, which operators are expected to use.
+* The plugin must be restart-safe without any local state of its own.
+* A failure of the plugin or of the bucket while the node runs must never stop the publisher,
+  backfill, any other plugin or the server. Whether it makes the block node unhealthy is for the
+  health plugin to decide.
 * The plugin has no switch of its own: loading it with bucket settings turns it on. A node that
   does not load it is unaffected. A node that loads it without bucket settings starts, and the
-  plugin stays idle. A node that loads it with invalid settings fails to start.
+  plugin stays idle. A node that loads it with an invalid numeric setting fails to start.
 * The plugin must work with any S3-compatible store, including Google Cloud Storage through S3
   interoperability.
 * The probe block of each pull must be persisted within 30 seconds of its consensus timestamp.
@@ -64,15 +67,15 @@ backfill plugin is not modified.
   `last stored + threshold` exist in the bucket?
 * **Probe block (target)**: `last stored + threshold`, the block the probe looks for.
 * **Pull range**: `[last stored + 1, target]`, the blocks downloaded and submitted once the probe
-  finds the probe block and no peer can supply it.
+  finds the probe block.
 
 ## Entities
 
 ### `CloudStorageDownloadPlugin`
 
 Implements `BlockNodePlugin`, `BlockNotificationHandler` and the application state notification
-handler. Owns a single-thread scheduled executor that runs the probe, the peer check, the
-download and the submission. Downloads within one window run in parallel on virtual threads.
+handler. Owns a single-thread scheduled executor that runs the probe, the download and the
+submission. Downloads within one window run in parallel on virtual threads.
 
 ### `CloudStorageDownloadConfig`
 
@@ -153,9 +156,6 @@ All inputs come from the Application State facility; the plugin keeps no state o
 * **Node IDs:** `node_id` of every entry in `tssData().currentRoster()`, read in `start()` and
   refreshed on every `TssDataNotification`, so a node added at an upgrade is picked up. On a
   network without TSS data, the address book history gives the node IDs instead.
-* **Peers:** `backfillSources()`, the peer block nodes the backfill plugin registered. Read at
-  every peer check, not in `start()`, since backfill may register them later. Empty when
-  backfill is not loaded or has no sources, which means "no peer can help".
 
 ### Probe
 
@@ -169,48 +169,17 @@ Once per `pollIntervalMs`:
    there, try one more random node, since a single slow or failed CN must not hide that this node
    is behind.
 4. Not found: the node is not behind by the threshold. Wait for the next poll.
-5. Found: the node is behind. Run the peer check. If no peer has the blocks, download and submit
-   the pull range. When the pull range is done, probe again at once rather than waiting for the
-   next poll, since `last` has moved and the bucket may still be ahead. That probe starts after
-   the end of the pull, even before the stored blocks report it, so the same range is not pulled
-   twice.
+5. Found: the node is behind. Download and submit the pull range, whether or not backfill is
+   fetching the same blocks from a peer. When the pull range is done, probe again at once rather
+   than waiting for the next poll, since `last` has moved and the bucket may still be ahead. That
+   probe starts after the end of the pull, even before the stored blocks report it, so the same
+   range is not pulled twice.
 
 The plugin never tries to find the bucket's latest block. S3 and GCS list only in ascending key
 order, so that would need a walk of every node folder on every poll. Asking "is the probe block
 there?" costs one request per node folder checked. After a pull a tail shorter than the threshold
 can remain; that tail is left to the publisher and backfill, since the CNs still hold those
 blocks.
-
-### Peer check
-
-The plugin never downloads blocks from peer block nodes. It only asks them whether they have the
-missing blocks, to decide whether a bucket pull is needed at all.
-
-The plugin calls `serverStatus` through `BlockNodeClient` (in `base`) on every peer from
-`backfillSources()` in parallel. The whole check is bounded by a short `peerCheckTimeoutMs`,
-however many peers there are, and ends early once one peer reports `target`; a peer that has not
-answered by then counts as not having the blocks. If any peer's last available block is at least
-`target`, the plugin skips this pull, logs it at DEBUG, and leaves the blocks to backfill. The next
-probe checks again. With no peers registered, the plugin goes straight to the pull.
-
-A skip holds only while backfill makes progress, meaning the last stored block advanced between
-two probes, whichever source stored the blocks. The plugin keeps this as a single remembered
-value:
-
-* **Set:** on a skip, the plugin remembers `last`.
-* **Checked:** the next probe that finds the node behind compares `last` with the remembered
-  value. If `last` is higher, backfill is making progress: the plugin forgets the value and runs
-  the peer check again, which may skip again and remember the new `last`. If `last` is the same,
-  backfill is not fetching the blocks (it is not greedy, its next scan is far off, or it is
-  failing): the plugin forgets the value and pulls without a peer check.
-* **Cleared:** also when a probe finds the node not behind, and when a pull ends.
-
-This costs at most one poll interval of extra delay and needs no knowledge of backfill's
-configuration.
-
-During a real CN saturation every block node fed by the CNs is behind at the same time, so the
-check normally answers "no" quickly. The short timeout keeps an unresponsive peer from eating
-into the latency budget.
 
 ### Download and fallback
 
@@ -314,12 +283,12 @@ With the new value no other plugin changes:
 ### Duplicates
 
 When streaming resumes, the publisher and the plugin may deliver the same block, and backfill
-and the plugin may too if a peer catches up mid-pull. The plugin skips blocks already stored
-before downloading them, which avoids most duplicates. A block another source persists after
-that check is still submitted. A valid copy is verified and written again, identical to the
-first. A failed one (for example a session evicted from the verification buffer) is recognized
-by the stored-ranges check above and counted as already stored, not as a bad copy, so the pull
-continues. No extra coordination is needed.
+and the plugin may too, since the plugin pulls even while backfill fetches the same blocks from
+a peer. The plugin skips blocks already stored before downloading them, which avoids most
+duplicates. A block another source persists after that check is still submitted. A valid copy is
+verified and written again, identical to the first. A failed one (for example a session evicted
+from the verification buffer) is recognized by the stored-ranges check above and counted as
+already stored, not as a bad copy, so the pull continues. No extra coordination is needed.
 
 ### Restart
 
@@ -331,9 +300,9 @@ would only duplicate what storage already knows.
 
 Cloud behavior differs: S3 has been seen to blip past 5 minutes, GCS up to about 90 seconds. The
 plugin runs on its own executor with a per-request timeout. A stalled or failing bucket is
-counted in `cloud_download_request_failures`, logged and retried on the next poll. It never
-touches health, the publisher or backfill, and never shuts the server down: the plugin is a
-safety net, not a load-bearing part of ingest.
+counted in `cloud_download_request_failures`, logged and retried on the next poll. It never shuts
+the server down and never stops the publisher or backfill: the plugin is a safety net, not a
+load-bearing part of ingest.
 
 ### Logging
 
@@ -352,10 +321,12 @@ plugin, so a node that loads every plugin starts without download settings.
 not blank. If any of them is blank, it logs a WARNING naming each blank setting (never a value),
 schedules no poll, and the plugin stays idle for the life of the node.
 
-If all of them are set, `init()` checks that `aheadThresholdBlocks` and `downloadWindow` are
-positive and that the bucky client can be built from these settings. These values were set on
-purpose, so a failed check is a real misconfiguration: `init()` throws an exception naming the
-settings (never their values), and the node does not start.
+If all of them are set but the bucky client cannot be built from them, `init()` logs a WARNING
+and the plugin stays idle in the same way, as `cloud-storage-expanded` does.
+
+Every numeric setting must be at least 1. Like the numeric settings of the other cloud storage
+plugins, this is enforced by the configuration itself, so a value of zero or less makes the node
+fail to start before the plugin is initialized.
 
 Problems only the bucket can reveal, such as wrong credentials, a missing bucket or an
 unreachable endpoint, are not checked at startup. They show up as request failures (see
@@ -372,12 +343,8 @@ flowchart TD
     B --> C{"target in a<br/>random node folder?"}
     C -- no --> C2{"target in a<br/>second random node folder?"}
     C2 -- no --> Z["Not behind:<br/>wait for next tick"]
-    C -- yes --> D0{"Skipped before and<br/>last unchanged?"}
-    C2 -- yes --> D0
-    D0 -- yes --> E
-    D0 -- no --> D{"Any peer has<br/>target?"}
-    D -- yes --> P["Skip: log at DEBUG,<br/>backfill will fetch"]
-    D -- "no / no peers" --> E["Next window of<br/>[last + 1, target]"]
+    C -- yes --> E["Next window of<br/>[last + 1, target]"]
+    C2 -- yes --> E
     E --> F{Already stored?}
     F -- yes --> F2[Count already stored] --> H
     F -- no --> G["Download from the source node<br/>(then other nodes on failure),<br/>decompress, parse, check header"]
@@ -401,7 +368,6 @@ flowchart TD
 sequenceDiagram
     participant Bucket as CN upload bucket
     participant CSDP as CloudStorageDownloadPlugin
-    participant Peer as Peer block node
     participant MF as MessagingFacility
     participant Ver as VerificationServicePlugin
     participant Store as Persistence plugins
@@ -409,8 +375,6 @@ sequenceDiagram
 
     CSDP->>Bucket: prefix/node/block/target exists?
     Bucket-->>CSDP: found
-    CSDP->>Peer: serverStatus
-    Peer-->>CSDP: last available < target
     loop each block in [last + 1, target], in order
         CSDP->>Bucket: download(prefix/node/block/N)
         Bucket-->>CSDP: zstd block file
@@ -441,7 +405,6 @@ All properties are under the `cloud.storage.download` namespace.
 | `downloadWindow`       | `10`    | Blocks downloaded in parallel before being submitted in order. Must be positive.                |
 | `requestTimeoutMs`     | `10000` | Timeout for one bucket request.                                                                 |
 | `persistWaitTimeoutMs` | `90000` | How long to wait for the persisted notification of one block before ending the pull.            |
-| `peerCheckTimeoutMs`   | `2000`  | Overall limit for the peer check; peers are queried in parallel.                                |
 
 The defaults of `aheadThresholdBlocks` and `pollIntervalMs` are a starting point, to be refined
 through testing in real environments. A threshold below 10 is too aggressive: the plugin would
@@ -452,16 +415,15 @@ more time, at the cost of a longer catch-up and of the latency goal. When tuning
 * A probe can find the node behind up to one poll interval after it crossed the threshold, and
   that delay comes out of the margin left before the CN buffer fills. The poll interval must
   therefore stay below `(CN buffer limit - threshold) x block time`.
-* The poll interval, the peer check and the persist round trip of every block in the pull range
-  come out of the 30 second latency budget, so the threshold bounds the pull's duration as well
-  as the CN buffer margin.
+* The poll interval and the persist round trip of every block in the pull range come out of the
+  30 second latency budget, so the threshold bounds the pull's duration as well as the CN buffer
+  margin.
 
 The following are deliberately not configuration:
 
 * The archive path layout, which is the same as the `cloud-storage-expanded` plugin's.
 * The `block` folder name, which is fixed by the CN uploader's format.
 * The node IDs, which come from the roster.
-* The peer list, which comes from the backfill plugin's registered sources.
 * Retry policy details, which use bucky's default `RetryPolicy`.
 
 Credentials can also be supplied as environment variables (`CLOUD_STORAGE_DOWNLOAD_ACCESS_KEY`,
@@ -494,8 +456,7 @@ counters, so the keys below do not end in it.
 
 The last four end the pull. Blocks the pull never reached, because it ended early or a bucket
 request failed, are not counted. `copies_rejected` and `request_failures` stay separate counters
-because they count copies and requests, not blocks. A skip after the peer check is logged at
-DEBUG, not counted.
+because they count copies and requests, not blocks.
 
 `cloud_download_blocks{result="persisted"}` is the recovery signal: streaming from the CNs failed
 and the bucket filled the gap, so any non-zero value deserves an alert and an explanation.
@@ -519,19 +480,20 @@ so that distance is unknown.
 |                 Condition                 |                                                     Handling                                                     |
 |-------------------------------------------|------------------------------------------------------------------------------------------------------------------|
 | Required bucket setting blank             | WARNING naming the setting, never its value; no poll scheduled; the plugin stays idle and the node starts.       |
-| Threshold or window not positive          | `init()` throws naming the setting; the node does not start.                                                     |
-| bucky client cannot be built              | `init()` throws; the node does not start.                                                                        |
+| Numeric setting below 1                   | Configuration build fails naming the setting; the node does not start.                                           |
+| bucky client cannot be built              | WARNING; no poll scheduled; the plugin stays idle and the node starts.                                           |
 | 404 for a block in one node folder        | Not an error; try the next node folder.                                                                          |
 | Bad zstd, parse error, wrong block number | DEBUG; `copies_rejected` incremented; try the next node folder.                                                  |
 | No node folder has a usable copy          | Block counted as `not_present` or `download_failed`; pull ends; next poll starts again.                          |
 | Request timeout or S3 error               | `request_failures` incremented and logged; pull ends; next poll starts again. Never propagated to other plugins. |
-| Peer status query fails or times out      | That peer is treated as not having the blocks.                                                                   |
 | Verification fails for a pulled block     | `copies_rejected` incremented; retried once from another node folder; then `verification_failed`, pull ends.     |
 | No persisted notification in time         | Block counted as `persist_timeout` and logged; pull ends; next poll starts again from the last stored block.     |
 | `RuntimeException` in the poll task       | Caught and logged at WARNING so the scheduled task keeps running.                                                |
 
 Once the node has started, the plugin is fault-isolated: nothing it does can stop the publisher,
-backfill or the server.
+backfill or the server. The block node has no per-plugin health status yet; until it does, the
+plugin's state is visible through its logs and metrics (`cloud_download_request_failures`, the
+idle WARNING).
 
 ## Acceptance Tests
 
@@ -543,8 +505,9 @@ backfill or the server.
    (blocks `1`, `1234567` and `108273182`).
 2. **Configuration validation:** each blank required bucket setting makes `init()` return
    normally, log one WARNING naming the setting with no credential value, and schedule no poll. A
-   zero threshold and a zero window make `init()` throw; the message names the setting.
-3. **Client construction:** settings bucky cannot build a client from make `init()` throw.
+   zero threshold and a zero window each make the configuration build fail, naming the setting.
+3. **Client construction:** settings bucky cannot build a client from make `init()` return
+   normally, log a WARNING and schedule no poll.
 4. **Nothing stored yet:** with `last = -1` the probe block is `threshold - 1`.
 5. **Not behind:** probe block absent in two node folders; no pull.
 6. **Behind by exactly the threshold:** probe block present; the pull range is
@@ -553,11 +516,8 @@ backfill or the server.
 8. **Roster update:** a `TssDataNotification` adding a node makes its folder eligible.
 9. **Back-to-back pulls:** after a pull completes and the bucket is still ahead, the next probe
    runs at once.
-10. **Peer check:** no peers registered (pull), a peer has `target` (skip, no pull), all peers
-    behind (pull), a peer times out (treated as behind). After a skip, a probe that finds `last`
-    moved runs the peer check again; a probe that finds `last` unchanged pulls without one. A
-    probe that finds the node not behind clears the remembered `last`, so the next time the node
-    is behind the peer check runs again.
+10. **Backfill sources registered:** with peer block nodes registered as backfill sources, a
+    probe that finds the probe block still pulls the whole pull range.
 11. **Source node:** every block of the pull range is downloaded from the node folder in which
     the probe found the probe block.
 12. **Fallback:** the source node's copy is corrupt, has the wrong block number, or is missing;
@@ -642,10 +602,10 @@ a block node's own `cloud-storage-expanded` output, in the `<prefix>/<node-id>/b
 layout.
 
 29. **One Tier 1 blocked:** the publish port of one Tier 1 is blocked while the other Tier 1s keep
-    receiving blocks, and backfill's `scanInterval` is set below the poll interval. The blocked
-    node catches up through backfill from its peers, the plugin logs its skips at DEBUG, and
-    `cloud_download_blocks` stays 0 for every `result`. With `backfill.greedy=false` on that node
-    instead, the plugin pulls after one skip.
+    receiving blocks. Once the blocked node is `aheadThresholdBlocks` behind, the plugin pulls
+    from the bucket even though its peers have the blocks,
+    `cloud_download_blocks{result="persisted"}` increases, and blocks that backfill stored first
+    are counted as `already_stored`. The node ends with a gap-free chain.
 30. **All Tier 1s blocked past the CN buffer:** the publish ports of all Tier 1s are blocked for
     longer than the CN buffer covers, so the CNs no longer hold the oldest missing blocks. After
     unblocking, a Tier 1 catches up from the bucket with a gap-free chain,
