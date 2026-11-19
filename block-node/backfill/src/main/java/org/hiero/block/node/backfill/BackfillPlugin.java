@@ -36,6 +36,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.ObservableGauge;
@@ -85,8 +86,9 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     private ScheduledExecutorService autonomousExecutor;
 
     // Two independent schedulers with dedicated executors: historical never blocks live-tail
-    private BackfillTaskScheduler historicalScheduler;
-    private BackfillTaskScheduler liveTailScheduler;
+    // Package-private for test visibility
+    BackfillTaskScheduler historicalScheduler;
+    BackfillTaskScheduler liveTailScheduler;
     private ScheduledExecutorService historicalExecutor;
     private ScheduledExecutorService liveTailExecutor;
 
@@ -98,10 +100,15 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     // State touched by multiple threads
     private final AtomicLong pendingBackfillBlocks = new AtomicLong(0);
     // Deduplication: highest block scheduled for live-tail (prevents overlapping submissions between the
-    // periodic scan and on-demand notifications). Advanced on submission, and only ever pulled back down -
-    // never treated as a promise that the range actually landed. See handlePersisted() for why: a submitted
-    // range whose persistence later fails en masse must remain eligible for the periodic scan to rediscover.
-    private final AtomicLong liveTailHighWaterMark = new AtomicLong(-1);
+    // periodic scan and on-demand notifications). Reserved when a range is submitted and rolled back if the
+    // submission fails, otherwise only ever pulled back down - never treated as a promise that the range
+    // actually landed. See handlePersisted() for why: a submitted range whose persistence later fails en masse
+    // must remain eligible for the periodic scan to rediscover.
+    final AtomicLong liveTailHighWaterMark = new AtomicLong(-1);
+    // Makes the live-tail dedup check, high-water mark reservation and submission atomic.
+    private final Object liveTailLock = new Object();
+    // Logs the "stored ranges past the peers' newest block" warning once per occurrence, not once per scan.
+    private volatile boolean storedPastPeerHeadReported = false;
 
     // Cached stored+available snapshot delivered by the last onContextUpdate() call. The Application
     // State facility already folds availableBlocks() into storedBlocks whenever either changes, so this
@@ -222,16 +229,6 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         Thread.UncaughtExceptionHandler handler =
                 (thread, e) -> LOGGER.log(INFO, "Uncaught exception in thread: " + thread.getName(), e);
 
-        autonomousExecutor =
-                context.threadPoolManager().createSingleThreadScheduledExecutor("BackfillPluginRunner", handler);
-
-        // Schedule periodic gap detection task using autonomous executor
-        autonomousExecutor.scheduleAtFixedRate(
-                this::detectAndScheduleGaps,
-                backfillConfiguration.initialDelay(),
-                backfillConfiguration.scanInterval(),
-                TimeUnit.MILLISECONDS);
-
         // Create dedicated platform thread executors for backfill tasks
         historicalExecutor =
                 context.threadPoolManager().createSingleThreadScheduledExecutor("BackfillHistoricalExecutor", handler);
@@ -255,6 +252,26 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 initializedSchedulersMsg,
                 backfillConfiguration.historicalQueueCapacity(),
                 backfillConfiguration.liveTailQueueCapacity());
+
+        // Schedule the periodic gap scan last: the scan uses the fetcher and schedulers created above,
+        // and submitting to the executor publishes them to the scan thread.
+        autonomousExecutor =
+                context.threadPoolManager().createSingleThreadScheduledExecutor("BackfillPluginRunner", handler);
+        autonomousExecutor.scheduleAtFixedRate(
+                this::runGapScan,
+                backfillConfiguration.initialDelay(),
+                backfillConfiguration.scanInterval(),
+                TimeUnit.MILLISECONDS);
+    }
+
+    /// Runs one gap scan. A failed scan is logged and retried at the next interval, because an exception
+    /// escaping a fixed-rate task cancels every later run.
+    private void runGapScan() {
+        try {
+            detectAndScheduleGaps();
+        } catch (RuntimeException e) {
+            LOGGER.log(WARNING, "Backfill gap scan failed, retrying at the next scan interval", e);
+        }
     }
 
     private BackfillTaskScheduler createScheduler(ExecutorService executor, int queueCapacity, String schedulerName) {
@@ -349,16 +366,19 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         //    guard against acting on such a stale snapshot. Folding in stored — not just available —
         //    prevents re-backfilling blocks that have been evicted from a volatile tier (e.g. by the
         //    recent-tier retention policy) but were already stored.
+        final BlockRangeSet availableBlocks = context.historicalBlockProvider().availableBlocks();
         ConcurrentLongRangeSet knownBlocks = new ConcurrentLongRangeSet();
         knownBlocks.addAll(knownBlockRanges);
-        knownBlocks.addAll(context.historicalBlockProvider().availableBlocks());
-        List<LongRange> blockRanges = knownBlocks.toList();
+        knownBlocks.addAll(availableBlocks);
 
         // 2. Determine range to scan
         //    - Lower bound: configured startBlock
         //    - Upper bound: greedy → peer max, non-greedy → store max (capped by config)
         long startBound = Math.max(0, backfillConfiguration.startBlock());
-        long endCap = determineEndCap(blockRanges);
+        final long peerMax = findPeerMaxAboveAvailable(knownBlocks.max(), availableBlocks.max());
+        discardStoredBlocksPastPeerHead(knownBlocks, availableBlocks.max(), peerMax);
+        List<LongRange> blockRanges = knownBlocks.toList();
+        long endCap = determineEndCap(blockRanges, peerMax);
         if (endCap < 0 || startBound > endCap) {
             final String nothingToBackfillMsg = "Nothing to backfill: startBound=[{0}] endCap=[{1}]";
             LOGGER.log(TRACE, nothingToBackfillMsg, startBound, endCap);
@@ -429,16 +449,51 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
      * - Non-greedy: last stored block
      * Both are capped by configured endBlock if set.
      */
-    private long determineEndCap(List<LongRange> blockRanges) {
+    private long determineEndCap(List<LongRange> blockRanges, long peerMax) {
         long configEnd = backfillConfiguration.endBlock();
         long storeMax = blockRanges.isEmpty() ? -1 : blockRanges.getLast().end();
 
-        if (backfillConfiguration.greedy() && liveTailScheduler != null) {
-            long peerMax = getPeerMaxAvailableBlock(storeMax);
+        if (isGreedyLiveTail()) {
             long upper = peerMax >= 0 ? peerMax : storeMax;
             return configEnd >= 0 ? Math.min(configEnd, upper) : upper;
         } else {
             return configEnd >= 0 ? Math.min(configEnd, storeMax) : storeMax;
+        }
+    }
+
+    private boolean isGreedyLiveTail() {
+        return backfillConfiguration.greedy() && liveTailScheduler != null;
+    }
+
+    /// Greedy mode only: the peers' newest block above what this node can actually serve, or `-1` when no peer is
+    /// ahead. The baseline is the newest available block rather than the newest stored one, so a stored range that
+    /// claims blocks the node does not have cannot hide the peers' head.
+    private long findPeerMaxAboveAvailable(long knownMax, long availableMax) {
+        if (!isGreedyLiveTail()) {
+            return UNKNOWN_BLOCK_NUMBER;
+        }
+        final long baseline = availableMax != UNKNOWN_BLOCK_NUMBER ? availableMax : knownMax;
+        return getPeerMaxAvailableBlock(baseline);
+    }
+
+    /// Drops stored-only blocks above the newest available block when they reach past the peers' newest block.
+    /// A node cannot have stored blocks that no peer has produced yet, so such a range is wrong (for example an
+    /// archive group registered as complete while only partly uploaded). Trusting it would put the live-tail
+    /// boundary past the peers' head, so no live-tail gap would ever be detected and the node would stop advancing.
+    private void discardStoredBlocksPastPeerHead(ConcurrentLongRangeSet knownBlocks, long availableMax, long peerMax) {
+        final long knownMax = knownBlocks.max();
+        final boolean storedPastPeerHead = peerMax != UNKNOWN_BLOCK_NUMBER && knownMax > peerMax;
+        if (storedPastPeerHead) {
+            if (!storedPastPeerHeadReported) {
+                final String storedPastPeerHeadMsg = "Stored block ranges reach block [{0}], past the peers' newest"
+                        + " block [{1}]; ignoring stored blocks after the newest available block [{2}] for live tail";
+                LOGGER.log(WARNING, storedPastPeerHeadMsg, knownMax, peerMax, availableMax);
+                storedPastPeerHeadReported = true;
+            }
+            final long firstUntrusted = availableMax != UNKNOWN_BLOCK_NUMBER ? availableMax + 1 : peerMax + 1;
+            knownBlocks.remove(firstUntrusted, knownMax);
+        } else {
+            storedPastPeerHeadReported = false;
         }
     }
 
@@ -462,8 +517,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     /// Submits a gap to the appropriate scheduler, applying live-tail deduplication and the historical
     /// in-progress guard.
     ///
-    /// @return `true` if the gap was submitted to a scheduler, `false` if it was skipped
-    private boolean scheduleGap(GapDetector.Gap gap) {
+    /// @return `true` if the gap was accepted by a scheduler, `false` if it was skipped or the submission failed
+    boolean scheduleGap(GapDetector.Gap gap) {
         if (gap.range().size() <= 0) {
             return false;
         }
@@ -478,49 +533,71 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             return false;
         }
 
-        // Deduplicate live-tail gaps using high-water mark
-        GapDetector.Gap effectiveGap = gap;
-        if (gap.type() == GapDetector.Type.LIVE_TAIL) {
-            long highWaterMark = liveTailHighWaterMark.get();
-            if (gap.range().end() <= highWaterMark) {
-                // Already scheduled this range
+        if (gap.type() != GapDetector.Type.LIVE_TAIL) {
+            final String submittingGapMsg = "Submitting gap type=[{0}] range=[{1}] to scheduler";
+            LOGGER.log(DEBUG, submittingGapMsg, gap.type(), gap.range());
+            return submitGap(gap);
+        }
+
+        // Deduplicate live-tail gaps using the high-water mark. The check, the reservation and the submission
+        // are one critical section so concurrent callers cannot both schedule the same range.
+        synchronized (liveTailLock) {
+            // Reserve the range before submitting: a worker that ends a gap early pulls the mark back down from
+            // its own thread without this lock, and that reset must not be overwritten by an advance made after
+            // the submission. The previous value comes from the reservation itself, so the dedup decision and the
+            // rollback target cannot go stale if a worker resets the mark in between.
+            final long markBeforeReservation = liveTailHighWaterMark.getAndUpdate(
+                    current -> Math.max(current, gap.range().end()));
+            if (gap.range().end() <= markBeforeReservation) {
+                // Already scheduled this range, the reservation left the mark unchanged
                 final String skippingDuplicateLiveTailMsg =
                         "Skipping duplicate live-tail gap [{0}], highWaterMark=[{1}]";
-                LOGGER.log(TRACE, skippingDuplicateLiveTailMsg, gap.range(), highWaterMark);
+                LOGGER.log(TRACE, skippingDuplicateLiveTailMsg, gap.range(), markBeforeReservation);
                 return false;
             }
-            if (gap.range().start() <= highWaterMark) {
+            GapDetector.Gap effectiveGap = gap;
+            if (gap.range().start() <= markBeforeReservation) {
                 // Partial overlap - adjust start
-                long newStart = highWaterMark + 1;
+                long newStart = markBeforeReservation + 1;
                 effectiveGap =
                         new GapDetector.Gap(new LongRange(newStart, gap.range().end()), GapDetector.Type.LIVE_TAIL);
                 final String adjustedLiveTailGapMsg = "Adjusted live-tail gap from [{0}] to [{1}]";
                 LOGGER.log(DEBUG, adjustedLiveTailGapMsg, gap.range(), effectiveGap.range());
             }
-            // Update high-water mark
-            liveTailHighWaterMark.updateAndGet(
-                    current -> Math.max(current, gap.range().end()));
-            final String updatedHighWaterMarkMsg = "Updated liveTailHighWaterMark to [{0}]";
-            LOGGER.log(TRACE, updatedHighWaterMarkMsg, gap.range().end());
+            final String submittingGapMsg = "Submitting gap type=[{0}] range=[{1}] to scheduler";
+            LOGGER.log(DEBUG, submittingGapMsg, effectiveGap.type(), effectiveGap.range());
+            if (submitGap(effectiveGap)) {
+                final String updatedHighWaterMarkMsg = "Updated liveTailHighWaterMark to [{0}]";
+                LOGGER.log(TRACE, updatedHighWaterMarkMsg, gap.range().end());
+                return true;
+            }
+            // The gap never reached a scheduler, so give the range back for the next scan to rediscover.
+            liveTailHighWaterMark.compareAndSet(gap.range().end(), markBeforeReservation);
+            return false;
         }
-
-        // Submit the (possibly adjusted) gap to the appropriate scheduler
-        final String submittingGapMsg = "Submitting gap type=[{0}] range=[{1}] to scheduler";
-        LOGGER.log(DEBUG, submittingGapMsg, effectiveGap.type(), effectiveGap.range());
-        submitGap(effectiveGap);
-        return true;
     }
 
     /**
      * Submits a gap to the appropriate scheduler based on its type.
      *
      * @param gap the gap to submit
-     * @return true if the gap was accepted, false if the queue was full (gap discarded)
+     * @return true if the gap was accepted, false if the scheduler is not available, the queue was full
+     *     (gap discarded), or the submission failed
      */
-    private boolean submitGap(GapDetector.Gap gap) {
-        BackfillTaskScheduler scheduler =
+    boolean submitGap(GapDetector.Gap gap) {
+        final BackfillTaskScheduler scheduler =
                 (gap.type() == GapDetector.Type.HISTORICAL) ? historicalScheduler : liveTailScheduler;
-        return scheduler.submit(gap);
+        if (scheduler == null) {
+            final String schedulerUnavailableMsg = "No scheduler available for gap type=[{0}] range=[{1}]";
+            LOGGER.log(DEBUG, schedulerUnavailableMsg, gap.type(), gap.range());
+            return false;
+        }
+        try {
+            return scheduler.submit(gap);
+        } catch (RuntimeException e) {
+            LOGGER.log(WARNING, "Failed to submit gap=[%s] to scheduler".formatted(gap), e);
+            return false;
+        }
     }
 
     // Package-private for test visibility
@@ -545,9 +622,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 // Submit directly rather than via scheduleGap: the block is very likely already below
                 // the live-tail high-water mark, and scheduleGap's dedup would otherwise drop the retry.
                 final long blockNumber = notification.blockNumber();
-                if (liveTailScheduler != null
-                        && submitGap(new GapDetector.Gap(
-                                new LongRange(blockNumber, blockNumber), GapDetector.Type.LIVE_TAIL))) {
+                if (submitGap(
+                        new GapDetector.Gap(new LongRange(blockNumber, blockNumber), GapDetector.Type.LIVE_TAIL))) {
                     final String backfillPersistFailedMsg =
                             "Backfill persistence failed for block=[{0}], re-queuing for on-demand backfill";
                     LOGGER.log(INFO, backfillPersistFailedMsg, blockNumber);

@@ -248,10 +248,12 @@ for the JSON schema.
 
 ### Messaging Plugin Configuration
 
-| ENV Variable                            | Description                                                                               | Default |
-|:----------------------------------------|:------------------------------------------------------------------------------------------|--------:|
-| MESSAGING_BLOCK_ITEM_QUEUE_SIZE         | Max messages in block item queue. Each batch ~100 items. Must be power of 2.              |     512 |
-| MESSAGING_BLOCK_NOTIFICATION_QUEUE_SIZE | Max block notifications queued. Each may hold a full block in memory. Must be power of 2. |      32 |
+| ENV Variable                                 | Description                                                                                                                                                |  Default |
+|:---------------------------------------------|:-----------------------------------------------------------------------------------------------------------------------------------------------------------|---------:|
+| MESSAGING_BLOCK_ITEM_QUEUE_SIZE              | Max messages in block item queue. Each batch ~100 items. Must be power of 2.                                                                               |      512 |
+| MESSAGING_BLOCK_NOTIFICATION_QUEUE_SIZE      | Max block notifications queued. Each may hold a full block in memory. Must be power of 2.                                                                  |       32 |
+| MESSAGING_WAIT_STRATEGY                      | How ring handlers wait once caught up: `BLOCKING`, `PHASED_BACKOFF` (yield, then block), or `SLEEPING` (old behavior, burns CPU when idle; rollback only). | BLOCKING |
+| MESSAGING_WAIT_STRATEGY_YIELD_TIMEOUT_MICROS | How long a `PHASED_BACKOFF` handler yields after its last message before blocking, in microseconds. Must not be negative.                                  |     1000 |
 
 ### Archive Plugin Configuration (S3 Archive)
 
@@ -302,14 +304,15 @@ for the JSON schema.
 
 ### Subscriber Plugin Configuration
 
-| ENV Variable                                       | Description                                                                                            |   Default |
-|:---------------------------------------------------|:-------------------------------------------------------------------------------------------------------|----------:|
-| SUBSCRIBER_LIVE_QUEUE_SIZE                         | Queue size (in batches) for transferring live data between messaging and client threads. Must be ≥100. |      4000 |
-| SUBSCRIBER_MAXIMUM_FUTURE_REQUEST                  | Max blocks ahead of latest "live" block a request can start from. Must be ≥10.                         |      4000 |
-| SUBSCRIBER_MINIMUM_LIVE_QUEUE_CAPACITY             | Minimum free capacity in the live queue before dropping oldest blocks. Typically ~10% of queue size.   |       400 |
-| SUBSCRIBER_MAX_PROTOBUF_MESSAGE_SIZE_BYTES         | Max protobuf message size (bytes) accepted when parsing a block to stream to a subscriber.             | 131072000 |
-| SUBSCRIBER_PORT                                    | Dedicated port for the subscriber gRPC service. When unset, the service shares `SERVER_PORT`.          |   (unset) |
-| SUBSCRIBER_COMPLETED_SESSION_REAP_INTERVAL_SECONDS | How often the background reaper drains completed subscriber sessions, independent of new traffic.      |         5 |
+| ENV Variable                                       | Description                                                                                                                                                                                                                           |   Default |
+|:---------------------------------------------------|:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------:|
+| SUBSCRIBER_LIVE_QUEUE_SIZE                         | Queue size (in batches) for transferring live data between messaging and client threads. Must be ≥100.                                                                                                                                |      4000 |
+| SUBSCRIBER_MAXIMUM_FUTURE_REQUEST                  | Max blocks ahead of latest "live" block a request can start from. Must be ≥10.                                                                                                                                                        |      4000 |
+| SUBSCRIBER_MINIMUM_LIVE_QUEUE_CAPACITY             | Minimum free capacity in the live queue before dropping oldest blocks. Typically ~10% of queue size.                                                                                                                                  |       400 |
+| SUBSCRIBER_MAX_PROTOBUF_MESSAGE_SIZE_BYTES         | Max protobuf message size (bytes) accepted when parsing a block to stream to a subscriber.                                                                                                                                            | 131072000 |
+| SUBSCRIBER_PORT                                    | Dedicated port for the subscriber gRPC service. When unset, the service shares `SERVER_PORT`.                                                                                                                                         |   (unset) |
+| SUBSCRIBER_COMPLETED_SESSION_REAP_INTERVAL_SECONDS | How often the background reaper drains completed subscriber sessions, independent of new traffic.                                                                                                                                     |         5 |
+| SUBSCRIBER_IDLE_SESSION_TIMEOUT_SECONDS            | Seconds a session may send nothing before it ends with `SUCCESS`, releasing dead clients. Also ends healthy sessions while no blocks arrive (e.g. quiescence); they reconnect. Each session adds up to 10% random jitter. 0 disables. |      1800 |
 
 ### TSS Bootstrap Plugin Configuration
 

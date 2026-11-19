@@ -38,6 +38,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.mockito.ArgumentCaptor;
 
 /**
  * Unit tests for {@link BackfillRunner}.
@@ -318,7 +319,9 @@ class BackfillRunnerTest {
         @DisplayName("should continue when chunk is null but other nodes available")
         void shouldContinueWhenChunkNullButOtherNodesAvailable() throws Exception {
             // given
-            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(100, 105), GapDetector.Type.HISTORICAL);
+            // A one-block gap, so the single block the fetcher returns is the whole chunk. With a longer gap it
+            // would be a partial chunk, and the runner would keep fetching the rest of the range.
+            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(100, 100), GapDetector.Type.HISTORICAL);
             BlockNodeSourceConfig badNode = mock(BlockNodeSourceConfig.class);
             BlockNodeSourceConfig goodNode = mock(BlockNodeSourceConfig.class);
 
@@ -355,6 +358,45 @@ class BackfillRunnerTest {
             // then - should have fetched from goodNode after badNode's chunk was null
             verify(mockFetcher).fetchBlocksFromNode(eq(goodNode), any());
             verify(mockFetchedBlocksCounter).increment();
+        }
+
+        @Test
+        @DisplayName("should persist a partial chunk and continue from the block after it")
+        void shouldPersistPartialChunkAndContinueAfterIt() throws Exception {
+            // given
+            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(100, 103), GapDetector.Type.HISTORICAL);
+            BlockNodeSourceConfig nodeConfig = mock(BlockNodeSourceConfig.class);
+            Map<BlockNodeSourceConfig, List<LongRange>> availability = new HashMap<>();
+            availability.put(nodeConfig, List.of(new LongRange(100, 200)));
+
+            when(mockFetcher.getAvailabilityForRange(any())).thenReturn(availability);
+            when(mockFetcher.selectNextChunk(anyLong(), anyLong(), any()))
+                    .thenAnswer(invocation -> Optional.of(new NodeSelectionStrategy.NodeSelection(
+                            nodeConfig, invocation.getArgument(0, Long.class))));
+            when(mockFetcher.fetchBlocksFromNode(eq(nodeConfig), any()))
+                    .thenReturn(List.of(createTestBlock(100L), createTestBlock(101L)))
+                    .thenReturn(List.of(createTestBlock(102L), createTestBlock(103L)));
+
+            messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
+            messaging.registerBlockNotificationHandler(
+                    new BlockNotificationHandler() {
+                        @Override
+                        public void handleBackfilled(BackfilledBlockNotification notification) {
+                            messaging.sendBlockPersisted(new PersistedNotification(
+                                    notification.blockNumber(), true, 1, BlockSource.BACKFILL));
+                        }
+                    },
+                    false,
+                    "test-persistence-handler");
+
+            // when
+            subject.run(gap);
+
+            // then - the second fetch starts right after the two blocks of the partial chunk
+            ArgumentCaptor<LongRange> ranges = ArgumentCaptor.forClass(LongRange.class);
+            verify(mockFetcher, times(2)).fetchBlocksFromNode(eq(nodeConfig), ranges.capture());
+            assertEquals(102L, ranges.getAllValues().get(1).start());
+            verify(mockFetchedBlocksCounter, times(4)).increment();
         }
 
         @Test

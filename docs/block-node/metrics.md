@@ -95,6 +95,7 @@ Observes the messaging system that connects the publisher with subscribers and t
 | Counter | `messaging_block_backfilled_notifications`              | Notifications issued after backfilling blocks          |
 | Counter | `messaging_newest_block_known_to_network_notifications` | Notifications issued for newest block known to network |
 | Counter | `messaging_publisher_status_update_notifications`       | Notifications issued for publisher status updates      |
+| Counter | `messaging_handler_failures`                            | Messages skipped after a message handler failed        |
 
 ---
 
@@ -136,10 +137,11 @@ Observes inbound streams from publishers.
 **Plugin:** `stream-subscriber [block-node-stream-subscriber]`
 Observes outbound streams served to subscribers.
 
-|  Type   |             Name              |              Description              |
-|---------|-------------------------------|---------------------------------------|
-| Gauge   | `subscriber_open_connections` | Connected subscribers                 |
-| Counter | `subscriber_errors`           | Errors while streaming to subscribers |
+|  Type   |               Name                |                           Description                           |
+|---------|-----------------------------------|-----------------------------------------------------------------|
+| Gauge   | `subscriber_open_connections`     | Connected subscribers                                           |
+| Counter | `subscriber_errors`               | Errors while streaming to subscribers                           |
+| Counter | `subscriber_idle_sessions_closed` | Subscriber sessions closed for exceeding the idle session limit |
 
 ---
 
@@ -350,6 +352,7 @@ is a block-count cap, not a disk-size cap (see [Host / Volume](#host--volume-ext
 |----------|---------------------------------------------|-----------------------------------------------------------|
 | L        | `messaging_item_queue_percent_used`         | If percentage exceeds 60%, otherwise, configure as needed |
 | L        | `messaging_notification_queue_percent_used` | If percentage exceeds 60%, otherwise, configure as needed |
+| M        | `messaging_handler_failures`                | If value increases, otherwise, configure as needed        |
 
 **Latency**: Alerts for latency metrics in receiving, hashing, verifying, and persisting blocks
 
