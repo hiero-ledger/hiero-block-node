@@ -120,7 +120,8 @@ public interface BlockMessagingFacility extends BlockNodePlugin {
      * notifications arrive. The calls will be on its own thread, every handler registered has its own thread. It can
      * consume block notifications at its own pace, if it is too slow then it will apply back pressure to block
      * notification producer. It is too slow by taking too long in the handleBlockNotificationReceived method. If
-     * handleBlockNotificationReceived is non-blocking, then it will not apply back pressure.
+     * handleBlockNotificationReceived is non-blocking, then it will not apply back pressure. The block verification
+     * notifications are not included: they only reach handlers registered with {@link #registerVerifiedBlockHandler}.
      *
      * @param handler             the block notification handler to register
      * @param cpuIntensiveHandler hint to the service that this handler is CPU intensive vs IO intensive
@@ -167,7 +168,9 @@ public interface BlockMessagingFacility extends BlockNodePlugin {
      * with {@link #sendBlockVerification}; a successful result carries the whole block. The
      * {@link BlockNotificationHandler#handleVerification} method of the handler will be called for every one of them,
      * on its own thread. It can consume verified blocks at its own pace, if it is too slow then it will apply back
-     * pressure to the senders of verified blocks, never to the senders of block notifications.
+     * pressure to the senders of verified blocks, never to the senders of block notifications. Only handlers
+     * registered this way receive verified blocks, and a handler registered only this way receives no other block
+     * notifications.
      *
      * @param handler             the verified block handler to register
      * @param cpuIntensiveHandler hint to the service that this handler is CPU intensive vs IO intensive
