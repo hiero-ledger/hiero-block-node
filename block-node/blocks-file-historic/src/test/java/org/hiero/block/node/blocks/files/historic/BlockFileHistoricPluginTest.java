@@ -30,6 +30,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
@@ -1723,6 +1724,71 @@ class BlockFileHistoricPluginTest {
                     .resolve(corruptedRoot.relativize(corruptedZipLocation.zipFilePath()));
             assertThat(Files.exists(quarantinedZip)).isTrue();
             assertThat(pluginUnderTest.availableBlocks().size()).isZero();
+        }
+
+        /**
+         * Regression test for #3997: on restart the available blocks must keep the gaps
+         * between zip files instead of spanning from the lowest to the highest zip.
+         */
+        @Test
+        @DisplayName("restart keeps gaps between archived zip files in available blocks")
+        void restartKeepsGapsBetweenArchivedZips() throws IOException {
+            final Path gapRoot = dataRoot.resolve("gap-root");
+            testConfig = new FilesHistoricConfig(gapRoot, CompressionType.NONE, 1, 0L, 3, false);
+            final BlockFileHistoricPlugin firstPlugin = new BlockFileHistoricPlugin();
+            start(firstPlugin, regressionHistoricalBlockFacility, buildConfigOverrides(testConfig));
+            sendVerifiedBlocks(0, 9);
+            sendVerifiedBlocks(30, 39);
+            testThreadPoolManager.executor().executeSerially();
+
+            final BlockFileHistoricPlugin restartedPlugin = new BlockFileHistoricPlugin();
+            start(restartedPlugin, regressionHistoricalBlockFacility, buildConfigOverrides(testConfig));
+
+            assertThat(restartedPlugin.availableBlocks().streamRanges().toList())
+                    .containsExactly(new BlockRange(0L, 9L), new BlockRange(30L, 39L));
+        }
+
+        /**
+         * Regression test for #3997: zip files at the edges of the archive may be partly filled, so the
+         * available blocks must start and end at the blocks actually stored, not at the zip boundaries.
+         */
+        @Test
+        @DisplayName("restart reports exact edges for partly filled edge zip files")
+        void restartReportsExactEdgesForPartialEdgeZips() throws IOException {
+            final Path partialEdgeRoot = dataRoot.resolve("partial-edge-root");
+            testConfig = new FilesHistoricConfig(partialEdgeRoot, CompressionType.NONE, 1, 0L, 3, false);
+            writeZipWithBlocks(3, 9);
+            writeZipWithBlocks(30, 34);
+
+            final BlockFileHistoricPlugin pluginUnderTest = new BlockFileHistoricPlugin();
+            start(pluginUnderTest, regressionHistoricalBlockFacility, buildConfigOverrides(testConfig));
+
+            assertThat(pluginUnderTest.availableBlocks().streamRanges().toList())
+                    .containsExactly(new BlockRange(3L, 9L), new BlockRange(30L, 34L));
+        }
+
+        private void writeZipWithBlocks(final long firstBlock, final long lastBlock) throws IOException {
+            final BlockPath zipLocation = BlockPath.computeBlockPath(testConfig, firstBlock);
+            Files.createDirectories(zipLocation.dirPath());
+            try (final ZipOutputStream zipOut = new ZipOutputStream(Files.newOutputStream(zipLocation.zipFilePath()))) {
+                for (long blockNumber = firstBlock; blockNumber <= lastBlock; blockNumber++) {
+                    zipOut.putNextEntry(new ZipEntry(
+                            BlockPath.computeBlockPath(testConfig, blockNumber).blockFileName()));
+                    zipOut.write(TestBlockBuilder.generateBlockWithNumber(blockNumber)
+                            .bytes()
+                            .toByteArray());
+                    zipOut.closeEntry();
+                }
+            }
+        }
+
+        private void sendVerifiedBlocks(final int firstBlock, final int lastBlock) {
+            for (int i = firstBlock; i <= lastBlock; i++) {
+                final BlockUnparsed block =
+                        TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
+                blockMessaging.sendBlockVerification(new VerificationNotification(
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+            }
         }
 
         @Test

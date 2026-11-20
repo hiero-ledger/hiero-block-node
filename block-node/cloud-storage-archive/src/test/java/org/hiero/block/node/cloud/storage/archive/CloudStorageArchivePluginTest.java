@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.sampleHeaderUnparsed;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -1209,7 +1210,7 @@ class CloudStorageArchivePluginTest {
                 final BlockItemUnparsed item = new BlockItemUnparsed(
                         new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
                 final BlockUnparsed block = BlockUnparsed.newBuilder()
-                        .blockItems(new BlockItemUnparsed[] {item})
+                        .blockItems(new BlockItemUnparsed[] {sampleHeaderUnparsed(i), item})
                         .build();
                 blockMessaging.sendBlockVerification(
                         new VerificationNotification(true, null, i, Bytes.EMPTY, block, BlockSource.PUBLISHER));

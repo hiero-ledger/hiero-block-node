@@ -74,7 +74,7 @@ message BlockNodeSourceConfig {
 /**
  * Advanced tuning for Helidon WebClient, HTTP/2 and gRPC protocol settings.
  * All fields are optional - when not specified or set to 0, sensible defaults are used.
- * Timeout defaults fall back to global `backfill.grpcOverallTimeout` configuration.
+ * Timeouts default to 10,000ms.
  * Other defaults are optimized for high-throughput block streaming.
  *
  * VALIDATION: Values are validated against specification limits and sensible bounds.
@@ -88,19 +88,19 @@ message BlockNodeSourceConfig {
  */
 message GrpcWebClientTuning {
   /**
-   * Connection timeout in milliseconds (0 = use global backfill.grpcOverallTimeout)
+   * Connection timeout in milliseconds (0 = use the default, 10,000ms)
    * Valid range: 100ms to 300,000ms
    */
   uint32 connect_timeout = 1;
 
   /**
-   * Read timeout in milliseconds (0 = use global backfill.grpcOverallTimeout)
+   * Read timeout in milliseconds (0 = use the default, 10,000ms)
    * Valid range: 100ms to 300,000ms
    */
   uint32 read_timeout = 2;
 
   /**
-   * Poll wait time in milliseconds (0 = use global backfill.grpcOverallTimeout)
+   * Poll wait time in milliseconds (0 = use the default, 10,000ms)
    * Valid range: 100ms to 300,000ms
    */
   uint32 poll_wait_time = 3;

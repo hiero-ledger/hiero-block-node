@@ -9,7 +9,7 @@ public interface BlockNotificationHandler extends GatingHandler {
      * Handle a block verification notification.
      * <p>
      * This is always called on a messaging thread.
-     * Each registered notification handler will have its own virtual thread.
+     * Each registered notification handler will have its own platform thread.
      *
      * @param notification the block verification notification to handle
      */
@@ -19,7 +19,7 @@ public interface BlockNotificationHandler extends GatingHandler {
      * Handle a block persisted notification.
      * <p>
      * This is always called on a messaging thread.
-     * Each registered notification handler will have its own virtual thread.
+     * Each registered notification handler will have its own platform thread.
      *
      * @param notification the block persisted notification to handle
      */
@@ -28,8 +28,9 @@ public interface BlockNotificationHandler extends GatingHandler {
     /**
      * Handle a backfilled block notification.
      * <p>
-     * This is always called on a messaging thread.
-     * Each registered notification handler will have its own virtual thread.
+     * This is only called for handlers registered with
+     * {@link BlockMessagingFacility#registerUnvalidatedBlockHandler}, always on a messaging thread of its own,
+     * separate from the thread that calls the other methods of this handler.
      *
      * @param notification the backfilled block notification to handle
      */
@@ -37,15 +38,23 @@ public interface BlockNotificationHandler extends GatingHandler {
 
     /**
      * Handle a new block known to the network notification. Always called on handler thread. Each registered handler
-     * will have its own virtual thread.
+     * will have its own platform thread.
      *
      * @param notification the new block known to the network notification to handle
      */
     default void handleNewestBlockKnownToNetwork(final NewestBlockKnownToNetworkNotification notification) {}
 
     /**
+     * Handle a next expected publisher block notification. Always called on handler thread. Each registered
+     * handler will have its own platform thread.
+     *
+     * @param notification the next expected publisher block notification to handle
+     */
+    default void handleNextExpectedPublisherBlock(final NextExpectedPublisherBlockNotification notification) {}
+
+    /**
      * Handle a publisher status update notification. Always called on handler thread. Each registered handler
-     * will have its own virtual thread.
+     * will have its own platform thread.
      *
      * @param notification the publisher status update notification to handle
      */

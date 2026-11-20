@@ -54,6 +54,7 @@ import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.AddressBookHistoryNotification;
 import org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.AvailableBlocksNotification;
+import org.hiero.block.node.spi.blockmessaging.NextExpectedPublisherBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
@@ -398,6 +399,61 @@ class ApplicationStateFacilityPluginTest {
                         connection.remote().address())
                 .isEqualTo("node1.example.com"));
         f.plugin.stop();
+    }
+
+    // ---- next expected publisher block -------------------------------------------------------
+
+    @Test
+    @DisplayName("Next expected publisher block is -1 at startup")
+    void nextExpectedPublisherBlockStartsUnknown() {
+        final Fixture f = newFixture();
+        f.initAndStart();
+        assertThat(f.plugin.nextExpectedPublisherBlock()).isEqualTo(-1L);
+        f.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("Next expected publisher block takes the notified value")
+    void nextExpectedPublisherBlockTakesNotifiedValue() {
+        final Fixture f = newFixture();
+        f.initAndStart();
+        f.messaging.sendNextExpectedPublisherBlock(new NextExpectedPublisherBlockNotification(11L, 15L));
+        assertThat(f.plugin.nextExpectedPublisherBlock()).isEqualTo(11L);
+        f.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("A lower notified value does not move the next expected publisher block backwards")
+    void nextExpectedPublisherBlockDoesNotRegress() {
+        final Fixture f = newFixture();
+        f.initAndStart();
+        f.messaging.sendNextExpectedPublisherBlock(new NextExpectedPublisherBlockNotification(11L, 15L));
+        f.messaging.sendNextExpectedPublisherBlock(new NextExpectedPublisherBlockNotification(7L, 9L));
+        assertThat(f.plugin.nextExpectedPublisherBlock()).isEqualTo(11L);
+        f.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("Next expected publisher block is not persisted across a restart")
+    void nextExpectedPublisherBlockIsNotPersisted() {
+        final Fixture first = newFixture();
+        first.initAndStart();
+        first.messaging.sendNextExpectedPublisherBlock(new NextExpectedPublisherBlockNotification(11L, 15L));
+        first.plugin.stop();
+
+        final Fixture second = newFixture();
+        second.initAndStart();
+        assertThat(second.plugin.nextExpectedPublisherBlock()).isEqualTo(-1L);
+        second.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("Stopping the facility unregisters its block notification handler")
+    void stopUnregistersBlockNotificationHandler() {
+        final Fixture f = newFixture();
+        f.initAndStart();
+        f.plugin.stop();
+        assertThat(f.messaging.getBlockNotificationHandlerCount()).isZero();
     }
 
     // ---- TSS data ----------------------------------------------------------------------------

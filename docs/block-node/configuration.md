@@ -206,27 +206,28 @@ interrupted group. Bucket lifecycle rules over the prefix must not delete object
 
 ### Backfill Plugin Configuration
 
-| ENV Variable                             | Description                                                                                                            |   Default |
-|:-----------------------------------------|:-----------------------------------------------------------------------------------------------------------------------|----------:|
-| BACKFILL_START_BLOCK                     | First block this BN deploy wants.                                                                                      |         0 |
-| BACKFILL_END_BLOCK                       | Max block number, -1 means no limit.                                                                                   |        -1 |
-| BACKFILL_BLOCK_NODE_SOURCES_PATH         | File path for BN sources (PBJ JSON `block-nodes.json`).                                                                |        "" |
-| BACKFILL_SCAN_INTERVAL                   | Scan interval for gap detection (ms).                                                                                  |     60000 |
-| BACKFILL_MAX_RETRIES                     | Max attempts to fetch a block, minimum 1.                                                                              |         3 |
-| BACKFILL_INITIAL_RETRY_DELAY             | Initial retry delay (ms), grows linearly.                                                                              |      5000 |
-| BACKFILL_FETCH_BATCH_SIZE                | Number of blocks per gRPC call.                                                                                        |        10 |
-| BACKFILL_DELAY_BETWEEN_BATCHES           | Delay (ms) between block batches.                                                                                      |      1000 |
-| BACKFILL_INITIAL_DELAY                   | Initial delay (ms) before starting backfill.                                                                           |     15000 |
-| BACKFILL_PER_BLOCK_PROCESSING_TIMEOUT    | Timeout (ms) to wait for a block batch.                                                                                |      1000 |
-| BACKFILL_GRPC_OVERALL_TIMEOUT            | Overall gRPC timeout (connect, read, poll) in ms.                                                                      |     60000 |
-| BACKFILL_MAX_INCOMING_BUFFER_SIZE        | Max gRPC incoming buffer size in bytes (min 10 MB, max 300 MB).                                                        | 104857600 |
-| BACKFILL_ENABLE_TLS                      | Enable TLS if supported by block-node client.                                                                          |     false |
-| BACKFILL_MAX_PROTOBUF_MESSAGE_SIZE_BYTES | Max protobuf message size (bytes) accepted when parsing a block fetched over the wire during backfill.                 | 131072000 |
-| BACKFILL_GREEDY                          | When true, searches and retrieves blocks beyond latestAcknowledged to prevent the BN from falling too far behind live. |      true |
-| BACKFILL_HISTORICAL_QUEUE_CAPACITY       | Bounded queue capacity for historical block fetch tasks (min 1, max 1000).                                             |        20 |
-| BACKFILL_LIVE_TAIL_QUEUE_CAPACITY        | Bounded queue capacity for live-tail block fetch tasks (min 1, max 100).                                               |        10 |
-| BACKFILL_HEALTH_PENALTY_PER_FAILURE      | Health score penalty applied per failed fetch attempt to a peer node.                                                  |    1000.0 |
-| BACKFILL_MAX_BACKOFF_MS                  | Maximum backoff (ms) before retrying a failed peer node (minimum: 30,000).                                             |   300,000 |
+| ENV Variable                             | Description                                                                                                                                                                                                                          |   Default |
+|:-----------------------------------------|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------:|
+| BACKFILL_START_BLOCK                     | First block this BN deploy wants.                                                                                                                                                                                                    |         0 |
+| BACKFILL_END_BLOCK                       | Max block number, -1 means no limit.                                                                                                                                                                                                 |        -1 |
+| BACKFILL_BLOCK_NODE_SOURCES_PATH         | File path for BN sources (PBJ JSON `block-nodes.json`).                                                                                                                                                                              |        "" |
+| BACKFILL_SCAN_INTERVAL                   | Scan interval for gap detection (ms).                                                                                                                                                                                                |     60000 |
+| BACKFILL_MAX_RETRIES                     | Max attempts to fetch a block, minimum 1.                                                                                                                                                                                            |         3 |
+| BACKFILL_INITIAL_RETRY_DELAY             | Initial retry delay (ms), grows linearly.                                                                                                                                                                                            |      5000 |
+| BACKFILL_FETCH_BATCH_SIZE                | Number of blocks per gRPC call.                                                                                                                                                                                                      |        10 |
+| BACKFILL_DELAY_BETWEEN_BATCHES           | Delay (ms) between block batches.                                                                                                                                                                                                    |      1000 |
+| BACKFILL_INITIAL_DELAY                   | Initial delay (ms) before starting backfill.                                                                                                                                                                                         |     15000 |
+| BACKFILL_PER_BLOCK_PROCESSING_TIMEOUT    | Timeout (ms) to wait for a block batch.                                                                                                                                                                                              |      1000 |
+| BACKFILL_GRPC_OVERALL_TIMEOUT            | Longest time (ms) one batch request may take in total, however steadily blocks arrive.                                                                                                                                               |    900000 |
+| BACKFILL_GRPC_INACTIVITY_TIMEOUT         | Longest time (ms) a batch request may go without receiving a complete response message before it ends early. Must cover the transfer of the largest single message. A value at or above BACKFILL_GRPC_OVERALL_TIMEOUT has no effect. |     60000 |
+| BACKFILL_MAX_INCOMING_BUFFER_SIZE        | Max gRPC incoming buffer size in bytes (min 10 MB, max 300 MB).                                                                                                                                                                      | 104857600 |
+| BACKFILL_ENABLE_TLS                      | Enable TLS if supported by block-node client.                                                                                                                                                                                        |     false |
+| BACKFILL_MAX_PROTOBUF_MESSAGE_SIZE_BYTES | Max protobuf message size (bytes) accepted when parsing a block fetched over the wire during backfill.                                                                                                                               | 131072000 |
+| BACKFILL_GREEDY                          | When true, searches and retrieves blocks beyond latestAcknowledged to prevent the BN from falling too far behind live.                                                                                                               |      true |
+| BACKFILL_HISTORICAL_QUEUE_CAPACITY       | Bounded queue capacity for historical block fetch tasks (min 1, max 1000).                                                                                                                                                           |        20 |
+| BACKFILL_LIVE_TAIL_QUEUE_CAPACITY        | Bounded queue capacity for live-tail block fetch tasks (min 1, max 100).                                                                                                                                                             |        10 |
+| BACKFILL_HEALTH_PENALTY_PER_FAILURE      | Health score penalty applied per failed fetch attempt to a peer node.                                                                                                                                                                |    1000.0 |
+| BACKFILL_MAX_BACKOFF_MS                  | Maximum backoff (ms) before retrying a failed peer node (minimum: 30,000).                                                                                                                                                           |   300,000 |
 
 **Note:** The following can be configured in the JSON file at `BACKFILL_BLOCK_NODE_SOURCES_PATH`:
 - Per-node gRPC timeout overrides: `grpc_connect_timeout`, `grpc_read_timeout`, `grpc_poll_wait_time`
@@ -277,10 +278,13 @@ for the JSON schema.
 
 ### Messaging Plugin Configuration
 
-| ENV Variable                            | Description                                                                               | Default |
-|:----------------------------------------|:------------------------------------------------------------------------------------------|--------:|
-| MESSAGING_BLOCK_ITEM_QUEUE_SIZE         | Max messages in block item queue. Each batch ~100 items. Must be power of 2.              |     512 |
-| MESSAGING_BLOCK_NOTIFICATION_QUEUE_SIZE | Max block notifications queued. Each may hold a full block in memory. Must be power of 2. |      32 |
+| ENV Variable                                 | Description                                                                                                                                                |  Default |
+|:---------------------------------------------|:-----------------------------------------------------------------------------------------------------------------------------------------------------------|---------:|
+| MESSAGING_BLOCK_ITEM_QUEUE_SIZE              | Max messages in block item queue. Each batch ~100 items. Must be power of 2.                                                                               |      512 |
+| MESSAGING_BLOCK_NOTIFICATION_QUEUE_SIZE      | Max block notifications queued. Each may hold a full block in memory. Must be power of 2.                                                                  |       32 |
+| MESSAGING_UNVALIDATED_BLOCK_QUEUE_SIZE       | Max backfilled blocks queued for verification. Each is a full block. Must be power of 2.                                                                   |       32 |
+| MESSAGING_WAIT_STRATEGY                      | How ring handlers wait once caught up: `BLOCKING`, `PHASED_BACKOFF` (yield, then block), or `SLEEPING` (old behavior, burns CPU when idle; rollback only). | BLOCKING |
+| MESSAGING_WAIT_STRATEGY_YIELD_TIMEOUT_MICROS | How long a `PHASED_BACKOFF` handler yields after its last message before blocking, in microseconds. Must not be negative.                                  |     1000 |
 
 ### Server Status Plugin Configuration
 
@@ -290,7 +294,7 @@ for the JSON schema.
 
 ### Throttle Configuration
 
-The `serverStatus` and `serverStatusDetail` gRPC methods are throttled per client and node-wide. All keys have defaults.
+The `serverStatus`, `serverStatusDetail`, `getAddressBook` and `getTssData` gRPC methods are throttled per client and node-wide. All keys have defaults.
 
 #### Global limits (prefix `throttle.global.`)
 
@@ -298,12 +302,14 @@ The `serverStatus` and `serverStatusDetail` gRPC methods are throttled per clien
 |:--------------------------------|:----------------------------------------------------------------------------------------------------------------------|--------:|
 | serverStatusMaxConcurrent       | Node-wide ceiling on concurrent in-flight `serverStatus` calls across all clients.                                    |   1,000 |
 | serverStatusDetailMaxConcurrent | Node-wide ceiling on concurrent in-flight `serverStatusDetail` calls across all clients.                              |   1,000 |
+| getAddressBookMaxConcurrent     | Node-wide ceiling on concurrent in-flight `getAddressBook` calls across all clients.                                  |     100 |
+| getTssDataMaxConcurrent         | Node-wide ceiling on concurrent in-flight `getTssData` calls across all clients.                                      |     500 |
 | clientStateTtlMinutes           | How long a throttled method keeps a client's rate and concurrency state after its last call before it can be evicted. |      30 |
 | clientStateSweepIntervalMinutes | How often the sweep that evicts stale client state runs.                                                              |       5 |
 
-#### Per-method limits (prefixes `throttle.serverStatus.` and `throttle.serverStatusDetail.`)
+#### Per-method limits (prefixes `throttle.serverStatus.`, `throttle.serverStatusDetail.`, `throttle.getAddressBook.` and `throttle.getTssData.`)
 
-The same four keys apply under each prefix.
+The same four keys apply under each prefix. The defaults in the table are those of `serverStatus` and `serverStatusDetail`; `getAddressBook` and `getTssData` default lower (see below), because the roster data they return changes rarely.
 
 | Config Key             | Description                                                                                                                                                                                                                                                                                                          |                                        Default |
 |:-----------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------:|
@@ -311,6 +317,15 @@ The same four keys apply under each prefix.
 | burstTolerance         | How many pacing intervals early a request may arrive and still be admitted.                                                                                                                                                                                                                                          |                                             20 |
 | maxConcurrentPerClient | Concurrent in-flight calls allowed per client.                                                                                                                                                                                                                                                                       |                                              5 |
 | maxPermitHoldSeconds   | Age after which a concurrency permit that is still held is force-released by a background sweep. This only corrects the throttle's accounting for calls whose connection dropped before completing. It never terminates a call. The sweep runs about every half of the smallest configured value (minimum 1 second). | 10 (`serverStatus`), 60 (`serverStatusDetail`) |
+
+The defaults for the roster calls, `throttle.getAddressBook.` and `throttle.getTssData.`:
+
+| Config Key             | Default |
+|:-----------------------|--------:|
+| ratePerSecond          |      10 |
+| burstTolerance         |      10 |
+| maxConcurrentPerClient |       3 |
+| maxPermitHoldSeconds   |      60 |
 
 #### When a client is rejected
 
@@ -352,14 +367,15 @@ The opposite holds for IPv6: one client usually controls a whole /64, so it can 
 
 ### Subscriber Plugin Configuration
 
-| ENV Variable                                       | Description                                                                                            |   Default |
-|:---------------------------------------------------|:-------------------------------------------------------------------------------------------------------|----------:|
-| SUBSCRIBER_LIVE_QUEUE_SIZE                         | Queue size (in batches) for transferring live data between messaging and client threads. Must be ≥100. |      4000 |
-| SUBSCRIBER_MAXIMUM_FUTURE_REQUEST                  | Max blocks ahead of latest "live" block a request can start from. Must be ≥10.                         |      4000 |
-| SUBSCRIBER_MINIMUM_LIVE_QUEUE_CAPACITY             | Minimum free capacity in the live queue before dropping oldest blocks. Typically ~10% of queue size.   |       400 |
-| SUBSCRIBER_MAX_PROTOBUF_MESSAGE_SIZE_BYTES         | Max protobuf message size (bytes) accepted when parsing a block to stream to a subscriber.             | 131072000 |
-| SUBSCRIBER_PORT                                    | Dedicated port for the subscriber gRPC service. When unset, the service shares `SERVER_PORT`.          |   (unset) |
-| SUBSCRIBER_COMPLETED_SESSION_REAP_INTERVAL_SECONDS | How often the background reaper drains completed subscriber sessions, independent of new traffic.      |         5 |
+| ENV Variable                                       | Description                                                                                                                                                                                                                           |   Default |
+|:---------------------------------------------------|:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------:|
+| SUBSCRIBER_LIVE_QUEUE_SIZE                         | Queue size (in batches) for transferring live data between messaging and client threads. Must be ≥100.                                                                                                                                |      4000 |
+| SUBSCRIBER_MAXIMUM_FUTURE_REQUEST                  | Max blocks ahead of latest "live" block a request can start from. Must be ≥10.                                                                                                                                                        |      4000 |
+| SUBSCRIBER_MINIMUM_LIVE_QUEUE_CAPACITY             | Minimum free capacity in the live queue before dropping oldest blocks. Typically ~10% of queue size.                                                                                                                                  |       400 |
+| SUBSCRIBER_MAX_PROTOBUF_MESSAGE_SIZE_BYTES         | Max protobuf message size (bytes) accepted when parsing a block to stream to a subscriber.                                                                                                                                            | 131072000 |
+| SUBSCRIBER_PORT                                    | Dedicated port for the subscriber gRPC service. When unset, the service shares `SERVER_PORT`.                                                                                                                                         |   (unset) |
+| SUBSCRIBER_COMPLETED_SESSION_REAP_INTERVAL_SECONDS | How often the background reaper drains completed subscriber sessions, independent of new traffic.                                                                                                                                     |         5 |
+| SUBSCRIBER_IDLE_SESSION_TIMEOUT_SECONDS            | Seconds a session may send nothing before it ends with `SUCCESS`, releasing dead clients. Also ends healthy sessions while no blocks arrive (e.g. quiescence); they reconnect. Each session adds up to 10% random jitter. 0 disables. |      1800 |
 
 ### TSS Bootstrap Plugin Configuration
 
@@ -373,15 +389,15 @@ The opposite holds for IPv6: one client usually controls a whole /64, so it can 
 
 ### Verification Plugin Configuration
 
-| ENV Variable                                      | Description                                                                                                                     |                                  Default |
-|:--------------------------------------------------|:--------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------:|
-| VERIFICATION_RECENTLY_VERIFIED_BLOCKS_BUFFER_SIZE | Size of recently verified blocks buffer. Affects informational failures.                                                        |                                      100 |
-| VERIFICATION_ACTIVE_SESSIONS_BUFFER_SIZE          | Size of active active sessions allowed simultaneously.                                                                          |                                      100 |
-| VERIFICATION_FIRST_ORDERED_BLOCK                  | The first block number that requires the strict ordering guarantee. All blocks below this number will report immediate success. |                                        0 |
-| VERIFICATION_ALL_SOURCES_REQUIRE_ORDERING         | Flag, indicating if all sources require the strict ordering guarantee on the last verified block high watermark.                |                                     true |
-| VERIFICATION_DUMP_ENABLED                         | Flag, indicating if the bad block dumper is enabled. (Write blocks that failed verification to disk)                            |                                    false |
-| VERIFICATION_DUMP_DIRECTORY_PATH                  | Root path to be used by the bad block dumper.                                                                                   | /opt/hiero/block-node/verification/dumps |
-| VERIFICATION_DUMP_RETENTION_DAYS                  | How many days dumped blocks will be retained for.                                                                               |                                        7 |
+| ENV Variable                                      | Description                                                                                                                                                                                                                                 |                                  Default |
+|:--------------------------------------------------|:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------:|
+| VERIFICATION_RECENTLY_VERIFIED_BLOCKS_BUFFER_SIZE | Size of recently verified blocks buffer. Affects informational failures.                                                                                                                                                                    |                                      100 |
+| VERIFICATION_ACTIVE_SESSIONS_BUFFER_SIZE          | Limit of active verification sessions, all sources combined. A block admitted at the limit first evicts one session, stuck ones first, so the count never exceeds it. At least 13; a prime is recommended, a Mersenne number is acceptable. |                                      101 |
+| VERIFICATION_FIRST_ORDERED_BLOCK                  | The first block number that requires the strict ordering guarantee. All blocks below this number will report immediate success.                                                                                                             |                                        0 |
+| VERIFICATION_ALL_SOURCES_REQUIRE_ORDERING         | Flag, indicating if all sources require the strict ordering guarantee on the last verified block high watermark.                                                                                                                            |                                     true |
+| VERIFICATION_DUMP_ENABLED                         | Flag, indicating if the bad block dumper is enabled. (Write blocks that failed verification to disk)                                                                                                                                        |                                    false |
+| VERIFICATION_DUMP_DIRECTORY_PATH                  | Root path to be used by the bad block dumper.                                                                                                                                                                                               | /opt/hiero/block-node/verification/dumps |
+| VERIFICATION_DUMP_RETENTION_DAYS                  | How many days dumped blocks will be retained for.                                                                                                                                                                                           |                                        7 |
 
 > _NOTE_ the `VERIFICATION_ALL_SOURCES_REQUIRE_ORDERING` value should remain `true` in all "Tier 1" Block Nodes.
 >

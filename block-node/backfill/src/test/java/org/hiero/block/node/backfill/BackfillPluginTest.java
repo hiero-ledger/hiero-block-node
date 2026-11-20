@@ -1600,6 +1600,46 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     }
 
     @Test
+    @DisplayName("Greedy live tail still backfills when stored ranges claim blocks past the peers' newest block")
+    void greedyLiveTailIgnoresStoredRangesPastPeerHead() throws InterruptedException {
+        // Peer serves 0..400.
+        final HistoricalBlockFacility serverFacility = getHistoricalBlockFacility(0, 400);
+        final TestBlockNodeServer server = new TestBlockNodeServer(0, serverFacility);
+        testBlockNodeServers.add(server);
+        final String backfillSourcePath = testTempDir + "/backfill-source-stored-past-peer-head.json";
+        createTestBlockNodeSourcesFile(
+                BlockNodeSource.newBuilder()
+                        .nodes(BlockNodeSourceConfig.newBuilder()
+                                .address("localhost")
+                                .port(server.port())
+                                .priority(1)
+                                .build())
+                        .build(),
+                backfillSourcePath);
+        final Map<String, String> config = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(backfillSourcePath)
+                .greedy(true)
+                .fetchBatchSize(100)
+                .initialDelay(500)
+                .build();
+
+        // The node only has 0..200, but a bad stored range claims 0..999: beyond anything the network produced.
+        final HistoricalBlockFacility pluginStore = getHistoricalBlockFacility(0, 200);
+        doInit(new BackfillPlugin(), pluginStore, null, config, Map.of());
+        updateStoredBlocks(BlockRangeSet.of(0, 999));
+        doStart();
+
+        final int expectedBlocksToBackfill = 200; // 201..400
+        final CountDownLatch countDownLatch = new CountDownLatch(expectedBlocksToBackfill);
+        registerDefaultTestBackfillHandler();
+        registerDefaultTestVerificationHandler(countDownLatch);
+
+        countDownLatch.await(1, TimeUnit.MINUTES);
+
+        assertEquals(0, countDownLatch.getCount(), "Live tail should fetch 201..400 despite the stored range");
+    }
+
+    @Test
     @DisplayName("Backfill exponentially backs off a gap that keeps reappearing after eviction")
     void testBackfillBacksOffReappearingGap() throws InterruptedException {
         // Peer serves the full history 0..100.
@@ -1751,7 +1791,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         final Map<Long, AtomicInteger> fetchCountsByBlock = new ConcurrentHashMap<>();
         final CountDownLatch firstFetchLatch = new CountDownLatch(1);
         final CountDownLatch resubmitFetchLatch = new CountDownLatch(1);
-        blockMessaging.registerBlockNotificationHandler(
+        blockMessaging.registerUnvalidatedBlockHandler(
                 new BlockNotificationHandler() {
                     @Override
                     public void handleBackfilled(BackfilledBlockNotification notification) {
@@ -1833,7 +1873,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // The target block fails verification only on its first fetch, mirroring a node whose TSS data
         // is not loaded yet; every other block (and the target's later attempts) verifies and persists.
         final AtomicBoolean targetFailedOnce = new AtomicBoolean();
-        blockMessaging.registerBlockNotificationHandler(
+        blockMessaging.registerUnvalidatedBlockHandler(
                 new BlockNotificationHandler() {
                     @Override
                     public void handleBackfilled(BackfilledBlockNotification notification) {
@@ -1916,7 +1956,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         final AtomicBoolean genesisPersisted = new AtomicBoolean();
         final AtomicBoolean successorFetchedTooEarly = new AtomicBoolean();
         final CountDownLatch successorFetchedLatch = new CountDownLatch(1);
-        blockMessaging.registerBlockNotificationHandler(
+        blockMessaging.registerUnvalidatedBlockHandler(
                 new BlockNotificationHandler() {
                     @Override
                     public void handleBackfilled(BackfilledBlockNotification notification) {
@@ -2125,7 +2165,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     }
 
     private void registerDefaultTestBackfillHandler() {
-        this.blockMessaging.registerBlockNotificationHandler(
+        this.blockMessaging.registerUnvalidatedBlockHandler(
                 new BlockNotificationHandler() {
                     @Override
                     public void handleBackfilled(BackfilledBlockNotification notification) {
@@ -2278,7 +2318,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                     delayBetweenBatches,
                     initialDelay,
                     perBlockProcessingTimeout,
-                    60000, // grpcOverallTimeout - default
+                    900_000, // grpcOverallTimeout - default
+                    60_000, // grpcInactivityTimeout - default
                     104_857_600, // maxIncomingBufferSize - default (100 MB)
                     BackfillConfiguration
                             .DEFAULT_MAX_PROTOBUF_MESSAGE_SIZE_BYTES, // maxProtobufMessageSizeBytes - default
