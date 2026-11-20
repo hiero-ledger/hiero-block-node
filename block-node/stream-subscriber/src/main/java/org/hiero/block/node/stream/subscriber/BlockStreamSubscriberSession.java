@@ -381,7 +381,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     }
 
     private long getLatestHistoricalBlock() {
-        return blockNodeContext.historicalBlockProvider().availableBlocks().max();
+        return blockNodeContext.applicationStateFacility().availableBlockSet().max();
     }
 
     /**
@@ -447,7 +447,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         final long lastRequestedBlock = sessionContext.lastRequestedBlock;
         final long clientId = sessionContext.clientId;
         final BlockRangeSet availableBlocks =
-                blockNodeContext.historicalBlockProvider().availableBlocks();
+                blockNodeContext.applicationStateFacility().availableBlockSet();
         final long firstAvailableBlock = availableBlocks.min();
         final long latestKnownBlock = getLatestKnownBlock();
         final long lastPermittedStart = latestKnownBlock + sessionContext.subscriberConfig.maximumFutureRequest();

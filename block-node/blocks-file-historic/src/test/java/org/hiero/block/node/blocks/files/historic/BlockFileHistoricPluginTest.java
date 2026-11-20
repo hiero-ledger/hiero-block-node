@@ -393,6 +393,44 @@ class BlockFileHistoricPluginTest {
         }
 
         /**
+         * Test that a zipped batch is reported to the application state facility as available.
+         */
+        @Test
+        @DisplayName("Test a zipped batch is reported as available to the application state facility")
+        void testZippedBatchReportedToApplicationState() throws IOException {
+            for (int i = 0; i < 10; i++) {
+                final BlockUnparsed block =
+                        TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
+                blockMessaging.sendBlockVerification(new VerificationNotification(
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+            }
+            // nothing is reported until the batch is zipped
+            assertThat(reportedAvailableRanges()).isEmpty();
+            pluginExecutor.executeSerially();
+            assertThat(reportedAvailableRanges()).containsExactly(new BlockRange(0, 9));
+            assertThat(reportedRemovedRanges()).isEmpty();
+        }
+
+        /**
+         * Test that zips deleted by the retention policy are reported to the application state facility.
+         */
+        @Test
+        @DisplayName("Test retention removals are reported to the application state facility")
+        void testRetentionRemovalReportedToApplicationState() throws IOException {
+            for (int i = 0; i < 151; i++) {
+                final BlockUnparsed block =
+                        TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
+                blockMessaging.sendBlockVerification(new VerificationNotification(
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+            }
+            pluginExecutor.executeSerially();
+            // the first 50 blocks fell out of retention, which is five whole zips of 10 blocks
+            assertThat(reportedRemovedRanges()).isNotEmpty();
+            assertThat(reportedRemovedRanges().getFirst()).isEqualTo(new BlockRange(0, 9));
+            assertThat(reportedRemovedRanges().getLast()).isEqualTo(new BlockRange(40, 49));
+        }
+
+        /**
          * This test aims to verify that the plugin can handle a simple range of
          * blocks that have been persisted and a notification is sent to the
          * messaging facility. The block provider that has persisted the blocks
