@@ -346,7 +346,7 @@ class BlockFileRecentPluginTest {
             final BlockFileRecentPlugin toTest = new BlockFileRecentPlugin();
             final HistoricalBlockFacility localHistoricalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
             // unregister the original plugin from the messaging queue
-            blockMessaging.unregisterBlockNotificationHandler(blockFileRecentPlugin);
+            blockMessaging.unregisterVerifiedBlockHandler(blockFileRecentPlugin);
             // start the plugin with the overridden config
             start(
                     toTest,
