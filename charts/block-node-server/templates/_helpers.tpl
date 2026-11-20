@@ -80,6 +80,60 @@ Usage: {{ include "hiero-block-node.app.version" . }}
 {{- end -}}
 
 {{/*
+Resolve the names string of a plugin profile by reading its values-overrides file.
+Returns "" when no such profile file exists (used to detect unknown profiles).
+Usage: include "hiero-block-node.pluginProfileNames" (dict "root" $ "profile" "rfh")
+*/}}
+{{- define "hiero-block-node.pluginProfileNames" -}}
+{{- $raw := .root.Files.Get (printf "values-overrides/plugin-profile-%s.yaml" .profile) -}}
+{{- if $raw -}}
+{{- dig "plugins" "names" "" (fromYaml $raw) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Resolve the effective plugin names string from plugins.names and plugins.profile.
+
+This is the single place that turns the plugin selector into a concrete comma-separated
+list; every consumer (resolve-plugins init container, BN_PLUGINS env, plugins PVC) must
+route through it so the effective set is consistent everywhere.
+
+The values-overrides/plugin-profile-<name>.yaml files are the single source of truth for each
+plugin set: a non-empty plugins.profile is expanded by reading the matching file at render time,
+so adding a new profile file makes it selectable with no change here or in values.yaml.
+
+Precedence (first match wins):
+  1. an explicit non-empty plugins.names is used as-is. An explicit empty ("") plugins.names
+     also wins and keeps its meaning (plugins baked into the image); a profile never overrides
+     an intentional empty. The chart default for plugins.names is null, so "explicit" is simply
+     "set to anything other than null".
+  2. otherwise a non-empty plugins.profile expands to the names from plugin-profile-<profile>.yaml;
+  3. otherwise the lfh profile (plugin-profile-lfh.yaml) applies.
+
+An unrecognized plugins.profile stops templating via fail, listing the available profiles
+discovered from the values-overrides/plugin-profile-*.yaml files -- it never resolves to an
+empty or partial set.
+*/}}
+{{- define "hiero-block-node.pluginNames" -}}
+{{- if kindIs "invalid" .Values.plugins.names -}}
+{{- /* plugins.names is unset (chart default is null): resolve via the profile, defaulting to lfh */ -}}
+{{- $profile := default "lfh" .Values.plugins.profile -}}
+{{- $profilePluginNames := include "hiero-block-node.pluginProfileNames" (dict "root" . "profile" $profile) -}}
+{{- if not $profilePluginNames -}}
+{{- $available := list -}}
+{{- range $path, $_ := .Files.Glob "values-overrides/plugin-profile-*.yaml" -}}
+{{- $available = append $available (base $path | trimPrefix "plugin-profile-" | trimSuffix ".yaml") -}}
+{{- end -}}
+{{- fail (printf "plugins.profile %q is not recognized; valid profiles are: %s (or \"\" to use the default)" $profile ($available | sortAlpha | join ", ")) -}}
+{{- end -}}
+{{- $profilePluginNames -}}
+{{- else -}}
+{{- /* plugins.names was set explicitly (incl. an explicit "") -> it wins */ -}}
+{{- .Values.plugins.names -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Validated plugins.source: "maven" (default) or "image".
 */}}
 {{- define "hiero-block-node.pluginsSource" -}}
@@ -88,7 +142,7 @@ Validated plugins.source: "maven" (default) or "image".
 {{- fail (printf "plugins.source must be \"maven\" or \"image\", got %q" $source) -}}
 {{- end -}}
 {{- if eq $source "image" -}}
-{{- range splitList "," (default "" .Values.plugins.names) -}}
+{{- range splitList "," (include "hiero-block-node.pluginNames" .) -}}
 {{- if contains ":" . -}}
 {{- fail (printf "plugins.names entry %q pins a version, which plugins.source=image does not support; use plugins.source=maven" (trim .)) -}}
 {{- end -}}

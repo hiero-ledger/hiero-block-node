@@ -6,4 +6,4 @@ image:
 
 # solo-dev has all the plugins included in the image
 plugins:
-  names:
+  names: ""
