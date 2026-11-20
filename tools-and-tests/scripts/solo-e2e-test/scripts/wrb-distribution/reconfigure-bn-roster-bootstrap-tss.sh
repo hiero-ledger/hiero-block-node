@@ -12,7 +12,7 @@
 # backfill block 0 from BN1 (reconfigure-bn-backfill.sh, step 10), and
 # backfilled blocks DO go through verification, so each independently
 # extracts its own TssData. The roster-bootstrap-tss plugin closes the loop:
-# it periodically calls serverStatusDetail on configured peers and copies
+# it periodically calls getTssData on configured peers and copies
 # whatever TssData they already have, so pointing BN1 at BN2/BN3 lets BN1
 # eventually reflect the same TssData too — matching issue #3125 step 11's
 # literal expectation that BN1 gets updated (just via peer gossip rather than
