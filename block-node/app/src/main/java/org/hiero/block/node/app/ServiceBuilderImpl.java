@@ -39,12 +39,14 @@ import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.bulkhead.BlockReadBulkhead;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
+import org.hiero.block.node.spi.throttle.ContentAwareWeigher;
 import org.hiero.block.node.spi.throttle.RemoteAddressKeyExtractor;
 import org.hiero.block.node.spi.throttle.StaleClientSweepable;
 import org.hiero.block.node.spi.throttle.ThrottleExempt;
 import org.hiero.block.node.spi.throttle.ThrottleMetrics;
 import org.hiero.block.node.spi.throttle.ThrottleSpec;
 import org.hiero.block.node.spi.throttle.ThrottledServiceInterface;
+import org.hiero.block.node.spi.throttle.WeightedThrottledServiceInterface;
 import org.hiero.metrics.core.MetricRegistry;
 
 /// Default implementation of [ServiceBuilder]. That builds HTTP and PBJ GRPC services.
@@ -157,17 +159,36 @@ public class ServiceBuilderImpl implements ServiceBuilder {
 
     private void registerThrottledGrpcService(
             @Nullable final Integer port, @NonNull final ServiceInterface service, @NonNull final ThrottleSpec spec) {
-        final ThrottledServiceInterface throttled = new ThrottledServiceInterface(
-                service,
-                spec.perClientSettings(),
-                spec.defaultPerClientSettings(),
-                spec.globalConcurrencyCeilings(),
-                keyExtractor,
-                throttleMetrics,
-                Duration.ofMinutes(globalThrottleConfig.clientStateTtlMinutes()));
-        throttledServices.add(throttled);
+        final Duration clientStateTtl = Duration.ofMinutes(globalThrottleConfig.clientStateTtlMinutes());
+        final ServiceInterface throttled;
+        final StaleClientSweepable sweepable;
+        final Optional<ContentAwareWeigher> weigher = spec.weigher();
+        if (weigher.isPresent()) {
+            final WeightedThrottledServiceInterface weighted = new WeightedThrottledServiceInterface(
+                    service,
+                    spec.weightedPerClientSettings(),
+                    spec.weightedGlobalConcurrencyCeilings(),
+                    keyExtractor,
+                    weigher.get(),
+                    throttleMetrics,
+                    clientStateTtl);
+            throttled = weighted;
+            sweepable = weighted;
+        } else {
+            final ThrottledServiceInterface single = new ThrottledServiceInterface(
+                    service,
+                    spec.perClientSettings(),
+                    spec.defaultPerClientSettings(),
+                    spec.globalConcurrencyCeilings(),
+                    keyExtractor,
+                    throttleMetrics,
+                    clientStateTtl);
+            throttled = single;
+            sweepable = single;
+        }
+        throttledServices.add(sweepable);
         ensureClientStateSweepStarted();
-        ensurePermitReaperScheduled(throttled.smallestPermitHoldSeconds());
+        ensurePermitReaperScheduled(sweepable.smallestPermitHoldSeconds());
         grpcBuilders.computeIfAbsent(resolve(port), k -> PbjRouting.builder()).service(throttled);
     }
 

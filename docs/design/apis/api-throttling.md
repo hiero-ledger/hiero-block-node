@@ -646,12 +646,10 @@ are actually configured — there is no table, and therefore no gauge, for an un
 | `bulkhead_read_in_use`   | Gauge, labeled by `resource`                                   | Permits currently held from a shared read bulkhead (`resource="block"` for block storage)                                                |
 | `bulkhead_read_requests` | Counter, labeled by `resource`/`method`/`status`               | Every bulkhead acquire attempt by caller (`get_block`, `subscriber_catch_up`) and outcome (`acquired`, `rejected`)                       |
 
-The `weightClass` label above describes the full, weighted design; it is not yet emitted by either metric today,
-since no method has more than one weight class until content-aware weighing lands — the counter and gauge are
-currently labeled `service`/`method`/`outcome` and `service`/`method` respectively. Per-client and node-wide
-in-flight call counts (referenced by [Acceptance Test](#acceptance-tests) 6) are also not yet emitted as their own
-gauges. Both are tracked as follow-ups; in the interim, in-flight counts are derivable from admitted-minus-completed
-accounting external to this mechanism.
+The `weightClass` label is emitted on `throttle_calls`, `throttle_client_state_count`, `throttle_in_flight`,
+`throttle_clients_in_flight` and `throttle_permits_reaped`. A method with a single weight class is labeled
+`standard`. For a weighted service the node-wide gate is scoped to the service, so `throttle_in_flight` reports it
+with `method="*"`.
 
 ## Exceptions
 

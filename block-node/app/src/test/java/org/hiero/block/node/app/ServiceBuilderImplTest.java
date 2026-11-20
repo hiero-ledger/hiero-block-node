@@ -10,14 +10,18 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.hedera.pbj.grpc.helidon.PbjRouting;
+import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import io.helidon.common.socket.SocketOptions;
 import io.helidon.webserver.ListenerConfig;
 import io.helidon.webserver.WebServerConfig;
@@ -29,17 +33,22 @@ import java.net.StandardSocketOptions;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.hiero.block.node.app.config.BlockReadBulkheadConfig;
 import org.hiero.block.node.app.config.GlobalThrottleConfig;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.app.config.WebServerHttp2Config;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
+import org.hiero.block.node.spi.throttle.ContentAwareWeigher;
+import org.hiero.block.node.spi.throttle.MethodWeight;
 import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
 import org.hiero.block.node.spi.throttle.StaleClientSweepable;
 import org.hiero.block.node.spi.throttle.ThrottleExempt;
 import org.hiero.block.node.spi.throttle.ThrottleSpec;
 import org.hiero.block.node.spi.throttle.ThrottledServiceInterface;
+import org.hiero.block.node.spi.throttle.WeightClass;
+import org.hiero.block.node.spi.throttle.WeightedThrottledServiceInterface;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -63,7 +72,8 @@ class ServiceBuilderImplTest {
         final Http2Config http2Config = Http2Config.builder().build();
         final SocketOptions socketOptions = SocketOptions.builder().build();
         ServerConfig testConfig = new ServerConfig(0, 0, 0, PUBLISHER_PORT, 0, 0, 0, 0, false, 0, 0);
-        final GlobalThrottleConfig globalThrottleConfig = new GlobalThrottleConfig(1000, 1000, 500, 500, 30, 5);
+        final GlobalThrottleConfig globalThrottleConfig =
+                new GlobalThrottleConfig(1000, 1000, 500, 500, 200, 50, 30, 5);
         final BlockReadBulkheadConfig blockReadBulkheadConfig = new BlockReadBulkheadConfig(50);
         final MetricRegistry metricRegistry = MetricRegistry.builder().build();
         final ThreadPoolManager threadPoolManager = mock(ThreadPoolManager.class);
@@ -112,6 +122,38 @@ class ServiceBuilderImplTest {
     }
 
     @Test
+    @DisplayName("registerGrpcService wraps a ThrottleSpec service with a weigher in the weighted decorator")
+    void registerGrpcService_weightedThrottleSpec_wrapsInWeightedDecorator() {
+        final ServiceInterface testService = new TestWeightedService(
+                Map.of(
+                        new MethodWeight("method", WeightClass.STANDARD), new PerClientThrottleSettings(10, 5, 3, 0),
+                        new MethodWeight("method", WeightClass.HEAVY), new PerClientThrottleSettings(2, 1, 1, 0)),
+                Map.of(WeightClass.STANDARD, 100, WeightClass.HEAVY, 10));
+        final PbjRouting.Builder spyBuilder = injectGrpcBuilderSpy(CONSUMER_PORT);
+
+        serviceBuilder.registerGrpcService(CONSUMER_PORT, testService);
+
+        final ArgumentCaptor<ServiceInterface> registered = ArgumentCaptor.forClass(ServiceInterface.class);
+        verify(spyBuilder).service(registered.capture());
+        assertInstanceOf(WeightedThrottledServiceInterface.class, registered.getValue());
+        assertEquals(testService.serviceName(), registered.getValue().serviceName());
+    }
+
+    @Test
+    @DisplayName("registerGrpcService rejects a weighted service with no STANDARD entry and registers nothing")
+    void registerGrpcService_weightedThrottleSpecWithoutStandard_throws() {
+        final ServiceInterface testService = new TestWeightedService(
+                Map.of(new MethodWeight("method", WeightClass.HEAVY), new PerClientThrottleSettings(2, 1, 1, 0)),
+                Map.of(WeightClass.STANDARD, 100, WeightClass.HEAVY, 10));
+        final PbjRouting.Builder spyBuilder = injectGrpcBuilderSpy(CONSUMER_PORT);
+
+        assertThrows(
+                IllegalArgumentException.class, () -> serviceBuilder.registerGrpcService(CONSUMER_PORT, testService));
+
+        verify(spyBuilder, never()).service(any(ServiceInterface.class));
+    }
+
+    @Test
     @DisplayName("registerGrpcService registers a ThrottleExempt service as-is, without wrapping")
     void registerGrpcService_throttleExempt_registersRawServiceWithoutWrapping() {
         final ServiceInterface testService = new TestExemptService("TestExemptService");
@@ -145,7 +187,7 @@ class ServiceBuilderImplTest {
                 new ServerConfig(0, 0, 0, PUBLISHER_PORT, 0, 0, 0, 0, false, 0, 0),
                 Http2Config.builder().build(),
                 SocketOptions.builder().build(),
-                new GlobalThrottleConfig(1000, 1000, 500, 500, 30, 5),
+                new GlobalThrottleConfig(1000, 1000, 500, 500, 200, 50, 30, 5),
                 new BlockReadBulkheadConfig(50),
                 MetricRegistry.builder().build(),
                 threadPoolManager);
@@ -170,8 +212,7 @@ class ServiceBuilderImplTest {
                         "NeverReapsService",
                         Map.of("method", new PerClientThrottleSettings(10, 5, 3)),
                         Map.of("method", 100)));
-        org.mockito.Mockito.verify(firstReaper, org.mockito.Mockito.never())
-                .cancel(org.mockito.ArgumentMatchers.anyBoolean());
+        org.mockito.Mockito.verify(firstReaper, never()).cancel(org.mockito.ArgumentMatchers.anyBoolean());
 
         // A service with a smaller hold limit tightens the period: the old schedule is cancelled.
         builder.registerGrpcService(
@@ -277,6 +318,55 @@ class ServiceBuilderImplTest {
         @Override
         public Map<String, Integer> globalConcurrencyCeilings() {
             return globalConcurrencyCeilings;
+        }
+    }
+
+    /// A [ServiceInterface] + [ThrottleSpec] test double that opts into content-aware weighting; see
+    /// [TestThrottledService] for why it is hand-written.
+    private static final class TestWeightedService implements ServiceInterface, ThrottleSpec {
+        private final Map<MethodWeight, PerClientThrottleSettings> settings;
+        private final Map<WeightClass, Integer> ceilings;
+
+        TestWeightedService(
+                final Map<MethodWeight, PerClientThrottleSettings> settings, final Map<WeightClass, Integer> ceilings) {
+            this.settings = settings;
+            this.ceilings = ceilings;
+        }
+
+        @Override
+        public String serviceName() {
+            return "WeightedTestService";
+        }
+
+        @Override
+        public String fullName() {
+            return "test.WeightedTestService";
+        }
+
+        @Override
+        public List<Method> methods() {
+            return List.of();
+        }
+
+        @Override
+        public Pipeline<? super Bytes> open(
+                final Method method, final RequestOptions opts, final Pipeline<? super Bytes> responses) {
+            throw new UnsupportedOperationException("not exercised by these registration-only tests");
+        }
+
+        @Override
+        public Optional<ContentAwareWeigher> weigher() {
+            return Optional.of((method, bytes) -> WeightClass.STANDARD);
+        }
+
+        @Override
+        public Map<MethodWeight, PerClientThrottleSettings> weightedPerClientSettings() {
+            return settings;
+        }
+
+        @Override
+        public Map<WeightClass, Integer> weightedGlobalConcurrencyCeilings() {
+            return ceilings;
         }
     }
 
@@ -661,7 +751,8 @@ class ServiceBuilderImplTest {
                 .build();
         final ServerConfig serverConfig =
                 new ServerConfig(1_048_576, 32_768, 32_768, PUBLISHER_PORT, 0, 1_000, 1, 1, true, 1_024, 32);
-        final GlobalThrottleConfig globalThrottleConfig = new GlobalThrottleConfig(1000, 1000, 500, 500, 30, 5);
+        final GlobalThrottleConfig globalThrottleConfig =
+                new GlobalThrottleConfig(1000, 1000, 500, 500, 200, 50, 30, 5);
         final BlockReadBulkheadConfig blockReadBulkheadConfig = new BlockReadBulkheadConfig(50);
         final MetricRegistry metricRegistry = MetricRegistry.builder().build();
         return new ServiceBuilderImpl(

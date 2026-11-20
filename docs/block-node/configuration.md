@@ -294,7 +294,7 @@ for the JSON schema.
 
 ### Throttle Configuration
 
-The `serverStatus`, `serverStatusDetail`, `getAddressBook` and `getTssData` gRPC methods are throttled per client and node-wide. All keys have defaults.
+The `serverStatus`, `serverStatusDetail`, `getBlock`, getAddressBook` and `getTssData` gRPC methods are throttled per client and node-wide. `getBlock` is classified by the block it requests: a request for a live/recent block and one for a historical block are throttled independently, each with its own limits. All keys have defaults.
 
 #### Global limits (prefix `throttle.global.`)
 
@@ -304,6 +304,8 @@ The `serverStatus`, `serverStatusDetail`, `getAddressBook` and `getTssData` gRPC
 | serverStatusDetailMaxConcurrent | Node-wide ceiling on concurrent in-flight `serverStatusDetail` calls across all clients.                              |   1,000 |
 | getAddressBookMaxConcurrent     | Node-wide ceiling on concurrent in-flight `getAddressBook` calls across all clients.                                  |     100 |
 | getTssDataMaxConcurrent         | Node-wide ceiling on concurrent in-flight `getTssData` calls across all clients.                                      |     500 |
+| getBlockLiveMaxConcurrent       | Node-wide ceiling on concurrent in-flight `getBlock` calls for a live/recent block across all clients.                |     200 |
+| getBlockHistoricalMaxConcurrent | Node-wide ceiling on concurrent in-flight `getBlock` calls for a historical block across all clients.                 |      50 |
 | clientStateTtlMinutes           | How long a throttled method keeps a client's rate and concurrency state after its last call before it can be evicted. |      30 |
 | clientStateSweepIntervalMinutes | How often the sweep that evicts stale client state runs.                                                              |       5 |
 
@@ -326,6 +328,18 @@ The defaults for the roster calls, `throttle.getAddressBook.` and `throttle.getT
 | burstTolerance         |      10 |
 | maxConcurrentPerClient |       3 |
 | maxPermitHoldSeconds   |      60 |
+
+#### `getBlock` limits (prefixes `throttle.getBlockLive.` and `throttle.getBlockHistorical.`)
+
+The same four keys as the per-method limits above apply under each prefix, with these defaults. A request is historical if it targets a block more than `throttle.getBlockHistorical.historicalThresholdBlocks` behind the newest available block. Requests for the latest block (`retrieve_latest`) are always live.
+
+| Config Key                | `getBlockLive` | `getBlockHistorical` |
+|:--------------------------|---------------:|---------------------:|
+| ratePerSecond             |             20 |                    5 |
+| burstTolerance            |             10 |                    3 |
+| maxConcurrentPerClient    |             10 |                    3 |
+| maxPermitHoldSeconds      |             10 |                   10 |
+| historicalThresholdBlocks |            n/a |               96,000 |
 
 #### When a client is rejected
 

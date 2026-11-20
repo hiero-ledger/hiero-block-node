@@ -20,7 +20,9 @@ public interface ThrottleSpec {
     ///
     /// @return the per-method settings map; may be empty
     @NonNull
-    Map<String, PerClientThrottleSettings> perClientSettings();
+    default Map<String, PerClientThrottleSettings> perClientSettings() {
+        return Map.of();
+    }
 
     /// A fallback applied to any method [#perClientSettings] doesn't cover, instead of leaving it
     /// with no per-client gate. Empty by default.
@@ -41,5 +43,38 @@ public interface ThrottleSpec {
     ///
     /// @return the node-wide concurrency ceiling per method name
     @NonNull
-    Map<String, Integer> globalConcurrencyCeilings();
+    default Map<String, Integer> globalConcurrencyCeilings() {
+        return Map.of();
+    }
+
+    /// The content-aware weigher for this service. When present, the service is wrapped in a
+    /// [WeightedThrottledServiceInterface] and admission is configured through
+    /// [#weightedPerClientSettings] and [#weightedGlobalConcurrencyCeilings] instead of
+    /// [#perClientSettings] and [#globalConcurrencyCeilings], which are then ignored.
+    ///
+    /// @return the weigher, or empty (the default) for a single-tier service
+    @NonNull
+    default Optional<ContentAwareWeigher> weigher() {
+        return Optional.empty();
+    }
+
+    /// Per-client settings for a weighted service, one entry per `(method, weight class)`. Every
+    /// configured method must include a [WeightClass#STANDARD] entry, which is also the fallback
+    /// for any weight class with no entry of its own. Only used when [#weigher] is present.
+    ///
+    /// @return the per-`(method, weight class)` settings; may be empty
+    @NonNull
+    default Map<MethodWeight, PerClientThrottleSettings> weightedPerClientSettings() {
+        return Map.of();
+    }
+
+    /// Node-wide concurrency ceilings for a weighted service, one per weight class, scoped to the
+    /// service and shared by all its methods. Must include [WeightClass#STANDARD] and every weight
+    /// class with per-client settings. Only used when [#weigher] is present.
+    ///
+    /// @return the node-wide ceiling per weight class
+    @NonNull
+    default Map<WeightClass, Integer> weightedGlobalConcurrencyCeilings() {
+        return Map.of();
+    }
 }

@@ -20,6 +20,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Flow;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
@@ -38,6 +39,9 @@ import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBloc
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.bulkhead.BlockReadBulkhead;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
+import org.hiero.block.node.spi.throttle.MethodWeight;
+import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
+import org.hiero.block.node.spi.throttle.WeightClass;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -58,6 +62,26 @@ public class BlockAccessServicePluginTest
     @BeforeEach
     void setup() {
         sendBlocks(25);
+    }
+
+    @Test
+    @DisplayName("The plugin reports live and historical throttle settings, ceilings and a weigher")
+    void throttleSpecReportsBothWeightClasses() {
+        assertTrue(plugin.weigher().isPresent());
+        assertEquals(
+                Set.of(
+                        new MethodWeight("getBlock", WeightClass.STANDARD),
+                        new MethodWeight("getBlock", WeightClass.HEAVY)),
+                plugin.weightedPerClientSettings().keySet());
+        assertEquals(
+                Set.of(WeightClass.STANDARD, WeightClass.HEAVY),
+                plugin.weightedGlobalConcurrencyCeilings().keySet());
+        // historical must be stricter than live by default
+        final PerClientThrottleSettings live =
+                plugin.weightedPerClientSettings().get(new MethodWeight("getBlock", WeightClass.STANDARD));
+        final PerClientThrottleSettings historical =
+                plugin.weightedPerClientSettings().get(new MethodWeight("getBlock", WeightClass.HEAVY));
+        assertTrue(historical.ratePerSecond() < live.ratePerSecond());
     }
 
     /**
