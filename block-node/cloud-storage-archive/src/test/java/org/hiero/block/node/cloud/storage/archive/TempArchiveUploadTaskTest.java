@@ -65,7 +65,7 @@ class TempArchiveUploadTaskTest {
     private static final int BLOCK_DATA_BYTES = 600 * 1024;
 
     // @todo(2013) we should remove that and use another approach
-    private static final GenericContainer<?> MINIO_CONTAINER = new GenericContainer<>("minio/minio:latest")
+    private static final GenericContainer<?> MINIO_CONTAINER = new GenericContainer<>(MinioTestImage.IMAGE)
             .withCommand("server /data")
             .withExposedPorts(MINIO_PORT)
             .withEnv("MINIO_ROOT_USER", MINIO_USER)
