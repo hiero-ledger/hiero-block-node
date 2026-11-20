@@ -5,9 +5,9 @@
 #
 # The chart's resolve-plugins init container downloads plugins from Maven, so a plugin that is new in a PR cannot
 # be resolved until main publishes it, and the install fails. This script finds the plugins the chart tests list
-# in `plugins.names` that are not published at <version> (see lib/maven-published.sh) and, for those only,
+# in `plugins.names` (or the plugin-profile-*.yaml files the unset default resolves to) that are not published at <version> (see lib/maven-published.sh) and, for those only,
 # edits the chart in the CI workspace (nothing is committed):
-#   1. removes them from `plugins.names` in values.yaml and the ci/ values, so Maven is not asked for them, and
+#   1. removes them from `plugins.names` in values.yaml, the ci/ values and the plugin-profile-*.yaml files, so Maven is not asked for them, and
 #   2. adds an init container to the default `blockNode.initContainers` in values.yaml that copies their jars from
 #      the PR's locally built solo-dev image (which bakes the PR's plugins) into the plugins volume.
 #      resolve-plugins only removes the jars it resolved itself, so the copied jars are kept.
@@ -29,13 +29,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/maven-published.sh"
 
 VALUES_FILES=()
 while IFS= read -r file; do VALUES_FILES+=("${file}"); done < <(
-  find "${CHART}" -maxdepth 3 -name '*.yaml' \( -name values.yaml -o -path '*/ci/*' \) | sort)
+  find "${CHART}" -maxdepth 3 -name '*.yaml' \( -name values.yaml -o -path '*/ci/*' -o -path '*/values-overrides/plugin-profile-*' \) | sort)
 
 # Plugins the chart tests would ask Maven for, that Maven does not have at this version. Entries pinned with an
 # explicit version (name:version) are third-party style pins and are left alone.
 PR_PLUGINS=()
 while IFS= read -r name; do
-  [[ -z "${name}" || "${name}" == *:* ]] && continue
+  [[ -z "${name}" || "${name}" == "null" || "${name}" == *:* ]] && continue
   if ! is_published "${name}" "${VERSION}"; then PR_PLUGINS+=("${name}"); fi
 done < <(
   grep -h -E '^[[:space:]]*names:' "${VALUES_FILES[@]}" \
