@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.spi.blockmessaging;
 
-public record BackfilledBlockNotification(long blockNumber, org.hiero.block.internal.BlockUnparsed block) {}
+import org.hiero.block.internal.BlockUnparsed;
+
+public record BackfilledBlockNotification(long blockNumber, BlockUnparsed block, BlockSource source) {
+    public BackfilledBlockNotification(final long blockNumber, final BlockUnparsed block) {
+        this(blockNumber, block, BlockSource.BACKFILL);
+    }
+}

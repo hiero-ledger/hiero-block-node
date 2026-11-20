@@ -111,7 +111,7 @@ public final class ActiveSessionsBuffer {
                             latestPublisherSession.set(session);
                             yield SessionLane.HIGH_PRIORITY;
                         }
-                        case BACKFILL, HISTORY, UNKNOWN -> SessionLane.LOW_PRIORITY;
+                        case BACKFILL, CLOUD_STORAGE, HISTORY, UNKNOWN -> SessionLane.LOW_PRIORITY;
                     };
             laneOf(lane).put(session.sessionKey(), session);
             sessionHandlerMetrics.verificationActiveSessions().set(size());

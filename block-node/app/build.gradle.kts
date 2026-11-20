@@ -133,6 +133,7 @@ dependencies {
 
     // Cloud storage
     blockNodePlugins(project(":cloud-storage-archive"))
+    blockNodePlugins(project(":cloud-storage-download"))
     blockNodePlugins(project(":cloud-storage-expanded"))
 
     // Extended functionality
@@ -231,6 +232,7 @@ testModuleInfo {
     runtimeOnly("org.hiero.block.node.blocks.files.historic")
     runtimeOnly("org.hiero.block.node.blocks.files.recent")
     runtimeOnly("org.hiero.block.node.cloud.storage.archive")
+    runtimeOnly("org.hiero.block.node.cloud.storage.download")
     runtimeOnly("org.hiero.block.node.cloud.storage.expanded")
     runtimeOnly("org.hiero.block.node.health")
     runtimeOnly("org.hiero.block.node.messaging")

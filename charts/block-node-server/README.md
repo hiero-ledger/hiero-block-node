@@ -141,6 +141,7 @@ The Block Node uses a plugin architecture where functionality is loaded dynamica
 | `blocks-file-historic`   | Local storage for historical blocks                                                             |
 | `backfill`               | Fetches missing historical blocks from other nodes                                              |
 | `cloud-storage-archive`  | Archives blocks to S3-compatible storage, grouped into tar files                                |
+| `cloud-storage-download` | Recovers missing blocks from the bucket the Consensus Nodes upload blocks to                    |
 | `cloud-storage-expanded` | Uploads blocks to S3-compatible storage, one object per block                                   |
 | `roster-bootstrap-rsa`   | Loads the RSA address-book history at startup, fetching it from a peer or Mirror Node if absent |
 | `roster-bootstrap-tss`   | Obtains the latest TSS data (ledger ID, WRAPS verification key) and publishes it to the node    |
@@ -166,6 +167,7 @@ Full functionality for development and testing.
 * `blocks-file-historic`
 * `blocks-file-recent`
 * `cloud-storage-archive`
+* `cloud-storage-download`
 * `cloud-storage-expanded`
 * `facility-app-state`
 * `facility-messaging`
