@@ -117,7 +117,8 @@ The subscriber **may retry with exponential backoff** against the same BN, or
 Clients may avoid this result by checking for gaps client-side. Gaps are reported
 clearly when calling `serverStatusDetail`, which returns `available_ranges` covering
 all blocks available on that node. If the node has all blocks it will return a single
-range from `0` through the latest persisted block.
+range from `0` through the latest persisted block. To keep the response small, set `exclude_versions` and
+`exclude_stored_ranges` in the request.
 
 The Subscribe API stream at the live edge, because it is live and unverified, _may_
 deliver blocks out of order, but _should_ deliver the out-of-order block within a

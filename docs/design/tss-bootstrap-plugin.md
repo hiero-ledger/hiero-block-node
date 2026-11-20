@@ -23,7 +23,7 @@ We intend to create a new Block Node plugin (TSSBootstrapPlugin) that queries an
 - BN persists the latest TssData to a configured file path
 - BN loads persisted TssData at startup
 - BN periodically contacts peer BNs to get their TssData
-- BN makes TssData available via the ServerStatusDetail API
+- BN makes TssData available via the `getTssData` API
 - The ApplicationStateFacility plugin provides an interface for BN Plugins to update TssData
 - BN uses TssData.validFromBlock to determine which TssData is the latest
 - BN updates plugins, on a separate thread, via a `TssDataNotification` when the TssData changes
@@ -84,18 +84,20 @@ We intend to create a new Block Node plugin (TSSBootstrapPlugin) that queries an
 
 - The plugin responsible for the `serverStatus`  and `serverStatusDetail` gRPC calls.
 - Implements `ApplicationStateNotificationHandler.handleTssDataUpdate()` to receive `TssData` updates.
-- Responds to peer requests for `TssData` via the `serverStatusDetail` call.
+- Responds to peer requests for `TssData` via the `getTssData` call. `serverStatusDetail` also returns it until release
+  0.49, marked deprecated.
 
 ### TssBootstrapConfig
 
-- Used to configure the BN Peers that will be used to query `serverStatusDetail`
+- Used to configure the BN Peers that will be used to query `getTssData`
 - Used to bootstrap TSS data via the Config
 - Overrides initial data provided by the `ApplicationStateFacility`, if it has a newer validFromBlock than
   other sources.
 
 ### TssBootstrapPlugin
 
-- Queries peer BNs for `TssData` via the `serverStatusDetail` gRPC call.
+- Queries peer BNs for `TssData` via the `getTssData` gRPC call. A peer on an older version answers `UNIMPLEMENTED`, and
+  the plugin then reads the deprecated `tss_data` field of `serverStatusDetail`.
 - `TssData` can be configured using the `TssBootstrapConfig`
 - `TssBootstrapConfig` data will override the `TssData` received during `init()`, if it has a newer validFromBlock than
   other sources.
@@ -191,7 +193,8 @@ message RosterEntry {
 - Delivers TSS booststrap information to a Block Node that does not have access to the network Block 0 transactions.
   - A new Block Node needs to learn the current TSS state (ledger ID and, for information, the Roster)
     - Plugin implements the existing `BlockNodePlugin` interfaces
-    - The plugin queries a peer BN's serverStatusDetail gRPC endpoint to retrieve TSS information
+    - The plugin queries a peer BN's `getTssData` gRPC endpoint to retrieve TSS information (falling back to the
+      deprecated field of `serverStatusDetail` when the peer answers `UNIMPLEMENTED`)
       - gRPC peer communication follows the same WebClient pattern used elsewhere in the codebase
     - The `ApplicationStateFacility` interface coordinates `TssData` changes between plugins
       - Handles requests to change `TssData`
