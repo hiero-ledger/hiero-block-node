@@ -261,7 +261,6 @@ public final class VerificationServicePlugin
     /// {@inheritDoc}
     /// ---
     /// This is where we receive blocks from backfill and from cloud storage.
-    /// Notifications with any other source are rejected.
     /// We will always receive a complete block, one per notification.
     /// We can safely wrap the block as [BlockItems] which is both the start
     /// and the end of the block. We then propagate the block to the session
@@ -272,15 +271,6 @@ public final class VerificationServicePlugin
     @Override
     public void handleBackfilled(final BackfilledBlockNotification notification) {
         if (notification != null
-                && notification.source() != BlockSource.BACKFILL
-                && notification.source() != BlockSource.CLOUD_STORAGE) {
-            // only a defect in the sending plugin can produce another source
-            LOGGER.log(
-                    WARNING,
-                    "Rejected backfilled block {0} with unsupported source {1}",
-                    notification.blockNumber(),
-                    notification.source());
-        } else if (notification != null
                 && notification.blockNumber() >= 0L
                 && notification.block() != null
                 && notification.block().blockItems() != null

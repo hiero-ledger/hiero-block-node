@@ -139,14 +139,14 @@ class VerificationServicePluginTest {
         }
 
         /// This test aims to assert that a complete block notification whose
-        /// source is neither backfill nor cloud storage is rejected without
+        /// source the session handler does not support is ignored without
         /// starting verification.
         @ParameterizedTest
         @EnumSource(
                 value = BlockSource.class,
-                names = {"UNKNOWN", "PUBLISHER", "HISTORY"})
-        @DisplayName("Complete block notification with unsupported source is rejected")
-        void testBackfilledNotificationWithUnsupportedSourceRejected(final BlockSource source)
+                names = {"UNKNOWN", "HISTORY"})
+        @DisplayName("Complete block notification with unsupported source is ignored")
+        void testBackfilledNotificationWithUnsupportedSourceIgnored(final BlockSource source)
                 throws NoSuchAlgorithmException {
             final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed genesis =
                     harnessChainBuilder().genesisWithPublication();
