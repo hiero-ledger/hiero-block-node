@@ -25,7 +25,9 @@ class PersistenceAwaiter {
         PERSISTED_BY_PULL,
         /// Persisted from another source, such as the publisher or backfill.
         PERSISTED_BY_OTHER,
-        /// Failed to verify or to persist, or the wait was abandoned.
+        /// The block this plugin submitted failed verification.
+        VERIFICATION_FAILED,
+        /// Failed to persist, or the wait was abandoned.
         FAILED,
         /// No outcome before the timeout.
         TIMED_OUT
@@ -95,7 +97,7 @@ class PersistenceAwaiter {
         if (!notification.success() && notification.source() == BlockSource.CLOUD_STORAGE) {
             final Pending tracked = pending.get(notification.blockNumber());
             if (tracked != null) {
-                tracked.complete(Outcome.FAILED);
+                tracked.complete(Outcome.VERIFICATION_FAILED);
             }
         }
     }

@@ -484,9 +484,9 @@ so that distance is unknown.
 | bucky client cannot be built              | WARNING; no poll scheduled; the plugin stays idle and the node starts.                                           |
 | 404 for a block in one node folder        | Not an error; try the next node folder.                                                                          |
 | Bad zstd, parse error, wrong block number | DEBUG; `copies_rejected` incremented; try the next node folder.                                                  |
-| No node folder has a usable copy          | Block counted as `not_present` or `download_failed`; pull ends; next poll starts again.                          |
+| No node folder has a usable copy          | Block counted as `not_present`, or as `download_failed` with a WARNING; pull ends; next poll starts again.       |
 | Request timeout or S3 error               | `request_failures` incremented and logged; pull ends; next poll starts again. Never propagated to other plugins. |
-| Verification fails for a pulled block     | `copies_rejected` incremented; retried once from another node folder; then `verification_failed`, pull ends.     |
+| Verification fails for a pulled block     | `copies_rejected` incremented; retried once from another folder; then `verification_failed`, WARNING, pull ends. |
 | No persisted notification in time         | Block counted as `persist_timeout` and logged; pull ends; next poll starts again from the last stored block.     |
 | `RuntimeException` in the poll task       | Caught and logged at WARNING so the scheduled task keeps running.                                                |
 

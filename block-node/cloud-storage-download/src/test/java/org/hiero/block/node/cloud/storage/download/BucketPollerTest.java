@@ -2,10 +2,12 @@
 package org.hiero.block.node.cloud.storage.download;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.matches;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -14,16 +16,31 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.hedera.bucky.S3Client;
+import com.hedera.bucky.S3ResponseException;
 import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.hapi.node.base.NodeAddress;
+import com.hedera.hapi.node.base.NodeAddressBook;
+import com.hedera.hapi.node.base.Timestamp;
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InterruptedIOException;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.hiero.block.api.BlockRange;
+import org.hiero.block.api.RangedAddressBookHistory;
+import org.hiero.block.api.RangedNodeAddressBook;
 import org.hiero.block.api.RosterEntry;
 import org.hiero.block.api.TssData;
 import org.hiero.block.api.TssRoster;
@@ -32,6 +49,7 @@ import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.cloud.storage.download.CloudStorageDownloadPlugin.MetricsHolder;
+import org.hiero.block.node.spi.blockmessaging.AddressBookHistoryNotification;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
@@ -46,6 +64,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 
 class BucketPollerTest {
 
@@ -60,6 +79,12 @@ class BucketPollerTest {
             MetricsHolder.createMetrics(MetricRegistry.builder().build());
     private final Persistence persistence = new Persistence();
     private RecordingPoller recordingPoller;
+
+    /// The download deadline of the next [#pullingPoller(int, long)].
+    private long downloadDeadlineMs = 60_000L;
+
+    /// The consensus timestamp in the header of the blocks put in the bucket; none when `null`.
+    private Timestamp consensusTimestamp;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -94,7 +119,13 @@ class BucketPollerTest {
     /// A poller that really pulls, answered by [#persistence].
     private BucketPoller pullingPoller(final int downloadWindow, final long persistWaitTimeoutMs) {
         final BucketPoller poller = new BucketPoller(
-                config(downloadWindow, persistWaitTimeoutMs), s3Client, messaging, awaiter, downloader, metrics);
+                config(downloadWindow, persistWaitTimeoutMs),
+                s3Client,
+                messaging,
+                awaiter,
+                downloader,
+                metrics,
+                downloadDeadlineMs);
         persistence.poller = poller;
         return poller;
     }
@@ -119,14 +150,25 @@ class BucketPollerTest {
     private void blockPresent(final long nodeId, final long blockNumber, final long headerNumber) throws Exception {
         final BlockUnparsed block = BlockUnparsed.newBuilder()
                 .blockItems(BlockItemUnparsed.newBuilder()
-                        .blockHeader(BlockHeader.PROTOBUF.toBytes(
-                                BlockHeader.newBuilder().number(headerNumber).build()))
+                        .blockHeader(BlockHeader.PROTOBUF.toBytes(BlockHeader.newBuilder()
+                                .number(headerNumber)
+                                .blockTimestamp(consensusTimestamp)
+                                .build()))
                         .build())
                 .build();
         final byte[] file = CompressionType.ZSTD.compress(
                 BlockUnparsed.PROTOBUF.toBytes(block).toByteArray());
         when(s3Client.openObjectStream(BlockKeys.blockKey(PREFIX, nodeId, blockNumber)))
                 .thenReturn(new ByteArrayInputStream(file));
+    }
+
+    /// Polls until a pull submits a block. With three or more roster nodes the probe looks in only
+    /// two random folders, so it can miss the one folder the test made it find; a miss changes
+    /// nothing, so the next poll simply probes again.
+    private void pollUntilPulled(final BucketPoller poller) {
+        for (int attempt = 0; attempt < 100 && persistence.submitted.isEmpty(); attempt++) {
+            poller.poll();
+        }
     }
 
     private void assertCounts(final long pulled, final long alreadyStored) {
@@ -168,6 +210,57 @@ class BucketPollerTest {
         assertThat(recordingPoller.nodeIds()).containsExactly(3L, 4L);
         recordingPoller.handleTssDataUpdate(new TssDataNotification(null));
         assertThat(recordingPoller.nodeIds()).isEmpty();
+    }
+
+    /// An address book holding the given node IDs, in effect from `startBlock` to `endBlock`
+    /// (`-1` for open-ended).
+    private static RangedNodeAddressBook addressBook(
+            final long startBlock, final long endBlock, final long... nodeIds) {
+        final List<NodeAddress> addresses = new ArrayList<>();
+        for (final long nodeId : nodeIds) {
+            addresses.add(NodeAddress.newBuilder().nodeId(nodeId).build());
+        }
+        return RangedNodeAddressBook.newBuilder()
+                .addressBook(NodeAddressBook.newBuilder().nodeAddress(addresses).build())
+                .startBlock(startBlock)
+                .endBlock(endBlock)
+                .build();
+    }
+
+    private static AddressBookHistoryNotification history(final RangedNodeAddressBook... addressBooks) {
+        return new AddressBookHistoryNotification(RangedAddressBookHistory.newBuilder()
+                .addressBooks(List.of(addressBooks))
+                .build());
+    }
+
+    @Test
+    @DisplayName("Without a TSS roster the node IDs come from the address book; a later roster replaces them")
+    void nodeIdsFromAddressBookUntilRoster() {
+        recordingPoller.handleAddressBookHistoryUpdate(history(addressBook(0, -1, 3L, 4L, 5L)));
+        assertThat(recordingPoller.nodeIds()).containsExactly(3L, 4L, 5L);
+        recordingPoller.handleTssDataUpdate(roster(7L));
+        assertThat(recordingPoller.nodeIds()).containsExactly(7L);
+        recordingPoller.handleAddressBookHistoryUpdate(history(addressBook(0, -1, 3L, 4L, 5L, 6L)));
+        assertThat(recordingPoller.nodeIds()).containsExactly(7L);
+    }
+
+    @Test
+    @DisplayName("A TSS roster with no entries leaves the node IDs to the address book")
+    void emptyRosterFallsBackToAddressBook() {
+        recordingPoller.handleAddressBookHistoryUpdate(history(addressBook(0, -1, 3L, 4L)));
+        recordingPoller.handleTssDataUpdate(roster());
+        assertThat(recordingPoller.nodeIds()).containsExactly(3L, 4L);
+    }
+
+    @Test
+    @DisplayName("The address book in effect for the next block to store is used, the newest one past every range")
+    void addressBookForNextBlock() {
+        recordingPoller.handleStoredBlocksUpdate(stored(range(0, 99)));
+        recordingPoller.handleAddressBookHistoryUpdate(
+                history(addressBook(0, 99, 3L), addressBook(100, 199, 4L), addressBook(250, 299, 5L)));
+        assertThat(recordingPoller.nodeIds()).containsExactly(4L);
+        recordingPoller.handleStoredBlocksUpdate(stored(range(0, 209)));
+        assertThat(recordingPoller.nodeIds()).containsExactly(5L);
     }
 
     @Test
@@ -282,7 +375,7 @@ class BucketPollerTest {
         poller.handleStoredBlocksUpdate(stored(range(0, 4)));
         probeFinds(3L, 4 + THRESHOLD);
         blocksPresent(3L, 5, 4 + THRESHOLD);
-        persistence.answers.put(5L, Answer.PERSIST_BY_PUBLISHER);
+        persistence.answer(5L, Answer.PERSIST_BY_PUBLISHER);
         poller.poll();
         assertThat(persistence.submitted).containsExactlyElementsOf(blocks(5, 4 + THRESHOLD));
         assertCounts(THRESHOLD - 1, 1);
@@ -296,7 +389,7 @@ class BucketPollerTest {
         poller.handleStoredBlocksUpdate(stored(range(0, 4)));
         probeFinds(3L, 4 + THRESHOLD);
         blocksPresent(3L, 5, 4 + THRESHOLD);
-        persistence.answers.put(6L, Answer.PUBLISHER_FAILS_THEN_PERSIST);
+        persistence.answer(6L, Answer.PUBLISHER_FAILS_THEN_PERSIST);
         poller.poll();
         assertThat(persistence.submitted).containsExactlyElementsOf(blocks(5, 4 + THRESHOLD));
         assertCounts(THRESHOLD, 0);
@@ -312,43 +405,330 @@ class BucketPollerTest {
         probeFinds(3L, 4 + THRESHOLD);
         blocksPresent(3L, 5, 4 + THRESHOLD);
         persistence.storeOnSubmit.put(6L, stored(range(0, 6)));
-        persistence.answers.put(6L, Answer.FAIL_VERIFICATION);
+        persistence.answer(6L, Answer.FAIL_VERIFICATION);
         poller.poll();
         assertThat(persistence.submitted).containsExactlyElementsOf(blocks(5, 4 + THRESHOLD));
         assertCounts(THRESHOLD - 1, 1);
     }
 
     @Test
-    @DisplayName("A failed verification of a block nobody stored ends the pull")
-    void failedVerificationEndsThePull() throws Exception {
+    @DisplayName("With one node in the roster a failed verification ends the pull, since there is no other copy")
+    void failedVerificationWithOneNodeEndsThePull() throws Exception {
         final BucketPoller poller = pullingPoller(10, 90_000L);
         poller.handleTssDataUpdate(roster(3L));
         poller.handleStoredBlocksUpdate(stored(range(0, 4)));
         probeFinds(3L, 4 + THRESHOLD);
         blocksPresent(3L, 5, 4 + THRESHOLD);
-        persistence.answers.put(6L, Answer.FAIL_VERIFICATION);
+        persistence.answer(6L, Answer.FAIL_VERIFICATION);
         poller.poll();
         assertThat(persistence.submitted).containsExactly(5L, 6L);
         assertCounts(1, 0);
+        assertThat(metrics.blocksVerificationFailed().get()).isEqualTo(1L);
+        assertThat(metrics.copiesRejected().get()).isEqualTo(1L);
     }
 
     @Test
-    @DisplayName("A block not persisted in time ends the pull and is not sent again")
+    @DisplayName("A failed verification is retried once from another node's copy and the pull goes on")
+    void failedVerificationIsRetriedFromAnotherNode() throws Exception {
+        final BucketPoller poller = pullingPoller(10, 90_000L);
+        poller.handleTssDataUpdate(roster(3L, 4L));
+        poller.handleStoredBlocksUpdate(stored(range(0, 4)));
+        probeFinds(3L, 4 + THRESHOLD);
+        blocksPresent(3L, 5, 4 + THRESHOLD);
+        blockPresent(4L, 6L, 6L);
+        persistence.answer(6L, Answer.FAIL_VERIFICATION);
+        poller.poll();
+        final List<Long> expected = new ArrayList<>(blocks(5, 4 + THRESHOLD));
+        expected.add(1, 6L);
+        assertThat(persistence.submitted).containsExactlyElementsOf(expected);
+        assertCounts(THRESHOLD, 0);
+        assertThat(metrics.blocksVerificationFailed().get()).isZero();
+        assertThat(metrics.copiesRejected().get()).isEqualTo(1L);
+        verify(s3Client).openObjectStream(BlockKeys.blockKey(PREFIX, 4L, 6L));
+        verify(s3Client, never()).openObjectStream(BlockKeys.blockKey(PREFIX, 4L, 7L));
+    }
+
+    @Test
+    @DisplayName("A second failed verification ends the pull")
+    void secondFailedVerificationEndsThePull() throws Exception {
+        final BucketPoller poller = pullingPoller(10, 90_000L);
+        poller.handleTssDataUpdate(roster(3L, 4L, 5L));
+        poller.handleStoredBlocksUpdate(stored(range(0, 4)));
+        probeFinds(3L, 4 + THRESHOLD);
+        blocksPresent(3L, 5, 4 + THRESHOLD);
+        blockPresent(4L, 6L, 6L);
+        blockPresent(5L, 6L, 6L);
+        persistence.answer(6L, Answer.FAIL_VERIFICATION, Answer.FAIL_VERIFICATION);
+        pollUntilPulled(poller);
+        assertThat(persistence.submitted).containsExactly(5L, 6L, 6L);
+        assertCounts(1, 0);
+        assertThat(metrics.blocksVerificationFailed().get()).isEqualTo(1L);
+        assertThat(metrics.copiesRejected().get()).isEqualTo(2L);
+    }
+
+    @Test
+    @DisplayName("A failed verification with no usable copy in the other folders ends the pull")
+    void failedVerificationWithNoOtherCopyEndsThePull() throws Exception {
+        final BucketPoller poller = pullingPoller(10, 90_000L);
+        poller.handleTssDataUpdate(roster(3L, 4L));
+        poller.handleStoredBlocksUpdate(stored(range(0, 4)));
+        probeFinds(3L, 4 + THRESHOLD);
+        blocksPresent(3L, 5, 4 + THRESHOLD);
+        persistence.answer(6L, Answer.FAIL_VERIFICATION);
+        poller.poll();
+        assertThat(persistence.submitted).containsExactly(5L, 6L);
+        assertThat(metrics.blocksVerificationFailed().get()).isEqualTo(1L);
+        assertThat(metrics.blocksNotPresent().get()).isZero();
+        verify(s3Client).openObjectStream(BlockKeys.blockKey(PREFIX, 4L, 6L));
+    }
+
+    @Test
+    @DisplayName("A fallback copy that fails verification is not replaced from a folder its download already read")
+    void failedVerificationOfFallbackCopySkipsFoldersAlreadyRead() throws Exception {
+        final BucketPoller poller = pullingPoller(10, 90_000L);
+        poller.handleTssDataUpdate(roster(3L, 4L));
+        poller.handleStoredBlocksUpdate(stored(range(0, 4)));
+        probeFinds(3L, 4 + THRESHOLD);
+        blocksPresent(3L, 5, 4 + THRESHOLD);
+        corruptPresent(3L, 6L);
+        blockPresent(4L, 6L, 6L);
+        persistence.answer(6L, Answer.FAIL_VERIFICATION);
+        poller.poll();
+        assertThat(persistence.submitted).containsExactly(5L, 6L);
+        assertThat(metrics.blocksVerificationFailed().get()).isEqualTo(1L);
+        // the corrupt source copy and the fallback copy that failed verification, once each
+        assertThat(metrics.copiesRejected().get()).isEqualTo(2L);
+        verify(s3Client).openObjectStream(BlockKeys.blockKey(PREFIX, 3L, 6L));
+        verify(s3Client).openObjectStream(BlockKeys.blockKey(PREFIX, 4L, 6L));
+    }
+
+    @Test
+    @DisplayName("A fallback copy that fails verification is replaced from the folder not read yet, not the source")
+    void failedVerificationOfFallbackCopyIsReplacedFromUnreadFolder() throws Exception {
+        final BucketPoller poller = pullingPoller(10, 90_000L);
+        poller.handleTssDataUpdate(roster(3L, 4L, 5L));
+        poller.handleStoredBlocksUpdate(stored(range(0, 4)));
+        probeFinds(3L, 4 + THRESHOLD);
+        blocksPresent(3L, 5, 4 + THRESHOLD);
+        corruptPresent(3L, 6L);
+        // the fallback reads 4 and 5 in a random order; whichever comes first fails verification
+        blockPresent(4L, 6L, 6L);
+        blockPresent(5L, 6L, 6L);
+        persistence.answer(6L, Answer.FAIL_VERIFICATION, Answer.PERSIST);
+        pollUntilPulled(poller);
+        final List<Long> expected = new ArrayList<>(blocks(5, 4 + THRESHOLD));
+        expected.add(1, 6L);
+        assertThat(persistence.submitted).containsExactlyElementsOf(expected);
+        assertCounts(THRESHOLD, 0);
+        assertThat(metrics.blocksVerificationFailed().get()).isZero();
+        // the corrupt source copy and the fallback copy that failed verification, once each
+        assertThat(metrics.copiesRejected().get()).isEqualTo(2L);
+        verify(s3Client).openObjectStream(BlockKeys.blockKey(PREFIX, 3L, 6L));
+        verify(s3Client).openObjectStream(BlockKeys.blockKey(PREFIX, 4L, 6L));
+        verify(s3Client).openObjectStream(BlockKeys.blockKey(PREFIX, 5L, 6L));
+    }
+
+    @Test
+    @DisplayName("A failed persistence of our verified copy ends the pull with no retry")
+    void failedPersistenceEndsThePullWithoutRetry() throws Exception {
+        final BucketPoller poller = pullingPoller(10, 90_000L);
+        poller.handleTssDataUpdate(roster(3L, 4L));
+        poller.handleStoredBlocksUpdate(stored(range(0, 4)));
+        probeFinds(3L, 4 + THRESHOLD);
+        blocksPresent(3L, 5, 4 + THRESHOLD);
+        blockPresent(4L, 6L, 6L);
+        persistence.answer(6L, Answer.FAIL_PERSIST);
+        poller.poll();
+        assertThat(persistence.submitted).containsExactly(5L, 6L);
+        assertThat(metrics.blocksVerificationFailed().get()).isZero();
+        assertThat(metrics.copiesRejected().get()).isZero();
+        verify(s3Client, never()).openObjectStream(BlockKeys.blockKey(PREFIX, 4L, 6L));
+    }
+
+    @Test
+    @DisplayName("A block not persisted in time ends the pull, is not sent again and is skipped once it is stored")
     void persistTimeoutEndsThePull() throws Exception {
         final BucketPoller poller = pullingPoller(10, 50L);
         poller.handleTssDataUpdate(roster(3L));
         poller.handleStoredBlocksUpdate(stored(range(0, 4)));
         probeFinds(3L, 4 + THRESHOLD);
         blocksPresent(3L, 5, 4 + THRESHOLD);
-        persistence.answers.put(6L, Answer.NONE);
+        persistence.answer(6L, Answer.NONE);
         poller.poll();
         assertThat(persistence.submitted).containsExactly(5L, 6L);
         assertCounts(1, 0);
+        assertThat(metrics.blocksPersistTimeout().get()).isEqualTo(1L);
+        // the late persisted notification arrives before the next poll
+        poller.handleStoredBlocksUpdate(stored(range(0, 6)));
+        probeFinds(3L, 6 + THRESHOLD);
+        // the first poll read the stubbed streams of its whole window
+        blocksPresent(3L, 7, 6 + THRESHOLD);
+        poller.poll();
+        assertThat(persistence.submitted).containsOnlyOnce(6L).contains(7L, 6 + THRESHOLD);
+        assertThat(metrics.blocksPersistTimeout().get()).isEqualTo(1L);
     }
 
     @Test
-    @DisplayName("A block missing from the folder ends the pull; the blocks before it are submitted")
+    @DisplayName("A block in no folder ends the pull as not present; the blocks before it are submitted")
     void missingBlockEndsThePull() throws Exception {
+        final BucketPoller poller = pullingPoller(10, 90_000L);
+        poller.handleTssDataUpdate(roster(3L, 4L));
+        poller.handleStoredBlocksUpdate(stored(range(0, 4)));
+        probeFinds(3L, 4 + THRESHOLD);
+        blocksPresent(3L, 5, 6);
+        blocksPresent(3L, 8, 4 + THRESHOLD);
+        poller.poll();
+        assertThat(persistence.submitted).containsExactly(5L, 6L);
+        assertCounts(2, 0);
+        assertThat(metrics.blocksNotPresent().get()).isEqualTo(1L);
+        assertThat(metrics.blocksDownloadFailed().get()).isZero();
+        assertThat(metrics.copiesRejected().get()).isZero();
+        assertThat(metrics.requestFailures().get()).isZero();
+        verify(s3Client).openObjectStream(BlockKeys.blockKey(PREFIX, 4L, 7L));
+    }
+
+    @Test
+    @DisplayName(
+            "An error response or a network error on the probe counts one request failure and probes no other folder")
+    void probeStorageFaultIsCounted() throws Exception {
+        recordingPoller.handleTssDataUpdate(roster(3L, 4L));
+        when(s3Client.listObjectsPage(anyString(), any(), any(), anyInt()))
+                .thenThrow(new S3ResponseException(500, null, null))
+                .thenThrow(new IOException("connection reset"));
+        recordingPoller.poll();
+        assertThat(metrics.requestFailures().get()).isEqualTo(1L);
+        recordingPoller.poll();
+        assertThat(metrics.requestFailures().get()).isEqualTo(2L);
+        verify(s3Client, times(2)).listObjectsPage(anyString(), any(), any(), anyInt());
+        assertThat(recordingPoller.pulls).isEmpty();
+    }
+
+    @Test
+    @DisplayName("An error response on a download counts one request failure and ends the pull")
+    void downloadErrorResponseEndsThePull() throws Exception {
+        final BucketPoller poller = pullingPoller(10, 90_000L);
+        poller.handleTssDataUpdate(roster(3L, 4L));
+        poller.handleStoredBlocksUpdate(stored(range(0, 4)));
+        probeFinds(3L, 4 + THRESHOLD);
+        blocksPresent(3L, 5, 4 + THRESHOLD);
+        blocksPresent(4L, 5, 4 + THRESHOLD);
+        when(s3Client.openObjectStream(BlockKeys.blockKey(PREFIX, 3L, 7L)))
+                .thenThrow(new S3ResponseException(500, null, null));
+        poller.poll();
+        assertThat(persistence.submitted).containsExactly(5L, 6L);
+        assertCounts(2, 0);
+        assertThat(metrics.requestFailures().get()).isEqualTo(1L);
+        verify(s3Client, never()).openObjectStream(matches("blocks/4/.*"));
+    }
+
+    @Test
+    @DisplayName("A network error while reading a download counts one request failure and ends the pull")
+    void downloadReadErrorEndsThePull() throws Exception {
+        final BucketPoller poller = pullingPoller(10, 90_000L);
+        poller.handleTssDataUpdate(roster(3L, 4L));
+        poller.handleStoredBlocksUpdate(stored(range(0, 4)));
+        probeFinds(3L, 4 + THRESHOLD);
+        blocksPresent(3L, 5, 4 + THRESHOLD);
+        blocksPresent(4L, 5, 4 + THRESHOLD);
+        when(s3Client.openObjectStream(BlockKeys.blockKey(PREFIX, 3L, 7L))).thenReturn(new InputStream() {
+            @Override
+            public int read() throws IOException {
+                throw new IOException("connection reset");
+            }
+        });
+        poller.poll();
+        assertThat(persistence.submitted).containsExactly(5L, 6L);
+        assertThat(metrics.requestFailures().get()).isEqualTo(1L);
+        verify(s3Client, never()).openObjectStream(matches("blocks/4/.*"));
+    }
+
+    @Test
+    @DisplayName("A download whose body stalls is abandoned at the deadline and counted as a request failure")
+    void stalledDownloadIsAbandonedAtTheDeadline() throws Exception {
+        downloadDeadlineMs = 200L;
+        final BucketPoller poller = pullingPoller(10, 90_000L);
+        poller.handleTssDataUpdate(roster(3L));
+        poller.handleStoredBlocksUpdate(stored(range(0, 4)));
+        probeFinds(3L, 4 + THRESHOLD);
+        blocksPresent(3L, 5, 4 + THRESHOLD);
+        final CountDownLatch released = new CountDownLatch(1);
+        when(s3Client.openObjectStream(BlockKeys.blockKey(PREFIX, 3L, 7L))).thenReturn(new InputStream() {
+            @Override
+            public int read() throws IOException {
+                try {
+                    // blocks until the download is cancelled
+                    released.await();
+                } catch (final InterruptedException e) {
+                    throw new InterruptedIOException("cancelled");
+                }
+                return -1;
+            }
+        });
+        assertTimeoutPreemptively(Duration.ofSeconds(10), poller::poll);
+        assertThat(persistence.submitted).containsExactly(5L, 6L);
+        assertThat(metrics.requestFailures().get()).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("A corrupt source copy is taken from another folder for that block only")
+    void corruptSourceCopyFallsBack() throws Exception {
+        final BucketPoller poller = sourceNode3WithBlock7InNode4();
+        corruptPresent(3L, 7L);
+        poller.poll();
+        assertFallbackForBlock7Only();
+        assertThat(metrics.copiesRejected().get()).isEqualTo(1L);
+        // the corrupt copy was read in full too
+        assertThat(metrics.copiesDownloaded().get()).isEqualTo(THRESHOLD + 1);
+        assertThat(metrics.copyLatencyNs().get()).isPositive();
+    }
+
+    @Test
+    @DisplayName("A source copy with another block number is taken from another folder for that block only")
+    void wrongNumberSourceCopyFallsBack() throws Exception {
+        final BucketPoller poller = sourceNode3WithBlock7InNode4();
+        blockPresent(3L, 7L, 8L);
+        poller.poll();
+        assertFallbackForBlock7Only();
+        assertThat(metrics.copiesRejected().get()).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("A missing source copy is taken from another folder for that block only and is not a rejected copy")
+    void missingSourceCopyFallsBack() throws Exception {
+        final BucketPoller poller = sourceNode3WithBlock7InNode4();
+        when(s3Client.openObjectStream(BlockKeys.blockKey(PREFIX, 3L, 7L))).thenReturn(null);
+        poller.poll();
+        assertFallbackForBlock7Only();
+        assertThat(metrics.copiesRejected().get()).isZero();
+        // a missing object is not a downloaded copy
+        assertThat(metrics.copiesDownloaded().get()).isEqualTo(THRESHOLD);
+    }
+
+    @Test
+    @DisplayName("Persisting the probe block sets its latency from its consensus timestamp, whoever stored it")
+    void probeBlockLatency() throws Exception {
+        final Instant consensusTime = Instant.now().minusSeconds(60);
+        consensusTimestamp = Timestamp.newBuilder()
+                .seconds(consensusTime.getEpochSecond())
+                .nanos(consensusTime.getNano())
+                .build();
+        final BucketPoller poller = pullingPoller(10, 90_000L);
+        poller.handleTssDataUpdate(roster(3L));
+        poller.handleStoredBlocksUpdate(stored(range(0, 4)));
+        probeFinds(3L, 4 + THRESHOLD);
+        blocksPresent(3L, 5, 4 + THRESHOLD);
+        persistence.answer(4 + THRESHOLD, Answer.PERSIST_BY_PUBLISHER);
+        poller.poll();
+        assertThat(persistence.submitted).containsExactlyElementsOf(blocks(5, 4 + THRESHOLD));
+        assertThat(metrics.probeBlockLatencyMs().get()).isBetween(60_000L, 120_000L);
+    }
+
+    @Test
+    @DisplayName("A pull that ends before the probe block leaves its latency unchanged")
+    void probeBlockLatencyUnchangedByEarlyEnd() throws Exception {
+        consensusTimestamp = Timestamp.newBuilder()
+                .seconds(Instant.now().minusSeconds(60).getEpochSecond())
+                .build();
         final BucketPoller poller = pullingPoller(10, 90_000L);
         poller.handleTssDataUpdate(roster(3L));
         poller.handleStoredBlocksUpdate(stored(range(0, 4)));
@@ -357,21 +737,60 @@ class BucketPollerTest {
         blocksPresent(3L, 8, 4 + THRESHOLD);
         poller.poll();
         assertThat(persistence.submitted).containsExactly(5L, 6L);
-        assertCounts(2, 0);
+        assertThat(metrics.probeBlockLatencyMs().get()).isZero();
     }
 
     @Test
-    @DisplayName("A block whose header has another number ends the pull")
-    void wrongHeaderNumberEndsThePull() throws Exception {
+    @DisplayName("No usable copy in any folder: a download failure ends the pull, the blocks before it are submitted")
+    void noUsableCopyEndsThePull() throws Exception {
         final BucketPoller poller = pullingPoller(10, 90_000L);
-        poller.handleTssDataUpdate(roster(3L));
+        poller.handleTssDataUpdate(roster(3L, 4L, 5L));
         poller.handleStoredBlocksUpdate(stored(range(0, 4)));
         probeFinds(3L, 4 + THRESHOLD);
         blocksPresent(3L, 5, 4 + THRESHOLD);
-        blockPresent(3L, 7L, 8L);
-        poller.poll();
+        corruptPresent(3L, 7L);
+        blockPresent(4L, 7L, 8L);
+        pollUntilPulled(poller);
         assertThat(persistence.submitted).containsExactly(5L, 6L);
         assertCounts(2, 0);
+        assertThat(metrics.blocksDownloadFailed().get()).isEqualTo(1L);
+        assertThat(metrics.blocksNotPresent().get()).isZero();
+        assertThat(metrics.copiesRejected().get()).isEqualTo(2L);
+        assertThat(metrics.requestFailures().get()).isZero();
+        // the source node's folder first, then every other folder, in an order that is random
+        for (final long other : List.of(4L, 5L)) {
+            final InOrder inOrder = inOrder(s3Client);
+            inOrder.verify(s3Client).openObjectStream(BlockKeys.blockKey(PREFIX, 3L, 7L));
+            inOrder.verify(s3Client).openObjectStream(BlockKeys.blockKey(PREFIX, other, 7L));
+        }
+    }
+
+    /// A pull of blocks 5 to 14 from node 3, with a good block 7 in node 4's folder as well.
+    private BucketPoller sourceNode3WithBlock7InNode4() throws Exception {
+        final BucketPoller poller = pullingPoller(10, 90_000L);
+        poller.handleTssDataUpdate(roster(4L, 3L));
+        poller.handleStoredBlocksUpdate(stored(range(0, 4)));
+        probeFinds(3L, 4 + THRESHOLD);
+        blocksPresent(3L, 5, 4 + THRESHOLD);
+        blockPresent(4L, 7L, 7L);
+        return poller;
+    }
+
+    /// Every block is submitted, block 7 from node 4's folder and every other one from node 3's.
+    private void assertFallbackForBlock7Only() throws Exception {
+        assertThat(persistence.submitted).containsExactlyElementsOf(blocks(5, 4 + THRESHOLD));
+        assertCounts(THRESHOLD, 0);
+        verify(s3Client).openObjectStream(BlockKeys.blockKey(PREFIX, 4L, 7L));
+        verify(s3Client, never()).openObjectStream(BlockKeys.blockKey(PREFIX, 4L, 8L));
+        verify(s3Client).openObjectStream(BlockKeys.blockKey(PREFIX, 3L, 8L));
+        assertThat(metrics.blocksDownloadFailed().get()).isZero();
+        assertThat(metrics.blocksNotPresent().get()).isZero();
+    }
+
+    /// Puts an object under the key of a block that is not valid zstd.
+    private void corruptPresent(final long nodeId, final long blockNumber) throws Exception {
+        when(s3Client.openObjectStream(BlockKeys.blockKey(PREFIX, nodeId, blockNumber)))
+                .thenReturn(new ByteArrayInputStream("not zstd".getBytes(StandardCharsets.UTF_8)));
     }
 
     private record Pull(long last, long target, long sourceNode) {}
@@ -388,11 +807,11 @@ class BucketPollerTest {
                 final PersistenceAwaiter awaiter,
                 final ExecutorService downloader,
                 final MetricsHolder metrics) {
-            super(config, s3Client, messaging, awaiter, downloader, metrics);
+            super(config, s3Client, messaging, awaiter, downloader, metrics, 60_000L);
         }
 
         @Override
-        boolean pull(final long last, final long target, final long sourceNode) {
+        boolean pull(final long last, final long target, final long sourceNode, final List<Long> nodes) {
             pulls.add(new Pull(last, target, sourceNode));
             return false;
         }
@@ -404,6 +823,7 @@ class BucketPollerTest {
         PERSIST_BY_PUBLISHER,
         PUBLISHER_FAILS_THEN_PERSIST,
         FAIL_VERIFICATION,
+        FAIL_PERSIST,
         NONE
     }
 
@@ -424,9 +844,14 @@ class BucketPollerTest {
     /// on the same thread, since the test messaging facility is synchronous.
     private final class Persistence implements BlockNotificationHandler {
         private final List<Long> submitted = new CopyOnWriteArrayList<>();
-        private final Map<Long, Answer> answers = new HashMap<>();
+        private final Map<Long, Deque<Answer>> answers = new HashMap<>();
         private final Map<Long, StoredBlocksNotification> storeOnSubmit = new HashMap<>();
         private BucketPoller poller;
+
+        /// Answers the next submissions of a block in the given order, then persists it.
+        private void answer(final long blockNumber, final Answer... inOrder) {
+            answers.put(blockNumber, new ArrayDeque<>(List.of(inOrder)));
+        }
 
         @Override
         public void handleBackfilled(final BackfilledBlockNotification notification) {
@@ -436,7 +861,8 @@ class BucketPollerTest {
             if (storedUpdate != null) {
                 poller.handleStoredBlocksUpdate(storedUpdate);
             }
-            final Answer answer = answers.getOrDefault(blockNumber, Answer.PERSIST);
+            final Deque<Answer> next = answers.get(blockNumber);
+            final Answer answer = next == null || next.isEmpty() ? Answer.PERSIST : next.poll();
             if (answer == Answer.PERSIST) {
                 messaging.sendBlockPersisted(
                         new PersistedNotification(blockNumber, true, 0, BlockSource.CLOUD_STORAGE));
@@ -454,6 +880,9 @@ class BucketPollerTest {
                         null,
                         null,
                         BlockSource.CLOUD_STORAGE));
+            } else if (answer == Answer.FAIL_PERSIST) {
+                messaging.sendBlockPersisted(
+                        new PersistedNotification(blockNumber, false, 0, BlockSource.CLOUD_STORAGE));
             }
         }
     }

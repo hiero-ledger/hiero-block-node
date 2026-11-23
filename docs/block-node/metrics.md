@@ -333,20 +333,36 @@ Tracks the count and byte data size regarding single block uploads
 Tracks the blocks recovered from the bucket the Consensus Nodes upload blocks to. See
 [Cloud Storage Download Plugin Configuration](./configuration.md#cloud-storage-download-plugin-configuration).
 
-|  Type   |          Name           |                                  Description                                  |
-|---------|-------------------------|-------------------------------------------------------------------------------|
-| Counter | `cloud_download_blocks` | Blocks of a pull range by outcome, one increment per block, labeled `result`. |
+|  Type   |                  Name                   |                                                  Description                                                   |
+|---------|-----------------------------------------|----------------------------------------------------------------------------------------------------------------|
+| Counter | `cloud_download_blocks`                 | Blocks of a pull range by outcome, one increment per block, labeled `result`.                                  |
+| Counter | `cloud_download_copies_rejected`        | Copies discarded: bad zstd, parse error, wrong block number, or failed verification.                           |
+| Counter | `cloud_download_request_failures`       | Bucket probes and downloads that failed with an error response or a network error, or missed their deadline.   |
+| Counter | `cloud_download_copies_downloaded`      | Block copies read in full, usable or not.                                                                      |
+| Counter | `cloud_download_copy_latency_ns`        | Total time spent reading those copies, in nanoseconds.                                                         |
+| Gauge   | `cloud_download_probe_block_latency_ms` | For the last probe block persisted during a pull: time from its consensus timestamp to its persistence, in ms. |
 
-|     `result`     |                                         The block                                         |
-|------------------|-------------------------------------------------------------------------------------------|
-| `persisted`      | Was persisted from its bucket copy.                                                       |
-| `already_stored` | Was stored by another source (publisher or backfill), before download or during the wait. |
+|       `result`        |                                            The block                                            |
+|-----------------------|-------------------------------------------------------------------------------------------------|
+| `persisted`           | Was persisted from its bucket copy.                                                             |
+| `already_stored`      | Was stored by another source, before download, during the wait or after a failed verification.  |
+| `not_present`         | Had no object in any node folder.                                                               |
+| `download_failed`     | Had objects, but no usable copy.                                                                |
+| `verification_failed` | Failed verification for two copies, or for its only copy, and was not stored by another source. |
+| `persist_timeout`     | Was not persisted within `CLOUD_STORAGE_DOWNLOAD_PERSIST_WAIT_TIMEOUT_MS`.                      |
+
+The last four end the pull. Blocks a pull never reached are not counted.
 
 `cloud_download_blocks{result="persisted"}` is the recovery signal: any increase means streaming from
 the Consensus Nodes fell behind and the bucket filled the gap. Each pull also logs one INFO line when
 it starts and one when it ends, with the range, the counts and the duration.
 
-> **Note:** This counter is registered without a `_total` suffix; Prometheus appends `_total` at
+The average read time of a copy is the rate of `cloud_download_copy_latency_ns` divided by the rate
+of `cloud_download_copies_downloaded`. `cloud_download_probe_block_latency_ms` stays unchanged when a
+pull ends before its probe block; an alert on it staying above 30000 shows a pull missed the 30 second
+goal.
+
+> **Note:** The counters are registered without a `_total` suffix; Prometheus appends `_total` at
 > scrape time (for example `cloud_download_blocks_total{result="persisted"}`).
 
 ---
