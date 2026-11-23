@@ -107,7 +107,7 @@ jobs:
 
       - name: Parse Version
         id: version_parser
-        uses: step-security/semver-utils@5bb182a08240146b23b61cc002cb74004377da4b # v5.0.0
+        uses: step-security/semver-utils@5aebf08c73e4ba7af693e0708dad10727c39d4ef # v5.1.1
         with:
           lenient: false
           version: ${{ env.COMPUTED_VERSION }}
