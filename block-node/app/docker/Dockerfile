@@ -10,7 +10,7 @@ ARG SOURCE_DATE_EPOCH="0"
 # Setup Builder Image
 #
 ########################################################################################################################
-FROM eclipse-temurin:25.0.2_10-jre-ubi10-minimal AS base-image
+FROM eclipse-temurin:25.0.5.1_2-jre-ubi10-minimal AS base-image
 # Define Build Arguments
 ARG SOURCE_DATE_EPOCH
 ARG UID=2000
@@ -73,7 +73,7 @@ ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 ENV DEBIAN_FRONTEND=noninteractive
 
-ENV JAVA_VERSION="jdk-25.0.2+10"
+ENV JAVA_VERSION="jdk-25.0.5.1+2"
 ENV BN_WORKDIR=/opt/hiero/block-node
 
 # Document the ports the application runs on: the default gRPC/server port and the default health web server port
