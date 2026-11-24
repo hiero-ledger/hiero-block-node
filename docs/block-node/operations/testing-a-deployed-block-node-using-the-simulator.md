@@ -20,8 +20,10 @@ Before you begin, ensure you have:
   - [**Bare Metal Single Node Kubernetes Deployment**](./single-node-k8s-deployment.md)
   - [**Virtual Machine Single Node Kubernetes Deployment**](./solo-weaver-single-node-k8s-deployment.md)
 - **[Docker](https://docs.docker.com/get-started/get-docker/) and Docker Compose** installed and available on your machine where you will run the simulator.
-- The **gRPC** service address and port for your Block Node:
-  - For Local deployment: `localhost:40840`
+- The address and **Publish API** port for your Block Node. The port is `40840` with the base
+  chart, or `40984` (`PRODUCER_PORT`) when the Block Node uses per-service ports, as in the LFH
+  profile:
+  - For Local deployment: `localhost` and the Publish API port, for example `localhost:40840`
   - For a cloud deployment, get the external IP or hostname by running:
 
     ```bash
@@ -56,7 +58,7 @@ Two placeholders need real values:
 The remaining values typically don't need changing for an initial test:
 
 - `BLOCK_STREAM_SIMULATOR_MODE=PUBLISHER_CLIENT` makes the simulator act as a publisher and stream blocks into the Block Node.
-- `GRPC_PORT=40840` is the Block Node's default gRPC port. If your deployment uses a non-default port (see `server.port` in [configuration.md](../configuration.md)), set it here.
+- `GRPC_PORT` is the Block Node's Publish API port, because the simulator streams blocks as a publisher. `40840` is the base-chart default (`SERVER_PORT`). If your Block Node uses per-service ports, set its publish port here instead: `40984` (`PRODUCER_PORT`) in the LFH profile. See [configuration.md](../configuration.md) for the port settings.
 - `GENERATOR_START_BLOCK_NUMBER` and `GENERATOR_END_BLOCK_NUMBER` define the inclusive block-number range the simulator generates (here, blocks 0 through 100).
 
 ### Choose the Block Node address
