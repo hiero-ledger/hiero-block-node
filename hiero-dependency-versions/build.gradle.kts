@@ -10,7 +10,7 @@ dependencies.constraints {
     val hederaCryptographyVersion = "3.28.0"
     val helidonVersion = "4.5.6"
     val pbjVersion = pluginVersions.version("com.hedera.pbj.pbj-compiler")
-    val protobufVersion = "4.35.1"
+    val protobufVersion = "4.36.2"
     val hederaVersion = "0.80.0-alpha.4"
     val eclipseCollectionsVersion = "13.0.0"
     val mockitoVersion = "5.24.0"
