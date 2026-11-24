@@ -159,12 +159,12 @@ on their side beyond pulling the new chart.
 helm install "${RELEASE}" charts/block-node-server --set plugins.profile=rfh
 ```
 
-| Profile |                          Plugin set                           |
-|---------|---------------------------------------------------------------|
-| `lfh`   | Local Full History (the chart default set)                    |
-| `rfh`   | Remote Full History — cloud archiving, no local block storage |
-| `all`   | Every plugin                                                  |
-| `""`    | Selector not used (default); `plugins.names` applies          |
+| Profile |                                     Plugin set                                      |
+|---------|-------------------------------------------------------------------------------------|
+| `lfh`   | Local Full History (the chart default set)                                          |
+| `rfh`   | Remote Full History — cloud archiving, no local block storage                       |
+| `all`   | Every plugin                                                                        |
+| `""`    | Selector not used (default); `plugins.names` applies if set, else the `lfh` profile |
 
 **Precedence** (first match wins):
 
@@ -398,6 +398,11 @@ To deploy without any plugins (bare image), set `plugins.names` to an empty stri
 plugins:
   names: ""
 ```
+
+> **Upgrade note:** `plugins.names` now defaults to `null`, and a `null` value means "unset", so the `lfh`
+> profile applies and the Maven `resolve-plugins` init container is rendered. Values files that set
+> `names:` (null) to use plugins baked into the image must switch to `names: ""`, which works on both old and
+> new chart versions.
 
 ### Enable Prometheus + Grafana Stack
 

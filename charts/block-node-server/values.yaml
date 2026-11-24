@@ -120,7 +120,7 @@ plugins:
   #   lfh     - local full history node (the chart default set)
   #   rfh     - remote/cloud-archiving node
   #   all     - every plugin
-  #   ""      - selector not used (default); plugins.names below applies
+  #   ""      - selector not used (default); plugins.names applies if set, else the lfh profile
   # Adding a new values-overrides/plugin-profile-<name>.yaml makes plugins.profile=<name>
   # selectable automatically, with no edit to this file. The value set is a stable contract;
   # the plugin lists inside those files may change from release to release -- that is the point.
