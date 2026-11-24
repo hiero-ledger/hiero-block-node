@@ -198,17 +198,19 @@ Three paths are available:
 Select a pre-built Helm values override from
 [`charts/block-node-server/values-overrides/`](https://github.com/hiero-ledger/hiero-block-node/tree/main/charts/block-node-server/values-overrides):
 
-|         Profile          |                                                   Use                                                    |
-|--------------------------|----------------------------------------------------------------------------------------------------------|
-| `plugin-profile-lfh`     | Tier 1 - full history on local NVMe + HDD                                                                |
-| `plugin-profile-rfh`     | Remote archival - cloud storage backend                                                                  |
-| `plugin-profile-all`     | Full history local + cloud backup *(testing only - plugins may conflict and produce unexpected results)* |
-| `plugin-profile-minimal` | Development / testnet - health and status only                                                           |
+|         Profile          |                                                                Use                                                                 |
+|--------------------------|------------------------------------------------------------------------------------------------------------------------------------|
+| `plugin-profile-lfh`     | Tier 1 - full history on local NVMe + HDD                                                                                          |
+| `plugin-profile-rfh`     | Cloud archive only (Remote Full History) - receives blocks only through backfill, no local block storage, no Consensus Node stream |
+| `plugin-profile-all`     | Tier 1 - full history local plus cloud archive (`plugin-profile-lfh` plus the two cloud storage plugins)                           |
+| `plugin-profile-minimal` | Checking that the core starts - cannot receive, store, or serve blocks, so not a working Block Node                                |
 
 For **Tier 2**, start from `plugin-profile-lfh` and remove `stream-publisher` from
 `plugins.names`. The presence of `stream-publisher` is the key difference between
 Tier 1 and Tier 2.
 
+> See [Choosing Block Node Plugins](../operations/choosing-block-node-plugins.md) for what each plugin does and which ones a working node needs.
+>
 > See [Configuration Reference](../configuration.md) for full details.
 
 ### How do I configure the API ports?
