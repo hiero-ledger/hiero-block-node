@@ -10,19 +10,28 @@ import com.hedera.pbj.runtime.grpc.GrpcStatus;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.Pipelines;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import com.swirlds.config.api.Configuration;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.util.Map;
+import java.util.Optional;
 import org.hiero.block.api.BlockAccessServiceInterface;
 import org.hiero.block.api.BlockRequest;
 import org.hiero.block.api.BlockResponse;
 import org.hiero.block.api.BlockResponse.Code;
 import org.hiero.block.internal.BlockResponseUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.app.config.GlobalThrottleConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.bulkhead.BlockReadBulkhead;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
+import org.hiero.block.node.spi.throttle.ContentAwareWeigher;
+import org.hiero.block.node.spi.throttle.MethodWeight;
+import org.hiero.block.node.spi.throttle.PerClientThrottleSettings;
+import org.hiero.block.node.spi.throttle.ThrottleSpec;
+import org.hiero.block.node.spi.throttle.WeightClass;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
@@ -30,7 +39,7 @@ import org.hiero.metrics.core.MetricRegistry;
 /**
  * Plugin that implements the BlockAccessService and provides the 'block' RPC.
  */
-public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessServiceInterface {
+public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessServiceInterface, ThrottleSpec {
     /** Metric key for the number of get block requests */
     public static final MetricKey<LongCounter> METRIC_GET_BLOCK_REQUESTS =
             MetricKey.of("get_block_requests", LongCounter.class).addCategory(METRICS_CATEGORY);
@@ -44,12 +53,21 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
     public static final MetricKey<LongCounter> METRIC_GET_BLOCK_REQUESTS_NOT_FOUND =
             MetricKey.of("get_block_requests_not_found", LongCounter.class).addCategory(METRICS_CATEGORY);
 
+    /** The name of the getBlock gRPC method, as used in throttle settings. */
+    private static final String GET_BLOCK_METHOD = "getBlock";
+
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The block provider */
     private HistoricalBlockFacility blockProvider;
     /** The shared block-storage read bulkhead; protects storage independent of client identity */
     private BlockReadBulkhead blockReadBulkhead;
+    /** Per-client settings per weight class for getBlock, computed once in {@link #init}; see {@link ThrottleSpec}. */
+    private volatile Map<MethodWeight, PerClientThrottleSettings> throttleSettings = Map.of();
+    /** Node-wide ceilings per weight class, computed once in {@link #init}; see {@link ThrottleSpec}. */
+    private volatile Map<WeightClass, Integer> throttleCeilings = Map.of();
+    /** Classifies getBlock requests as live or historical, created in {@link #init}. */
+    private volatile ContentAwareWeigher getBlockWeigher;
     /** Counter for the number of requests */
     private LongCounter.Measurement requestCounter;
     /** Counter for the number of responses Success */
@@ -200,9 +218,46 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
         // Get the block provider
         this.blockProvider = context.historicalBlockProvider();
         this.blockReadBulkhead = serviceBuilder.blockReadBulkhead();
+        final Configuration configuration = context.configuration();
+        final GetBlockHistoricalThrottleConfig historicalConfig =
+                configuration.getConfigData(GetBlockHistoricalThrottleConfig.class);
+        final GlobalThrottleConfig globalThrottleConfig = configuration.getConfigData(GlobalThrottleConfig.class);
+        this.throttleSettings = Map.of(
+                new MethodWeight(GET_BLOCK_METHOD, WeightClass.STANDARD),
+                configuration.getConfigData(GetBlockLiveThrottleConfig.class).toSettings(),
+                new MethodWeight(GET_BLOCK_METHOD, WeightClass.HEAVY),
+                historicalConfig.toSettings());
+        this.throttleCeilings = Map.of(
+                WeightClass.STANDARD, globalThrottleConfig.getBlockLiveMaxConcurrent(),
+                WeightClass.HEAVY, globalThrottleConfig.getBlockHistoricalMaxConcurrent());
+        this.getBlockWeigher = new GetBlockWeigher(
+                () -> blockProvider.availableBlocks().max(), historicalConfig.historicalThresholdBlocks());
         // Register this service; a null port (the default) shares server.port
         final Integer port =
                 context.configuration().getConfigData(BlockAccessConfig.class).port();
         serviceBuilder.registerGrpcService(port, this);
+    }
+
+    // ==== ThrottleSpec Methods =======================================================================================
+
+    /** {@inheritDoc} */
+    @NonNull
+    @Override
+    public Optional<ContentAwareWeigher> weigher() {
+        return Optional.ofNullable(getBlockWeigher);
+    }
+
+    /** {@inheritDoc} */
+    @NonNull
+    @Override
+    public Map<MethodWeight, PerClientThrottleSettings> weightedPerClientSettings() {
+        return throttleSettings;
+    }
+
+    /** {@inheritDoc} */
+    @NonNull
+    @Override
+    public Map<WeightClass, Integer> weightedGlobalConcurrencyCeilings() {
+        return throttleCeilings;
     }
 }

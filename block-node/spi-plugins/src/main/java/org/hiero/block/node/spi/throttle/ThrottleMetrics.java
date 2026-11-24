@@ -24,6 +24,7 @@ public final class ThrottleMetrics {
     static final String LABEL_SERVICE = "service";
     static final String LABEL_METHOD = "method";
     static final String LABEL_OUTCOME = "outcome";
+    static final String LABEL_WEIGHT_CLASS = "weightClass";
 
     private final LongCounter callsCounter;
     private final LongCounter permitsReapedCounter;
@@ -36,27 +37,27 @@ public final class ThrottleMetrics {
         callsCounter = metricRegistry.register(LongCounter.builder(
                         MetricKey.of("throttle_calls", LongCounter.class).addCategory(BlockNodePlugin.METRICS_CATEGORY))
                 .setDescription("Calls to a throttled method, by outcome")
-                .addDynamicLabelNames(LABEL_SERVICE, LABEL_METHOD, LABEL_OUTCOME));
+                .addDynamicLabelNames(LABEL_SERVICE, LABEL_METHOD, LABEL_WEIGHT_CLASS, LABEL_OUTCOME));
         permitsReapedCounter =
                 metricRegistry.register(LongCounter.builder(MetricKey.of("throttle_permits_reaped", LongCounter.class)
                                 .addCategory(BlockNodePlugin.METRICS_CATEGORY))
                         .setDescription("Concurrency permits force-released after exceeding the permit hold limit")
-                        .addDynamicLabelNames(LABEL_SERVICE, LABEL_METHOD));
+                        .addDynamicLabelNames(LABEL_SERVICE, LABEL_METHOD, LABEL_WEIGHT_CLASS));
         inFlightGauge = metricRegistry.register(
                 ObservableGauge.builder(MetricKey.of("throttle_in_flight", ObservableGauge.class)
                                 .addCategory(BlockNodePlugin.METRICS_CATEGORY))
                         .setDescription("Node-wide in-flight calls holding a concurrency permit, per method")
-                        .addDynamicLabelNames(LABEL_SERVICE, LABEL_METHOD));
+                        .addDynamicLabelNames(LABEL_SERVICE, LABEL_METHOD, LABEL_WEIGHT_CLASS));
         clientsInFlightGauge = metricRegistry.register(
                 ObservableGauge.builder(MetricKey.of("throttle_clients_in_flight", ObservableGauge.class)
                                 .addCategory(BlockNodePlugin.METRICS_CATEGORY))
                         .setDescription("Distinct clients currently holding at least one in-flight call, per method")
-                        .addDynamicLabelNames(LABEL_SERVICE, LABEL_METHOD));
+                        .addDynamicLabelNames(LABEL_SERVICE, LABEL_METHOD, LABEL_WEIGHT_CLASS));
         clientStateCountGauge = metricRegistry.register(
                 ObservableGauge.builder(MetricKey.of("throttle_client_state_count", ObservableGauge.class)
                                 .addCategory(BlockNodePlugin.METRICS_CATEGORY))
                         .setDescription("Number of distinct clients currently tracked by the throttle")
-                        .addDynamicLabelNames(LABEL_SERVICE, LABEL_METHOD));
+                        .addDynamicLabelNames(LABEL_SERVICE, LABEL_METHOD, LABEL_WEIGHT_CLASS));
     }
 
     /// Records one call's outcome against the shared counter.
@@ -68,11 +69,30 @@ public final class ThrottleMetrics {
     @NonNull
     LongCounter.Measurement recordCall(
             @NonNull final String service, @NonNull final String method, @NonNull final Outcome outcome) {
+        return recordCall(service, method, WeightClass.STANDARD, outcome);
+    }
+
+    /// Records one call's outcome against the shared counter, for a method with more than one
+    /// weight class.
+    ///
+    /// @param service the throttled service's name
+    /// @param method the specific method this call hit
+    /// @param weightClass the weight class the call was classified into
+    /// @param outcome what happened to this call
+    /// @return the measurement just incremented; most callers can ignore this
+    @NonNull
+    LongCounter.Measurement recordCall(
+            @NonNull final String service,
+            @NonNull final String method,
+            @NonNull final WeightClass weightClass,
+            @NonNull final Outcome outcome) {
         final LongCounter.Measurement measurement = callsCounter.getOrCreateLabeled(
                 LABEL_SERVICE,
                 service,
                 LABEL_METHOD,
                 method,
+                LABEL_WEIGHT_CLASS,
+                label(weightClass),
                 LABEL_OUTCOME,
                 outcome.name().toLowerCase(Locale.ROOT));
         measurement.increment();
@@ -80,16 +100,19 @@ public final class ThrottleMetrics {
     }
 
     /// Registers one [ClientThrottle] instance's client-state-table-size supplier against the
-    /// shared gauge for its `(service, method)` combination. Called exactly once, at that
-    /// instance's construction.
+    /// shared gauge for its `(service, method, weight class)` combination. Called exactly once, at
+    /// that instance's construction.
     ///
     /// @param service the throttled service's name
     /// @param method the one method the owning instance enforces a policy for
+    /// @param weightClass the weight class the owning instance enforces a policy for
     /// @return a consumer the caller invokes exactly once, with its client-state-table-size
     ///     supplier
     @NonNull
-    Consumer<LongSupplier> gaugeFor(@NonNull final String service, @NonNull final String method) {
-        return supplier -> clientStateCountGauge.observe(supplier, LABEL_SERVICE, service, LABEL_METHOD, method);
+    Consumer<LongSupplier> gaugeFor(
+            @NonNull final String service, @NonNull final String method, @NonNull final WeightClass weightClass) {
+        return supplier -> clientStateCountGauge.observe(
+                supplier, LABEL_SERVICE, service, LABEL_METHOD, method, LABEL_WEIGHT_CLASS, label(weightClass));
     }
 
     /// Registers the node-wide in-flight supplier for one `(service, method)`; see [#gaugeFor].
@@ -99,29 +122,55 @@ public final class ThrottleMetrics {
     /// @return a consumer the caller invokes exactly once, with the gate's in-flight supplier
     @NonNull
     Consumer<LongSupplier> inFlightGaugeFor(@NonNull final String service, @NonNull final String method) {
-        return supplier -> inFlightGauge.observe(supplier, LABEL_SERVICE, service, LABEL_METHOD, method);
+        return inFlightGaugeFor(service, method, WeightClass.STANDARD);
     }
 
-    /// Registers the distinct-clients-in-flight supplier for one `(service, method)`; see
-    /// [#gaugeFor].
+    /// As [#inFlightGaugeFor(String, String)], for a specific weight class.
     ///
     /// @param service the throttled service's name
     /// @param method the method the owning instance enforces a policy for
+    /// @param weightClass the weight class the owning instance enforces a policy for
     /// @return a consumer the caller invokes exactly once, with its supplier
     @NonNull
-    Consumer<LongSupplier> clientsInFlightGaugeFor(@NonNull final String service, @NonNull final String method) {
-        return supplier -> clientsInFlightGauge.observe(supplier, LABEL_SERVICE, service, LABEL_METHOD, method);
+    Consumer<LongSupplier> inFlightGaugeFor(
+            @NonNull final String service, @NonNull final String method, @NonNull final WeightClass weightClass) {
+        return supplier -> inFlightGauge.observe(
+                supplier, LABEL_SERVICE, service, LABEL_METHOD, method, LABEL_WEIGHT_CLASS, label(weightClass));
     }
 
-    /// Records permits force-released by the reaper for one `(service, method)`.
+    /// Registers the distinct-clients-in-flight supplier for one `(service, method, weight class)`;
+    /// see [#gaugeFor].
+    ///
+    /// @param service the throttled service's name
+    /// @param method the method the owning instance enforces a policy for
+    /// @param weightClass the weight class the owning instance enforces a policy for
+    /// @return a consumer the caller invokes exactly once, with its supplier
+    @NonNull
+    Consumer<LongSupplier> clientsInFlightGaugeFor(
+            @NonNull final String service, @NonNull final String method, @NonNull final WeightClass weightClass) {
+        return supplier -> clientsInFlightGauge.observe(
+                supplier, LABEL_SERVICE, service, LABEL_METHOD, method, LABEL_WEIGHT_CLASS, label(weightClass));
+    }
+
+    /// Records permits force-released by the reaper for one `(service, method, weight class)`.
     ///
     /// @param service the throttled service's name
     /// @param method the method the permits belonged to
+    /// @param weightClass the weight class the permits belonged to
     /// @param count how many permits were reaped
-    void recordReaped(@NonNull final String service, @NonNull final String method, final long count) {
+    void recordReaped(
+            @NonNull final String service,
+            @NonNull final String method,
+            @NonNull final WeightClass weightClass,
+            final long count) {
         permitsReapedCounter
-                .getOrCreateLabeled(LABEL_SERVICE, service, LABEL_METHOD, method)
+                .getOrCreateLabeled(
+                        LABEL_SERVICE, service, LABEL_METHOD, method, LABEL_WEIGHT_CLASS, label(weightClass))
                 .increment(count);
+    }
+
+    private static String label(@NonNull final WeightClass weightClass) {
+        return weightClass.name().toLowerCase(Locale.ROOT);
     }
 
     /// What happened to one call, for [#recordCall]'s `outcome` label.
