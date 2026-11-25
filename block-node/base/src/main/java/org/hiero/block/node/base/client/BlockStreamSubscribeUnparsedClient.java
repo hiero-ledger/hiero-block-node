@@ -2,7 +2,6 @@
 package org.hiero.block.node.base.client;
 
 import static java.lang.System.Logger.Level.DEBUG;
-import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 import static org.hiero.block.api.BlockStreamSubscribeServiceInterface.FULL_NAME;
 import static org.hiero.block.node.base.ParseHelper.standardParse;
@@ -13,11 +12,14 @@ import com.hedera.pbj.runtime.grpc.GrpcCall;
 import com.hedera.pbj.runtime.grpc.GrpcClient;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Flow;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse;
@@ -45,28 +47,45 @@ public class BlockStreamSubscribeUnparsedClient {
 
     // From constructor
     private final GrpcClient grpcClient;
-    private final long awaitTimeoutMs;
+    private final long overallTimeoutMs;
+    private final long inactivityTimeoutMs;
 
     /**
      * Constructs a new client for subscribing to block streams.
      *
      * @param grpcClient the gRPC client to use for communication
+     * @param overallTimeoutMs longest time in milliseconds a request may take in total
+     * @param inactivityTimeoutMs longest time in milliseconds a request may go without receiving a response message
      */
-    public BlockStreamSubscribeUnparsedClient(@NonNull final GrpcClient grpcClient, long awaitTimeoutMs) {
+    public BlockStreamSubscribeUnparsedClient(
+            @NonNull final GrpcClient grpcClient, final long overallTimeoutMs, final long inactivityTimeoutMs) {
         this.grpcClient = requireNonNull(grpcClient);
-        this.awaitTimeoutMs = awaitTimeoutMs;
+        this.overallTimeoutMs = overallTimeoutMs;
+        this.inactivityTimeoutMs = inactivityTimeoutMs;
     }
 
     /**
-     * Subscribes to a closed range of blocks and returns them as a list once the stream completes.
+     * Outcome of a batch request.
+     * <p>
+     * A request can end normally with fewer blocks than requested, so a caller must compare the size of
+     * {@code blocks} with the requested range rather than rely on {@code error} alone.
+     *
+     * @param blocks the complete blocks received, in order from the requested start block with no holes
+     * @param error  the reason the request ended early, or {@code null} if the stream ended normally
+     */
+    public record BatchResult(
+            @NonNull List<BlockUnparsed> blocks, @Nullable Throwable error) {}
+
+    /**
+     * Subscribes to a closed range of blocks and returns the blocks received once the request ends.
+     * A failure of the stream does not discard the blocks that arrived before it.
      *
      * @param startBlockNumber inclusive start
      * @param endBlockNumber   inclusive end
-     * @return list of received blocks (never {@code null})
+     * @return the blocks received and the error that ended the request early, if any
      * @throws IllegalArgumentException on invalid range
-     * @throws RuntimeException on stream error or interruption
      */
-    public List<BlockUnparsed> getBatchOfBlocks(long startBlockNumber, long endBlockNumber) {
+    public BatchResult getBatchOfBlocks(long startBlockNumber, long endBlockNumber) {
         // Validate input parameters
         if (startBlockNumber < 0 || endBlockNumber < 0 || startBlockNumber > endBlockNumber) {
             throw new IllegalArgumentException("Invalid block range: " + startBlockNumber + " to " + endBlockNumber);
@@ -84,18 +103,23 @@ public class BlockStreamSubscribeUnparsedClient {
         // Create a per-request pipeline that closes over `ctx`
         final Pipeline<SubscribeStreamResponseUnparsed> pipeline = new SubscribePipeline(ctx);
 
-        // Issue the call using the per-request pipeline
-        final GrpcCall<SubscribeStreamRequest, SubscribeStreamResponseUnparsed> call = grpcClient.createCall(
-                FULL_NAME + "/subscribeBlockStream",
-                SubscribeStreamRequest.PROTOBUF,
-                SubscribeStreamResponseUnparsed.PROTOBUF,
-                pipeline,
-                Map.of());
-
-        call.sendRequest(request, true);
+        // Issue the call using the per-request pipeline. A failure to open the stream ends the request
+        // like any other terminal event, so the caller gets a result with no blocks instead of an exception.
+        try {
+            final GrpcCall<SubscribeStreamRequest, SubscribeStreamResponseUnparsed> call = grpcClient.createCall(
+                    FULL_NAME + "/subscribeBlockStream",
+                    SubscribeStreamRequest.PROTOBUF,
+                    SubscribeStreamResponseUnparsed.PROTOBUF,
+                    pipeline,
+                    Map.of());
+            call.sendRequest(request, true);
+        } catch (RuntimeException e) {
+            LOGGER.log(DEBUG, "Failed to open the block stream", e);
+            ctx.fail(e);
+        }
 
         // Wait for completion or error and return the blocks
-        return ctx.await(awaitTimeoutMs);
+        return ctx.await(overallTimeoutMs, inactivityTimeoutMs);
     }
 
     /**
@@ -108,28 +132,35 @@ public class BlockStreamSubscribeUnparsedClient {
 
     /**
      * Per-request state holder. All fields are confined to a single request.
-     * The {@link CountDownLatch} establishes happens-before from callback threads to the waiter.
+     * The {@link CountDownLatch} establishes happens-before from callback threads to the waiter when a
+     * callback ends the request; the {@link ConcurrentLinkedQueue} does so for each block when the waiter
+     * ends it.
      */
     private static final class RequestContext {
         private static final Object COMPLETED = new Object();
 
         final CountDownLatch done = new CountDownLatch(1);
-        final List<BlockUnparsed> blocks = new ArrayList<>();
         final long startBlock;
         final long endBlock;
-        final long requestedCount;
-        long expectedBlockNumber;
+        /// Written by the callback thread and read by the waiter when it logs a timeout.
+        volatile long expectedBlockNumber;
         List<BlockItemUnparsed> currentBlockItems = new ArrayList<>();
         boolean blockStarted;
+        /// When the request started, by [System#nanoTime()].
+        final long startNanos = System.nanoTime();
+        /// When the request started or last received a response message, by [System#nanoTime()]. Written by
+        /// the callback thread and read by the waiter.
+        volatile long lastActivityNanos = startNanos;
+        /// The complete blocks, in the order received. Only the callback thread adds to it, so it always holds
+        /// a contiguous run from the start block, and the waiter can copy it at any time.
+        private final ConcurrentLinkedQueue<BlockUnparsed> blocks = new ConcurrentLinkedQueue<>();
         /// How the request ended: [#COMPLETED] or the failure. Set once, by whichever of [#complete()]
-        /// and [#fail(Throwable)] gets there first, so a timeout failure racing with the last block
-        /// cannot be applied on top of a completed request or the other way around.
+        /// and [#fail(Throwable)] gets there first.
         private final AtomicReference<Object> outcome = new AtomicReference<>();
 
         RequestContext(long startBlock, long endBlock) {
             this.startBlock = startBlock;
             this.endBlock = endBlock;
-            this.requestedCount = endBlock - startBlock + 1;
             this.expectedBlockNumber = startBlock;
         }
 
@@ -137,39 +168,75 @@ public class BlockStreamSubscribeUnparsedClient {
             return outcome.get() != null;
         }
 
+        /// Adds a complete block.
+        void addBlock(BlockUnparsed block) {
+            blocks.add(block);
+        }
+
         void fail(Throwable t) {
-            if (outcome.compareAndSet(null, t)) {
-                done.countDown();
-            }
+            finish(t);
         }
 
         void complete() {
-            if (outcome.compareAndSet(null, COMPLETED)) {
+            finish(COMPLETED);
+        }
+
+        private void finish(Object result) {
+            if (outcome.compareAndSet(null, result)) {
                 done.countDown();
             }
         }
 
-        List<BlockUnparsed> await(long timeoutMs) {
+        /// Waits until the request ends, or ends it when it goes too long without a response message or
+        /// takes too long in total.
+        ///
+        /// @param overallTimeoutMs longest time in milliseconds for the whole request
+        /// @param inactivityTimeoutMs longest time in milliseconds without receiving a response message
+        /// @return the blocks received and the error that ended the request early, if any
+        BatchResult await(long overallTimeoutMs, long inactivityTimeoutMs) {
+            final long inactivityNanos = TimeUnit.MILLISECONDS.toNanos(inactivityTimeoutMs);
+            final long overallNanos = TimeUnit.MILLISECONDS.toNanos(overallTimeoutMs);
             try {
-                if (timeoutMs > 0) {
-                    if (!done.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)) {
-                        final String msg =
-                                "BACKFILL_GRPC_OVERALL_TIMEOUT=%d, exceeded for Block range starting with block %d"
-                                        .formatted(timeoutMs, expectedBlockNumber);
-                        // Warn that the BACKFILL_GRPC_OVERALL_TIMEOUT was exceeded
-                        LOGGER.log(WARNING, msg);
-                        fail(new RuntimeException("Timed out waiting for block stream response"));
+                boolean ended = false;
+                while (!ended) {
+                    final long now = System.nanoTime();
+                    final long inactivityLeft = inactivityNanos - (now - lastActivityNanos);
+                    final long overallLeft = overallNanos - (now - startNanos);
+                    if (inactivityLeft <= 0) {
+                        timeOut(
+                                "BACKFILL_GRPC_INACTIVITY_TIMEOUT",
+                                inactivityTimeoutMs,
+                                "No block stream response received within the inactivity timeout");
+                        ended = true;
+                    } else if (overallLeft <= 0) {
+                        timeOut(
+                                "BACKFILL_GRPC_OVERALL_TIMEOUT",
+                                overallTimeoutMs,
+                                "Timed out waiting for block stream response");
+                        ended = true;
+                    } else {
+                        ended = done.await(Math.min(inactivityLeft, overallLeft), TimeUnit.NANOSECONDS);
                     }
-                } else {
-                    done.await();
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                fail(e);
             }
-            if (outcome.get() instanceof Throwable failure) {
-                throw new RuntimeException("Error fetching blocks", failure);
-            }
-            return blocks;
+            // The request has ended here, so the outcome is final. A block the callback thread was still adding
+            // when the request ended is returned if it lands before this copy; later blocks are not returned.
+            final Throwable error = outcome.get() instanceof Throwable failure ? failure : null;
+            return new BatchResult(List.copyOf(blocks), error);
+        }
+
+        /// Ends the request because the limit set by `setting` was exceeded.
+        private void timeOut(String setting, long limitMs, String reason) {
+            LOGGER.log(
+                    DEBUG,
+                    "{0}={1,number,#}, exceeded for Block range starting with block {2,number,#}",
+                    setting,
+                    limitMs,
+                    expectedBlockNumber);
+            fail(new RuntimeException("%s (%s=%d ms)".formatted(reason, setting, limitMs)));
         }
     }
 
@@ -198,10 +265,13 @@ public class BlockStreamSubscribeUnparsedClient {
 
         @Override
         public void onNext(SubscribeStreamResponseUnparsed resp) {
-            // Once the request has completed or failed, nothing more is buffered.
+            // Once the request has completed or failed, nothing more is buffered and a block that was
+            // only partly received is dropped.
             if (ctx.isFinished()) {
+                ctx.currentBlockItems.clear();
                 return;
             }
+            ctx.lastActivityNanos = System.nanoTime();
             try {
                 if (resp.hasBlockItems()) {
                     final List<BlockItemUnparsed> frame = resp.blockItems().blockItems();
@@ -239,12 +309,11 @@ public class BlockStreamSubscribeUnparsedClient {
                     }
                     // Snapshot the current items to avoid retaining the large buffer in the finished block.
                     final List<BlockItemUnparsed> snapshot = List.copyOf(ctx.currentBlockItems);
-                    ctx.blocks.add(
-                            BlockUnparsed.newBuilder().blockItems(snapshot).build());
+                    ctx.addBlock(BlockUnparsed.newBuilder().blockItems(snapshot).build());
                     ctx.currentBlockItems.clear();
                     ctx.blockStarted = false;
                     ctx.expectedBlockNumber++;
-                    if (ctx.blocks.size() == ctx.requestedCount) {
+                    if (ctx.expectedBlockNumber > ctx.endBlock) {
                         ctx.complete();
                     }
                 } else {
@@ -261,7 +330,9 @@ public class BlockStreamSubscribeUnparsedClient {
 
         @Override
         public void onError(Throwable throwable) {
-            LOGGER.log(WARNING, "received onError", throwable);
+            // DEBUG only: an error that ends the request reaches the caller in the result. After the request
+            // ended it is expected, typically the connection of an abandoned stream closing.
+            LOGGER.log(DEBUG, "received onError", throwable);
             ctx.fail(throwable);
         }
 

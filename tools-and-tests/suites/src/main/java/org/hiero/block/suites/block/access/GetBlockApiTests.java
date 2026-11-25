@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.concurrent.Future;
 import org.hiero.block.api.protoc.BlockRequest;
 import org.hiero.block.api.protoc.BlockResponse;
@@ -38,6 +39,10 @@ import org.junit.jupiter.api.TestInstance;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class GetBlockApiTests extends BaseSuite {
 
+    private static final long MIN_PUBLISHED_BLOCKS = 4;
+    private static final Duration LATEST_BLOCK_TIMEOUT = Duration.ofSeconds(30);
+    private static final Duration POLL_INTERVAL = Duration.ofMillis(100);
+
     // Simulator instance to be used for testing
     private BlockStreamSimulatorApp blockStreamSimulatorApp;
 
@@ -56,8 +61,27 @@ public class GetBlockApiTests extends BaseSuite {
         // Use the simulator to publish some blocks
         blockStreamSimulatorApp = createBlockSimulator();
         simulatorThread = startSimulatorInThread(blockStreamSimulatorApp);
-        Thread.sleep(5000);
+        // Wait until the simulator has published a few blocks rather than sleeping a fixed time
+        final long deadline = System.nanoTime() + LATEST_BLOCK_TIMEOUT.toNanos();
+        while (blockStreamSimulatorApp.getStreamStatus().publishedBlocks() < MIN_PUBLISHED_BLOCKS
+                && System.nanoTime() < deadline) {
+            Thread.sleep(POLL_INTERVAL.toMillis());
+        }
         blockStreamSimulatorApp.stop();
+        awaitNodeCaughtUp();
+    }
+
+    /**
+     * The node serves only blocks it has verified and persisted, which can lag the number of blocks the simulator
+     * has sent. The simulator is stopped, so the expected latest block is fixed; poll until the node reaches it so
+     * every test sees all published blocks.
+     */
+    private void awaitNodeCaughtUp() throws InterruptedException {
+        final long expectedLatest = blockStreamSimulatorApp.getStreamStatus().publishedBlocks() - 1;
+        final long deadline = System.nanoTime() + LATEST_BLOCK_TIMEOUT.toNanos();
+        while (!isLatest(getLatestBlock(blockAccessStub), expectedLatest) && System.nanoTime() < deadline) {
+            Thread.sleep(POLL_INTERVAL.toMillis());
+        }
     }
 
     @Test
@@ -97,21 +121,33 @@ public class GetBlockApiTests extends BaseSuite {
     @Test
     @DisplayName("Get a Single Block using API - Request Latest Block")
     void requestLatestBlockUsingBlockAPI() {
-        // Request the latest block
+        // Request the latest block (the node was already awaited in publishSomeBlocks)
         final BlockResponse response = getLatestBlock(blockAccessStub);
+        final long latestPublishedBlock =
+                blockStreamSimulatorApp.getStreamStatus().publishedBlocks() - 1;
 
         // Verify the response
         assertNotNull(response, "Response should not be null");
         assertEquals(Code.SUCCESS, response.getStatus(), "Block retrieval should be successful");
 
         // Verify the block content
-        final long latestPublishedBlock =
-                blockStreamSimulatorApp.getStreamStatus().publishedBlocks() - 1;
         assertTrue(response.hasBlock(), "Response should contain a block");
         assertEquals(
                 latestPublishedBlock,
                 response.getBlock().getItemsList().getFirst().getBlockHeader().getNumber(),
                 "Block number should match the latest block number");
+    }
+
+    private static boolean isLatest(final BlockResponse response, final long expectedBlockNumber) {
+        return response != null
+                && response.getStatus() == Code.SUCCESS
+                && response.hasBlock()
+                && response.getBlock()
+                                .getItemsList()
+                                .getFirst()
+                                .getBlockHeader()
+                                .getNumber()
+                        == expectedBlockNumber;
     }
 
     @Test

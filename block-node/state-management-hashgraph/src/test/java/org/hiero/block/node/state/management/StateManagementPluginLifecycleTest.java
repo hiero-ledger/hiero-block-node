@@ -51,7 +51,6 @@ class StateManagementPluginLifecycleTest {
                 .build();
         facility.sendBlockVerification(
                 new VerificationNotification(true, null, 1L, Bytes.fromHex("aabb"), corrupt, BlockSource.PUBLISHER));
-        plugin.applyPending();
 
         assertThat(plugin.attested().state()).isNull();
         plugin.stop();
@@ -184,7 +183,6 @@ class StateManagementPluginLifecycleTest {
         // not just the block number.
         facility.sendBlockVerification(new VerificationNotification(
                 true, null, 6L, Bytes.fromHex("aabb"), buildBlock(6L, 60L, rootHash), BlockSource.PUBLISHER));
-        plugin.applyPending();
         assertThat(plugin.isApplyHalted()).isFalse();
 
         plugin.stop();
@@ -244,7 +242,7 @@ class StateManagementPluginLifecycleTest {
 
         // Genesis block 0 with a valid header/footer (real empty-state hash passes genesis
         // validation) but a state_changes item carrying invalid protobuf bytes. The applier
-        // throws; applyPending must halt apply and leave the block unapplied.
+        // throws; the plugin must halt apply and leave the block unapplied.
         final BlockUnparsed badBlock = BlockUnparsed.newBuilder()
                 .blockItems(
                         BlockItemUnparsed.newBuilder()
@@ -262,7 +260,6 @@ class StateManagementPluginLifecycleTest {
                 .build();
         facility.sendBlockVerification(
                 new VerificationNotification(true, null, 0L, Bytes.fromHex("aabb"), badBlock, BlockSource.PUBLISHER));
-        plugin.applyPending();
 
         assertThat(plugin.isApplyHalted()).isTrue();
         assertThat(plugin.attested().state()).isNull();
@@ -278,7 +275,6 @@ class StateManagementPluginLifecycleTest {
         // empty/zero placeholder — an arbitrary wrong hash must still be rejected at genesis.
         facility.sendBlockVerification(new VerificationNotification(
                 true, null, 0L, Bytes.fromHex("aabb"), buildBlock(0L, 0L, Bytes.EMPTY), BlockSource.PUBLISHER));
-        plugin.applyPending();
 
         assertThat(plugin.isApplyHalted()).isTrue();
         assertThat(plugin.hashMismatchTotal()).isEqualTo(1L);
@@ -304,7 +300,6 @@ class StateManagementPluginLifecycleTest {
                     Bytes.fromHex("aabb"),
                     buildBlock(0L, 0L, Bytes.fromHex("ab".repeat(48))),
                     BlockSource.PUBLISHER));
-            plugin.applyPending();
         } finally {
             julLogger.removeHandler(logHandler);
         }
@@ -312,6 +307,114 @@ class StateManagementPluginLifecycleTest {
         assertThat(plugin.isApplyHalted()).isTrue();
         assertThat(plugin.hashMismatchTotal()).isEqualTo(1L);
         assertThat(logHandler.countContaining("digest algorithm mismatch")).isEqualTo(1);
+        plugin.stop();
+    }
+
+    @Test
+    void midChainFirstBlockWithoutSnapshotHaltsAsMissingSeedNotMismatch(@TempDir final Path tmp) throws Exception {
+        final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
+        final StateManagementPlugin plugin = startPlugin(tmp.resolve("recent"), facility);
+
+        final TestLogHandler logHandler = new TestLogHandler();
+        final Logger julLogger = Logger.getLogger(StateManagementPlugin.class.getName());
+        julLogger.addHandler(logHandler);
+        try {
+            // No snapshot and the first block is 7: its footer hashes pre-block state this node
+            // never had, so it halts as a missing seed and is not counted as a hash mismatch.
+            facility.sendBlockVerification(new VerificationNotification(
+                    true,
+                    null,
+                    7L,
+                    Bytes.fromHex("aabb"),
+                    buildBlock(7L, 7L, Bytes.fromHex("ab".repeat(32))),
+                    BlockSource.PUBLISHER));
+        } finally {
+            julLogger.removeHandler(logHandler);
+        }
+
+        assertThat(plugin.isApplyHalted()).isTrue();
+        assertThat(plugin.hashMismatchTotal()).isZero();
+        assertThat(plugin.attested().state()).isNull();
+        assertThat(logHandler.countContaining("No seed state for block")).isEqualTo(1);
+        plugin.stop();
+    }
+
+    @Test
+    void reserveAttestedIsNullUntilABlockIsAttested(@TempDir final Path tmp) throws Exception {
+        final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
+        final StateManagementPlugin plugin = startPlugin(tmp.resolve("recent"), facility);
+
+        assertThat(plugin.reserveAttested()).isNull();
+        sendNextBlocks(facility, plugin, 0L, 1L); // block 0 is staged, only attested by block 1
+        assertThat(plugin.reserveAttested()).isNull();
+        sendNextBlocks(facility, plugin, 1L, 1L);
+
+        try (final StateManagementPlugin.ReservedState reserved = plugin.reserveAttested()) {
+            assertThat(reserved).isNotNull();
+            assertThat(reserved.blockNumber()).isZero();
+        }
+        plugin.stop();
+    }
+
+    @Test
+    void reservedStateStaysValidAcrossLaterAttestationsUntilClosed(@TempDir final Path tmp) throws Exception {
+        final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
+        final StateManagementPlugin plugin = startPlugin(tmp.resolve("recent"), facility);
+        sendNextBlocks(facility, plugin, 0L, 2L); // attests block 0
+
+        final StateManagementPlugin.ReservedState reserved = plugin.reserveAttested();
+        assertThat(reserved).isNotNull();
+        assertThat(reserved.blockNumber()).isZero();
+
+        sendNextBlocks(facility, plugin, 2L, 4L); // attests blocks 1..4, releasing block 0's state
+        assertThat(plugin.attested().blockNumber()).isEqualTo(4L);
+        assertThat(reserved.state().getRoot().isDestroyed()).isFalse();
+        assertThat(reserved.state().getRoot().getHash()).isNotNull();
+
+        reserved.close();
+        reserved.close(); // idempotent: must not release twice
+        assertThat(reserved.state().getRoot().isDestroyed()).isTrue();
+        try (final StateManagementPlugin.ReservedState latest = plugin.reserveAttested()) {
+            assertThat(latest).isNotNull();
+            assertThat(latest.blockNumber()).isEqualTo(4L);
+        }
+        plugin.stop();
+    }
+
+    @Test
+    void readersNeverSeeADestroyedStateWhileBlocksAreApplied(@TempDir final Path tmp) throws Exception {
+        final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
+        final StateManagementPlugin plugin = startPlugin(tmp.resolve("recent"), facility);
+        sendNextBlocks(facility, plugin, 0L, 2L);
+
+        final java.util.concurrent.atomic.AtomicBoolean stop = new java.util.concurrent.atomic.AtomicBoolean();
+        final java.util.concurrent.atomic.AtomicReference<Throwable> failure =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        final java.util.concurrent.atomic.AtomicLong reads = new java.util.concurrent.atomic.AtomicLong();
+        final Thread reader = new Thread(() -> {
+            try {
+                while (!stop.get()) {
+                    try (final StateManagementPlugin.ReservedState reserved = plugin.reserveAttested()) {
+                        if (reserved != null) {
+                            reserved.state().getRoot().getHash(); // throws if the state was destroyed
+                            reads.incrementAndGet();
+                        }
+                    }
+                }
+            } catch (final Throwable t) {
+                failure.set(t);
+            }
+        });
+        reader.start();
+        try {
+            sendNextBlocks(facility, plugin, 2L, 60L);
+        } finally {
+            stop.set(true);
+            reader.join(10_000L);
+        }
+
+        assertThat(failure.get()).isNull();
+        assertThat(reads.get()).isPositive();
         plugin.stop();
     }
 
@@ -330,7 +433,6 @@ class StateManagementPluginLifecycleTest {
                 Bytes.fromHex("aabb"),
                 buildBlock(0L, 0L, plugin.stagedStateRootHash()),
                 BlockSource.PUBLISHER));
-        plugin.applyPending();
         facility.sendBlockVerification(new VerificationNotification(
                 true,
                 null,
@@ -338,7 +440,6 @@ class StateManagementPluginLifecycleTest {
                 Bytes.fromHex("aabb"),
                 buildBlock(1L, 10L, Bytes.fromHex("deadbeef".repeat(12))),
                 BlockSource.PUBLISHER));
-        plugin.applyPending();
         assertThat(plugin.isApplyHalted()).isTrue();
         plugin.stop();
 
@@ -352,36 +453,12 @@ class StateManagementPluginLifecycleTest {
     }
 
     @Test
-    void pendingBlocksStopsGrowingOnceApplyHalted(@TempDir final Path tmp) throws Exception {
-        // handleVerification must stop staging new blocks once apply halts, since applyPending()
-        // never drains pendingBlocks again until a restart.
-        final var configuration = ConfigurationBuilder.create()
-                .withConfigDataType(StateManagementConfig.class)
-                .withConfigDataType(MerkleDbConfig.class)
-                .withConfigDataType(VirtualMapConfig.class)
-                .withValue(
-                        "state.management.snapshotRecentPath",
-                        tmp.resolve("recent").toString())
-                .build();
+    void blocksAfterApplyHaltAreDroppedWithoutApplying(@TempDir final Path tmp) throws Exception {
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
-        final BlockNodeContext context = new BlockNodeContext(
-                configuration,
-                MetricRegistry.builder().build(),
-                null,
-                facility,
-                null,
-                null,
-                null,
-                StateManagementPluginTestSupport.newThreadPoolManager(),
-                null);
-        final StateManagementPlugin plugin = new StateManagementPlugin();
-        plugin.init(context, NOOP_SERVICE_BUILDER);
-        plugin.start();
-        assertThat(StateManagementPluginTestSupport.awaitReady(plugin, 5_000L)).isTrue();
+        final StateManagementPlugin plugin = startPlugin(tmp.resolve("recent"), facility);
 
-        // Halt apply via the same hash-mismatch recipe as restartAfterApplyHaltStartsClean:
-        // apply genesis block 0, then deliver block 1 with a footer start hash that doesn't
-        // match.
+        // Halt apply via a hash mismatch: apply genesis block 0, then deliver block 1 with a
+        // footer start hash that does not match post-0.
         facility.sendBlockVerification(new VerificationNotification(
                 true,
                 null,
@@ -389,7 +466,6 @@ class StateManagementPluginLifecycleTest {
                 Bytes.fromHex("aabb"),
                 buildBlock(0L, 0L, plugin.stagedStateRootHash()),
                 BlockSource.PUBLISHER));
-        plugin.applyPending();
         facility.sendBlockVerification(new VerificationNotification(
                 true,
                 null,
@@ -397,79 +473,25 @@ class StateManagementPluginLifecycleTest {
                 Bytes.fromHex("aabb"),
                 buildBlock(1L, 10L, Bytes.fromHex("deadbeef".repeat(12))),
                 BlockSource.PUBLISHER));
-        plugin.applyPending();
         assertThat(plugin.isApplyHalted()).isTrue();
+        final Bytes stagedAtHalt = plugin.stagedStateRootHash();
+        final long mismatchesAtHalt = plugin.hashMismatchTotal();
 
-        final long pendingAtApplyHalted = plugin.pendingBlocksSize();
-
-        // Deliver 100 more "verified" blocks after halting apply — none of them must be staged.
+        // Blocks delivered after the halt (a valid chain continuation and a gap) are dropped:
+        // nothing is applied, nothing is counted, nothing is held.
         for (long blockNumber = 2L; blockNumber <= 101L; blockNumber++) {
             facility.sendBlockVerification(new VerificationNotification(
                     true,
                     null,
                     blockNumber,
                     Bytes.fromHex("aabb"),
-                    buildBlock(blockNumber, blockNumber * 10L),
+                    buildBlock(blockNumber, blockNumber * 10L, stagedAtHalt),
                     BlockSource.PUBLISHER));
         }
 
-        assertThat(plugin.pendingBlocksSize())
-                .as("pendingBlocks must not grow once apply is halted")
-                .isEqualTo(pendingAtApplyHalted);
-        plugin.stop();
-    }
-
-    @Test
-    void pendingBlocksCapDropsExcessLiveBlocksDuringAGap(@TempDir final Path tmp) throws Exception {
-        final var configuration = ConfigurationBuilder.create()
-                .withConfigDataType(StateManagementConfig.class)
-                .withConfigDataType(MerkleDbConfig.class)
-                .withConfigDataType(VirtualMapConfig.class)
-                .withValue(
-                        "state.management.snapshotRecentPath",
-                        tmp.resolve("recent").toString())
-                .withValue("state.management.pendingBlocksMax", "3")
-                .build();
-        final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
-        final BlockNodeContext context = new BlockNodeContext(
-                configuration,
-                MetricRegistry.builder().build(),
-                null,
-                facility,
-                null,
-                null,
-                null,
-                StateManagementPluginTestSupport.newThreadPoolManager(),
-                null);
-        final StateManagementPlugin plugin = new StateManagementPlugin();
-        plugin.init(context, NOOP_SERVICE_BUILDER);
-        plugin.start();
-
-        // Apply genesis so `expectedNext` is a fixed block number, then leave block 1 missing —
-        // an unresolved gap — while delivering more live blocks than the cap allows.
-        facility.sendBlockVerification(new VerificationNotification(
-                true,
-                null,
-                0L,
-                Bytes.fromHex("aabb"),
-                buildBlock(0L, 0L, plugin.stagedStateRootHash()),
-                BlockSource.PUBLISHER));
-        plugin.applyPending();
-        assertThat(plugin.isApplyHalted()).isFalse();
-
-        for (long blockNumber = 2L; blockNumber <= 9L; blockNumber++) {
-            facility.sendBlockVerification(new VerificationNotification(
-                    true,
-                    null,
-                    blockNumber,
-                    Bytes.fromHex("aabb"),
-                    buildBlock(blockNumber, blockNumber * 10L),
-                    BlockSource.PUBLISHER));
-        }
-
-        assertThat(plugin.pendingBlocksSize())
-                .as("pendingBlocks must stay at or below the configured cap")
-                .isLessThanOrEqualTo(3);
+        assertThat(plugin.stagedStateRootHash()).isEqualTo(stagedAtHalt);
+        assertThat(plugin.hashMismatchTotal()).isEqualTo(mismatchesAtHalt);
+        assertThat(plugin.attested().state()).isNull();
         plugin.stop();
     }
 
@@ -569,6 +591,24 @@ class StateManagementPluginLifecycleTest {
     }
 
     private static final RecordingServiceBuilder NOOP_SERVICE_BUILDER = new RecordingServiceBuilder();
+
+    /// Sends `count` empty blocks numbered `first`, `first + 1`, ... in order, each carrying the
+    /// plugin's current staged root hash as its start-of-block hash, so every one validates.
+    private static void sendNextBlocks(
+            final TestBlockMessagingFacility facility,
+            final StateManagementPlugin plugin,
+            final long first,
+            final long count) {
+        for (long n = first; n < first + count; n++) {
+            facility.sendBlockVerification(new VerificationNotification(
+                    true,
+                    null,
+                    n,
+                    Bytes.fromHex("aabb"),
+                    buildBlock(n, n, plugin.stagedStateRootHash()),
+                    BlockSource.PUBLISHER));
+        }
+    }
 
     private static BlockUnparsed buildBlock(final long blockNumber, final long roundNumber) {
         return buildBlock(blockNumber, roundNumber, Bytes.EMPTY);

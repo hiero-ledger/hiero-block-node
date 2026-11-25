@@ -10,15 +10,16 @@
 Owns the mutable state shared by the block node's plugins, persists it to disk, and tells the other
 plugins when it changes:
 
-|           State            |                            Accessor                            |           Persisted to           |
-|----------------------------|----------------------------------------------------------------|----------------------------------|
-| TSS data                   | `tssData()`                                                    | `app.state.tssBootstrapFilePath` |
-| RSA address book history   | `rangedAddressBookHistory()`, `getAddressBookForBlock`         | `app.state.rsaBootstrapFilePath` |
-| Stored block ranges        | `storedBlocks()`                                               | `app.state.blockRangesFilePath`  |
-| Available block ranges     | derived from `HistoricalBlockFacility`                         | not persisted                    |
-| Known publishers, partners | `knownPublishers()`, `inboundPartners()`, `outboundPartners()` | read from `app.state.*FilePath`  |
-| Backfill sources           | `backfillSources()`, `updateBackfillSources(...)`              | not persisted                    |
-| Next expected block        | `nextExpectedBlock()`, `updateExpectedBlock(...)`              | not persisted                    |
+|             State             |                                     Accessor                                      |           Persisted to           |
+|-------------------------------|-----------------------------------------------------------------------------------|----------------------------------|
+| TSS data                      | `tssData()`                                                                       | `app.state.tssBootstrapFilePath` |
+| RSA address book history      | `rangedAddressBookHistory()`, `getAddressBookForBlock`                            | `app.state.rsaBootstrapFilePath` |
+| Stored block ranges           | `storedBlocks()`                                                                  | `app.state.blockRangesFilePath`  |
+| Available block ranges        | reported per provider plugin via `addAvailableBlockRange`                         | not persisted                    |
+| Known publishers, partners    | `knownPublishers()`, `inboundPartners()`, `outboundPartners()`                    | read from `app.state.*FilePath`  |
+| Backfill sources              | `backfillSources()`, `updateBackfillSources(...)`                                 | not persisted                    |
+| Next expected block           | `nextExpectedBlock()`, `updateExpectedBlock(...)`                                 | not persisted                    |
+| Next expected publisher block | `nextExpectedPublisherBlock()`, set from `NextExpectedPublisherBlockNotification` | not persisted                    |
 
 ## Public API
 
@@ -26,7 +27,7 @@ The API is the `org.hiero.block.node.spi.ApplicationStateFacility` interface in 
 extends `BlockNodePlugin`.
 
 - **Updates:** `updateTssData`, `updateAddressBookHistory`, `addStoredBlockRange`,
-  `updateAvailableBlocks`. An update is installed in memory immediately (compare-and-set, so older
+  `addAvailableBlockRange`, `removeAvailableBlockRange`. An update is installed in memory immediately (compare-and-set, so older
   data never replaces newer data), then persisted and dispatched from a single dispatcher thread, so
   a notification never carries older data than one already sent.
 - **Change notifications:** each accepted change is sent through the `BlockMessagingFacility` as a
@@ -34,6 +35,10 @@ extends `BlockNodePlugin`.
   `AvailableBlocksNotification`. A plugin implements `ApplicationStateNotificationHandler` and
   registers it with `BlockMessagingFacility.registerApplicationStateNotificationHandler(...)`,
   usually from `init()`.
+- **Next expected publisher block:** the facility also registers a `BlockNotificationHandler`
+  and keeps the highest block reported by `NextExpectedPublisherBlockNotification`, which the
+  publisher plugin sends after it answers a publisher with `BehindPublisher`. The value is `-1`
+  at startup and only moves forward.
 - **Startup state:** the state loaded from disk is dispatched when this plugin starts. A plugin
   that starts later reads the current value from the facility in its own `start()`.
 

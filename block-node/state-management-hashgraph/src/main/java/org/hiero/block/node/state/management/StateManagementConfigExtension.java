@@ -10,9 +10,10 @@ import java.util.Set;
 /// Also declares `MerkleDbConfig`/`VirtualMapConfig`, which `VirtualMapStateLifecycleManager`
 /// requires but the swirlds jars don't self-register.
 ///
-/// These records are global: one instance per process, shared by any other plugin using
-/// `VirtualMapStateLifecycleManager`. Independently-configured instances (e.g. separate
-/// storage paths) aren't possible, so only one such plugin can usefully run at a time.
+/// These records resolve from the Block Node's shared `Configuration`, so another plugin that
+/// uses `VirtualMapStateLifecycleManager` with that `Configuration` sees the same values. The
+/// manager takes a `Configuration` argument, so a plugin that needs different values can build
+/// its own.
 public class StateManagementConfigExtension implements ConfigurationExtension {
 
     /// Explicitly defined constructor.

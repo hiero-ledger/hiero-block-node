@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# block-node-1 is the node full-history-backfill wipes and restarts empty, with its
+# earliestManagedBlock above the chain head, to backfill history while it takes the live
+# stream. A node in that situation is expected to set verification.firstOrderedBlock so the
+# history it backfills is not held to strict ordering (#4049). The value sits above every
+# block height the test reaches.
+blockNode:
+  config:
+    VERIFICATION_FIRST_ORDERED_BLOCK: "100000"

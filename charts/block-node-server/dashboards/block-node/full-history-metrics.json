@@ -37,6 +37,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
+      "description": "Behind leader: blocks between a node's newest block and the highest newest block in the same environment, so selecting several environments does not compare nodes across networks.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -382,7 +383,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "scalar(max(blocknode_app_historical_newest_block{environment=~\"$environment\", instance=~\"$instance\"})) - max by (instance) (blocknode_app_historical_newest_block{environment=~\"$environment\", instance=~\"$instance\"})",
+          "expr": "max by (instance) (max by (environment) (blocknode_app_historical_newest_block{environment=~\"$environment\", instance=~\"$instance\"}) - on (environment) group_right () max by (environment, instance) (blocknode_app_historical_newest_block{environment=~\"$environment\", instance=~\"$instance\"}))",
           "format": "table",
           "instant": true,
           "range": false,

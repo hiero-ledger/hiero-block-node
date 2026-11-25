@@ -54,9 +54,11 @@ import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.AddressBookHistoryNotification;
 import org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.AvailableBlocksNotification;
+import org.hiero.block.node.spi.blockmessaging.NextExpectedPublisherBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
+import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.metrics.core.MetricRegistry;
@@ -82,6 +84,30 @@ class ApplicationStateFacilityPluginTest {
         @Override
         public BlockRangeSet availableBlocks() {
             return available;
+        }
+    }
+
+    /// A [BlockProviderPlugin] with a fixed priority, used as the key under which blocks are reported.
+    private static final class TestProvider implements BlockProviderPlugin {
+        private final int priority;
+
+        TestProvider(final int priority) {
+            this.priority = priority;
+        }
+
+        @Override
+        public int defaultPriority() {
+            return priority;
+        }
+
+        @Override
+        public BlockAccessor block(final long blockNumber) {
+            return null;
+        }
+
+        @Override
+        public BlockRangeSet availableBlocks() {
+            return new ConcurrentBlockRangeSet();
         }
     }
 
@@ -137,11 +163,19 @@ class ApplicationStateFacilityPluginTest {
         final ApplicationStateFacilityPlugin plugin = new ApplicationStateFacilityPlugin();
         final TestBlockMessagingFacility messaging;
         final TestHistoricalBlockFacility historical = new TestHistoricalBlockFacility();
+        final TestProvider provider = new TestProvider(1000);
         final TestThreadPoolManager<?, ?> threadPoolManager = new TestThreadPoolManager<>(
                 Executors.newSingleThreadExecutor(), Executors.newSingleThreadScheduledExecutor());
         final Configuration configuration;
         final ApplicationStateConfig config;
         final BlockNodeContext context;
+
+        /// Records blocks as provided by the default provider without notifying, as if reported before start.
+        void seedAvailable(final long start, final long end) {
+            plugin.providerBlocks
+                    .computeIfAbsent(provider, p -> new ConcurrentBlockRangeSet())
+                    .add(start, end);
+        }
 
         Fixture(final Path dir) {
             this(dir, new TestBlockMessagingFacility());
@@ -334,15 +368,13 @@ class ApplicationStateFacilityPluginTest {
     @DisplayName("init registers the oldest and newest block gauges")
     void initRegistersGauges() {
         final Fixture f = newFixture();
-        f.historical.available.add(5, 9);
         f.init();
+        f.plugin.addAvailableBlockRange(f.provider, new BlockRange(5, 9));
 
-        assertThat(f.context.historicalBlockProvider().availableBlocks().min()).isEqualTo(5);
-        assertThat(f.context.historicalBlockProvider().availableBlocks().max()).isEqualTo(9);
-
-        f.historical.available.add(10, 20);
-
-        assertThat(f.context.historicalBlockProvider().availableBlocks().max()).isEqualTo(20);
+        assertThat(f.plugin.availableBlockSet().min()).isEqualTo(5);
+        assertThat(f.plugin.availableBlockSet().max()).isEqualTo(9);
+        // the same immutable set is returned until the available blocks change
+        assertThat(f.plugin.availableBlockSet()).isSameAs(f.plugin.availableBlockSet());
     }
 
     @Test
@@ -398,6 +430,61 @@ class ApplicationStateFacilityPluginTest {
                         connection.remote().address())
                 .isEqualTo("node1.example.com"));
         f.plugin.stop();
+    }
+
+    // ---- next expected publisher block -------------------------------------------------------
+
+    @Test
+    @DisplayName("Next expected publisher block is -1 at startup")
+    void nextExpectedPublisherBlockStartsUnknown() {
+        final Fixture f = newFixture();
+        f.initAndStart();
+        assertThat(f.plugin.nextExpectedPublisherBlock()).isEqualTo(-1L);
+        f.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("Next expected publisher block takes the notified value")
+    void nextExpectedPublisherBlockTakesNotifiedValue() {
+        final Fixture f = newFixture();
+        f.initAndStart();
+        f.messaging.sendNextExpectedPublisherBlock(new NextExpectedPublisherBlockNotification(11L, 15L));
+        assertThat(f.plugin.nextExpectedPublisherBlock()).isEqualTo(11L);
+        f.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("A lower notified value does not move the next expected publisher block backwards")
+    void nextExpectedPublisherBlockDoesNotRegress() {
+        final Fixture f = newFixture();
+        f.initAndStart();
+        f.messaging.sendNextExpectedPublisherBlock(new NextExpectedPublisherBlockNotification(11L, 15L));
+        f.messaging.sendNextExpectedPublisherBlock(new NextExpectedPublisherBlockNotification(7L, 9L));
+        assertThat(f.plugin.nextExpectedPublisherBlock()).isEqualTo(11L);
+        f.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("Next expected publisher block is not persisted across a restart")
+    void nextExpectedPublisherBlockIsNotPersisted() {
+        final Fixture first = newFixture();
+        first.initAndStart();
+        first.messaging.sendNextExpectedPublisherBlock(new NextExpectedPublisherBlockNotification(11L, 15L));
+        first.plugin.stop();
+
+        final Fixture second = newFixture();
+        second.initAndStart();
+        assertThat(second.plugin.nextExpectedPublisherBlock()).isEqualTo(-1L);
+        second.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("Stopping the facility unregisters its block notification handler")
+    void stopUnregistersBlockNotificationHandler() {
+        final Fixture f = newFixture();
+        f.initAndStart();
+        f.plugin.stop();
+        assertThat(f.messaging.getBlockNotificationHandlerCount()).isZero();
     }
 
     // ---- TSS data ----------------------------------------------------------------------------
@@ -973,8 +1060,8 @@ class ApplicationStateFacilityPluginTest {
     @DisplayName("concurrent addStoredBlockRange loses neither range")
     void concurrentAddStoredBlockRangeLosesNoUpdate() throws Exception {
         final Fixture f = newFixture();
-        f.historical.available.add(0, 10);
-        f.historical.available.add(20, 30);
+        f.seedAvailable(0, 10);
+        f.seedAvailable(20, 30);
         f.initAndStart();
 
         final CountDownLatch firstDispatchEntered = new CountDownLatch(1);
@@ -1022,8 +1109,8 @@ class ApplicationStateFacilityPluginTest {
     }
 
     @Test
-    @DisplayName("concurrent updateAvailableBlocks calls leave the live blocks in memory and in the last notification")
-    void concurrentUpdateAvailableBlocksConverges() throws Exception {
+    @DisplayName("concurrent addAvailableBlockRange calls leave the live blocks in memory and in the last notification")
+    void concurrentAddAvailableBlockRangeConverges() throws Exception {
         final int threads = 8;
         final int perThread = 150;
         final Fixture f = newFixture();
@@ -1044,8 +1131,7 @@ class ApplicationStateFacilityPluginTest {
                 }
                 for (int i = 0; i < perThread; i++) {
                     // disjoint, non-adjacent ranges keep the range list long and fragmented
-                    f.historical.available.add(base + i * 2L, base + i * 2L);
-                    f.plugin.updateAvailableBlocks();
+                    f.plugin.addAvailableBlockRange(f.provider, new BlockRange(base + i * 2L, base + i * 2L));
                 }
             }));
         }
@@ -1056,7 +1142,8 @@ class ApplicationStateFacilityPluginTest {
         // flushes the dispatcher
         f.plugin.stop();
 
-        final List<BlockRange> live = f.historical.available.streamRanges().toList();
+        final List<BlockRange> live =
+                f.plugin.providerBlocks.get(f.provider).streamRanges().toList();
         assertThat(live).hasSize(threads * perThread);
         assertThat(f.plugin.blockRanges.get().available()).isEqualTo(live);
         assertThat(f.plugin.blockRanges.get().stored()).isEqualTo(live);
@@ -1066,16 +1153,15 @@ class ApplicationStateFacilityPluginTest {
 
     @Test
     @DisplayName("start dispatches the blocks the providers reported before the facility started")
-    void startDispatchesAvailableBlocksFromHistoricalFacility() throws InterruptedException {
+    void startDispatchesAvailableBlocksReportedBeforeStart() throws InterruptedException {
         final Fixture f = newFixture();
         final RecordingHandler handler = new RecordingHandler();
         f.register(handler);
-        f.historical.available.add(0, 10);
-        f.historical.available.add(20, 30);
         f.init();
         // a provider reporting from its own init(), before the facility has started
         handler.expect(2);
-        f.plugin.updateAvailableBlocks();
+        f.plugin.addAvailableBlockRange(f.provider, new BlockRange(0, 10));
+        f.plugin.addAvailableBlockRange(f.provider, new BlockRange(20, 30));
         handler.await();
         handler.lastAvailableBlocks = null;
         handler.lastStoredBlocks = null;
@@ -1091,13 +1177,13 @@ class ApplicationStateFacilityPluginTest {
     }
 
     @Test
-    @DisplayName("updateAvailableBlocks after a provider change notifies the new union")
-    void updateAvailableBlocksNotifiesRuntimeProviderChange() throws InterruptedException {
+    @DisplayName("addAvailableBlockRange after startup notifies the new union")
+    void addAvailableBlockRangeNotifiesRuntimeProviderChange() throws InterruptedException {
         final Fixture f = newFixture();
         final RecordingHandler handler = new RecordingHandler();
         f.register(handler);
-        f.historical.available.add(0, 10);
-        f.historical.available.add(20, 30);
+        f.seedAvailable(0, 10);
+        f.seedAvailable(20, 30);
         f.init();
         // let the startup notifications (available and stored blocks) arrive before changing anything,
         // so they are not counted towards the wait for the change below
@@ -1105,14 +1191,59 @@ class ApplicationStateFacilityPluginTest {
         f.plugin.start();
         handler.await();
 
-        f.historical.available.add(11, 15);
         handler.expect(2);
-        f.plugin.updateAvailableBlocks();
+        f.plugin.addAvailableBlockRange(f.provider, new BlockRange(11, 15));
 
         handler.await();
         final List<BlockRange> expected = List.of(new BlockRange(0L, 15L), new BlockRange(20L, 30L));
         assertThat(handler.lastAvailableBlocks).isEqualTo(expected);
         assertThat(handler.lastStoredBlocks).isEqualTo(expected);
+        f.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("a block stays available while another provider still provides it")
+    void blockStaysAvailableWhileAnotherProviderProvidesIt() {
+        final Fixture f = newFixture();
+        final TestProvider other = new TestProvider(2000);
+        f.initAndStart();
+
+        f.plugin.addAvailableBlockRange(f.provider, new BlockRange(0, 9));
+        f.plugin.addAvailableBlockRange(other, new BlockRange(5, 14));
+        f.plugin.removeAvailableBlockRange(other, new BlockRange(5, 14));
+
+        assertThat(f.plugin.availableBlocks()).containsExactly(new BlockRange(0, 9));
+        assertThat(f.plugin.blockProvider(7)).containsSame(f.provider);
+        assertThat(f.plugin.blockProvider(12)).isEmpty();
+        f.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("blockProvider returns the highest priority provider of a block")
+    void blockProviderReturnsHighestPriorityProvider() {
+        final Fixture f = newFixture();
+        final TestProvider recent = new TestProvider(2000);
+        f.initAndStart();
+
+        f.plugin.addAvailableBlockRange(f.provider, new BlockRange(0, 9));
+        f.plugin.addAvailableBlockRange(recent, new BlockRange(5, 9));
+
+        assertThat(f.plugin.blockProvider(2)).containsSame(f.provider);
+        assertThat(f.plugin.blockProvider(7)).containsSame(recent);
+        f.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("available blocks are also stored, and stay stored once no longer available")
+    void availableBlocksAreAlsoStored() {
+        final Fixture f = newFixture();
+        f.initAndStart();
+
+        f.plugin.addAvailableBlockRange(f.provider, new BlockRange(0, 9));
+        f.plugin.removeAvailableBlockRange(f.provider, new BlockRange(0, 4));
+
+        assertThat(f.plugin.availableBlocks()).containsExactly(new BlockRange(5, 9));
+        assertThat(f.plugin.storedBlocks()).containsExactly(new BlockRange(0, 9));
         f.plugin.stop();
     }
 

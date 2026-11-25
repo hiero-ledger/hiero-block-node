@@ -66,6 +66,16 @@ public interface StreamPublisherManager extends BlockNotificationHandler {
     /// @param newestKnownBlockNumber the newest known block number
     void notifyTooFarBehind(final long newestKnownBlockNumber);
 
+    /// Notify the publisher manager that a publisher was told this node is
+    /// behind it (`BehindPublisher`).
+    ///
+    /// This is used to tell the rest of the system which block this node
+    /// expects next from publishers, before any block header is accepted.
+    ///
+    /// @param nextExpectedBlock the next block this node expects from publishers
+    /// @param publisherOfferedBlock the block the publisher offered, for diagnostics
+    void notifyBehindPublisher(final long nextExpectedBlock, final long publisherOfferedBlock);
+
     /// This method is called when a block is ending in an unfinished state.
     /// This means that the block, currently streamed by this handler is not yet
     /// streamed in full.

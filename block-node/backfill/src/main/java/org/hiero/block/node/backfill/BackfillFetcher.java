@@ -8,7 +8,6 @@ import static java.lang.System.Logger.Level.WARNING;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -17,12 +16,13 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.api.BlockRange;
+import org.hiero.block.api.ServerStatusDetailRequest;
 import org.hiero.block.api.ServerStatusDetailResponse;
-import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.internal.BlockNodeSource;
 import org.hiero.block.internal.BlockNodeSourceConfig;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.client.BlockNodeClient;
+import org.hiero.block.node.base.client.BlockStreamSubscribeUnparsedClient.BatchResult;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.metrics.LongCounter;
 
@@ -54,8 +54,10 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
      * This is used for exponential backoff in case of failures.
      */
     private final int initialRetryDelayMs;
-    /** Global timeout in milliseconds for gRPC calls to block nodes (used as fallback). */
+    /** Longest time in milliseconds one batch request may take in total. */
     private final int globalGrpcTimeoutMs;
+    /** Longest time in milliseconds one batch request may go without receiving a response message. */
+    private final int grpcInactivityTimeoutMs;
     /** Enable TLS for secure connections to block nodes. */
     private final boolean enableTls;
     /** Maximum incoming buffer size in bytes for the gRPC client. */
@@ -96,6 +98,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
         this.initialRetryDelayMs = config.initialRetryDelay();
         this.backfillRetries = metrics.backfillRetries();
         this.globalGrpcTimeoutMs = config.grpcOverallTimeout();
+        this.grpcInactivityTimeoutMs = config.grpcInactivityTimeout();
         this.enableTls = config.enableTLS();
         this.maxIncomingBufferSize = config.maxIncomingBufferSize();
         this.maxProtobufMessageSizeBytes = config.maxProtobufMessageSizeBytes();
@@ -180,7 +183,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
      */
     protected List<BlockRange> resolveAvailableRanges(BlockNodeClient node) {
         final ServerStatusDetailResponse nodeStatus =
-                node.getBlockNodeServiceClient().serverStatusDetail(new ServerStatusRequest());
+                node.getBlockNodeServiceClient().serverStatusDetail(ServerStatusDetailRequest.DEFAULT);
         final List<BlockRange> ranges =
                 new ArrayList<>(nodeStatus.availableRanges().size());
         for (final BlockRange range : nodeStatus.availableRanges()) {
@@ -198,8 +201,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
      * Otherwise, it creates a new client and stores it in the map.
      * <p>
      * Per-node gRPC tuning (timeouts, HTTP/2 settings, buffer sizes) is passed
-     * to the client. When tuning values are 0 or not specified, the global
-     * timeout from BackfillConfiguration is used as fallback.
+     * to the client, together with the batch request timeouts from BackfillConfiguration.
      *
      * @param node the BlockNodeSourceConfig to get the client for
      * @return a BlockNodeClient for the specified node
@@ -219,6 +221,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
             return new BlockNodeClient(
                     key,
                     globalGrpcTimeoutMs,
+                    grpcInactivityTimeoutMs,
                     enableTls,
                     maxIncomingBufferSize,
                     maxProtobufMessageSizeBytes,
@@ -291,62 +294,121 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
 
     /**
      * Fetch blocks for the provided range from the selected node using retries, without iterating other nodes.
+     * Each retry starts after the blocks already received, so a block is never requested twice.
+     *
+     * @return the blocks received, in order from the start of the range. This can be only part of the range,
+     *         when the attempts ran out or the peer ended the stream early, or empty if nothing was received
      */
     public List<BlockUnparsed> fetchBlocksFromNode(BlockNodeSourceConfig nodeConfig, BlockRange blockRange) {
-        BlockNodeClient currentNodeClient = getNodeClient(nodeConfig);
+        final List<BlockUnparsed> received = new ArrayList<>();
+        long fetchNanos = 0;
+        Throwable lastError = null;
+        boolean done = false;
+        // Our own interruption (e.g. shutdown), not the peer's fault. The interrupt status stays set for the callers.
+        boolean interrupted = false;
 
-        for (int attempt = 1; attempt <= maxRetries; attempt++) {
-            try {
-                long startNanos = System.nanoTime();
-                List<BlockUnparsed> batch = currentNodeClient
-                        .getBlockstreamSubscribeUnparsedClient()
-                        .getBatchOfBlocks(blockRange.rangeStart(), blockRange.rangeEnd());
-                if (batch.size() != BlockRangeSet.size(blockRange)) {
-                    markFailure(nodeConfig);
-                    return Collections.emptyList();
-                }
-                markSuccess(nodeConfig, System.nanoTime() - startNanos);
-                return batch;
-            } catch (RuntimeException e) {
+        for (int attempt = 1; attempt <= maxRetries && !done; attempt++) {
+            final long firstBlock = blockRange.rangeStart() + received.size();
+            final long startNanos = System.nanoTime();
+            final BlockNodeClient client = getNodeClient(nodeConfig);
+            final Throwable error;
+            if (client.isNodeReachable()) {
+                final BatchResult result = client.getBlockstreamSubscribeUnparsedClient()
+                        .getBatchOfBlocks(firstBlock, blockRange.rangeEnd());
+                received.addAll(result.blocks());
+                error = result.error();
+            } else {
+                error = new IllegalStateException(
+                        "Client for node [" + nodeConfig.address() + "] could not be initialized");
+            }
+            interrupted = Thread.currentThread().isInterrupted();
+            final long attemptNanos = System.nanoTime() - startNanos;
+            fetchNanos += attemptNanos;
+            lastError = error;
+            final String attemptFinishedMsg =
+                    "Attempt {0}/{1} for blocks [{2}->{3}] from node [{4}] took [{5}] ms, [{6}] blocks received so far";
+            LOGGER.log(
+                    DEBUG,
+                    attemptFinishedMsg,
+                    attempt,
+                    maxRetries,
+                    firstBlock,
+                    blockRange.rangeEnd(),
+                    nodeConfig.address(),
+                    TimeUnit.NANOSECONDS.toMillis(attemptNanos),
+                    received.size());
+
+            if (received.size() == BlockRangeSet.size(blockRange) || error == null || interrupted) {
+                done = true;
+            } else {
                 final String failedToFetchBlocksMsg =
                         "Failed to fetch blocks [{0}->{1}] from node [{2}] (attempt {3}/{4}) due to {5} - {6}.";
-                final String cause = e.getCause() != null ? ", " + e.getCause() : "";
+                final String cause = error.getCause() != null ? ", " + error.getCause() : "";
                 LOGGER.log(
                         DEBUG,
                         failedToFetchBlocksMsg,
-                        blockRange.rangeStart(),
+                        firstBlock,
                         blockRange.rangeEnd(),
                         nodeConfig.address(),
                         attempt,
                         maxRetries,
-                        e.toString(),
+                        error.toString(),
                         cause);
-                if (attempt == maxRetries) {
-                    markFailure(nodeConfig);
-                    // Log exception details on final failure for debugging
-                    LOGGER.log(WARNING, "Final failure stack trace.\n", e);
-                } else {
+                // The peer may still be sending the rest of the abandoned stream. Closing the client closes its
+                // connection, which ends that stream; the next attempt gets a new client.
+                removeAndClose(nodeConfig);
+                if (attempt < maxRetries) {
                     long delay = Math.multiplyExact(initialRetryDelayMs, attempt);
                     try {
                         TimeUnit.MILLISECONDS.sleep(delay);
+                        backfillRetries.increment();
                     } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
-                        break;
+                        interrupted = true;
+                        done = true;
                     }
-                    backfillRetries.increment();
                 }
             }
         }
 
-        final String allAttemptsExhaustedMsg = "All {0} attempts exhausted for blocks [{1}->{2}] from node [{3}]";
-        LOGGER.log(
-                DEBUG,
-                allAttemptsExhaustedMsg,
-                maxRetries,
-                blockRange.rangeStart(),
-                blockRange.rangeEnd(),
-                nodeConfig.address());
-        return Collections.emptyList();
+        recordFetchOutcome(nodeConfig, blockRange, received, fetchNanos, lastError, interrupted);
+        return received;
+    }
+
+    /**
+     * Updates the health of {@code nodeConfig} after a fetch and logs a fetch that ended early with an error.
+     *
+     * @param received the blocks the fetch returns
+     * @param fetchNanos the time of the attempts, without the retry delays between them
+     * @param lastError the error of the last attempt, or {@code null} if it ended without one
+     * @param interrupted whether the fetch was interrupted, which does not count against the peer
+     */
+    private void recordFetchOutcome(
+            BlockNodeSourceConfig nodeConfig,
+            BlockRange blockRange,
+            List<BlockUnparsed> received,
+            long fetchNanos,
+            Throwable lastError,
+            boolean interrupted) {
+        if (received.size() == BlockRangeSet.size(blockRange)) {
+            recordBlocksReceived(nodeConfig, fetchNanos, received.size(), true);
+        } else {
+            if (!received.isEmpty()) {
+                recordBlocksReceived(nodeConfig, fetchNanos, received.size(), false);
+            } else if (!interrupted) {
+                markFailure(nodeConfig);
+            }
+            if (lastError != null) {
+                final String fetchEndedEarlyMsg = "Fetch of blocks [%d->%d] from node [%s] ended with %d of %d blocks."
+                        .formatted(
+                                blockRange.rangeStart(),
+                                blockRange.rangeEnd(),
+                                nodeConfig.address(),
+                                received.size(),
+                                BlockRangeSet.size(blockRange));
+                LOGGER.log(interrupted ? DEBUG : WARNING, fetchEndedEarlyMsg, lastError);
+            }
+        }
     }
 
     @Override
@@ -369,7 +431,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
             long base = (long) initialRetryDelayMs * (1L << Math.min(failures - 1, 10));
             long backoff = Math.min(base, maxBackoffMs);
             long nextAllowed = System.currentTimeMillis() + backoff;
-            return new SourceHealth(failures, nextAllowed, h.successes, h.totalLatencyNanos);
+            return new SourceHealth(failures, nextAllowed, h.blocksReceived, h.totalLatencyNanos);
         });
     }
 
@@ -390,14 +452,24 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
         }
     }
 
-    private void markSuccess(BlockNodeSourceConfig node, long latencyNanos) {
+    /**
+     * Adds the time and block count of a fetch that received blocks to the health of {@code node}.
+     *
+     * @param latencyNanos the time of the attempts, without the retry delays between them
+     * @param blocks the number of blocks received
+     * @param fullRange whether the whole requested range arrived. Only then the failures are reset, so a peer
+     *                  that keeps failing part way through keeps its failure history.
+     */
+    private void recordBlocksReceived(BlockNodeSourceConfig node, long latencyNanos, long blocks, boolean fullRange) {
         healthMap.compute(node, (n, h) -> {
             if (h == null) {
-                return new SourceHealth(0, 0, 1, latencyNanos);
+                return new SourceHealth(0, 0, blocks, latencyNanos);
             }
-            long successes = h.successes + 1;
+            long blocksReceived = h.blocksReceived + blocks;
             long totalLatency = h.totalLatencyNanos + latencyNanos;
-            return new SourceHealth(0, 0, successes, totalLatency);
+            int failures = fullRange ? 0 : h.failures;
+            long nextAllowedMillis = fullRange ? 0 : h.nextAllowedMillis;
+            return new SourceHealth(failures, nextAllowedMillis, blocksReceived, totalLatency);
         });
     }
 
@@ -408,7 +480,8 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
             return 0.0;
         }
         double failurePenalty = h.failures * healthPenaltyPerFailure;
-        double latencyPenaltyMs = h.successes > 0 ? (h.totalLatencyNanos / (double) h.successes) / 1_000_000.0 : 0;
+        double latencyPenaltyMs =
+                h.blocksReceived > 0 ? (h.totalLatencyNanos / (double) h.blocksReceived) / 1_000_000.0 : 0;
         return failurePenalty + latencyPenaltyMs;
     }
 
@@ -424,7 +497,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
     }
 
     /** Package-private for testing. */
-    record SourceHealth(int failures, long nextAllowedMillis, long successes, long totalLatencyNanos) {}
+    record SourceHealth(int failures, long nextAllowedMillis, long blocksReceived, long totalLatencyNanos) {}
 
     /** Closes every cached client. Safe to call multiple times. */
     @Override

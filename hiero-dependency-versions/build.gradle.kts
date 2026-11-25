@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 dependencies {
-    api(platform("io.netty:netty-bom:4.2.19.Final"))
+    api(platform("io.netty:netty-bom:4.2.20.Final"))
     api(platform("com.google.cloud:libraries-bom:26.86.0"))
 }
 
 dependencies.constraints {
     val daggerVersion = "2.60.1"
     val grpcIoVersion = "1.85.1"
-    val hederaCryptographyVersion = "3.22.0"
+    val hederaCryptographyVersion = "3.28.0"
     val helidonVersion = "4.5.6"
     val pbjVersion = pluginVersions.version("com.hedera.pbj.pbj-compiler")
     val protobufVersion = "4.35.1"
@@ -158,7 +158,7 @@ dependencies.constraints {
     api("org.testcontainers:testcontainers:${testContainersVersion}") {
         because("org.testcontainers")
     }
-    api("com.google.jimfs:jimfs:1.3.1") { because("com.google.common.jimfs") }
+    api("com.google.jimfs:jimfs:1.3.2") { because("com.google.common.jimfs") }
     api("com.hedera.bucky:bucky-client:${buckyVersion}") { because("com.hedera.bucky") }
     api("io.minio:minio:8.5.17") { because("io.minio") }
     api("com.squareup.okio:okio-jvm:3.18.2") { because("okio") } // required by minio

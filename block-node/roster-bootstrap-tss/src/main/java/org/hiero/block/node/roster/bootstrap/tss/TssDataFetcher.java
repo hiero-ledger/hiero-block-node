@@ -11,8 +11,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
+import org.hiero.block.api.ServerStatusDetailRequest;
 import org.hiero.block.api.ServerStatusDetailResponse;
-import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockNodeSource;
 import org.hiero.block.internal.BlockNodeSourceConfig;
@@ -108,8 +108,9 @@ public class TssDataFetcher implements AutoCloseable {
             }
 
             try {
-                final ServerStatusDetailResponse detailResponse =
-                        currentNodeClient.getBlockNodeServiceClient().serverStatusDetail(new ServerStatusRequest());
+                final ServerStatusDetailResponse detailResponse = currentNodeClient
+                        .getBlockNodeServiceClient()
+                        .serverStatusDetail(ServerStatusDetailRequest.DEFAULT);
                 TssData tssData = detailResponse.tssData();
                 if (tssData != null) tssDataList.add(tssData);
                 metrics.tssDataRequests().increment();
