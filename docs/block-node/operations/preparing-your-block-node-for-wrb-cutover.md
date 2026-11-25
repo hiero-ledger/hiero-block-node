@@ -276,7 +276,7 @@ kubectl -n block-node exec $BN_POD -c block-node-server -- \
 
 - **If the file is missing after reset:** re-deliver it from your off-host backup using the mechanism defined in your Helm values overlay.
 
-In either case, confirm the roster loaded cleanly after the pod starts by querying `serverStatusDetail` - the response should contain a non-empty `rosterHash` field:
+In either case, confirm the roster loaded cleanly after the pod starts by querying `getAddressBook` - the response should contain a non-empty `nodeAddressBook` field:
 
 ```bash
 grpcurl -plaintext -emit-defaults \
@@ -284,10 +284,11 @@ grpcurl -plaintext -emit-defaults \
   -proto block-node/api/node_service.proto \
   -d '{}' \
   "$BLOCK_NODE_HOST:40982" \
-  org.hiero.block.api.BlockNodeService/serverStatusDetail
+  org.hiero.block.api.BlockNodeService/getAddressBook
 ```
 
 - **Expected:** the response includes a non-empty `nodeAddressBook` field, confirming the RSA roster is loaded and active.
+- **Older Block Node:** a version without `getAddressBook` answers `UNIMPLEMENTED`; call `serverStatusDetail` instead, which returns the same `nodeAddressBook` field.
 
 #### Configure backfill sources (if required)
 
@@ -426,7 +427,7 @@ Set `roster.bootstrap.tss.blockNodeSourcesPath` (default: `""`) to the path of a
 > 40980 subscribe). Adjust to match your peer BN's actual configuration. When `status_port`
 > or `subscribe_port` is omitted, the plugin falls back to `port` for those calls.
 
-After the Block Node starts, confirm TSS data loaded by querying `serverStatusDetail` - the response should include a non-empty `tssData` field:
+After the Block Node starts, confirm TSS data loaded by querying `getTssData` - the response should include a non-empty `tssData` field:
 
 ```bash
 grpcurl -plaintext -emit-defaults \
@@ -434,10 +435,11 @@ grpcurl -plaintext -emit-defaults \
   -proto block-node/api/node_service.proto \
   -d '{}' \
   "$BLOCK_NODE_HOST:40982" \
-  org.hiero.block.api.BlockNodeService/serverStatusDetail
+  org.hiero.block.api.BlockNodeService/getTssData
 ```
 
 - **Expected:** the response includes a non-empty `tssData` field, confirming TSS data is loaded and active.
+- **Older Block Node:** a version without `getTssData` answers `UNIMPLEMENTED`; call `serverStatusDetail` instead, which returns the same `tssData` field.
 
 ---
 
@@ -450,8 +452,8 @@ After completing all applicable checks, confirm the BN is ready before the maint
 | Pod is running                            | `kubectl -n block-node get pods`                                              | `1/1 Running`                                                        |
 | Hardware preflight passes                 | `sudo solo-provisioner block node check --profile=mainnet`                    | All steps green                                                      |
 | Block store cleared (WRB only)            | `grpcurl ... BlockNodeService/serverStatus`                                   | `firstAvailableBlock = uint64_max`                                   |
-| RSA roster loaded (WRB only)              | `grpcurl ... BlockNodeService/serverStatusDetail`                             | Non-empty `nodeAddressBook` in response                              |
-| TSS bootstrap loaded (if TSS is enabled)  | `grpcurl ... BlockNodeService/serverStatusDetail`                             | Non-empty `tssData` in response                                      |
+| RSA roster loaded (WRB only)              | `grpcurl ... BlockNodeService/getAddressBook`                                 | Non-empty `nodeAddressBook` in response                              |
+| TSS bootstrap loaded (if TSS is enabled)  | `grpcurl ... BlockNodeService/getTssData`                                     | Non-empty `tssData` in response                                      |
 | Greedy backfill enabled (WRB only)        | `helm -n block-node get values <release-name> \| grep BACKFILL_GREEDY`        | `BACKFILL_GREEDY: "true"`                                            |
 | Backfill active (WRB only, if configured) | `kubectl -n block-node logs $BN_POD -c block-node-server \| grep -i backfill` | Fetching or completed (if `BACKFILL_BLOCK_NODE_SOURCES_PATH` is set) |
 | Alloy shipping                            | `kubectl -n grafana-alloy get pods`                                           | `1/1 Running`                                                        |

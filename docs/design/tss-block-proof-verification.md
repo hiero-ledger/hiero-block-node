@@ -164,7 +164,7 @@ reported as `UNKNOWN_ERROR`, not as a bad block proof.
    `/opt/hiero/block-node/application-state/tss-bootstrap-roster.json`, `TssData` as JSON) at
    start and rewrites it whenever the data changes.
 3. **Peer Block Nodes.** The `roster-bootstrap-tss` plugin periodically queries the peers listed
-   in `roster.bootstrap.tss.blockNodeSourcesPath` through `serverStatusDetail` and hands each
+   in `roster.bootstrap.tss.blockNodeSourcesPath` through `getTssData` and hands each
    answer to the application state facility.
 
 The application state facility and `VerificationDataProvider` both install data only when it is
