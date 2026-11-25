@@ -41,6 +41,7 @@ import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.block.verification.harness.HarnessChainBuilder;
+import org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
@@ -61,6 +62,32 @@ import org.junit.jupiter.params.provider.MethodSource;
 /// Plugin-level integration test for [VerificationServicePlugin].
 @DisplayName("VerificationServicePlugin Tests")
 class VerificationServicePluginTest {
+    /// Tests for how the plugin registers with the messaging facility
+    @Nested
+    @DisplayName("Messaging Registration Tests")
+    class MessagingRegistrationTests
+            extends PluginTestBase<VerificationServicePlugin, ExecutorService, ScheduledExecutorService> {
+        MessagingRegistrationTests() {
+            super(
+                    Executors.newVirtualThreadPerTaskExecutor(),
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+            start(new VerificationServicePlugin(), new SimpleInMemoryHistoricalBlockFacility(), Map.of());
+        }
+
+        /// A handler's `isGating()` decides every registration it is used for. The plugin must apply back pressure
+        /// on the block item and block notification rings, so application-state updates, which are non-gating,
+        /// must reach it through a separate handler; otherwise the publisher can overwrite ring slots
+        /// verification has not read yet.
+        @Test
+        @DisplayName("Block items apply back pressure, application state is a separate handler")
+        void blockItemRegistrationAppliesBackPressure() {
+            assertThat(plugin.isGating()).isTrue();
+            assertThat(plugin).isNotInstanceOf(ApplicationStateNotificationHandler.class);
+            assertThat(blockMessaging.getApplicationStateNotificationHandlerCount())
+                    .isEqualTo(1);
+        }
+    }
+
     /// Tests for WRAPS verification
     @Nested
     @DisplayName("WRAPS Verification Tests")
