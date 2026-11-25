@@ -6,6 +6,7 @@ import java.util.List;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.RangedAddressBookHistory;
+import org.hiero.block.api.RangedTssDataHistory;
 import org.hiero.block.api.TssData;
 
 /**
@@ -63,6 +64,19 @@ public interface ApplicationStateFacility extends BlockNodePlugin {
      * @return the current TSS data, or {@code null} if none has been loaded or reported
      */
     TssData tssData();
+
+    /**
+     * The history of the TSS data held by the application: every TSS data it has installed, by the block range it is
+     * valid for, ordered from oldest to newest. The last entry is open ended (end block {@code -1}). Later changes are
+     * also dispatched as {@link org.hiero.block.node.spi.blockmessaging.TssDataNotification} for the latest value.
+     *
+     * <p>The default implementation reports no history.
+     *
+     * @return the history, or {@code null} if no TSS data has been loaded or reported
+     */
+    default RangedTssDataHistory rangedTssDataHistory() {
+        return null;
+    }
 
     /**
      * The RSA address book history currently held by the application. Plugins that need the history

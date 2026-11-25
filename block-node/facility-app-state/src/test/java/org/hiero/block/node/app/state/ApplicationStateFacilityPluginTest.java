@@ -40,6 +40,8 @@ import org.hiero.block.api.NetworkConnection;
 import org.hiero.block.api.NetworkData;
 import org.hiero.block.api.RangedAddressBookHistory;
 import org.hiero.block.api.RangedNodeAddressBook;
+import org.hiero.block.api.RangedTssData;
+import org.hiero.block.api.RangedTssDataHistory;
 import org.hiero.block.api.RosterEntry;
 import org.hiero.block.api.TssData;
 import org.hiero.block.api.TssRoster;
@@ -155,6 +157,9 @@ class ApplicationStateFacilityPluginTest {
                     .withValue(
                             "app.state.tssBootstrapFilePath",
                             dir.resolve("tss.json").toString())
+                    .withValue(
+                            "app.state.tssHistoryFilePath",
+                            dir.resolve("tss-history.json").toString())
                     .withValue(
                             "app.state.rsaBootstrapFilePath",
                             dir.resolve("rsa.json").toString())
@@ -586,6 +591,133 @@ class ApplicationStateFacilityPluginTest {
             assertThat(seen.get(i).validFromBlock())
                     .isGreaterThan(seen.get(i - 1).validFromBlock());
         }
+    }
+
+    @Test
+    @DisplayName("there is no TSS history before any TSS data is installed")
+    void noTssHistoryBeforeAnyData() {
+        final Fixture f = newFixture();
+        f.initAndStart();
+
+        assertThat(f.plugin.rangedTssDataHistory()).isNull();
+    }
+
+    @Test
+    @DisplayName("the TSS history lists the installed TSS data by block range, the last one open ended")
+    void tssHistoryListsInstalledDataByRange() {
+        final Fixture f = newFixture();
+        f.initAndStart();
+        final TssData first = buildTssData(10, "040506");
+        final TssData second = buildTssData(50, "040506");
+        final TssData third = buildTssData(200, "040506");
+
+        f.plugin.updateTssData(first);
+        f.plugin.updateTssData(third);
+        // valid from a block before the current data: not installed, so not in the history
+        f.plugin.updateTssData(buildTssData(30, "040506"));
+        f.plugin.updateTssData(null);
+        // valid from a block between the two installed ones can no longer be installed either, once 200 is current
+        f.plugin.updateTssData(second);
+
+        final RangedTssDataHistory history = f.plugin.rangedTssDataHistory();
+        assertThat(history.tssData())
+                .extracting(RangedTssData::startBlock, RangedTssData::endBlock)
+                .containsExactly(tuple(10L, 199L), tuple(200L, -1L));
+        assertThat(history.tssData()).extracting(RangedTssData::tssData).containsExactly(first, third);
+    }
+
+    @Test
+    @DisplayName("the TSS history is persisted and survives a restart, with the latest data current again")
+    void tssHistorySurvivesARestart() {
+        final Fixture first = newFixture();
+        first.initAndStart();
+        first.plugin.updateTssData(buildTssData(10, "040506"));
+        first.plugin.updateTssData(buildTssData(50, "040506"));
+        first.plugin.updateTssData(buildTssData(200, "040506"));
+        final RangedTssDataHistory before = first.plugin.rangedTssDataHistory();
+        first.plugin.stop();
+
+        final Fixture second = newFixture();
+        second.initAndStart();
+
+        assertThat(second.plugin.rangedTssDataHistory()).isEqualTo(before);
+        assertThat(second.plugin.tssData()).isEqualTo(buildTssData(200, "040506"));
+        second.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("the TSS history is read back when the bootstrap file is missing, and the latest entry is current")
+    void tssHistoryIsUsedWithoutTheBootstrapFile() throws IOException {
+        final Fixture first = newFixture();
+        first.initAndStart();
+        first.plugin.updateTssData(buildTssData(10, "040506"));
+        first.plugin.updateTssData(buildTssData(50, "040506"));
+        first.plugin.stop();
+        Files.delete(first.config.tssBootstrapFilePath());
+
+        final Fixture second = newFixture();
+        second.initAndStart();
+
+        assertThat(second.plugin.tssData()).isEqualTo(buildTssData(50, "040506"));
+        assertThat(second.plugin.rangedTssDataHistory().tssData()).hasSize(2);
+        second.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("entries of the TSS history file without a ledger id are ignored")
+    void tssHistoryEntriesWithoutALedgerIdAreIgnored() throws IOException {
+        final Fixture f = newFixture();
+        final TssData valid = buildTssData(20, "040506");
+        final RangedTssDataHistory onDisk = RangedTssDataHistory.newBuilder()
+                .tssData(List.of(
+                        RangedTssData.newBuilder()
+                                .tssData(buildTssData(10, ""))
+                                .startBlock(10)
+                                .endBlock(19)
+                                .build(),
+                        RangedTssData.newBuilder()
+                                .tssData(valid)
+                                .startBlock(20)
+                                .endBlock(-1)
+                                .build()))
+                .build();
+        Files.write(
+                f.config.tssHistoryFilePath(),
+                RangedTssDataHistory.JSON.toBytes(onDisk).toByteArray());
+
+        f.initAndStart();
+
+        assertThat(f.plugin.rangedTssDataHistory().tssData())
+                .extracting(RangedTssData::tssData)
+                .containsExactly(valid);
+        assertThat(f.plugin.tssData()).isEqualTo(valid);
+        f.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("an unreadable TSS history file does not stop the node from starting")
+    void unreadableTssHistoryDoesNotStopStartup() throws IOException {
+        final Fixture f = newFixture();
+        Files.writeString(f.config.tssHistoryFilePath(), "this is not json");
+
+        assertThatCode(f::initAndStart).doesNotThrowAnyException();
+
+        assertThat(f.plugin.rangedTssDataHistory()).isNull();
+        f.plugin.stop();
+    }
+
+    @Test
+    @DisplayName("a failed TSS history file write does not throw into the caller")
+    void failedTssHistoryWriteDoesNotReachCaller() throws IOException {
+        final Fixture f = newFixture();
+        // a directory where the history file belongs makes every write of it fail
+        Files.createDirectory(f.config.tssHistoryFilePath());
+        f.initAndStart();
+
+        assertThatCode(() -> f.plugin.updateTssData(buildTssData(10, "040506"))).doesNotThrowAnyException();
+        f.plugin.stop();
+
+        assertThat(f.plugin.rangedTssDataHistory().tssData()).hasSize(1);
     }
 
     @Test
