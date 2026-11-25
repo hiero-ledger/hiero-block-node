@@ -33,7 +33,7 @@
 #              APP_STATE_TSS_BOOTSTRAP_FILE_PATH and BN1 is restarted so
 #              BlockNodeApp.loadApplicationState() loads it
 #              (stage-tss-data-on-bn1.sh).
-#         11.4 BN1's serverStatusDetail now reports the staged TssData
+#         11.4 BN1's getTssData now reports the staged TssData
 #              directly — checked first. BN2 and BN3 have no such direct
 #              path, so they pick it up "eventually" via the
 #              roster-bootstrap-tss reconfiguration from step 10 (peer
@@ -425,7 +425,7 @@ events:
   #   3. stage-tss-data-on-bn1.sh: kubectl cp's that file onto BN1 (Tier-0) at
   #      its APP_STATE_TSS_BOOTSTRAP_FILE_PATH and restarts it, so
   #      BlockNodeApp.loadApplicationState() loads it on startup.
-  #   4. BN1's serverStatusDetail now reports the staged TssData directly —
+  #   4. BN1's getTssData now reports the staged TssData directly —
   #      checked first. BN2 and BN3 have no such direct path, so they pick it
   #      up "eventually" via the roster-bootstrap-tss reconfiguration done back
   #      in step 10 (peer-gossip from BN1) — checked second.
@@ -496,7 +496,7 @@ events:
 
   - id: assert-bn1-tss-data
     type: command
-    description: "Step 11.4: assert BN1's serverStatusDetail reports the staged TSS data"
+    description: "Step 11.4: assert BN1's getTssData reports the staged TSS data"
     delay: 2130
     timeout: 150
     args:

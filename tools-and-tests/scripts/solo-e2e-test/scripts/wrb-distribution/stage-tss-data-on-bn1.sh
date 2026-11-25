@@ -10,7 +10,7 @@
 #      on the Tier-0 BN. In this Kind/Solo test environment BN1 runs in a
 #      separate pod from wherever the CLI ran, so "place the file" is a
 #      `kubectl cp` onto BN1's pod rather than a same-host file copy.
-#   4. BN1 exposes the TSS details on its serverStatusDetail API.
+#   4. BN1 exposes the TSS details on its getTssData API.
 #
 # The Block Node only loads app.state.tssBootstrapFilePath on startup
 # (BlockNodeApp.loadApplicationState()), so step 4 requires restarting BN1
@@ -112,4 +112,4 @@ nohup ${setsid_prefix} kubectl --context "${CLUSTER_REFERENCE}" --namespace "${N
 wait_for_port_forward "${pf_log_dir}/block-node-1-grpc.log" "block-node-1 grpc"
 wait_for_port_forward "${pf_log_dir}/block-node-1-metrics.log" "block-node-1 metrics"
 
-log "BN1 restarted with the staged TssData; serverStatusDetail should reflect it shortly."
+log "BN1 restarted with the staged TssData; getTssData should reflect it shortly."

@@ -27,6 +27,30 @@ class ServerStatusDetailRequest {
     }
 }
 
+class GetAddressBookRequest {
+    constructor(client) {
+        this.client = client;
+        this.protoDef = "org.hiero.block.api.BlockNodeService/getAddressBook";
+    }
+
+    invoke(params = {}) {
+        const req = {};
+        return this.client.invoke(this.protoDef, req, params);
+    }
+}
+
+class GetTssDataRequest {
+    constructor(client) {
+        this.client = client;
+        this.protoDef = "org.hiero.block.api.BlockNodeService/getTssData";
+    }
+
+    invoke(params = {}) {
+        const req = {};
+        return this.client.invoke(this.protoDef, req, params);
+    }
+}
+
 class GetBlockRequest {
     constructor(client) {
         this.client = client;
@@ -54,6 +78,8 @@ class SubscribeBlockStreamRequest {
 export {
     ServerStatusRequest,
     ServerStatusDetailRequest,
+    GetAddressBookRequest,
+    GetTssDataRequest,
     GetBlockRequest,
     SubscribeBlockStreamRequest,
 };

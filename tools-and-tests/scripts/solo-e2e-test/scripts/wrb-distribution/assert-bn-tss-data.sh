@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # WRB Distribution E2E (#3125 slice 6, step 11): assert that a Block Node's
-# serverStatusDetail reports populated TSS data (a non-empty ledger id) after
+# getTssData reports populated TSS data (a non-empty ledger id) after
 # cn-upgrade-tss.sh cuts the network over to a TSS/WRAPS-native CN version.
 # The WRAPS verification key and the TSS roster are reported but not required:
 # the Nova WRAPS TSS library leaves the key empty, and the roster is informational.
@@ -80,7 +80,7 @@ refresh_bn_port_forward() {
     log "  port-forward for ${svc} ready on localhost:${local_port}."
 }
 
-fetch_bn_status_detail_raw() {
+fetch_bn_tss_data_raw() {
     local port="$1"
     # Use 127.0.0.1 (IPv4) explicitly: kubectl port-forward binds only IPv4
     # on macOS (127.0.0.1), but grpcurl resolves "localhost" to [::1] (IPv6)
@@ -92,9 +92,9 @@ fetch_bn_status_detail_raw() {
     grpcurl -plaintext -emit-defaults \
         -import-path "${PROTO_PATH}" \
         -proto block-node/api/node_service.proto \
-        -d '{}' \
+        -d '{"excludeHistory": true}' \
         "127.0.0.1:${port}" \
-        org.hiero.block.api.BlockNodeService/serverStatusDetail
+        org.hiero.block.api.BlockNodeService/getTssData
 }
 
 # TssData is usable once it carries a non-empty ledger id. The WRAPS verification key
@@ -117,17 +117,16 @@ classify_attempt() {
         echo "UNREACHABLE (grpcurl: $(echo "${err}" | tr '\n' ' ' | head -c 200))"
         return
     fi
-    local range_count tss_present tss_details
-    range_count=$(echo "${resp}" | jq -r '(.availableRanges // []) | length' 2>/dev/null || echo "?")
+    local tss_present tss_details
     if has_tss_data "${resp}"; then
         tss_details=$(echo "${resp}" | jq -r '
             "rosterEntries=\((.tssData.currentRoster.rosterEntries // []) | length), "
             + "wrapsVerificationKey=\(if (.tssData.wrapsVerificationKey // "") == "" then "empty" else "set" end)"
         ' 2>/dev/null || echo "?")
-        echo "OK (availableRanges=${range_count} entries, tssData populated: ${tss_details})"
+        echo "OK (tssData populated: ${tss_details})"
     else
         tss_present=$(echo "${resp}" | jq -r 'if .tssData == null then "null" else "present-but-incomplete" end' 2>/dev/null || echo "?")
-        echo "reachable, tssData=${tss_present}, availableRanges=${range_count} entries"
+        echo "reachable, tssData=${tss_present}"
     fi
 }
 
@@ -146,7 +145,7 @@ for bn_index in "$@"; do
     while (( elapsed < POLL_TIMEOUT )); do
         attempt=$(( attempt + 1 ))
         err_output=""
-        if ! last_resp=$(fetch_bn_status_detail_raw "${grpc_port}" 2>/tmp/wrb-dist-bn-tss-assert.err); then
+        if ! last_resp=$(fetch_bn_tss_data_raw "${grpc_port}" 2>/tmp/wrb-dist-bn-tss-assert.err); then
             err_output=$(cat /tmp/wrb-dist-bn-tss-assert.err 2>/dev/null || true)
             last_resp=""
             # Pod may still be starting — refresh the port-forward on each failure
@@ -164,7 +163,7 @@ for bn_index in "$@"; do
     rm -f /tmp/wrb-dist-bn-tss-assert.err
 
     if [[ "${ok}" == "true" ]]; then
-        log "${bn_name}: serverStatusDetail reports populated TSS data ✓"
+        log "${bn_name}: getTssData reports populated TSS data ✓"
     else
         log "${bn_name}: TSS data not populated after ${POLL_TIMEOUT}s. Last response:"
         echo "${last_resp}" | sed 's/^/    /' || true
