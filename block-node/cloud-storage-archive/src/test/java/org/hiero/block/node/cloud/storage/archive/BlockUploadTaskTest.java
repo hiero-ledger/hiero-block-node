@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
@@ -41,10 +42,12 @@ import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
+import org.hiero.block.node.base.ranges.ConcurrentBlockRangeSet;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.AfterAll;
@@ -894,6 +897,24 @@ class BlockUploadTaskTest {
         public void updateBackfillSources(NetworkData sources) {}
 
         @Override
-        public void updateAvailableBlocks() {}
+        public void addAvailableBlockRange(final BlockProviderPlugin provider, final BlockRange blockRange) {}
+
+        @Override
+        public void removeAvailableBlockRange(final BlockProviderPlugin provider, final BlockRange blockRange) {}
+
+        @Override
+        public List<BlockRange> availableBlocks() {
+            return List.of();
+        }
+
+        @Override
+        public BlockRangeSet availableBlockSet() {
+            return new ConcurrentBlockRangeSet();
+        }
+
+        @Override
+        public Optional<BlockProviderPlugin> blockProvider(final long blockNumber) {
+            return Optional.empty();
+        }
     }
 }

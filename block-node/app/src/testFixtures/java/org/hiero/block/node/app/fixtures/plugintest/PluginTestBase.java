@@ -13,6 +13,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Stream;
@@ -37,6 +39,8 @@ import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.hiero.block.node.spi.health.HealthFacility;
+import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.module.SemanticVersionUtility;
 import org.hiero.metrics.core.Metric;
@@ -80,6 +84,10 @@ public abstract class PluginTestBase<
     private HistoricalBlockFacility activeHistoricalBlockFacility;
     /** The stored-block set backing {@link #addStoredBlockRange} and {@link #updateStoredBlocks}. */
     protected final ConcurrentBlockRangeSet appStoredBlocks = new ConcurrentBlockRangeSet();
+    /** Every range a provider reported as newly available through the facility, in call order. */
+    private final List<BlockRange> reportedAvailableRanges = new CopyOnWriteArrayList<>();
+    /** Every range a provider reported as removed through the facility, in call order. */
+    private final List<BlockRange> reportedRemovedRanges = new CopyOnWriteArrayList<>();
 
     protected List<BlockRange> storedBlocks = List.of();
     protected List<BlockRange> availableBlocks = List.of();
@@ -449,7 +457,42 @@ public abstract class PluginTestBase<
     }
 
     @Override
-    public void updateAvailableBlocks() {
-        // No-op for test base; use replaceAvailableBlocks to simulate updates.
+    public void addAvailableBlockRange(final BlockProviderPlugin provider, final BlockRange blockRange) {
+        // Available blocks are read live from the active historical block facility; only record as stored.
+        appStoredBlocks.add(blockRange);
+        reportedAvailableRanges.add(blockRange);
+    }
+
+    @Override
+    public void removeAvailableBlockRange(final BlockProviderPlugin provider, final BlockRange blockRange) {
+        // Available blocks are read live from the active historical block facility; only record the call.
+        reportedRemovedRanges.add(blockRange);
+    }
+
+    /// The ranges providers have reported as available to the facility so far, in call order.
+    protected List<BlockRange> reportedAvailableRanges() {
+        return List.copyOf(reportedAvailableRanges);
+    }
+
+    /// The ranges providers have reported as removed from the facility so far, in call order.
+    protected List<BlockRange> reportedRemovedRanges() {
+        return List.copyOf(reportedRemovedRanges);
+    }
+
+    @Override
+    public List<BlockRange> availableBlocks() {
+        return availableBlockSet().streamRanges().toList();
+    }
+
+    @Override
+    public BlockRangeSet availableBlockSet() {
+        return activeHistoricalBlockFacility == null
+                ? new ConcurrentBlockRangeSet()
+                : activeHistoricalBlockFacility.availableBlocks();
+    }
+
+    @Override
+    public Optional<BlockProviderPlugin> blockProvider(final long blockNumber) {
+        return Optional.empty();
     }
 }

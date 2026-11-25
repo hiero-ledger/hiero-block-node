@@ -382,7 +382,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         //    seen right as the facility updates. Folding in stored — not just available — prevents
         //    re-backfilling blocks that have been evicted from a volatile tier (e.g. by the recent-tier
         //    retention policy) but were already stored.
-        final BlockRangeSet availableBlocks = context.historicalBlockProvider().availableBlocks();
+        final BlockRangeSet availableBlocks = context.applicationStateFacility().availableBlockSet();
         ConcurrentBlockRangeSet knownBlocks = new ConcurrentBlockRangeSet();
         knownBlocks.addAll(knownBlockRanges);
         knownBlocks.addAll(availableBlocks);
@@ -690,7 +690,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         }
 
         long lastPersistedBlock =
-                Math.max(context.historicalBlockProvider().availableBlocks().max(), knownBlockRanges.max());
+                Math.max(context.applicationStateFacility().availableBlockSet().max(), knownBlockRanges.max());
         long startBackfillFrom = Math.max(lastPersistedBlock + 1, backfillConfiguration.startBlock());
         long newestBlockKnown = notification.blockNumber();
         long cappedEnd = backfillConfiguration.endBlock() >= 0

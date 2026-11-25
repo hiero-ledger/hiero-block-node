@@ -21,6 +21,7 @@ import org.hiero.block.api.BlockRange;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.plugintest.RecordingServiceBuilder;
+import org.hiero.block.node.app.fixtures.plugintest.TestApplicationStateFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
@@ -637,7 +638,7 @@ class StateManagementCatchUpTest {
                 null,
                 facility,
                 historic,
-                null,
+                historic == null ? null : new TestApplicationStateFacility(historic),
                 null,
                 StateManagementPluginTestSupport.newThreadPoolManager(),
                 null);

@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
@@ -27,6 +28,7 @@ import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.CompressionType;
+import org.hiero.block.node.base.ranges.ConcurrentBlockRangeSet;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
@@ -210,6 +212,41 @@ class BlockFileRecentPluginTest {
                     blockFromPlugin.blockItems().toArray());
             assertEquals(blockNumber, plugin.availableBlocks().max());
             assertEquals(blockNumber, plugin.availableBlocks().min());
+        }
+
+        /**
+         * Test that a stored block is reported to the application state facility as available.
+         */
+        @Test
+        @DisplayName("Test a stored block is reported as available to the application state facility")
+        void testStoredBlockReportedToApplicationState() {
+            assertThat(reportedAvailableRanges()).isEmpty();
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
+            blockMessaging.sendBlockVerification(new VerificationNotification(
+                    true, null, block.number(), Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
+            assertThat(reportedAvailableRanges()).containsExactly(new BlockRange(0, 0));
+            assertThat(reportedRemovedRanges()).isEmpty();
+        }
+
+        /**
+         * Test that blocks removed by the retention policy are reported to the application state facility.
+         */
+        @Test
+        @DisplayName("Test retention removals are reported to the application state facility")
+        void testRetentionRemovalReportedToApplicationState() {
+            for (int i = 0; i < 150; i++) {
+                final BlockUnparsed block =
+                        TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
+                blockMessaging.sendBlockVerification(new VerificationNotification(
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+            }
+            assertThat(reportedAvailableRanges()).hasSize(150);
+            // the first 50 blocks fell out of retention; together the removals must cover exactly 0-49
+            final ConcurrentBlockRangeSet removed = new ConcurrentBlockRangeSet();
+            reportedRemovedRanges().forEach(removed::add);
+            assertThat(removed.min()).isEqualTo(0L);
+            assertThat(removed.max()).isEqualTo(49L);
+            assertThat(removed.size()).isEqualTo(50L);
         }
 
         /**

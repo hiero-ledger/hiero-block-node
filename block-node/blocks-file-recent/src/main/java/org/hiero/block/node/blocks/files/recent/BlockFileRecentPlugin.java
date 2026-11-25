@@ -32,6 +32,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.CompressionType;
@@ -191,6 +192,9 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
                 LOGGER.log(INFO, "Failed to get size of block file for block %s".formatted(blockNumber), e);
             }
         });
+        // report the blocks found on disk to the application state facility
+        availableBlocks.streamRanges().forEach(range -> context.applicationStateFacility()
+                .addAvailableBlockRange(this, range));
     }
 
     /**
@@ -331,11 +335,25 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
                     // gaps will be retried on subsequent retention runs, which are very
                     // frequent
                     final long lastBlockToDelete = firstBlockToDelete + blocksToDelete;
+                    // report each contiguous run of blocks actually removed to the application state facility
+                    // in one call, rather than once per block. Blocks whose deletion failed stay available.
+                    long runStart = -1;
                     for (long i = firstBlockToDelete; i < lastBlockToDelete; i++) {
+                        final boolean wasAvailable = availableBlocks.contains(i);
                         delete(i);
+                        if (wasAvailable && !availableBlocks.contains(i)) {
+                            if (runStart < 0) {
+                                runStart = i;
+                            }
+                        } else if (runStart >= 0) {
+                            context.applicationStateFacility()
+                                    .removeAvailableBlockRange(this, new BlockRange(runStart, i - 1));
+                            runStart = -1;
+                        }
                     }
-                    if (excess > 0) {
-                        context.applicationStateFacility().updateAvailableBlocks();
+                    if (runStart >= 0) {
+                        context.applicationStateFacility()
+                                .removeAvailableBlockRange(this, new BlockRange(runStart, lastBlockToDelete - 1));
                     }
                 }
             }
@@ -424,7 +442,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
             LOGGER.log(DEBUG, "Wrote verified block {0} to file {1}", blockNumber, verifiedBlockPath.toAbsolutePath());
             // update the oldest and newest verified block numbers
             availableBlocks.add(blockNumber);
-            context.applicationStateFacility().updateAvailableBlocks();
+            context.applicationStateFacility().addAvailableBlockRange(this, new BlockRange(blockNumber, blockNumber));
             // Increment blocks written counter
             blocksWrittenCounter.increment();
             return true;
