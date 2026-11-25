@@ -13,7 +13,9 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -30,7 +32,6 @@ import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.base.ParseHelper;
 import org.hiero.block.node.cloud.storage.download.CloudStorageDownloadPlugin.MetricsHolder;
 import org.hiero.block.node.cloud.storage.download.PersistenceAwaiter.Outcome;
-import org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
@@ -39,8 +40,8 @@ import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 
 /// The scheduled poll of the bucket: probes it for the block the bucket must hold before a pull
 /// is worth it, and pulls the missing range when it does. Only the poll thread runs the poll;
-/// the stored blocks and the roster arrive as application state notifications.
-class BucketPoller implements Runnable, ApplicationStateNotificationHandler {
+/// the plugin forwards the stored blocks and the roster from the application state notifications.
+class BucketPoller implements Runnable {
     private static final System.Logger LOGGER = System.getLogger(BucketPoller.class.getName());
 
     /// Returned by [#probeAndPull(long)] when no pull completed.
@@ -85,15 +86,17 @@ class BucketPoller implements Runnable, ApplicationStateNotificationHandler {
         this.metrics = metrics;
     }
 
-    /// {@inheritDoc}
-    @Override
-    public void handleStoredBlocksUpdate(final StoredBlocksNotification notification) {
+    /// Records the stored block ranges.
+    ///
+    /// @param notification the stored blocks notification
+    void handleStoredBlocksUpdate(final StoredBlocksNotification notification) {
         storedBlocks = notification.storedBlocks();
     }
 
-    /// {@inheritDoc}
-    @Override
-    public void handleTssDataUpdate(final TssDataNotification notification) {
+    /// Records the node IDs of the current roster.
+    ///
+    /// @param notification the TSS data notification
+    void handleTssDataUpdate(final TssDataNotification notification) {
         nodeIds = nodeIdsOf(notification.tssData());
     }
 
@@ -257,13 +260,15 @@ class BucketPoller implements Runnable, ApplicationStateNotificationHandler {
     /// Downloads one window in parallel, then submits its blocks in order and awaits each.
     private void pullWindow(
             final long windowStart, final long windowEnd, final long sourceNode, final PullProgress progress) {
-        final List<Future<BlockUnparsed>> downloads = new ArrayList<>();
+        // only the blocks not stored yet are downloaded
+        final Map<Long, Future<BlockUnparsed>> downloads = new HashMap<>();
         for (long blockNumber = windowStart; blockNumber <= windowEnd; blockNumber++) {
-            downloads.add(isStored(blockNumber) ? null : downloader.submit(new Download(blockNumber, sourceNode)));
+            if (!isStored(blockNumber)) {
+                downloads.put(blockNumber, downloader.submit(new Download(blockNumber, sourceNode)));
+            }
         }
-        for (int i = 0; i < downloads.size(); i++) {
-            final long blockNumber = windowStart + i;
-            final Future<BlockUnparsed> download = downloads.get(i);
+        for (long blockNumber = windowStart; blockNumber <= windowEnd; blockNumber++) {
+            final Future<BlockUnparsed> download = downloads.get(blockNumber);
             if (progress.endReason != null || Thread.currentThread().isInterrupted()) {
                 if (download != null) {
                     download.cancel(true);

@@ -16,15 +16,21 @@ import java.util.concurrent.TimeUnit;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler;
+import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
+import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
 
 /// A block node plugin that recovers missing blocks from the bucket the consensus nodes
-/// upload blocks to, when this block node falls behind.
-public class CloudStorageDownloadPlugin implements BlockNodePlugin {
+/// upload blocks to, when this block node falls behind. The plugin is the only registered
+/// handler and forwards the notifications to the poller and the awaiter.
+public class CloudStorageDownloadPlugin
+        implements BlockNodePlugin, BlockNotificationHandler, ApplicationStateNotificationHandler {
 
     private static final System.Logger LOGGER = System.getLogger(CloudStorageDownloadPlugin.class.getName());
 
@@ -123,12 +129,13 @@ public class CloudStorageDownloadPlugin implements BlockNodePlugin {
     public void start() {
         if (!idle) {
             awaiter = new PersistenceAwaiter();
-            context.blockMessaging().registerBlockNotificationHandler(awaiter, false, name());
             downloader = context.threadPoolManager().getVirtualThreadExecutor("CloudStorageDownloadFetch");
             metricsHolder = MetricsHolder.createMetrics(context.metricRegistry());
             poller = new BucketPoller(config, s3Client, context.blockMessaging(), awaiter, downloader, metricsHolder);
-            // register before reading the current state, so no update falls between the two
-            context.blockMessaging().registerApplicationStateNotificationHandler(poller, false, name());
+            // register once the awaiter and poller exist, since the handlers forward to them, and
+            // before reading the current state, so no update falls between the two
+            context.blockMessaging().registerBlockNotificationHandler(this, false, name());
+            context.blockMessaging().registerApplicationStateNotificationHandler(this, false, name());
             poller.handleStoredBlocksUpdate(new StoredBlocksNotification(
                     context.applicationStateFacility().storedBlocks()));
             poller.handleTssDataUpdate(
@@ -145,8 +152,8 @@ public class CloudStorageDownloadPlugin implements BlockNodePlugin {
     public void stop() {
         // nothing to stop when start did not get as far as scheduling the poll
         if (scheduler != null) {
-            context.blockMessaging().unregisterApplicationStateNotificationHandler(poller);
-            context.blockMessaging().unregisterBlockNotificationHandler(awaiter);
+            context.blockMessaging().unregisterApplicationStateNotificationHandler(this);
+            context.blockMessaging().unregisterBlockNotificationHandler(this);
             scheduler.shutdownNow();
             awaiter.releaseAll();
             downloader.shutdownNow();
@@ -161,6 +168,38 @@ public class CloudStorageDownloadPlugin implements BlockNodePlugin {
             }
             s3Client.close();
         }
+    }
+
+    /// {@inheritDoc}
+    ///
+    /// Forwards to the awaiter.
+    @Override
+    public void handlePersisted(@NonNull final PersistedNotification notification) {
+        awaiter.handlePersisted(notification);
+    }
+
+    /// {@inheritDoc}
+    ///
+    /// Forwards to the awaiter.
+    @Override
+    public void handleVerification(@NonNull final VerificationNotification notification) {
+        awaiter.handleVerification(notification);
+    }
+
+    /// {@inheritDoc}
+    ///
+    /// Forwards to the poller.
+    @Override
+    public void handleStoredBlocksUpdate(@NonNull final StoredBlocksNotification notification) {
+        poller.handleStoredBlocksUpdate(notification);
+    }
+
+    /// {@inheritDoc}
+    ///
+    /// Forwards to the poller.
+    @Override
+    public void handleTssDataUpdate(@NonNull final TssDataNotification notification) {
+        poller.handleTssDataUpdate(notification);
     }
 
     /// The poller.

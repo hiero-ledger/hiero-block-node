@@ -122,8 +122,7 @@ class VerificationServicePluginTest {
         @Test
         @DisplayName("Successful WRAPS Verification - Cloud Storage")
         void testSuccessfulWRAPSVerificationCloudStorage() throws NoSuchAlgorithmException {
-            final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed genesis =
-                    harnessChainBuilder().genesisWithPublication();
+            final HarnessChainBuilder.Signed genesis = harnessChainBuilder().genesisWithPublication();
             plugin.handleBackfilled(new BackfilledBlockNotification(
                     genesis.block().number(), genesis.block().blockUnparsed(), BlockSource.CLOUD_STORAGE));
             final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications(1);
@@ -148,11 +147,28 @@ class VerificationServicePluginTest {
         @DisplayName("Complete block notification with unsupported source is ignored")
         void testBackfilledNotificationWithUnsupportedSourceIgnored(final BlockSource source)
                 throws NoSuchAlgorithmException {
-            final org.hiero.block.node.block.verification.harness.HarnessChainBuilder.Signed genesis =
-                    harnessChainBuilder().genesisWithPublication();
+            final HarnessChainBuilder.Signed genesis = harnessChainBuilder().genesisWithPublication();
             plugin.handleBackfilled(new BackfilledBlockNotification(
                     genesis.block().number(), genesis.block().blockUnparsed(), source));
             assertThat(blockMessaging.getSentVerificationNotifications()).isEmpty();
+        }
+
+        /// This test aims to assert that a complete block notification with
+        /// source [BlockSource#PUBLISHER] is dropped: a valid block is not
+        /// verified and a block that fails validation sends no failure
+        /// notification.
+        @Test
+        @DisplayName("Complete block notification with publisher source is dropped")
+        void testBackfilledNotificationWithPublisherSourceDropped() throws NoSuchAlgorithmException {
+            final HarnessChainBuilder.Signed genesis = harnessChainBuilder().genesisWithPublication();
+            plugin.handleBackfilled(new BackfilledBlockNotification(
+                    genesis.block().number(), genesis.block().blockUnparsed(), BlockSource.PUBLISHER));
+            // the header number does not match, which would otherwise send a failure notification
+            // on this thread, so a short wait is enough
+            plugin.handleBackfilled(new BackfilledBlockNotification(
+                    genesis.block().number() + 1, genesis.block().blockUnparsed(), BlockSource.PUBLISHER));
+            assertThat(blockMessaging.getSentVerificationNotifications(1, Duration.ofMillis(200)))
+                    .isEmpty();
         }
 
         /// This test aims to assert that when the next in line WRAPS block is

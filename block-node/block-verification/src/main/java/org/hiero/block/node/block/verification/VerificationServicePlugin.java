@@ -264,17 +264,26 @@ public final class VerificationServicePlugin
     /// We will always receive a complete block, one per notification.
     /// We can safely wrap the block as [BlockItems] which is both the start
     /// and the end of the block. We then propagate the block to the session
-    /// handler.
+    /// handler. A notification with the [BlockSource#PUBLISHER] source is
+    /// dropped without any notification, since publisher blocks arrive only
+    /// on the live items ring buffer.
     ///
     /// @param notification the [BackfilledBlockNotification] received as an
     ///     event.
     @Override
     public void handleBackfilled(final BackfilledBlockNotification notification) {
-        if (notification != null
-                && notification.blockNumber() >= 0L
-                && notification.block() != null
-                && notification.block().blockItems() != null
-                && !notification.block().blockItems().isEmpty()) {
+        if (notification == null
+                || notification.blockNumber() < 0L
+                || notification.block() == null
+                || notification.block().blockItems() == null
+                || notification.block().blockItems().isEmpty()) {
+            LOGGER.log(INFO, "Received invalid backfill notification: {0}", notification);
+        } else if (notification.source() == BlockSource.PUBLISHER) {
+            LOGGER.log(
+                    WARNING,
+                    "Dropping backfilled block {0}: source PUBLISHER is only valid on the live items ring buffer",
+                    notification.blockNumber());
+        } else {
             final BlockSource source = notification.source();
             try {
                 final BlockItems blockItems =
@@ -284,8 +293,6 @@ public final class VerificationServicePlugin
                 LOGGER.log(INFO, "Failed to handle backfill notification in verification ", e);
                 safeSendNotification(notification.blockNumber(), source, SessionFailureType.UNKNOWN_ERROR);
             }
-        } else {
-            LOGGER.log(INFO, "Received invalid backfill notification: {0}", notification);
         }
     }
 

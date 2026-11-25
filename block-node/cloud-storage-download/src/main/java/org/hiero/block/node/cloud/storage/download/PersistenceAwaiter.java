@@ -9,14 +9,14 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 
 /// Waits for the fate of each block the poller submits: track the block, submit it, then await
 /// it. A block persisted from another source, for example the publisher, also ends the wait.
-class PersistenceAwaiter implements BlockNotificationHandler {
+/// The plugin forwards the block notifications to it.
+class PersistenceAwaiter {
     private static final System.Logger LOGGER = System.getLogger(PersistenceAwaiter.class.getName());
 
     /// The fate of a submitted block.
@@ -67,9 +67,10 @@ class PersistenceAwaiter implements BlockNotificationHandler {
         return outcome;
     }
 
-    /// {@inheritDoc}
-    @Override
-    public void handlePersisted(@NonNull final PersistedNotification notification) {
+    /// Ends the wait for a tracked block once it is persisted, or once our copy fails to persist.
+    ///
+    /// @param notification the persisted notification
+    void handlePersisted(@NonNull final PersistedNotification notification) {
         final Pending tracked = pending.get(notification.blockNumber());
         final boolean ours = notification.blockSource() == BlockSource.CLOUD_STORAGE;
         // a failure of another source's copy leaves ours in flight, so keep waiting
@@ -86,9 +87,10 @@ class PersistenceAwaiter implements BlockNotificationHandler {
         }
     }
 
-    /// {@inheritDoc}
-    @Override
-    public void handleVerification(@NonNull final VerificationNotification notification) {
+    /// Ends the wait for a tracked block when our copy fails verification.
+    ///
+    /// @param notification the verification notification
+    void handleVerification(@NonNull final VerificationNotification notification) {
         // success still waits for persistence; only a failure of our own copy ends the wait
         if (!notification.success() && notification.source() == BlockSource.CLOUD_STORAGE) {
             final Pending tracked = pending.get(notification.blockNumber());

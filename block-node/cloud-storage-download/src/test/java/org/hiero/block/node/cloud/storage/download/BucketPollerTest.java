@@ -66,7 +66,7 @@ class BucketPollerTest {
         // no block is in the bucket unless a test lists it
         when(s3Client.listObjectsPage(anyString(), any(), any(), anyInt()))
                 .thenReturn(new S3Client.ListPage(List.of(), null));
-        messaging.registerBlockNotificationHandler(awaiter, false, "awaiter");
+        messaging.registerBlockNotificationHandler(new AwaiterForwarder(), false, "awaiter");
         messaging.registerUnvalidatedBlockHandler(persistence, false, "persistence");
         recordingPoller = new RecordingPoller(config(10, 90_000L), s3Client, messaging, awaiter, downloader, metrics);
     }
@@ -405,6 +405,19 @@ class BucketPollerTest {
         PUBLISHER_FAILS_THEN_PERSIST,
         FAIL_VERIFICATION,
         NONE
+    }
+
+    /// Stands in for the plugin, which forwards the block notifications to the awaiter.
+    private final class AwaiterForwarder implements BlockNotificationHandler {
+        @Override
+        public void handlePersisted(final PersistedNotification notification) {
+            awaiter.handlePersisted(notification);
+        }
+
+        @Override
+        public void handleVerification(final VerificationNotification notification) {
+            awaiter.handleVerification(notification);
+        }
     }
 
     /// Stands in for verification and persistence: records each submitted block and answers it
