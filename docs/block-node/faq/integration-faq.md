@@ -194,14 +194,18 @@ which Block Node(s) to stream to. Location:
 }
 ```
 
-|            Field            | Required |                                    Description                                    |
-|-----------------------------|----------|-----------------------------------------------------------------------------------|
-| `address`                   | ✅        | Hostname or IP of the Block Node                                                  |
-| `streamingPort`             | ✅        | Port for block stream publishing (default 40840)                                  |
-| `servicePort`               | ✅        | Port for service APIs like `serverStatus` (defaults to `streamingPort`)           |
-| `priority`                  | ✅        | Lower value = higher priority; nodes with the same priority are selected randomly |
-| `messageSizeSoftLimitBytes` | ❌        | Soft limit on per-request payload size; default 2,097,152 bytes (2 MB)            |
-| `messageSizeHardLimitBytes` | ❌        | Hard limit on per-item payload size; default 131,072,000 bytes (125 MB)           |
+This example is for a Block Node on the base chart, where every gRPC API shares port `40840`.
+For a Block Node with per-service ports, such as the LFH profile, use `"streamingPort": 40984`
+and `"servicePort": 40982`.
+
+|            Field            | Required |                                                 Description                                                 |
+|-----------------------------|----------|-------------------------------------------------------------------------------------------------------------|
+| `address`                   | ✅        | Hostname or IP of the Block Node                                                                            |
+| `streamingPort`             | ✅        | The Block Node's Publish API port (default 40840; `40984` in the LFH profile)                               |
+| `servicePort`               | ❌        | The Block Node's Status API port (`serverStatus`); defaults to `streamingPort` (`40982` in the LFH profile) |
+| `priority`                  | ✅        | Lower value = higher priority; nodes with the same priority are selected randomly                           |
+| `messageSizeSoftLimitBytes` | ❌        | Soft limit on per-request payload size; default 2,097,152 bytes (2 MB)                                      |
+| `messageSizeHardLimitBytes` | ❌        | Hard limit on per-item payload size; default 131,072,000 bytes (125 MB)                                     |
 
 > See [Configure Consensus Node Streaming](../operations/consensus-node-to-block-node-configuration.md) for more details.
 

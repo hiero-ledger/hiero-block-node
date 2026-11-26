@@ -64,13 +64,24 @@ different value based on their own retention and capacity policies.
 
 ### What ports does the Block Node use, and which need to be open?
 
-|        Port         |                                   Purpose                                    |                    Direction                    |                                 Production exposure                                 |
-|---------------------|------------------------------------------------------------------------------|-------------------------------------------------|-------------------------------------------------------------------------------------|
-| **40840** (default) | gRPC - Publish, Subscribe, Status, Block Access APIs                         | Inbound from CNs, MNs, peer BNs; kubelet probes | Public (Tier 1: CNs + authorised subscribers; Tier 2: upstream BNs + subscribers)   |
-| **16007**           | Prometheus / OpenMetrics scrape                                              | Inbound from monitoring                         | Internal cluster only                                                               |
-| **5005**            | JVM remote debug (JDWP)                                                      | Inbound from debugger                           | **Must be denied in production** - enabling JDWP significantly degrades performance |
-| Outbound (dynamic)  | Backfill plugin dials peer Block Node subscribe API (destination port 40840) | Outbound to peer BNs                            | Required if backfill plugin is enabled                                              |
-| Outbound (dynamic)  | RSA Bootstrap Plugin fetches RSA address book from Mirror Node               | Outbound to Mirror Node                         | Required if roster-bootstrap-rsa plugin is enabled                                  |
+|                                Port                                |                                  Purpose                                  |                     Direction                      |                                 Production exposure                                 |
+|--------------------------------------------------------------------|---------------------------------------------------------------------------|----------------------------------------------------|-------------------------------------------------------------------------------------|
+| **Publish API** (default `40840`; `40984` in the LFH profile)      | gRPC - Consensus Nodes stream blocks                                      | Inbound from CNs                                   | Public to the Consensus Nodes that stream to this node (Tier 1)                     |
+| **Subscribe API** (default `40840`; `40980` in the LFH profile)    | gRPC - block stream subscriptions                                         | Inbound from MNs, downstream BNs, peer BN backfill | Public to authorized subscribers                                                    |
+| **Status API** (default `40840`; `40982` in the LFH profile)       | gRPC - `serverStatus`                                                     | Inbound from CNs, MNs, peer BNs                    | Public to every client of the Publish and Subscribe APIs                            |
+| **Block Access API** (default `40840`; `40981` in the LFH profile) | gRPC - `getBlock`                                                         | Inbound from clients                               | Public to authorized clients                                                        |
+| **Health** (`40983` in every profile)                              | HTTP - `/healthz/livez`, `/healthz/readyz`                                | Inbound from kubelet probes                        | Internal only - the chart adds no Service for it by default                         |
+| **16007**                                                          | Prometheus / OpenMetrics scrape                                           | Inbound from monitoring                            | Internal cluster only                                                               |
+| **5005**                                                           | JVM remote debug (JDWP)                                                   | Inbound from debugger                              | **Must be denied in production** - enabling JDWP significantly degrades performance |
+| Outbound (dynamic)                                                 | Backfill plugin dials each peer Block Node's Subscribe API and Status API | Outbound to peer BNs                               | Required if backfill plugin is enabled                                              |
+| Outbound (dynamic)                                                 | RSA Bootstrap Plugin fetches RSA address book from Mirror Node            | Outbound to Mirror Node                            | Required if roster-bootstrap-rsa plugin is enabled                                  |
+
+With the base chart, every gRPC API shares one port (`SERVER_PORT`, default `40840`). The LFH
+profile, or your own `blockNode.ports` values, gives each API its own port (see
+[How do I configure the API ports?](#how-do-i-configure-the-api-ports)). The health endpoints
+have used their own port (`HEALTH_PORT`, default `40983`) since Block Node 0.39.0, whatever the
+profile. For a peer that uses per-service ports, set `subscribePort` and `statusPort` on its entry
+in the backfill sources.
 
 The Block Node does not terminate TLS in-process; TLS is handled upstream by a Kubernetes
 Ingress or load balancer.
@@ -79,10 +90,12 @@ Ingress or load balancer.
 
 ### What are the expected inbound and outbound traffic flows?
 
-**Inbound (port 40840):**
-- Consensus Nodes push block streams (Tier 1 only - requires `stream-publisher` plugin)
-- Mirror Nodes and downstream Block Nodes subscribe to block streams
-- All clients call `serverStatus` to discover available block ranges
+**Inbound (gRPC API ports - `40840` with the base chart, or the per-service ports above):**
+- Consensus Nodes push block streams to the Publish API (Tier 1 only - requires `stream-publisher` plugin)
+- Mirror Nodes and downstream Block Nodes subscribe to block streams through the Subscribe API
+- All clients call `serverStatus` on the Status API to discover available block ranges
+
+**Inbound (health port `40983`):**
 - Kubernetes kubelet issues HTTP GET liveness and readiness probes
 
 **Inbound (port 16007):**
@@ -281,20 +294,29 @@ the `blocknode_` prefix. Metric categories include:
 
 Three methods:
 
-1. **HTTP health probes:**
+1. **HTTP health probes** on the health port (`40983`, not a gRPC API port):
 
    ```
-   GET http://<host>:40840/healthz/livez   → 200 OK (running) / 503 (not running)
-   GET http://<host>:40840/healthz/readyz  → 200 OK (ready)  / 503 (not ready)
+   GET http://<host>:40983/healthz/livez   → 200 OK (running) / 503 (not running)
+   GET http://<host>:40983/healthz/readyz  → 200 OK (ready)  / 503 (not ready)
    ```
-2. **Block range via gRPC:**
+
+   The chart adds no Service for the health port by default, so run these from inside the
+   cluster or through `kubectl port-forward -n <namespace> pod/<pod-name> 40983:40983`.
+
+2. **Block range via gRPC** on the Status API port (`40840` with the base chart; `40982` in the
+   LFH profile):
 
    ```bash
-   grpcurl -plaintext -d '{}' <host>:40840 \
+   grpcurl -plaintext -import-path ~/bn-proto -proto block-node/api/node_service.proto \
+     -d '{}' <host>:<status-api-port> \
      org.hiero.block.api.BlockNodeService/serverStatus
    ```
 
-   Check that `lastAvailableBlock` is advancing.
+   The Block Node does not expose gRPC server reflection, so `grpcurl` needs the Block Node
+   protos (`~/bn-proto` here). See
+   [Download the proto bundle](../api-quickstart.md#download-the-proto-bundle). Check that
+   `lastAvailableBlock` is advancing.
 
 3. **Metrics:**
 
@@ -310,11 +332,12 @@ Three methods:
 
 |   Probe   |             Default URL              | HTTP method |
 |-----------|--------------------------------------|-------------|
-| Liveness  | `http://<host>:40840/healthz/livez`  | GET         |
-| Readiness | `http://<host>:40840/healthz/readyz` | GET         |
+| Liveness  | `http://<host>:40983/healthz/livez`  | GET         |
+| Readiness | `http://<host>:40983/healthz/readyz` | GET         |
 
 Both paths are configurable via `blockNode.health.liveness.endpoint` and
-`blockNode.health.readiness.endpoint` in Helm values.
+`blockNode.health.readiness.endpoint` in Helm values. The port is `blockNode.ports.health`
+(`HEALTH_PORT`, default `40983`), and the chart points both probes at it.
 
 > See [Configuration Reference](../configuration.md) for full details.
 
