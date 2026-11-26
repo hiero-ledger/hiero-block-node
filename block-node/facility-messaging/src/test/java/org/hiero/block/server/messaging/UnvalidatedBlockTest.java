@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import com.hedera.pbj.runtime.OneOf;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -243,7 +244,9 @@ class UnvalidatedBlockTest {
         /**
          * This test aims to assert that unregistering a handler that holds the ring full releases the waiting sender,
          * even though the handler still holds on to its block, that the remaining handler still receives every block,
-         * and that the unregistered handler receives none of the blocks sent after it was unregistered.
+         * and that the unregistered handler receives nothing after the batch it had already taken. Once released, that
+         * handler may still finish the batch, at most a ring's worth of slots whose content can already be newer, since
+         * nothing holds them for it any more; then its thread must stop instead of taking another batch.
          */
         @Test
         @DisplayName("Unregistering the handler that holds the ring releases the sender")
@@ -264,9 +267,13 @@ class UnvalidatedBlockTest {
             assertFalse(sender.isAlive(), "Sender is still waiting after the holding handler was unregistered");
             assertTrue(recording.awaitAll(), "Remaining handler is missing blocks: " + recording.received.size());
             assertEquals(blockNumbers(0, blockCount), recording.received);
-            for (final long blockNumber : holding.received) {
-                assertTrue(blockNumber < queueSize, "Unregistered handler received block " + blockNumber);
-            }
+            holding.release();
+            assertTrue(
+                    holding.holdingThread.join(Duration.ofSeconds(AWAIT_TIMEOUT_SECONDS)),
+                    "Thread of the unregistered handler did not stop");
+            assertTrue(
+                    holding.received.size() <= queueSize,
+                    "Unregistered handler went on after its batch, it received " + holding.received.size());
         }
 
         /**
@@ -624,11 +631,14 @@ class UnvalidatedBlockTest {
         private final List<Long> received = new CopyOnWriteArrayList<>();
         /** The block numbers of the persisted notifications received */
         private final List<Long> persisted = new CopyOnWriteArrayList<>();
+        /** The thread the handler held its first block on */
+        private volatile Thread holdingThread;
 
         @Override
         public void handleBackfilled(final BackfilledBlockNotification notification) {
             received.add(notification.blockNumber());
             if (holding.getCount() > 0) {
+                holdingThread = Thread.currentThread();
                 holding.countDown();
                 holdUntilReleased();
             }

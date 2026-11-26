@@ -15,6 +15,8 @@ blockNode:
         MESSAGING_BLOCK_NOTIFICATION_QUEUE_SIZE: "256"
         # Room for a full backfill batch from each of the two backfill schedulers.
         MESSAGING_UNVALIDATED_BLOCK_QUEUE_SIZE: "256"
+        # Same room for verification results as the block notification queue had while it carried them.
+        MESSAGING_VERIFIED_BLOCK_QUEUE_SIZE: "256"
         MESSAGING_BLOCK_ITEM_QUEUE_SIZE: "256"
         BACKFILL_SCAN_INTERVAL: "10_000"
         BACKFILL_DELAY_BETWEEN_BATCHES: "2_000"

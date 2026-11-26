@@ -66,7 +66,9 @@ public interface BlockMessagingFacility extends BlockNodePlugin {
     void unregisterBlockItemHandler(final BlockItemHandler handler);
 
     /**
-     * Use this method to send block verification notifications to all registered handlers.
+     * Use this method to send block verification notifications to all handlers registered with
+     * {@link #registerVerifiedBlockHandler}. If those handlers are too slow, it will apply back pressure to this
+     * caller, by this call taking a long time to return. Several threads may call this method at the same time.
      *
      * @param notification the block verification notification to send
      */
@@ -118,7 +120,8 @@ public interface BlockMessagingFacility extends BlockNodePlugin {
      * notifications arrive. The calls will be on its own thread, every handler registered has its own thread. It can
      * consume block notifications at its own pace, if it is too slow then it will apply back pressure to block
      * notification producer. It is too slow by taking too long in the handleBlockNotificationReceived method. If
-     * handleBlockNotificationReceived is non-blocking, then it will not apply back pressure.
+     * handleBlockNotificationReceived is non-blocking, then it will not apply back pressure. The block verification
+     * notifications are not included: they only reach handlers registered with {@link #registerVerifiedBlockHandler}.
      *
      * @param handler             the block notification handler to register
      * @param cpuIntensiveHandler hint to the service that this handler is CPU intensive vs IO intensive
@@ -159,6 +162,31 @@ public interface BlockMessagingFacility extends BlockNodePlugin {
      * @param handler the unvalidated block handler to unregister
      */
     void unregisterUnvalidatedBlockHandler(BlockNotificationHandler handler);
+
+    /**
+     * Use this method to register a verified block handler. Verified blocks are the results of block verification, sent
+     * with {@link #sendBlockVerification}; a successful result carries the whole block. The
+     * {@link BlockNotificationHandler#handleVerification} method of the handler will be called for every one of them,
+     * on its own thread. It can consume verified blocks at its own pace, if it is too slow then it will apply back
+     * pressure to the senders of verified blocks, never to the senders of block notifications. Only handlers
+     * registered this way receive verified blocks, and a handler registered only this way receives no other block
+     * notifications.
+     *
+     * @param handler             the verified block handler to register
+     * @param cpuIntensiveHandler hint to the service that this handler is CPU intensive vs IO intensive
+     * @param handlerName         the name of the handler, used for thread name and logging
+     */
+    void registerVerifiedBlockHandler(
+            BlockNotificationHandler handler, boolean cpuIntensiveHandler, String handlerName);
+
+    /**
+     * Use this method to dynamically unregister a verified block handler. The handler will no longer be called when
+     * new verified blocks arrive. You only need to unregister handlers if they need to be unregistered before the
+     * service is shutdown. Shutting down the service will unregister all handlers.
+     *
+     * @param handler the verified block handler to unregister
+     */
+    void unregisterVerifiedBlockHandler(BlockNotificationHandler handler);
 
     /**
      * Use this method to send a TSS data update notification to all registered application notification handlers.
