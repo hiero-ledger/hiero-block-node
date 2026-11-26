@@ -126,6 +126,28 @@ class BackfillPluginHelperTest {
         }
 
         @Test
+        @DisplayName("Persisted and verification notifications from cloud storage are ignored")
+        void cloudStorageNotificationsIgnored() {
+            // Not initialized, so the metrics holder is null: touching any backfill counter
+            // or re-queuing a gap would throw.
+            final BackfillPlugin plugin = new BackfillPlugin();
+            final PersistedNotification persistedOk =
+                    new PersistedNotification(100L, true, 10, BlockSource.CLOUD_STORAGE);
+            final PersistedNotification persistedFailed =
+                    new PersistedNotification(101L, false, 10, BlockSource.CLOUD_STORAGE);
+            final VerificationNotification verificationFailed = new VerificationNotification(
+                    false,
+                    VerificationNotification.FailureInfo.standard(VerificationNotification.FailureType.BAD_BLOCK_PROOF),
+                    102L,
+                    null,
+                    null,
+                    BlockSource.CLOUD_STORAGE);
+            assertDoesNotThrow(() -> plugin.handlePersisted(persistedOk));
+            assertDoesNotThrow(() -> plugin.handlePersisted(persistedFailed));
+            assertDoesNotThrow(() -> plugin.handleVerification(verificationFailed));
+        }
+
+        @Test
         @DisplayName("handleNewestBlockKnownToNetwork handles missing sources gracefully")
         void handleNewestBlockHandlesMissingSourcesGracefully() {
             final BackfillPlugin plugin = new BackfillPlugin();

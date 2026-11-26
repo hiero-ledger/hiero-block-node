@@ -68,7 +68,7 @@ public final class OrderingRules {
     public static boolean requiresOrdering(final VerificationConfig verificationConfig, final BlockSource source) {
         return switch (source) {
             case PUBLISHER -> true;
-            case BACKFILL, HISTORY, UNKNOWN -> verificationConfig.allSourcesRequireOrdering();
+            case BACKFILL, CLOUD_STORAGE, HISTORY, UNKNOWN -> verificationConfig.allSourcesRequireOrdering();
         };
     }
 

@@ -269,33 +269,39 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
 
     /// {@inheritDoc}
     /// ---
-    /// This is where we receive blocks from backfill.
+    /// This is where we receive blocks from backfill and from cloud storage.
     /// We will always receive a complete block, one per notification.
     /// We can safely wrap the block as [BlockItems] which is both the start
     /// and the end of the block. We then propagate the block to the session
-    /// handler.
+    /// handler. A notification with the [BlockSource#PUBLISHER] source is
+    /// dropped without any notification, since publisher blocks arrive only
+    /// on the live items ring buffer.
     ///
     /// @param notification the [BackfilledBlockNotification] received as an
     ///     event.
     @Override
     public void handleBackfilled(final BackfilledBlockNotification notification) {
-        final BlockSource source = BlockSource.BACKFILL;
-        try {
-            if (notification != null
-                    && notification.blockNumber() >= 0L
-                    && notification.block() != null
-                    && notification.block().blockItems() != null
-                    && !notification.block().blockItems().isEmpty()) {
+        if (notification == null
+                || notification.blockNumber() < 0L
+                || notification.block() == null
+                || notification.block().blockItems() == null
+                || notification.block().blockItems().isEmpty()) {
+            LOGGER.log(INFO, "Received invalid backfill notification: {0}", notification);
+        } else if (notification.source() == BlockSource.PUBLISHER) {
+            LOGGER.log(
+                    WARNING,
+                    "Dropping backfilled block {0}: source PUBLISHER is only valid on the live items ring buffer",
+                    notification.blockNumber());
+        } else {
+            final BlockSource source = notification.source();
+            try {
                 final BlockItems blockItems =
                         new BlockItems(notification.block().blockItems(), notification.blockNumber(), true, true);
                 validateAndProcess(blockItems, source);
-            } else {
-                LOGGER.log(INFO, "Received invalid backfill notification: {0}", notification);
+            } catch (final RuntimeException e) {
+                LOGGER.log(INFO, "Failed to handle backfill notification in verification ", e);
+                safeSendNotification(notification.blockNumber(), source, SessionFailureType.UNKNOWN_ERROR);
             }
-        } catch (final RuntimeException e) {
-            LOGGER.log(INFO, "Failed to handle backfill notification in verification ", e);
-            final long blockNumber = notification != null ? notification.blockNumber() : -1L;
-            safeSendNotification(blockNumber, source, SessionFailureType.UNKNOWN_ERROR);
         }
     }
 
