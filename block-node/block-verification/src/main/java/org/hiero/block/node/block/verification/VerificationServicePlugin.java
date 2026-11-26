@@ -51,8 +51,7 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureI
 ///
 /// This plugin is effectively the implementation of the verification component
 /// design as specified in the design documentation.
-public final class VerificationServicePlugin
-        implements BlockNodePlugin, BlockItemHandler, BlockNotificationHandler, ApplicationStateNotificationHandler {
+public final class VerificationServicePlugin implements BlockNodePlugin, BlockItemHandler, BlockNotificationHandler {
     /// Logger for the plugin.
     private static final System.Logger LOGGER = System.getLogger(VerificationServicePlugin.class.getName());
     /// The value a block header must declare for the block to be admitted: `SHA2_256`, the
@@ -84,6 +83,12 @@ public final class VerificationServicePlugin
     private VerificationOutbox outbox;
     /// Dumps failing block bytes to disk for diagnostics.
     private BadBlockDumper badBlockDumper;
+    /// Receives application-state notifications for this plugin. A separate object, because a handler's
+    /// `isGating()` decides every registration it is used for: if this plugin implemented
+    /// [ApplicationStateNotificationHandler], whose default is non-gating, its block item and block notification
+    /// registrations would lose back pressure too, and the publisher could overwrite ring slots verification has
+    /// not read yet.
+    private final ApplicationStateNotificationHandler applicationStateHandler = new VerificationAsfHandler(this);
 
     /// Constructor.
     public VerificationServicePlugin() {
@@ -122,7 +127,7 @@ public final class VerificationServicePlugin
                 badBlockDumper,
                 activeSessions,
                 outbox);
-        context.blockMessaging().registerApplicationStateNotificationHandler(this, false, name());
+        context.blockMessaging().registerApplicationStateNotificationHandler(applicationStateHandler, false, name());
     }
 
     /// Uncaught exception handler method handle for verification pool.
@@ -179,13 +184,15 @@ public final class VerificationServicePlugin
         context.blockMessaging().unregisterBlockItemHandler(this);
         context.blockMessaging().unregisterUnvalidatedBlockHandler(this);
         context.blockMessaging().unregisterBlockNotificationHandler(this);
-        context.blockMessaging().unregisterApplicationStateNotificationHandler(this);
+        context.blockMessaging().unregisterApplicationStateNotificationHandler(applicationStateHandler);
         // immediately shutdown the executor
         executor.shutdownNow();
         badBlockDumper.stop();
     }
 
-    @Override
+    /// Take the TSS data from an application-state update.
+    ///
+    /// @param notification the TSS data update
     public void handleTssDataUpdate(final TssDataNotification notification) {
         try {
             verificationDataProvider.safeUpdateTssData(notification.tssData(), false);
@@ -194,7 +201,9 @@ public final class VerificationServicePlugin
         }
     }
 
-    @Override
+    /// Take the stored block range from an application-state update.
+    ///
+    /// @param notification the stored blocks update
     public void handleStoredBlocksUpdate(final StoredBlocksNotification notification) {
         try {
             updateLastVerifiedBlock(notification.storedBlocks());
@@ -398,6 +407,24 @@ public final class VerificationServicePlugin
             return InetAddress.getLocalHost().getHostName();
         } catch (final UnknownHostException e) {
             return "unknown";
+        }
+    }
+
+    private class VerificationAsfHandler implements ApplicationStateNotificationHandler {
+        private final VerificationServicePlugin owner;
+
+        private VerificationAsfHandler(VerificationServicePlugin owner) {
+            this.owner = owner;
+        }
+
+        @Override
+        public void handleTssDataUpdate(final TssDataNotification notification) {
+            owner.handleTssDataUpdate(notification);
+        }
+
+        @Override
+        public void handleStoredBlocksUpdate(final StoredBlocksNotification notification) {
+            owner.handleStoredBlocksUpdate(notification);
         }
     }
 }
