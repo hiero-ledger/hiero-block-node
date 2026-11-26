@@ -8,16 +8,16 @@ downstream clients via gRPC streaming APIs.
 
 ## Configuration
 
-Refer to the [Configuration](../docs/block-node/configuration.md) for configuration options.
+Refer to the [Configuration](../docs/block-node/configure/configuration.md) for configuration options.
 
 ## Quickstart
 
-Refer to the [Docker Compose Quickstart](../docs/block-node/docker-compose-quickstart.md) for a
+Refer to the [Docker Compose Quickstart](../docs/block-node/overview/docker-compose-quickstart.md) for a
 quick guide on how to run the application locally.
 
 ## Metrics
 
-Refer to the [Metrics](../docs/block-node/metrics.md) for metrics available in the system.
+Refer to the [Metrics](../docs/block-node/operate/metrics.md) for metrics available in the system.
 
 ## Design
 

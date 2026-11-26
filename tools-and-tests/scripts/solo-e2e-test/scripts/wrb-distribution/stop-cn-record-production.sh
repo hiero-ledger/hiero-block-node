@@ -8,7 +8,7 @@
 # record-stream file writer entirely and leaves only the native gRPC block
 # stream. This sets blockStream.writerMode=GRPC (was FILE_AND_GRPC) on all 3
 # CNs' application.properties and restarts them — per
-# docs/block-node/operations/consensus-node-to-block-node-configuration.md,
+# docs/block-node/connect/consensus-node-to-block-node-configuration.md,
 # writerMode cannot be hot-reloaded, so a restart is required for the change
 # to take effect.
 #
