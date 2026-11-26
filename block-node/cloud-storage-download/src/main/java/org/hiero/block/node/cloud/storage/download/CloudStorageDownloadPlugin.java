@@ -16,6 +16,7 @@ import java.util.concurrent.TimeUnit;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.blockmessaging.AddressBookHistoryNotification;
 import org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
@@ -23,23 +24,31 @@ import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.metrics.LongCounter;
+import org.hiero.metrics.LongGauge;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
 
 /// A block node plugin that recovers missing blocks from the bucket the consensus nodes
-/// upload blocks to, when this block node falls behind. The plugin is the only registered
-/// handler and forwards the notifications to the poller and the awaiter.
-public class CloudStorageDownloadPlugin
-        implements BlockNodePlugin, BlockNotificationHandler, ApplicationStateNotificationHandler {
+/// upload blocks to, when this block node falls behind. The plugin handles the block
+/// notifications and forwards them to the awaiter; a separate handler forwards the application
+/// state notifications to the poller.
+public class CloudStorageDownloadPlugin implements BlockNodePlugin, BlockNotificationHandler {
 
     private static final System.Logger LOGGER = System.getLogger(CloudStorageDownloadPlugin.class.getName());
 
     /// How long stop waits for each thread pool to end before it closes the bucket client.
     private static final long STOP_WAIT_SECONDS = 5L;
 
+    /// The download deadline, in request timeouts.
+    private static final long DOWNLOAD_DEADLINE_REQUEST_TIMEOUTS = 3L;
+
     /// Blocks of a pull range, by the outcome in the `result` label.
     private static final MetricKey<LongCounter> METRIC_BLOCKS =
             MetricKey.of("cloud_download_blocks", LongCounter.class).addCategory(METRICS_CATEGORY);
+
+    /// Probes and downloads that failed with a storage fault.
+    private static final MetricKey<LongCounter> METRIC_REQUEST_FAILURES =
+            MetricKey.of("cloud_download_request_failures", LongCounter.class).addCategory(METRICS_CATEGORY);
 
     /// Label naming the outcome of a block.
     private static final String LABEL_RESULT = "result";
@@ -49,6 +58,36 @@ public class CloudStorageDownloadPlugin
 
     /// Outcome of a block another source stored first.
     private static final String RESULT_ALREADY_STORED = "already_stored";
+
+    /// Outcome of a block no node folder had the object of.
+    private static final String RESULT_NOT_PRESENT = "not_present";
+
+    /// Outcome of a block present in the bucket with no usable copy.
+    private static final String RESULT_DOWNLOAD_FAILED = "download_failed";
+
+    /// Outcome of a block whose copies failed verification and that has no other copy.
+    private static final String RESULT_VERIFICATION_FAILED = "verification_failed";
+
+    /// Outcome of a block not persisted in time.
+    private static final String RESULT_PERSIST_TIMEOUT = "persist_timeout";
+
+    /// Downloaded copies that were unusable or failed verification.
+    private static final MetricKey<LongCounter> METRIC_COPIES_REJECTED =
+            MetricKey.of("cloud_download_copies_rejected", LongCounter.class).addCategory(METRICS_CATEGORY);
+
+    /// Block copies read in full, usable or not.
+    private static final MetricKey<LongCounter> METRIC_COPIES_DOWNLOADED =
+            MetricKey.of("cloud_download_copies_downloaded", LongCounter.class).addCategory(METRICS_CATEGORY);
+
+    /// Total time spent reading the downloaded copies, in nanoseconds.
+    private static final MetricKey<LongCounter> METRIC_COPY_LATENCY_NS =
+            MetricKey.of("cloud_download_copy_latency_ns", LongCounter.class).addCategory(METRICS_CATEGORY);
+
+    /// Time from the consensus timestamp of the last probe block persisted during a pull, by the
+    /// pull or by another source, to its persistence.
+    private static final MetricKey<LongGauge> METRIC_PROBE_BLOCK_LATENCY_MS = MetricKey.of(
+                    "cloud_download_probe_block_latency_ms", LongGauge.class)
+            .addCategory(METRICS_CATEGORY);
 
     /// Prefix of every setting of this plugin, for error messages.
     private static final String PROPERTY_PREFIX = "cloud.storage.download.";
@@ -80,6 +119,12 @@ public class CloudStorageDownloadPlugin
 
     /// The plugin's counters; `null` until the plugin has started.
     private MetricsHolder metricsHolder;
+
+    /// Receives the application state notifications. A separate object, because a handler's
+    /// `isGating()` decides every registration it is used for: if this plugin implemented
+    /// [ApplicationStateNotificationHandler], whose default is non-gating, that default would
+    /// also decide its block notification registration.
+    private final ApplicationStateNotificationHandler applicationStateHandler = new DownloadAsfHandler(this);
 
     /// No-arg constructor used by the Java {@link java.util.ServiceLoader}.
     public CloudStorageDownloadPlugin() {}
@@ -131,13 +176,20 @@ public class CloudStorageDownloadPlugin
             awaiter = new PersistenceAwaiter();
             downloader = context.threadPoolManager().getVirtualThreadExecutor("CloudStorageDownloadFetch");
             metricsHolder = MetricsHolder.createMetrics(context.metricRegistry());
-            poller = new BucketPoller(config, s3Client, context.blockMessaging(), awaiter, downloader, metricsHolder);
+            // the request timeout covers only the response headers, so the body read needs a bound
+            // of its own
+            final long downloadDeadlineMs = DOWNLOAD_DEADLINE_REQUEST_TIMEOUTS * config.requestTimeoutMs();
+            poller = new BucketPoller(
+                    config, s3Client, context.blockMessaging(), awaiter, downloader, metricsHolder, downloadDeadlineMs);
             // register once the awaiter and poller exist, since the handlers forward to them, and
             // before reading the current state, so no update falls between the two
             context.blockMessaging().registerBlockNotificationHandler(this, false, name());
-            context.blockMessaging().registerApplicationStateNotificationHandler(this, false, name());
+            context.blockMessaging()
+                    .registerApplicationStateNotificationHandler(applicationStateHandler, false, name());
             poller.handleStoredBlocksUpdate(new StoredBlocksNotification(
                     context.applicationStateFacility().storedBlocks()));
+            poller.handleAddressBookHistoryUpdate(new AddressBookHistoryNotification(
+                    context.applicationStateFacility().rangedAddressBookHistory()));
             poller.handleTssDataUpdate(
                     new TssDataNotification(context.applicationStateFacility().tssData()));
             scheduler = context.threadPoolManager()
@@ -152,7 +204,7 @@ public class CloudStorageDownloadPlugin
     public void stop() {
         // nothing to stop when start did not get as far as scheduling the poll
         if (scheduler != null) {
-            context.blockMessaging().unregisterApplicationStateNotificationHandler(this);
+            context.blockMessaging().unregisterApplicationStateNotificationHandler(applicationStateHandler);
             context.blockMessaging().unregisterBlockNotificationHandler(this);
             scheduler.shutdownNow();
             awaiter.releaseAll();
@@ -184,22 +236,6 @@ public class CloudStorageDownloadPlugin
     @Override
     public void handleVerification(@NonNull final VerificationNotification notification) {
         awaiter.handleVerification(notification);
-    }
-
-    /// {@inheritDoc}
-    ///
-    /// Forwards to the poller.
-    @Override
-    public void handleStoredBlocksUpdate(@NonNull final StoredBlocksNotification notification) {
-        poller.handleStoredBlocksUpdate(notification);
-    }
-
-    /// {@inheritDoc}
-    ///
-    /// Forwards to the poller.
-    @Override
-    public void handleTssDataUpdate(@NonNull final TssDataNotification notification) {
-        poller.handleTssDataUpdate(notification);
     }
 
     /// The poller.
@@ -255,15 +291,43 @@ public class CloudStorageDownloadPlugin
         return client;
     }
 
-    // TODO(#4080) add the not_present, download_failed, verification_failed and persist_timeout
-    //  results, the copy counters and the latency metrics
     /// Holds the measurements reported by this plugin.
     ///
     /// @param blocksPulled `cloud_download_blocks{result="persisted"}`: blocks persisted from
     ///     their bucket copy
     /// @param blocksAlreadyStored `cloud_download_blocks{result="already_stored"}`: blocks of a
     ///     pull range another source stored first
-    record MetricsHolder(LongCounter.Measurement blocksPulled, LongCounter.Measurement blocksAlreadyStored) {
+    /// @param blocksNotPresent `cloud_download_blocks{result="not_present"}`: blocks no node
+    ///     folder had the object of
+    /// @param blocksDownloadFailed `cloud_download_blocks{result="download_failed"}`: blocks
+    ///     present in the bucket with no usable copy in any node folder
+    /// @param blocksVerificationFailed `cloud_download_blocks{result="verification_failed"}`:
+    ///     blocks whose copies failed verification with no other copy to try
+    /// @param blocksPersistTimeout `cloud_download_blocks{result="persist_timeout"}`: blocks not
+    ///     persisted within the wait timeout
+    /// @param copiesRejected `cloud_download_copies_rejected`: downloaded copies that could not
+    ///     be decompressed or parsed, were not the block asked for, or failed verification
+    /// @param requestFailures `cloud_download_request_failures`: probes and downloads that failed
+    ///     with a storage fault, an error response or a download that did not finish in time
+    /// @param copiesDownloaded `cloud_download_copies_downloaded`: block copies read in full,
+    ///     usable or not
+    /// @param copyLatencyNs `cloud_download_copy_latency_ns`: total time spent reading those
+    ///     copies, in nanoseconds
+    /// @param probeBlockLatencyMs `cloud_download_probe_block_latency_ms`: for the last probe
+    ///     block a pull submitted and saw persisted, the time from its consensus timestamp to its
+    ///     persistence, in milliseconds
+    record MetricsHolder(
+            LongCounter.Measurement blocksPulled,
+            LongCounter.Measurement blocksAlreadyStored,
+            LongCounter.Measurement blocksNotPresent,
+            LongCounter.Measurement blocksDownloadFailed,
+            LongCounter.Measurement blocksVerificationFailed,
+            LongCounter.Measurement blocksPersistTimeout,
+            LongCounter.Measurement copiesRejected,
+            LongCounter.Measurement requestFailures,
+            LongCounter.Measurement copiesDownloaded,
+            LongCounter.Measurement copyLatencyNs,
+            LongGauge.Measurement probeBlockLatencyMs) {
 
         /// Registers the counters with the given registry.
         ///
@@ -271,11 +335,69 @@ public class CloudStorageDownloadPlugin
         /// @return a new `MetricsHolder` with the counters registered
         static MetricsHolder createMetrics(@NonNull final MetricRegistry metricRegistry) {
             final LongCounter blocks = metricRegistry.register(LongCounter.builder(METRIC_BLOCKS)
-                    .setDescription("Blocks of a pull range by result (persisted|already_stored)")
+                    .setDescription("Blocks of a pull range by result (persisted|already_stored|not_present"
+                            + "|download_failed|verification_failed|persist_timeout)")
                     .addDynamicLabelNames(LABEL_RESULT));
             return new MetricsHolder(
                     blocks.getOrCreateLabeled(LABEL_RESULT, RESULT_PERSISTED),
-                    blocks.getOrCreateLabeled(LABEL_RESULT, RESULT_ALREADY_STORED));
+                    blocks.getOrCreateLabeled(LABEL_RESULT, RESULT_ALREADY_STORED),
+                    blocks.getOrCreateLabeled(LABEL_RESULT, RESULT_NOT_PRESENT),
+                    blocks.getOrCreateLabeled(LABEL_RESULT, RESULT_DOWNLOAD_FAILED),
+                    blocks.getOrCreateLabeled(LABEL_RESULT, RESULT_VERIFICATION_FAILED),
+                    blocks.getOrCreateLabeled(LABEL_RESULT, RESULT_PERSIST_TIMEOUT),
+                    metricRegistry
+                            .register(LongCounter.builder(METRIC_COPIES_REJECTED)
+                                    .setDescription(
+                                            "Downloaded block copies that were unusable or failed verification"))
+                            .getOrCreateNotLabeled(),
+                    metricRegistry
+                            .register(LongCounter.builder(METRIC_REQUEST_FAILURES)
+                                    .setDescription("Bucket probes and downloads that failed with a storage fault"))
+                            .getOrCreateNotLabeled(),
+                    metricRegistry
+                            .register(LongCounter.builder(METRIC_COPIES_DOWNLOADED)
+                                    .setDescription("Block copies read in full from the bucket, usable or not"))
+                            .getOrCreateNotLabeled(),
+                    metricRegistry
+                            .register(LongCounter.builder(METRIC_COPY_LATENCY_NS)
+                                    .setDescription("Total time spent reading block copies from the bucket, in ns"))
+                            .getOrCreateNotLabeled(),
+                    metricRegistry
+                            .register(LongGauge.builder(METRIC_PROBE_BLOCK_LATENCY_MS)
+                                    .setDescription("Time from the consensus timestamp of the last probe block"
+                                            + " persisted during a pull to its persistence, in ms"))
+                            .getOrCreateNotLabeled());
+        }
+    }
+
+    /// Forwards the application state notifications to the poller.
+    private static final class DownloadAsfHandler implements ApplicationStateNotificationHandler {
+        /// The plugin whose poller receives the notifications.
+        private final CloudStorageDownloadPlugin owner;
+
+        /// Creates a handler for the given plugin.
+        ///
+        /// @param owner the plugin whose poller receives the notifications
+        private DownloadAsfHandler(final CloudStorageDownloadPlugin owner) {
+            this.owner = owner;
+        }
+
+        /// {@inheritDoc}
+        @Override
+        public void handleStoredBlocksUpdate(@NonNull final StoredBlocksNotification notification) {
+            owner.poller.handleStoredBlocksUpdate(notification);
+        }
+
+        /// {@inheritDoc}
+        @Override
+        public void handleTssDataUpdate(@NonNull final TssDataNotification notification) {
+            owner.poller.handleTssDataUpdate(notification);
+        }
+
+        /// {@inheritDoc}
+        @Override
+        public void handleAddressBookHistoryUpdate(@NonNull final AddressBookHistoryNotification notification) {
+            owner.poller.handleAddressBookHistoryUpdate(notification);
         }
     }
 

@@ -7,6 +7,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.hedera.bucky.S3Client;
+import com.hedera.hapi.node.base.NodeAddress;
+import com.hedera.hapi.node.base.NodeAddressBook;
 import com.swirlds.config.api.validation.ConfigViolationException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -23,6 +25,7 @@ import org.hiero.block.api.TssRoster;
 import org.hiero.block.node.app.fixtures.logging.TestLogHandler;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -122,6 +125,18 @@ class CloudStorageDownloadPluginTest
         verifyNoInteractions(s3Client);
     }
 
+    /// A handler's `isGating()` decides every registration it is used for. The block
+    /// notification registration must keep back pressure, so application state updates, which
+    /// are non-gating, must reach the plugin through a separate handler.
+    @Test
+    @DisplayName("Block notifications apply back pressure, application state is a separate handler")
+    void blockNotificationRegistrationAppliesBackPressure() {
+        start(new CloudStorageDownloadPlugin(s3Client), new SimpleInMemoryHistoricalBlockFacility(), validConfig());
+        assertThat(plugin.isGating()).isTrue();
+        assertThat(plugin).isNotInstanceOf(ApplicationStateNotificationHandler.class);
+        assertThat(blockMessaging.getApplicationStateNotificationHandlerCount()).isEqualTo(1);
+    }
+
     @Test
     @DisplayName("Without a test client, init creates the client from the settings without a request")
     void validConfigurationCreatesClient() {
@@ -156,6 +171,35 @@ class CloudStorageDownloadPluginTest
         assertThat(plugin.poller().nodeIds()).containsExactly(3L);
         updateTssData(tssData(3L, 4L));
         assertThat(plugin.poller().nodeIds()).containsExactly(3L, 4L);
+    }
+
+    /// An open-ended address book holding the given node IDs.
+    private static NodeAddressBook addressBook(final long... nodeIds) {
+        final List<NodeAddress> addresses = new ArrayList<>();
+        for (final long nodeId : nodeIds) {
+            addresses.add(NodeAddress.newBuilder().nodeId(nodeId).build());
+        }
+        return NodeAddressBook.newBuilder().nodeAddress(addresses).build();
+    }
+
+    @Test
+    @DisplayName("Without TSS data the address book known at start makes its nodes' folders eligible")
+    void addressBookAtStart() {
+        updateAddressBook(addressBook(3L, 4L, 5L));
+        start(new CloudStorageDownloadPlugin(s3Client), new SimpleInMemoryHistoricalBlockFacility(), validConfig());
+        assertThat(plugin.poller().nodeIds()).containsExactly(3L, 4L, 5L);
+    }
+
+    @Test
+    @DisplayName("An address book update that adds a node makes its folder eligible; a later TSS roster wins")
+    void addressBookUpdateAddsNodeUntilRoster() {
+        start(new CloudStorageDownloadPlugin(s3Client), new SimpleInMemoryHistoricalBlockFacility(), validConfig());
+        updateAddressBook(addressBook(3L, 4L));
+        assertThat(plugin.poller().nodeIds()).containsExactly(3L, 4L);
+        updateAddressBook(addressBook(3L, 4L, 5L));
+        assertThat(plugin.poller().nodeIds()).containsExactly(3L, 4L, 5L);
+        updateTssData(tssData(7L));
+        assertThat(plugin.poller().nodeIds()).containsExactly(7L);
     }
 
     @Test

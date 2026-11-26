@@ -519,11 +519,19 @@ bucket is reachable.
 > Consensus Node buffers fill.
 
 Each Consensus Node uploads to its own folder, named after its node ID, and the plugin reads the node
-IDs from the current roster. Each block file is uploaded with a single PUT, so a block file found in
-the bucket is complete. Object keys follow the expanded layout under the `block` folder of the node
-folder, `{prefix}/{nodeId}/block/AAAA/BBBB/CCCC/DDDD/EEE.blk.zstd`:
+IDs from the current roster or, on a network without a TSS roster, from the address book. Each block
+file is uploaded with a single PUT, so a block file found in the bucket is complete. Object keys
+follow the expanded layout under the `block` folder of the node folder,
+`{prefix}/{nodeId}/block/AAAA/BBBB/CCCC/DDDD/EEE.blk.zstd`:
 
 | Prefix                 | Node | Block number | Block file                                                      |
 |:-----------------------|:-----|:-------------|:----------------------------------------------------------------|
 | `testnet-202611011200` | 3    | 108 273 182  | `testnet-202611011200/3/block/0000/0000/0010/8273/182.blk.zstd` |
 | `mainnet`              | 3    | 1            | `mainnet/3/block/0000/0000/0000/0000/001.blk.zstd`              |
+
+When the copy of a block in the source node's folder is missing or unusable, the plugin takes that
+block from the other node folders, in random order. A copy that fails verification is replaced once
+by a copy from another folder. A storage fault, an error response, or a block download still not
+finished after the plugin has waited up to three times `CLOUD_STORAGE_DOWNLOAD_REQUEST_TIMEOUT_MS`
+for that block (fallbacks included) ends the pull, and the next poll starts again from the last
+stored block.
