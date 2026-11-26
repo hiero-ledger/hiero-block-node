@@ -224,6 +224,50 @@ jobs:
           expect_fail "cannot be shared by 2 replicas" --set replicaCount=2
           expect_fail 'pv.type must be one of hostPath, local, got "nfs"' --set blockNode.persistence.live.pv.type=nfs
 
+  plugins-profile-render-test:
+    timeout-minutes: 10
+    name: Plugins Profile Selector Render Test
+    runs-on: hl-bn-lin-md
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Check if render test is needed
+        id: render-needed
+        run: |
+          changed_files=$(git diff --name-only origin/${{ github.event.repository.default_branch }}...HEAD)
+          if echo "$changed_files" | grep -qE "^charts/"; then
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+            echo "Chart files changed - will run plugins profile selector render test"
+          else
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            echo "No chart changes - skipping plugins profile selector render test"
+          fi
+
+      - name: Set up Helm
+        if: steps.render-needed.outputs.needed == 'true'
+        uses: Azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v3.14.4
+
+      - name: Update chart dependencies
+        if: steps.render-needed.outputs.needed == 'true'
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo add grafana https://grafana.github.io/helm-charts
+          helm dependency update charts/block-node-server
+
+      - name: Run plugins profile selector render test
+        if: steps.render-needed.outputs.needed == 'true'
+        run: ${CGEXEC} charts/block-node-server/ci/plugins-profile/plugins-profile-render-test.sh
+
   multi-port-install-test:
     timeout-minutes: 30
     name: Multi-Port Plugin Install Test

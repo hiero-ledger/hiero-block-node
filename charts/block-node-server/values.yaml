@@ -112,7 +112,33 @@ affinity: {}
 plugins:
   # maven: download plugins.names at pod start; image: select them from hiero-block-node-full's catalog
   source: maven
-  names: "backfill,block-access-service,block-verification,blocks-file-historic,blocks-file-recent,facility-app-state,facility-messaging,health,roster-bootstrap-rsa,roster-bootstrap-tss,server-status,stream-publisher,stream-subscriber"
+
+  # Named plugin selector -- a stable, versioned part of this chart's values API.
+  # Set this to request a plugin set by name instead of copying the full plugins.names list.
+  # The valid values are the names of the chart's values-overrides/plugin-profile-<name>.yaml
+  # files, which are the single source of truth for each plugin set:
+  #   lfh     - local full history node (the chart default set)
+  #   rfh     - remote/cloud-archiving node
+  #   all     - every plugin
+  #   ""      - selector not used (default); plugins.names applies if set, else the lfh profile
+  # Adding a new values-overrides/plugin-profile-<name>.yaml makes plugins.profile=<name>
+  # selectable automatically, with no edit to this file. The value set is a stable contract;
+  # the plugin lists inside those files may change from release to release -- that is the point.
+  # Precedence (first match wins):
+  #   1. an explicit non-empty plugins.names is used as-is. An explicit empty ("") plugins.names
+  #      also wins and keeps its meaning (plugins baked into the image: no Maven resolution);
+  #      a profile never overrides an intentional empty.
+  #   2. otherwise a non-empty plugins.profile expands to the plugins.names from the matching
+  #      values-overrides/plugin-profile-<profile>.yaml file (read at render time);
+  #   3. otherwise the lfh profile applies.
+  # An unrecognized plugins.profile stops templating with a clear error listing the available
+  # profiles -- it never silently resolves to an empty or partial plugin set.
+  profile: ""
+
+  # Explicit plugin list. Unset (null) by default, so plugins.profile applies (and falls back to
+  # the lfh profile when that is empty too). Any non-null value wins over plugins.profile; an
+  # explicit "" means plugins are baked into the image (no Maven resolution).
+  names: null
   # image for resolving and downloading the above plugins, should have JDK 25 and maven
   mavenImage: "maven:3-eclipse-temurin-25-alpine"
   # Third-party plugins with full Maven coordinates (groupId:artifactId:version).
