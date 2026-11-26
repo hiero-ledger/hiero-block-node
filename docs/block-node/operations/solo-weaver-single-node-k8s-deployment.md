@@ -158,6 +158,8 @@ On a successful run you will see a `Completed successfully` summary along with t
 
 #### Additional Options
 
+- **Plugin preset**: `--plugin-preset <tier1-lfh|tier1-rfh|custom|none>`, or your own comma-separated list with `--plugins`. See [Choosing Block Node Plugins](./choosing-block-node-plugins.md) for what each plugin does and which ones a working node needs.
+
 - **Custom Helm values**: `--values <path-to-values.yaml>`
 
   ```bash

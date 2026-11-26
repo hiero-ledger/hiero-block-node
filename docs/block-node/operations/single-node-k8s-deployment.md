@@ -118,6 +118,8 @@ Note 2: Some steps are marked as intermediate, indicating they will change due t
 
 5. **Configure Helm Chart Values**: Customize the Helm chart values for your deployment.
 
+   The plugins the node loads come from `plugins.names`. To choose them, see [Choosing Block Node Plugins](./choosing-block-node-plugins.md).
+
    Update [./lfh-values.yaml](https://github.com/hiero-ledger/hiero-block-node/blob/main/charts/block-node-server/values-overrides/lfh-values.yaml) or [./rfh-values.yaml](https://github.com/hiero-ledger/hiero-block-node/blob/main/charts/block-node-server/values-overrides/rfh-values.yaml) with your specific configuration settings.
 
 6. **Install Block Node Server Helm Chart**: Deploy the Block Node Server using Helm.

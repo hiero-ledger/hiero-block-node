@@ -133,7 +133,7 @@ plugins:
 
 > **Note:** All [Tier 2](./glossary.md#tier-2-block-node) Block Nodes should drop `stream-publisher` from `plugins.names`. The presence of `stream-publisher` is the main difference between a Tier 1 and a Tier 2 deployment.
 >
-> **Upgrading to 0.46.0:** `facility-app-state` is now required. If you set your own `plugins.names`, add `facility-app-state` before upgrading, or the node fails at startup with `No ApplicationStateFacility provided`. If you roll back to an earlier version, remove it again, since earlier versions do not publish that plugin.
+> **Upgrading to 0.45.0:** `facility-app-state` is now required. If you set your own `plugins.names`, add `facility-app-state` before upgrading, or the node fails at startup with `No ApplicationStateFacility provided`. If you roll back to an earlier version, remove it again, since earlier versions do not publish that plugin.
 
 To change which plugins load, edit the list. Adding a name causes that plugin to be downloaded and loaded on the next pod start. Removing a name skips it on the next start, but the previously-installed JAR remains in the plugins folder unless the folder is cleared between runs (for example, by recreating the PVC or the volume backing the plugins directory). Operators do not need to rebuild the Block Node image — the chart resolves plugins from configured sources at pod start.
 
