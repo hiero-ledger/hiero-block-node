@@ -121,6 +121,13 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     private final CountDownLatch sessionReadyLatch;
     /** A flag indicating if the session should be interrupted */
     private final AtomicBoolean interruptedStream = new AtomicBoolean(false);
+    /**
+     * Whether the response stream to the client has ended, either completed by {@link #close} or failed
+     * by a send. A failed send has already ended the gRPC call: PBJ answers the send exception with
+     * {@code onError}, which writes the error trailers. Completing the pipeline after that writes a second
+     * trailers frame on a closed HTTP/2 stream with PBJ before 0.16.4, and the client resets the stream.
+     */
+    private final AtomicBoolean responseEnded = new AtomicBoolean(false);
 
     /**
      * Whether this session's work loop should stop. Checks both the explicit
@@ -882,13 +889,16 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             }
             // unregister us from the block messaging system, if we are not registered then this is noop
             blockNodeContext.blockMessaging().unregisterBlockItemHandler(liveBlockHandler);
-            // send an end stream response, if we have a code to set and are not interrupted.
-            if (!interruptedStream.get() && endStreamResponseCode != null) {
-                final Builder response =
-                        SubscribeStreamResponseUnparsed.newBuilder().status(endStreamResponseCode);
-                responsePipeline.onNext(response.build());
+            // End the response stream only once, and never after a failed send has already ended it.
+            if (responseEnded.compareAndSet(false, true)) {
+                // send an end stream response, if we have a code to set and are not interrupted.
+                if (!interruptedStream.get() && endStreamResponseCode != null) {
+                    final Builder response =
+                            SubscribeStreamResponseUnparsed.newBuilder().status(endStreamResponseCode);
+                    responsePipeline.onNext(response.build());
+                }
+                responsePipeline.onComplete();
             }
-            responsePipeline.onComplete();
         } catch (final UncheckedIOException e) {
             // Unfortunately this is the "standard" way to end a stream, so log
             // at debug rather than emitting noise in the logs.
@@ -1005,14 +1015,23 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             final String messageFormat = "Client closed the connection when sending block items for client %d: %s";
             final String message = messageFormat.formatted(sessionContext.clientId, e.getMessage());
             LOGGER.log(Level.DEBUG, message, e);
-            close(null); // cannot send the end stream response, just close the stream.
+            closeAfterFailedSend();
         } catch (RuntimeException e) {
             // If the pipeline is in an error state; close this session.
             final String message = "Client error sending block items for client %d: %s"
                     .formatted(sessionContext.clientId, e.getMessage());
             LOGGER.log(Level.DEBUG, message, e);
-            close(null); // cannot send the end stream response, just close the stream.
+            closeAfterFailedSend();
         }
+    }
+
+    /**
+     * Close this session after a send failed. The failed send already ended the response stream, so
+     * close without sending an end stream response or completing the pipeline.
+     */
+    private void closeAfterFailedSend() {
+        responseEnded.set(true);
+        close(null);
     }
 
     private void sendEndOfBlock(final long blockNumber) {

@@ -1531,6 +1531,54 @@ class BlockStreamSubscriberSessionTest {
 
             assertThat(failingPipeline.getOnNextCalls()).hasSize(1);
         }
+
+        /**
+         * This test verifies that the session does not complete the response
+         * pipeline after a send failed. PBJ ends the gRPC call with error
+         * trailers when a send throws, so completing the pipeline afterwards
+         * writes a second trailers frame on the closed HTTP/2 stream (with PBJ
+         * before 0.16.4) and the client resets the stream.
+         */
+        @Test
+        @DisplayName("should not complete the response pipeline after a send failure")
+        void testResponsePipelineNotCompletedAfterSendFailure() {
+            historicalBlockFacility.handleBlockItemsReceived(
+                    generateBlockWithNumber(0L).asBlockItems(), false);
+            final FailingResponsePipeline failingPipeline = new FailingResponsePipeline();
+            final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
+                    .startBlockNumber(0L)
+                    .endBlockNumber(0L)
+                    .build();
+            final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
+                    SessionContext.create(clientId, request, blockNodeContext, TEST_BLOCK_READ_BULKHEAD),
+                    failingPipeline,
+                    blockNodeContext,
+                    sessionReadyLatch);
+
+            session.call();
+
+            assertThat(failingPipeline.getOnCompleteCalls()).hasValue(0);
+        }
+
+        /**
+         * This test verifies that closing a session more than once, as the
+         * session thread and the plugin's stop can both do, completes the
+         * response pipeline only once.
+         */
+        @Test
+        @DisplayName("should complete the response pipeline only once when closed twice")
+        void testResponsePipelineCompletedOnceWhenClosedTwice() {
+            final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
+                    .startBlockNumber(0L)
+                    .endBlockNumber(0L)
+                    .build();
+            final BlockStreamSubscriberSession session = generateSession(request);
+
+            session.close(Code.SUCCESS);
+            session.close(Code.ERROR);
+
+            assertThat(responsePipeline.getOnCompleteCalls()).hasValue(1);
+        }
     }
 
     /**
@@ -2128,6 +2176,18 @@ class BlockStreamSubscriberSessionTest {
             } catch (final InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
+            throw new RuntimeException("Flow control update wait time-out.");
+        }
+    }
+
+    /**
+     * Response pipeline whose sends all fail, as they do once the HTTP/2
+     * stream's flow-control wait times out.
+     */
+    private static final class FailingResponsePipeline extends TestResponsePipeline<SubscribeStreamResponseUnparsed> {
+        @Override
+        public void onNext(final SubscribeStreamResponseUnparsed item) {
+            super.onNext(item);
             throw new RuntimeException("Flow control update wait time-out.");
         }
     }
