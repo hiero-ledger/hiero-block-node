@@ -26,10 +26,11 @@ import org.hiero.block.node.base.Loggable;
  * @param unvalidatedBlockQueueSize The maximum number of unvalidated blocks
  *     that can be queued for processing. Unvalidated blocks are whole blocks
  *     that are not verified yet and do not come from the live publisher, for
- *     now the blocks fetched by backfill. Each queued entry may keep a whole
- *     block in memory. When the queue is full, the senders of unvalidated
- *     blocks wait until there is room; the live publisher never waits on this
- *     queue. The queue size must be a power of two.
+ *     example blocks fetched by backfill or downloaded from cloud storage.
+ *     Each queued entry may keep a whole block in memory. When the queue is
+ *     full, the senders of unvalidated blocks wait until there is room; the
+ *     live publisher never waits on this queue. The queue size must be a power
+ *     of two.
  * @param waitStrategy How ring handlers wait for the next message once they
  *     have caught up. {@code BLOCKING} (the default) blocks on a lock, so idle
  *     handlers cost no CPU. {@code PHASED_BACKOFF} yields briefly first.

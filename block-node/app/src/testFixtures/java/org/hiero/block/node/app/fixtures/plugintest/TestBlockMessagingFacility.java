@@ -14,7 +14,6 @@ import java.util.concurrent.RejectedExecutionException;
 import org.hiero.block.node.spi.blockmessaging.AddressBookHistoryNotification;
 import org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.AvailableBlocksNotification;
-import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
@@ -26,6 +25,7 @@ import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification;
 import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
+import org.hiero.block.node.spi.blockmessaging.UnvalidatedBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 
 /**
@@ -70,7 +70,7 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     private final List<VerificationNotification> sentVerificationNotifications = new CopyOnWriteArrayList<>();
     /** list of all sent block persistence notifications */
     private final List<PersistedNotification> sentPersistedNotifications = new CopyOnWriteArrayList<>();
-    /** List of all sent backfilled block notifications */
+    /** List of all sent newest block known to network notifications */
     private final List<NewestBlockKnownToNetworkNotification> sentNewestBlockKnownToNetworkNotifications =
             new CopyOnWriteArrayList<>();
     /** List of all sent next expected publisher block notifications */
@@ -139,9 +139,9 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     }
 
     /**
-     * Get all backfilled block notifications sent to the block messaging facility.
+     * Get all newest block known to network notifications sent to the block messaging facility.
      *
-     * @return the list of sent backfilled block notifications
+     * @return the list of sent newest block known to network notifications
      */
     public List<NewestBlockKnownToNetworkNotification> getSentNewestBlockKnownToNetworkNotifications() {
         return sentNewestBlockKnownToNetworkNotifications;
@@ -354,10 +354,10 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
      * {@inheritDoc}
      */
     @Override
-    public void sendBackfilledBlockNotification(final BackfilledBlockNotification notification) {
+    public void sendUnvalidatedBlock(final UnvalidatedBlockNotification notification) {
         logNotification(notification);
         for (final BlockNotificationHandler handler : unvalidatedBlockHandlers) {
-            handler.handleBackfilled(notification);
+            handler.handleUnvalidatedBlock(notification);
         }
     }
 
@@ -487,11 +487,12 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
 
     private void logNotification(final Record notification) {
         switch (notification) {
-            case BackfilledBlockNotification backfilled ->
+            case UnvalidatedBlockNotification unvalidated ->
                 LOGGER.log(
                         Level.TRACE,
-                        "Sending block notification: BackfilledBlockNotification[blockNumber={0}]",
-                        backfilled.blockNumber());
+                        "Sending block notification: UnvalidatedBlockNotification[blockNumber={0}, source={1}]",
+                        unvalidated.blockNumber(),
+                        unvalidated.source());
             case VerificationNotification verification ->
                 LOGGER.log(
                         Level.TRACE,

@@ -1,23 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.messaging;
 
-import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
+import org.hiero.block.node.spi.blockmessaging.UnvalidatedBlockNotification;
 
 /**
  * Simple mutable container for an unvalidated block: a whole block that is not verified yet and does not come from the
- * live publisher, for now a block fetched by backfill. The unvalidated block ring buffer is made up of these events.
+ * live publisher. The unvalidated block ring buffer is made up of these events.
  */
 public final class UnvalidatedBlockRingEvent {
-    /** The backfilled block notification to be published to downstream subscribers through the LMAX Disruptor. */
-    private BackfilledBlockNotification backfilledBlockNotification;
+    /** The unvalidated block notification to be published to downstream subscribers through the LMAX Disruptor. */
+    private UnvalidatedBlockNotification notification;
 
     /**
      * Sets the given notification to be published to downstream subscribers through the LMAX Disruptor.
      *
      * @param notification the notification to set
      */
-    public void set(final BackfilledBlockNotification notification) {
-        this.backfilledBlockNotification = notification;
+    public void set(final UnvalidatedBlockNotification notification) {
+        this.notification = notification;
     }
 
     /**
@@ -25,7 +25,7 @@ public final class UnvalidatedBlockRingEvent {
      *
      * @return the notification of the event
      */
-    public BackfilledBlockNotification get() {
-        return backfilledBlockNotification;
+    public UnvalidatedBlockNotification get() {
+        return notification;
     }
 }

@@ -32,12 +32,12 @@ import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.messaging.BlockMessagingFacilityImpl;
 import org.hiero.block.node.messaging.MessagingConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
-import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.blockmessaging.UnvalidatedBlockNotification;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.core.DoubleMeasurementSnapshot;
 import org.hiero.metrics.core.MeasurementSnapshot;
@@ -58,7 +58,7 @@ import org.junit.jupiter.params.provider.ValueSource;
  * Tests for the unvalidated block ring of {@link BlockMessagingFacilityImpl}. Backfilled blocks travel on a ring of
  * their own, published directly from the sending threads, and reach the handlers registered with
  * {@link BlockMessagingFacilityImpl#registerUnvalidatedBlockHandler} through their
- * {@link BlockNotificationHandler#handleBackfilled} method, on a thread of their own.
+ * {@link BlockNotificationHandler#handleUnvalidatedBlock} method, on a thread of their own.
  */
 class UnvalidatedBlockTest {
     /** How long to wait for handlers to receive messages and for senders to finish. */
@@ -115,7 +115,7 @@ class UnvalidatedBlockTest {
          */
         @ParameterizedTest
         @ValueSource(booleans = {true, false})
-        @DisplayName("Every unvalidated block handler receives every backfilled block in order")
+        @DisplayName("Every unvalidated block handler receives every unvalidated block in order")
         void everyHandlerReceivesEveryBlockInOrder(final boolean registerBeforeStart) throws InterruptedException {
             final int blockCount = queueSize * 2 + 1;
             final RecordingHandler first = new RecordingHandler(blockCount);
@@ -146,7 +146,7 @@ class UnvalidatedBlockTest {
          * the full ring instead of finishing.
          */
         @Test
-        @DisplayName("A handler registered only for block notifications gets no backfilled blocks")
+        @DisplayName("A handler registered only for block notifications gets no unvalidated blocks")
         void notificationOnlyHandlerGetsNoBlocks() throws InterruptedException {
             final int blockCount = queueSize * 2;
             final HoldingHandler notificationOnly = newHoldingHandler();
@@ -169,14 +169,14 @@ class UnvalidatedBlockTest {
          * which this test never does, yet every block is delivered and no task is ever submitted to the forwarder.
          */
         @Test
-        @DisplayName("Backfilled blocks are delivered without the message forwarder")
+        @DisplayName("Unvalidated blocks are delivered without the message forwarder")
         void blocksAreDeliveredWithoutTheMessageForwarder() throws InterruptedException {
             final RecordingHandler handler = new RecordingHandler(queueSize);
             facility.registerUnvalidatedBlockHandler(handler, false, "recording");
             facility.start();
 
             for (long blockNumber = 0; blockNumber < queueSize; blockNumber++) {
-                facility.sendBackfilledBlockNotification(backfilledBlock(blockNumber));
+                facility.sendUnvalidatedBlock(backfilledBlock(blockNumber));
             }
 
             assertTrue(handler.awaitAll(), "Handler is missing blocks: " + handler.received.size());
@@ -188,14 +188,14 @@ class UnvalidatedBlockTest {
          * unvalidated block ring, and not on the thread that delivers its block notifications.
          */
         @Test
-        @DisplayName("Backfilled blocks arrive on a thread of their own")
+        @DisplayName("Unvalidated blocks arrive on a thread of their own")
         void blocksArriveOnAThreadOfTheirOwn() throws InterruptedException {
             final RecordingHandler handler = new RecordingHandler(1);
             facility.registerBlockNotificationHandler(handler, false, "recording");
             facility.registerUnvalidatedBlockHandler(handler, false, "recording");
             facility.start();
 
-            facility.sendBackfilledBlockNotification(backfilledBlock(0));
+            facility.sendUnvalidatedBlock(backfilledBlock(0));
             facility.sendBlockPersisted(new PersistedNotification(0, true, 1, BlockSource.BACKFILL));
             runForwardedSends();
 
@@ -203,6 +203,24 @@ class UnvalidatedBlockTest {
             awaitCondition(() -> handler.persistedThreadName != null, "Handler did not receive the notification");
             assertEquals("MessageHandler:UnvalidatedBlocks:recording", handler.backfilledThreadName);
             assertNotEquals(handler.backfilledThreadName, handler.persistedThreadName);
+        }
+
+        /**
+         * This test aims to assert that the source of an unvalidated block survives the ring: the handler receives the
+         * source the sender set, not a default.
+         */
+        @Test
+        @DisplayName("The source of an unvalidated block reaches the handler")
+        void sourceReachesTheHandler() throws InterruptedException {
+            final RecordingHandler handler = new RecordingHandler(1);
+            facility.registerUnvalidatedBlockHandler(handler, false, "recording");
+            facility.start();
+
+            facility.sendUnvalidatedBlock(
+                    new UnvalidatedBlockNotification(0, BlockUnparsed.DEFAULT, BlockSource.CLOUD_STORAGE));
+
+            assertTrue(handler.awaitAll(), "Handler did not receive the unvalidated block");
+            assertEquals(List.of(BlockSource.CLOUD_STORAGE), handler.receivedSources);
         }
     }
 
@@ -392,7 +410,7 @@ class UnvalidatedBlockTest {
          * backfilled blocks no longer queue behind the block notifications of the handler.
          */
         @Test
-        @DisplayName("A handler busy with a block notification still receives backfilled blocks")
+        @DisplayName("A handler busy with a block notification still receives unvalidated blocks")
         void handlerBusyWithANotificationStillReceivesBlocks() {
             final NotificationHoldingHandler handler = new NotificationHoldingHandler();
             facility.registerBlockNotificationHandler(handler, false, "notification-holding");
@@ -403,7 +421,7 @@ class UnvalidatedBlockTest {
             awaitCondition(() -> handler.holding.getCount() == 0, "Handler never received the notification");
 
             for (long blockNumber = 0; blockNumber < queueSize * 2; blockNumber++) {
-                facility.sendBackfilledBlockNotification(backfilledBlock(blockNumber));
+                facility.sendUnvalidatedBlock(backfilledBlock(blockNumber));
             }
 
             awaitCondition(
@@ -429,7 +447,7 @@ class UnvalidatedBlockTest {
             facility.start();
 
             for (long blockNumber = 0; blockNumber < 3; blockNumber++) {
-                facility.sendBackfilledBlockNotification(backfilledBlock(blockNumber));
+                facility.sendUnvalidatedBlock(backfilledBlock(blockNumber));
             }
 
             awaitCondition(() -> handler.received.size() == 2, "Handler stopped after the failed block");
@@ -446,12 +464,12 @@ class UnvalidatedBlockTest {
          * backfilled notification counter did before the blocks had a ring of their own.
          */
         @Test
-        @DisplayName("Every sent backfilled block is counted")
+        @DisplayName("Every sent unvalidated block is counted")
         void everySentBlockIsCounted() {
             facility.start();
 
             for (long blockNumber = 0; blockNumber < queueSize; blockNumber++) {
-                facility.sendBackfilledBlockNotification(backfilledBlock(blockNumber));
+                facility.sendUnvalidatedBlock(backfilledBlock(blockNumber));
             }
 
             assertEquals(
@@ -501,7 +519,7 @@ class UnvalidatedBlockTest {
     private Thread sendInBackground(final long firstBlock, final int count, final AtomicInteger sent) {
         return Thread.ofVirtual().start(() -> {
             for (long blockNumber = firstBlock; blockNumber < firstBlock + count; blockNumber++) {
-                facility.sendBackfilledBlockNotification(backfilledBlock(blockNumber));
+                facility.sendUnvalidatedBlock(backfilledBlock(blockNumber));
                 sent.incrementAndGet();
             }
         });
@@ -540,8 +558,8 @@ class UnvalidatedBlockTest {
      * @param blockNumber the number of the block
      * @return the backfilled block notification
      */
-    private static BackfilledBlockNotification backfilledBlock(final long blockNumber) {
-        return new BackfilledBlockNotification(blockNumber, BlockUnparsed.DEFAULT);
+    private static UnvalidatedBlockNotification backfilledBlock(final long blockNumber) {
+        return new UnvalidatedBlockNotification(blockNumber, BlockUnparsed.DEFAULT, BlockSource.BACKFILL);
     }
 
     /**
@@ -570,6 +588,8 @@ class UnvalidatedBlockTest {
     private static final class RecordingHandler implements BlockNotificationHandler {
         /** The numbers of the backfilled blocks received, in the order received */
         private final List<Long> received = new CopyOnWriteArrayList<>();
+        /** The sources of the unvalidated blocks received, in the order received */
+        private final List<BlockSource> receivedSources = new CopyOnWriteArrayList<>();
         /** Counted down for every backfilled block received */
         private final CountDownLatch allReceived;
         /** The name of the thread the last backfilled block arrived on */
@@ -587,9 +607,10 @@ class UnvalidatedBlockTest {
         }
 
         @Override
-        public void handleBackfilled(final BackfilledBlockNotification notification) {
+        public void handleUnvalidatedBlock(final UnvalidatedBlockNotification notification) {
             backfilledThreadName = Thread.currentThread().getName();
             received.add(notification.blockNumber());
+            receivedSources.add(notification.source());
             allReceived.countDown();
         }
 
@@ -626,7 +647,7 @@ class UnvalidatedBlockTest {
         private final List<Long> persisted = new CopyOnWriteArrayList<>();
 
         @Override
-        public void handleBackfilled(final BackfilledBlockNotification notification) {
+        public void handleUnvalidatedBlock(final UnvalidatedBlockNotification notification) {
             received.add(notification.blockNumber());
             if (holding.getCount() > 0) {
                 holding.countDown();
@@ -673,7 +694,7 @@ class UnvalidatedBlockTest {
         private final List<Long> received = new CopyOnWriteArrayList<>();
 
         @Override
-        public void handleBackfilled(final BackfilledBlockNotification notification) {
+        public void handleUnvalidatedBlock(final UnvalidatedBlockNotification notification) {
             received.add(notification.blockNumber());
         }
 
@@ -694,7 +715,7 @@ class UnvalidatedBlockTest {
         private final List<Long> received = new CopyOnWriteArrayList<>();
 
         @Override
-        public void handleBackfilled(final BackfilledBlockNotification notification) {
+        public void handleUnvalidatedBlock(final UnvalidatedBlockNotification notification) {
             if (failed.compareAndSet(false, true)) {
                 throw new IllegalStateException("Simulated failure on the first backfilled block");
             } else {

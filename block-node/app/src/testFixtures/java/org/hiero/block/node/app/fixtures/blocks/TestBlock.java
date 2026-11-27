@@ -16,8 +16,9 @@ import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
-import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.hiero.block.node.spi.blockmessaging.BlockSource;
+import org.hiero.block.node.spi.blockmessaging.UnvalidatedBlockNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
 /**
@@ -123,8 +124,8 @@ public class TestBlock {
                 .build();
     }
 
-    public BackfilledBlockNotification asBackfilledNotification() {
-        return new BackfilledBlockNotification(number, blockUnparsed);
+    public UnvalidatedBlockNotification asUnvalidatedNotification(final BlockSource source) {
+        return new UnvalidatedBlockNotification(number, blockUnparsed, source);
     }
 
     public BlockHeader header() {

@@ -80,13 +80,13 @@ public interface BlockMessagingFacility extends BlockNodePlugin {
     void sendBlockPersisted(final PersistedNotification notification);
 
     /**
-     * Use this method to send backfilled block notifications to all handlers registered with
+     * Use this method to send unvalidated block notifications to all handlers registered with
      * {@link #registerUnvalidatedBlockHandler}. If those handlers are too slow, it will apply back pressure to this
      * caller, by this call taking a long time to return. Several threads may call this method at the same time.
      *
-     * @param notification the backfilled block notification to send
+     * @param notification the unvalidated block notification to send
      */
-    void sendBackfilledBlockNotification(final BackfilledBlockNotification notification);
+    void sendUnvalidatedBlock(final UnvalidatedBlockNotification notification);
 
     /**
      * Use this method to notify the system about a new block known to the network.
@@ -138,8 +138,8 @@ public interface BlockMessagingFacility extends BlockNodePlugin {
 
     /**
      * Use this method to register an unvalidated block handler. Unvalidated blocks are whole blocks that are not
-     * verified yet and do not come from the live publisher, for now the blocks sent with
-     * {@link #sendBackfilledBlockNotification}. The {@link BlockNotificationHandler#handleBackfilled} method of the
+     * verified yet and do not come from the live publisher, the blocks sent with
+     * {@link #sendUnvalidatedBlock}. The {@link BlockNotificationHandler#handleUnvalidatedBlock} method of the
      * handler will be called for every one of them, on its own thread. It can consume unvalidated blocks at its own
      * pace, if it is too slow then it will apply back pressure to the senders of unvalidated blocks, never to the
      * senders of block items or block notifications.

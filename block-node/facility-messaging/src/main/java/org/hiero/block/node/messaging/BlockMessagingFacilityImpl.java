@@ -30,7 +30,6 @@ import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.AddressBookHistoryNotification;
 import org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.AvailableBlocksNotification;
-import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
@@ -43,6 +42,7 @@ import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification;
 import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
+import org.hiero.block.node.spi.blockmessaging.UnvalidatedBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.ObservableGauge;
@@ -53,10 +53,10 @@ import org.hiero.metrics.core.MetricRegistry;
  * Implementation of the MessagingService interface. It uses the LMAX Disruptor to handle block item batches, block
  * notifications and unvalidated blocks. It is designed to be thread safe and can be used by multiple threads.
  * <p>
- * Unvalidated blocks are whole blocks that are not verified yet and do not come from the live publisher, for now the
- * blocks fetched by backfill. They have a ring of their own, so a burst of them never makes the live block item
- * producer or the block notification senders wait. Handlers registered with {@link #registerUnvalidatedBlockHandler}
- * receive them through their {@link BlockNotificationHandler#handleBackfilled} method, on a thread of their own.
+ * Unvalidated blocks are whole blocks that are not verified yet and do not come from the live publisher. They have a
+ * ring of their own, so a burst of them never makes the live block item producer or the block notification senders
+ * wait. Handlers registered with {@link #registerUnvalidatedBlockHandler} receive them through their
+ * {@link BlockNotificationHandler#handleUnvalidatedBlock} method, on a thread of their own.
  */
 public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
 
@@ -74,7 +74,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     public static final MetricKey<LongCounter> METRIC_MESSAGING_BLOCK_PERSISTED_NOTIFICATIONS = MetricKey.of(
                     "messaging_block_persisted_notifications", LongCounter.class)
             .addCategory(METRICS_CATEGORY);
-    /** Metric key for notifications issued after backfilling */
+    /** Metric key for notifications issued for unvalidated blocks */
     public static final MetricKey<LongCounter> METRIC_MESSAGING_BLOCK_BACKFILLED_NOTIFICATIONS = MetricKey.of(
                     "messaging_block_backfilled_notifications", LongCounter.class)
             .addCategory(METRICS_CATEGORY);
@@ -137,8 +137,8 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     private LongCounter.Measurement blockVerificationNotificationsCounter;
     /** Counter for notifications issued after persistence */
     private LongCounter.Measurement blockPersistedNotificationsCounter;
-    /** Counter for notifications issued after backfilling */
-    private LongCounter.Measurement blockBackfilledNotificationsCounter;
+    /** Counter for notifications issued for unvalidated blocks */
+    private LongCounter.Measurement unvalidatedBlockNotificationsCounter;
     /** Counter for notifications issued after the newest block known to network */
     private LongCounter.Measurement newestBlockKnownToNetworkNotificationsCounter;
     /** Counter for notifications issued after a publisher was told this node is behind it */
@@ -182,7 +182,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     private Disruptor<BlockNotificationRingEvent> blockNotificationDisruptor;
 
     /**
-     * The disruptor that handles the unvalidated blocks. It is used to send backfilled blocks to the unvalidated block
+     * The disruptor that handles the unvalidated blocks. It is used to send unvalidated blocks to the unvalidated block
      * handlers. It is a multiple producer, multiple consumer disruptor: blocks are published directly from the sending
      * threads, without the message forwarder.
      */
@@ -323,9 +323,9 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                         .setDescription("Notifications issued after persistence"))
                 .getOrCreateNotLabeled();
 
-        blockBackfilledNotificationsCounter = metricRegistry
+        unvalidatedBlockNotificationsCounter = metricRegistry
                 .register(LongCounter.builder(METRIC_MESSAGING_BLOCK_BACKFILLED_NOTIFICATIONS)
-                        .setDescription("Notifications issued after backfilling"))
+                        .setDescription("Notifications issued for unvalidated blocks"))
                 .getOrCreateNotLabeled();
 
         newestBlockKnownToNetworkNotificationsCounter = metricRegistry
@@ -588,10 +588,14 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      * message forwarder. While that ring is full, this call waits. Several threads may call this method at once.
      */
     @Override
-    public void sendBackfilledBlockNotification(final BackfilledBlockNotification notification) {
-        LOGGER.log(TRACE, "Sending backfilled block notification: block={0}", notification.blockNumber());
+    public void sendUnvalidatedBlock(final UnvalidatedBlockNotification notification) {
+        LOGGER.log(
+                TRACE,
+                "Sending unvalidated block notification: block={0} source={1}",
+                notification.blockNumber(),
+                notification.source());
         unvalidatedBlockDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
-        blockBackfilledNotificationsCounter.increment();
+        unvalidatedBlockNotificationsCounter.increment();
     }
 
     @Override
@@ -794,7 +798,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     public synchronized void registerUnvalidatedBlockHandler(
             final BlockNotificationHandler handler, final boolean cpuIntensiveHandler, final String handlerName) {
         final InformedEventHandler<UnvalidatedBlockRingEvent> informedEventHandler =
-                (event, sequence, endOfBatch, percentageBehindRingHead) -> handler.handleBackfilled(event.get());
+                (event, sequence, endOfBatch, percentageBehindRingHead) -> handler.handleUnvalidatedBlock(event.get());
         final String unvalidatedBlockHandlerName = "UnvalidatedBlocks:" + handlerName;
         if (unvalidatedBlockDisruptor.hasStarted()) {
             registerHandler(

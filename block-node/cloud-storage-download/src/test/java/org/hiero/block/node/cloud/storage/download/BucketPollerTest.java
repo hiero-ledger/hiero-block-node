@@ -32,12 +32,12 @@ import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.cloud.storage.download.CloudStorageDownloadPlugin.MetricsHolder;
-import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
+import org.hiero.block.node.spi.blockmessaging.UnvalidatedBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureInfo;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
@@ -429,7 +429,7 @@ class BucketPollerTest {
         private BucketPoller poller;
 
         @Override
-        public void handleBackfilled(final BackfilledBlockNotification notification) {
+        public void handleUnvalidatedBlock(final UnvalidatedBlockNotification notification) {
             final long blockNumber = notification.blockNumber();
             submitted.add(blockNumber);
             final StoredBlocksNotification storedUpdate = storeOnSubmit.get(blockNumber);

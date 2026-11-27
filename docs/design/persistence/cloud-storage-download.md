@@ -99,10 +99,10 @@ is hard to stage, it stubs `S3Client` with Mockito, which can mock final classes
 A new value of the `BlockSource` enum, carried on every notification about a block that came
 from the bucket. See [Block source](#block-source).
 
-### `BackfilledBlockNotification`
+### `UnvalidatedBlockNotification`
 
-Gains a `source` field. The existing two-argument constructor defaults it to `BACKFILL`, so the
-backfill plugin is not changed.
+Carries a `source` field. The backfill plugin sends `BACKFILL` and this plugin sends
+`CLOUD_STORAGE`.
 
 ## Design
 
@@ -217,7 +217,7 @@ not wasted on them. Proof and chain verification stay in the verification plugin
 For each downloaded block, in order, the plugin sends
 
 ```java
-new BackfilledBlockNotification(blockNumber, block, BlockSource.CLOUD_STORAGE)
+new UnvalidatedBlockNotification(blockNumber, block, BlockSource.CLOUD_STORAGE)
 ```
 
 and waits for a successful `PersistedNotification` for that block number before moving on, the
@@ -258,10 +258,10 @@ the next: each block it pulls moves the acknowledgement forward by one.
 
 ### Block source
 
-Bucket blocks reuse the backfill notification, so the plugin needs no new ingest path, but they
-carry a new `BlockSource.CLOUD_STORAGE` instead of `BACKFILL`:
+Bucket blocks reuse the unvalidated block notification that backfill sends, so the plugin needs no
+new ingest path, but they carry a new `BlockSource.CLOUD_STORAGE` instead of `BACKFILL`:
 
-* `VerificationServicePlugin.handleBackfilled` takes the source from the notification instead
+* `VerificationServicePlugin.handleUnvalidatedBlock` takes the source from the notification instead
   of hard-coding `BACKFILL`, and accepts only `BACKFILL` and `CLOUD_STORAGE`.
 * `BlockSessionHandler` treats `CLOUD_STORAGE` like `BACKFILL` and passes the source through to
   the verification and persisted notifications.
@@ -351,7 +351,7 @@ flowchart TD
     G -- bad copy --> G2{Another node left?}
     G2 -- yes --> G
     G2 -- no --> X["Count not present or<br/>download failure, end pull"]
-    G -- good copy --> S["Send BackfilledBlockNotification<br/>source CLOUD_STORAGE"]
+    G -- good copy --> S["Send UnvalidatedBlockNotification<br/>source CLOUD_STORAGE"]
     S --> W{"Persisted?"}
     W -- timeout --> T["Count persist timeout,<br/>end pull"]
     W -- "verification failed" --> R{"Retried once<br/>already?"}
@@ -378,8 +378,8 @@ sequenceDiagram
     loop each block in [last + 1, target], in order
         CSDP->>Bucket: download(prefix/node/block/N)
         Bucket-->>CSDP: zstd block file
-        CSDP->>MF: BackfilledBlockNotification(CLOUD_STORAGE)
-        MF->>Ver: handleBackfilled
+        CSDP->>MF: UnvalidatedBlockNotification(CLOUD_STORAGE)
+        MF->>Ver: handleUnvalidatedBlock
         Ver->>MF: VerificationNotification(CLOUD_STORAGE)
         MF->>Store: persist
         Store->>MF: PersistedNotification(CLOUD_STORAGE)
@@ -541,7 +541,7 @@ idle WARNING).
     `cloud_download_copy_latency_ns`. `cloud_download_probe_block_latency_ms` is set from the
     probe block's consensus timestamp when its persisted notification arrives, and stays
     unchanged by a pull that ends before that.
-17. **Verification source:** a `CLOUD_STORAGE` backfilled notification yields verification and
+17. **Verification source:** a `CLOUD_STORAGE` unvalidated block notification yields verification and
     persisted notifications carrying `CLOUD_STORAGE`; the backfill plugin ignores them; the
     publisher acknowledges them.
 

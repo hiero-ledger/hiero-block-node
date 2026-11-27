@@ -196,7 +196,7 @@ sequenceDiagram
         Fetcher->>Fetcher: recordBlocksReceived — reset failures, record latency in healthMap
         Fetcher-->>Runner: List of BlockUnparsed
         loop Each fetched block
-            Runner->>Messaging: sendBackfilledBlockNotification
+            Runner->>Messaging: sendUnvalidatedBlock
         end
         Messaging-->>Plugin: PersistedNotification (backfill source)
         Plugin->>Plugin: decrement pending, increment backfilled counters
@@ -231,7 +231,7 @@ Detailed Steps:
    the local persistence pipeline.
 6. **Fetch success**: on successful completion `BackfillFetcher` records the result in its `healthMap`
    (`SourceHealth` record), resetting the failure counter and accumulating latency. Each fetched block is then
-   dispatched to `BlockMessagingFacility` via `sendBackfilledBlockNotification`. `VerificationServicePlugin`
+   dispatched to `BlockMessagingFacility` via `sendUnvalidatedBlock`. `VerificationServicePlugin`
    verifies it and `BlockFileRecentPlugin` persists it — mirroring the publish path. When the
    `PersistedNotification` arrives tagged with a backfill source, the plugin decrements `backfill_pending_blocks`
    and increments `backfill_blocks_backfilled`.

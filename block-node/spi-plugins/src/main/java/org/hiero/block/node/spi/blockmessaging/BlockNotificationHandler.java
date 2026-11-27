@@ -26,15 +26,15 @@ public interface BlockNotificationHandler extends GatingHandler {
     default void handlePersisted(final PersistedNotification notification) {}
 
     /**
-     * Handle a backfilled block notification.
+     * Handle an unvalidated block notification.
      * <p>
      * This is only called for handlers registered with
      * {@link BlockMessagingFacility#registerUnvalidatedBlockHandler}, always on a messaging thread of its own,
      * separate from the thread that calls the other methods of this handler.
      *
-     * @param notification the backfilled block notification to handle
+     * @param notification the unvalidated block notification to handle
      */
-    default void handleBackfilled(final BackfilledBlockNotification notification) {}
+    default void handleUnvalidatedBlock(final UnvalidatedBlockNotification notification) {}
 
     /**
      * Handle a new block known to the network notification. Always called on handler thread. Each registered handler

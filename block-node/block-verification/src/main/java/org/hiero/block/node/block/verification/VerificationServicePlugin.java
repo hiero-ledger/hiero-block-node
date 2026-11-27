@@ -12,7 +12,9 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -29,7 +31,6 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.ApplicationStateNotificationHandler;
-import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
@@ -37,6 +38,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.StoredBlocksNotification;
 import org.hiero.block.node.spi.blockmessaging.TssDataNotification;
+import org.hiero.block.node.spi.blockmessaging.UnvalidatedBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureInfo;
 
@@ -44,7 +46,7 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureI
 ///
 /// This plugin handles the verification of blocks received by any source.
 /// The plugin is an unvalidated block handler and listens for
-/// [BackfilledBlockNotification], this is one of the places data is received
+/// [UnvalidatedBlockNotification], this is one of the places data is received
 /// from. It is also a live items handler and listens for [BlockItems], another
 /// place data is received from. The plugin also listens for application state
 /// updates.
@@ -61,6 +63,8 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
     /// `SHA2_384` was the enumeration default then, so it decodes as `SHA2_256` and passes this
     /// check; the `BlockHasher` refuses it by the size of its footer hashes.
     private static final BlockHashAlgorithm DECLARED_HASH_ALGORITHM = BlockHashAlgorithm.SHA2_256;
+    private static final Set<BlockSource> REJECTED_UNVALIDATED_SOURCES =
+            EnumSet.of(BlockSource.PUBLISHER, BlockSource.UNKNOWN, BlockSource.HISTORY);
     /// The last successfully verified block.
     private final AtomicLong lastVerifiedBlock;
     /// The set of recently verified blocks.
@@ -277,21 +281,23 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
     /// dropped without any notification, since publisher blocks arrive only
     /// on the live items ring buffer.
     ///
-    /// @param notification the [BackfilledBlockNotification] received as an
+    /// @param notification the [UnvalidatedBlockNotification] received as an
     ///     event.
     @Override
-    public void handleBackfilled(final BackfilledBlockNotification notification) {
+    public void handleUnvalidatedBlock(final UnvalidatedBlockNotification notification) {
         if (notification == null
                 || notification.blockNumber() < 0L
                 || notification.block() == null
                 || notification.block().blockItems() == null
-                || notification.block().blockItems().isEmpty()) {
-            LOGGER.log(INFO, "Received invalid backfill notification: {0}", notification);
-        } else if (notification.source() == BlockSource.PUBLISHER) {
+                || notification.block().blockItems().isEmpty()
+                || notification.source() == null) {
+            LOGGER.log(INFO, "Received invalid unvalidated block notification: {0}", notification);
+        } else if (REJECTED_UNVALIDATED_SOURCES.contains(notification.source())) {
             LOGGER.log(
                     WARNING,
-                    "Dropping backfilled block {0}: source PUBLISHER is only valid on the live items ring buffer",
-                    notification.blockNumber());
+                    "Rejected unvalidated block {0} with unsupported source {1}",
+                    notification.blockNumber(),
+                    notification.source());
         } else {
             final BlockSource source = notification.source();
             try {
@@ -299,7 +305,7 @@ public final class VerificationServicePlugin implements BlockNodePlugin, BlockIt
                         new BlockItems(notification.block().blockItems(), notification.blockNumber(), true, true);
                 validateAndProcess(blockItems, source);
             } catch (final RuntimeException e) {
-                LOGGER.log(INFO, "Failed to handle backfill notification in verification ", e);
+                LOGGER.log(INFO, "Failed to handle unvalidated block notification in verification ", e);
                 safeSendNotification(notification.blockNumber(), source, SessionFailureType.UNKNOWN_ERROR);
             }
         }
