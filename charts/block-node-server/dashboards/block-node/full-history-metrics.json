@@ -37,7 +37,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "Behind leader: blocks between a node's newest block and the highest newest block in the same environment, so selecting several environments does not compare nodes across networks.",
+      "description": "Behind leader: blocks between a node's newest block and the highest newest block in the same environment, so selecting several environments does not compare nodes across networks. Nodes without local block storage (for example remote full-history nodes) report -1, so they show \"no local blocks\" and n/a instead of a lag. Receiving %: blocks verified per minute against the network's rate; above 100% means catching up, n/a when the network is not advancing. Archived (1h): blocks the cloud archive wrote in the last hour, only on nodes that run it. Backfill queue: blocks waiting to be fetched or in flight.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -136,6 +136,19 @@
               {
                 "id": "decimals",
                 "value": 0
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "-1": {
+                        "text": "no local blocks"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
               }
             ]
           },
@@ -152,6 +165,21 @@
               {
                 "id": "decimals",
                 "value": 0
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "match": "null+nan",
+                      "result": {
+                        "color": "transparent",
+                        "text": "n/a"
+                      }
+                    },
+                    "type": "special"
+                  }
+                ]
               },
               {
                 "id": "thresholds",
@@ -331,6 +359,161 @@
                 "value": 1
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Receiving %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "match": "null+nan",
+                      "result": {
+                        "color": "transparent",
+                        "text": "n/a"
+                      }
+                    },
+                    "type": "special"
+                  }
+                ]
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 50
+                    },
+                    {
+                      "color": "green",
+                      "value": 90
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Archived (1h)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "match": "null+nan",
+                      "result": {
+                        "color": "transparent",
+                        "text": "n/a"
+                      }
+                    },
+                    "type": "special"
+                  }
+                ]
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    },
+                    {
+                      "color": "green",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Backfill queue"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 100
+                    },
+                    {
+                      "color": "red",
+                      "value": 10000
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "color-background"
+                }
+              }
+            ]
           }
         ]
       },
@@ -383,7 +566,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "max by (instance) (max by (environment) (blocknode_app_historical_newest_block{environment=~\"$environment\", instance=~\"$instance\"}) - on (environment) group_right () max by (environment, instance) (blocknode_app_historical_newest_block{environment=~\"$environment\", instance=~\"$instance\"}))",
+          "expr": "max by (instance) (max by (environment) (blocknode_app_historical_newest_block{environment=~\"$environment\", instance=~\"$instance\"}) - on (environment) group_right () max by (environment, instance) (blocknode_app_historical_newest_block{environment=~\"$environment\", instance=~\"$instance\"} >= 0))",
           "format": "table",
           "instant": true,
           "range": false,
@@ -472,6 +655,42 @@
           "instant": true,
           "range": false,
           "refId": "J"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance) (max by (environment, instance) (rate(blocknode_verification_blocks_verified_total{environment=~\"$environment\", instance=~\"$instance\"}[10m])) / on (environment) group_left () (max by (environment) (deriv(blocknode_app_historical_newest_block{environment=~\"$environment\"}[10m])) > 0)) * 100",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "K"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance) (increase(blocknode_cloud_storage_archive_blocks_written_total{environment=~\"$environment\", instance=~\"$instance\"}[1h]))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "L"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "max by (instance) (blocknode_backfill_pending_blocks{environment=~\"$environment\", instance=~\"$instance\"}) + max by (instance) (blocknode_backfill_inflight_blocks{environment=~\"$environment\", instance=~\"$instance\"})",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "M"
         }
       ],
       "title": "Fleet Health — one row per node (sorted by blocks behind the leader)",
@@ -491,12 +710,15 @@
               "Value #A": 2,
               "Value #B": 3,
               "Value #C": 4,
-              "Value #D": 5,
-              "Value #E": 6,
-              "Value #F": 7,
-              "Value #G": 8,
-              "Value #H": 9,
-              "Value #I": 10,
+              "Value #K": 5,
+              "Value #L": 6,
+              "Value #M": 7,
+              "Value #D": 8,
+              "Value #E": 9,
+              "Value #F": 10,
+              "Value #G": 11,
+              "Value #H": 12,
+              "Value #I": 13,
               "VersionString": 1,
               "instance": 0
             },
@@ -504,6 +726,9 @@
               "Value #A": "Status",
               "Value #B": "Newest block",
               "Value #C": "Behind leader",
+              "Value #K": "Receiving %",
+              "Value #L": "Archived (1h)",
+              "Value #M": "Backfill queue",
               "Value #D": "Item queue %",
               "Value #E": "Notif queue %",
               "Value #F": "Publishers",
